@@ -413,7 +413,7 @@ export function BankReconciliation() {
                 head={[
                   "",
                   "Date",
-                  "Bank description",
+                  "Bank Description",
                   ">Spent",
                   ">Received",
                   "",
@@ -745,11 +745,7 @@ function LineDetail({
           <div>
             <SubHead>Find a match by hand</SubHead>
             <div className="mt-2">
-              <Input
-                value={hunt}
-                onChange={(e) => setHunt(e.target.value)}
-                placeholder="Search journal number, document or memo"
-              />
+              <Input value={hunt} onChange={(e) => setHunt(e.target.value)} />
             </div>
             {hunt.trim() && (
               <Table head={["Journal", "Date", "Memo", ">Amount", ""]}>

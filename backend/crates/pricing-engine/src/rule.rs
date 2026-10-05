@@ -749,6 +749,9 @@ pub enum RejectionReason {
     CouponExpired,
     CouponUsedUp,
     CouponBelongsToSomeoneElse,
+    /// Legacy store coupons with a cross-store use limit have no atomic
+    /// reservation path. They must not be accepted from a stale edge snapshot.
+    CouponNeedsOnlineAuthorization,
     BudgetSpent,
     UsageExhausted,
     NothingMatched,
@@ -814,6 +817,9 @@ impl RejectionReason {
             Self::CouponExpired => "that coupon has expired",
             Self::CouponUsedUp => "that coupon has been used already",
             Self::CouponBelongsToSomeoneElse => "that coupon belongs to another customer",
+            Self::CouponNeedsOnlineAuthorization => {
+                "this limited coupon must be authorized online"
+            }
             Self::BudgetSpent => "the promotion budget is used up",
             Self::UsageExhausted => "the promotion has reached its usage limit",
             Self::NothingMatched => "nothing in the basket qualifies",

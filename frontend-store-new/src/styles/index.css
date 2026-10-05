@@ -418,9 +418,11 @@
      Nav rose from 13 to 15 with everything else on 2026-09-10; had it stayed
      at 13 beside 15px cells it would have read as a disabled column rather
      than a quiet one. */
-  --text-nav: 0.8125rem; /* 13 */
-  --text-section: 0.8125rem; /* 13 — the group label above a nav run */
-  --text-eyebrow: 0.75rem; /* 12 — uppercase micro-caps */
+  /* Nothing is smaller than 14px — the owner's floor (hub 2026-09-26),
+     brought to the store app with its v2 redesign (2026-09-28). */
+  --text-nav: 0.875rem; /* 14 */
+  --text-section: 0.875rem; /* 14 — the group label above a nav run */
+  --text-eyebrow: 0.875rem; /* 14 — uppercase micro-caps, at the floor */
   --text-eyebrow--letter-spacing: 0.04em;
   /* NOTE: there is deliberately no `--text-body`. `--color-body` already
      compiles to `.text-body`, Tailwind kept the colour, and the size token
@@ -432,16 +434,16 @@
      to follow the screens. Its own name rather than borrowing `card-title`,
      because the day a control's size moves it must not drag every card
      heading in the app with it. */
-  --text-control: 0.8125rem; /* 13 */
+  --text-control: 0.875rem; /* 14 */
   --text-control--line-height: 1.25rem; /* 20 */
-  --text-meta: 0.75rem; /* 12 */
+  --text-meta: 0.875rem; /* 14 */
   /* 14, up from 11. The outline tag is a LABEL that happens to be enclosed,
      not a badge: the reference screens set it at the same size as the text
      beside it and let the colour and the hairline do the separating. At 11 it
      read as a stamp applied to the row rather than as a fact about it. */
-  --text-pill: 0.6875rem; /* 11 */
-  --text-id: 0.75rem; /* 12 — mono ids */
-  --text-cell: 0.8125rem; /* 13 — table body */
+  --text-pill: 0.875rem; /* 14 */
+  --text-id: 0.875rem; /* 14 — mono ids */
+  --text-cell: 0.875rem; /* 14 — table body */
 }
 
 @layer base {
@@ -741,4 +743,166 @@ button,
   .pt-safe {
     padding-top: env(safe-area-inset-top, 0px);
   }
+}
+
+/* ── The door: v2 sign-in, quiet and airy ────────────────────────────────
+   The one place this app allows itself a gradient (hub v2, direction E ·
+   Quiet): a pale blue-grey weather that drifts behind a white card, with a
+   fine grain so the soft stops never band. Everything past the door is the
+   calm surface — white, hairlines, colour only where it means something.
+   Motion is the card arriving and its parts rising one after another; the
+   reduced-motion rule in the base layer stills all of it. */
+:root {
+  --door-base: #f2f4f8;
+  --door-1: #dbe5f7;
+  --door-2: #e7ecf5;
+  --door-3: #f7f8fa;
+  --door-4: #eef1f6;
+  --door-5: #e9edf4;
+  --door-6: #dbe4f4;
+  --ease-arrive: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@property --door-ax {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 72%;
+}
+@property --door-ay {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 30%;
+}
+@property --door-bx {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 24%;
+}
+@property --door-by {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 70%;
+}
+
+@keyframes door-drift {
+  50% {
+    --door-ax: 58%;
+    --door-ay: 20%;
+    --door-bx: 36%;
+    --door-by: 82%;
+  }
+  100% {
+    --door-ax: 80%;
+    --door-ay: 46%;
+    --door-bx: 16%;
+    --door-by: 58%;
+  }
+}
+@keyframes door-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.98);
+  }
+}
+@keyframes door-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+.door {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-color: var(--door-base);
+  background-image:
+    radial-gradient(44% 52% at var(--door-ax) var(--door-ay), var(--door-1) 0%, transparent 100%),
+    radial-gradient(40% 50% at var(--door-bx) var(--door-by), var(--door-2) 0%, transparent 100%),
+    radial-gradient(70% 42% at 50% 104%, var(--door-3) 0%, transparent 100%),
+    linear-gradient(125deg, var(--door-4) 0%, var(--door-5) 45%, var(--door-6) 100%);
+  animation: door-drift 20s ease-in-out infinite alternate;
+}
+/* The glow behind the card: a slow turn of pale blues, blurred, breathing. */
+@keyframes door-turn {
+  to {
+    rotate: 360deg;
+  }
+}
+@keyframes door-breathe {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 0.85;
+  }
+}
+.door-aura {
+  position: absolute;
+  inset: -12px;
+  z-index: -1;
+  overflow: hidden;
+  border-radius: 44px;
+  filter: blur(38px);
+  opacity: 0.6;
+  animation: door-breathe 5s ease-in-out 1.2s infinite alternate;
+}
+.door-aura::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 150%;
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  background: conic-gradient(from 0deg, #c7d6f5, #8fb1f7, #e3e8f0, #aac4f8, #d5dcea, #c7d6f5);
+  animation: door-turn 16s linear infinite;
+}
+/* Fields on the door: white, a hairline inside, a soft halo on focus. */
+.door-input {
+  background-color: var(--canvas);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 5%),
+    inset 0 0 0 1px var(--hairline-2);
+  transition: box-shadow var(--t-hover) var(--ease-out);
+}
+.door-input:hover {
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 5%),
+    inset 0 0 0 1px var(--hairline-strong);
+}
+.door-input:focus,
+.door-input:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 4px rgb(37 99 235 / 16%),
+    inset 0 0 0 1px var(--accent);
+}
+.door::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.18;
+  mix-blend-mode: soft-light;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+}
+.door-card {
+  animation: door-arrive 0.7s var(--ease-arrive) both;
+  box-shadow:
+    0 1px 2px rgb(24 39 60 / 5%),
+    0 32px 64px -32px rgb(24 39 60 / 28%),
+    0 0 0 1px rgb(24 39 60 / 5%);
+}
+.door-card > * {
+  animation: door-rise 0.6s var(--ease-arrive) both;
+  animation-delay: calc(var(--i, 0) * 70ms + 140ms);
+}
+/* The one action on the door: the hub v2 button — a white sheen over the
+   blue and a hairline of light along its top edge. */
+.door-action {
+  background-image: linear-gradient(180deg, rgb(255 255 255 / 16%), rgb(255 255 255 / 0%));
+  box-shadow:
+    0 1px 2px rgb(24 39 60 / 16%),
+    inset 0 1px 0 rgb(255 255 255 / 22%),
+    inset 0 0 0 1px rgb(0 0 0 / 8%);
 }

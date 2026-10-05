@@ -18,7 +18,7 @@
 //! `hr_policy` holds guidance a decider reads, never a figure a journal
 //! computes from.
 
-use crate::cloud::domain::employment::{actions, Authorization, EmployeeId, UnitId};
+use crate::cloud::domain::employment::{Authorization, EmployeeId, UnitId, actions};
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -946,6 +946,22 @@ impl TrainingProgram {
             state: TrainingState::Scheduled,
             defined,
         })
+    }
+}
+
+/// One attendance decision for a nominated employee. A correction is another
+/// record rather than an overwrite, so the current value and every reason for
+/// changing it remain available to HR.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrainingAttendance {
+    pub attended: bool,
+    pub recorded: Authorization,
+}
+
+impl TrainingAttendance {
+    pub fn record(attended: bool, recorded: Authorization) -> Self {
+        Self { attended, recorded }
     }
 }
 

@@ -742,6 +742,11 @@ export interface FilterState {
   readonly update: (index: number, next: Filter) => void
   readonly remove: (index: number) => void
   readonly clear: () => void
+  /// Replace every clause in one write. For a control that changes two at
+  /// once — a date range is a `gte` and an `lte` — where two calls would each
+  /// start from the clauses of the same render and the second would undo the
+  /// first.
+  readonly set: (next: readonly Filter[]) => void
 }
 
 export interface FilterModel<TRow extends RowData> extends FilterState {
@@ -845,6 +850,7 @@ export function useFilterState(
       [filters, write]
     ),
     clear: useCallback(() => write([]), [write]),
+    set: write,
   }
 }
 

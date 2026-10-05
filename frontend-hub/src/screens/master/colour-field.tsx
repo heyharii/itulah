@@ -4,6 +4,7 @@ import { useState } from "react"
 
 import { Input } from "@/components/ui/field"
 import { ColourSwatch } from "@/components/ui/swatch"
+import { readColour, type ColourReading } from "@/lib/colour-parse"
 import { POP_MOTION } from "@/lib/filter-chrome"
 import { cn } from "@/lib/utils"
 import { clamp, HEX, hexOf, hsvOf, type Hsv } from "@/screens/master/colour-hex"
@@ -21,6 +22,13 @@ import { clamp, HEX, hexOf, hsvOf, type Hsv } from "@/screens/master/colour-hex"
 /// So the box still takes hex — pasting one out of a brand book is the fastest
 /// path when you have one — and grows a swatch beside it that opens a picker.
 /// Two ways in, one value out.
+///
+/// **A name works too.** "biru tua", "dusty pink", "hijau army" — read by
+/// `readColour()` in `lib/colour-parse.ts` when the box is left (or Enter is
+/// pressed): the box becomes the hex the name stands for, and `onNamed` hears
+/// the name, so a form can offer it as the colour's label. The swatch shows
+/// the reading while the name is still being typed, so it is seen before it
+/// is taken.
 ///
 /// Nothing here forces a value. A colour with no agreed hex is a normal state
 /// this whole screen is built around, so the square opens with its handle
@@ -52,6 +60,7 @@ export function ColourField({
   value,
   onChange,
   onBlur,
+  onNamed,
   disabled = false,
 }: {
   /// The draft as typed, which is often not yet a hex — half a paste, or
@@ -60,6 +69,8 @@ export function ColourField({
   value: string
   onChange: (next: string) => void
   onBlur?: () => void
+  /// A name was typed and turned into the hex now in the box.
+  onNamed?: (reading: ColourReading) => void
   disabled?: boolean
 }) {
   /// Where the handles were last put by hand.
@@ -78,6 +89,25 @@ export function ColourField({
     steer !== null && (settled === null || hexOf(steer) === settled)
       ? steer
       : ((settled === null ? null : hsvOf(settled)) ?? UNSET)
+
+  /// What the box says if it holds a colour NAME rather than a hex: shown on
+  /// the swatch as it is typed, and taken when the box is left.
+  const named =
+    settled === null && value.trim() !== "" ? readColour(value) : null
+
+  function settle() {
+    if (named === null || !HEX.test(named.hex)) return
+    setSteer(hsvOf(named.hex))
+    onChange(named.hex)
+    onNamed?.(named)
+  }
+
+  function enter(event: React.KeyboardEvent) {
+    if (event.key !== "Enter" || named === null) return
+    // The name becomes the hex first; a second Enter submits the form.
+    event.preventDefault()
+    settle()
+  }
 
   function say(next: Hsv) {
     setSteer(next)
@@ -152,15 +182,21 @@ export function ColourField({
           aria-label="Choose this colour by eye"
           className="absolute left-0 z-10 grid size-9 shrink-0 place-items-center rounded-full disabled:opacity-50"
         >
-          <ColourSwatch hex={settled} className="size-4" />
+          <ColourSwatch
+            hex={settled ?? named?.hex ?? null}
+            className="size-4"
+          />
         </Popover.Trigger>
 
         <Input
           value={value}
           disabled={disabled}
-          onBlur={onBlur}
+          onBlur={() => {
+            settle()
+            onBlur?.()
+          }}
+          onKeyDown={enter}
           onChange={(event) => onChange(event.target.value)}
-          placeholder="#1B2A4A"
           spellCheck={false}
           autoComplete="off"
           className="pl-9 font-mono uppercase placeholder:font-sans placeholder:normal-case"
@@ -215,7 +251,8 @@ export function ColourField({
               <Input
                 value={value}
                 onChange={(event) => onChange(event.target.value)}
-                placeholder="#1B2A4A"
+                onBlur={settle}
+                onKeyDown={enter}
                 spellCheck={false}
                 autoComplete="off"
                 className="h-8 flex-1 font-mono text-[0.875rem] uppercase placeholder:font-sans placeholder:normal-case"

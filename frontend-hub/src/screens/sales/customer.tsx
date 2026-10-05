@@ -304,7 +304,6 @@ export function Member() {
                   member.open(typed.trim())
                 }
               }}
-              placeholder="Member id"
               className="h-8 w-56 font-mono text-id"
             />
             <Button
@@ -451,7 +450,7 @@ function MemberReceiptSheet({
               <h4 className="mb-2 text-card-title font-semibold text-ink">
                 Basket
               </h4>
-              <MiniTable head={["Item", "Qty", "Shelf price", "Charged"]}>
+              <MiniTable head={["Item", "Quantity", "Shelf Price", "Charged"]}>
                 {record.lines.map((line, index) => {
                   // The shelf-edge price times quantity, against what the line
                   // actually came to. A gap is a promotion, and it is the

@@ -548,7 +548,11 @@ async fn diagnose(source: &Arc<StatusSource>, data_dir: Option<PathBuf>, action:
         })
         .await;
     }
-    let report = crate::edge::diagnose::diagnose(data_dir.as_deref()).await;
+    let role = connection
+        .lock()
+        .map(|guard| crate::edge::node::resident_role(&guard))
+        .unwrap_or(crate::edge::EdgeRole::Store);
+    let report = crate::edge::diagnose::diagnose(role, data_dir.as_deref()).await;
     crate::edge::diagnose::save(&report);
     let uploaded = upload_diagnosis(source, &report).await;
     if let Err(error) = &uploaded {

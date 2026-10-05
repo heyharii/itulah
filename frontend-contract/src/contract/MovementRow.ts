@@ -3,7 +3,11 @@
 /**
  * One posting, as a screen reads it.
  */
-export type MovementRow = { movement_id: string, movement_group_id: string, subject_id: string, epc: string | null, sku_code: string | null, quantity: number, 
+export type MovementRow = { movement_id: string, movement_group_id: string, subject_id: string, epc: string | null, sku_code: string | null, 
+/**
+ * The article's name — a ledger is read by people as well as by SKU.
+ */
+article_name: string | null, quantity: number, 
 /**
  * Place ids, not pool ids: `dc.warehouse:on_hand`. The state is part of
  * the place, which is how a move into `:missing` is a posting rather than

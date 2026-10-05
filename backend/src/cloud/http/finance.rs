@@ -11,6 +11,7 @@
 //! keep its own copy of a rule the database is already enforcing.
 
 use super::auth::Principal;
+use super::scope::Scope;
 use super::{facet_values, limit_value, refuse_unknown_parameters, single_value};
 use crate::cloud::{
     application::{AppError, AppState},
@@ -122,6 +123,27 @@ pub async fn accounts(
     ))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ChildBalancesQuery {
+    /// The heading whose children are wanted; absent, the root classes.
+    pub parent: Option<String>,
+    pub unit: Option<String>,
+    pub as_of: Option<NaiveDate>,
+}
+
+/// The balance beside each account of one level of the chart, headings
+/// rolled up.
+pub async fn account_child_balances(
+    State(state): State<AppState>,
+    Query(query): Query<ChildBalancesQuery>,
+) -> Result<Json<Vec<AccountBalance>>, AppError> {
+    let parent = query.parent.as_deref().map(str::trim).filter(|p| !p.is_empty());
+    let unit = query.unit.as_deref().map(str::trim).filter(|u| !u.is_empty());
+    Ok(Json(
+        infrastructure::child_balances(&state.db, parent, unit, query.as_of).await?,
+    ))
+}
+
 #[derive(Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct AccountDetail {
@@ -181,6 +203,7 @@ pub async fn account_detail(
 /// sequence. `cursor` and `limit` page.
 pub async fn account_ledger(
     State(state): State<AppState>,
+    scope: Scope,
     Path(code): Path<String>,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<GeneralLedger>, AppError> {
@@ -211,7 +234,7 @@ pub async fn account_ledger(
             &state.db,
             &code,
             infrastructure::GeneralLedgerScope {
-                unit_id: single_value(&params, "unit"),
+                unit_id: scope.unit(single_value(&params, "unit"))?,
                 from,
                 to,
                 needle: single_value(&params, "q"),
@@ -256,6 +279,7 @@ pub async fn account_ledger(
 /// smaller page pays for the aggregate more times.
 pub async fn trial_balance(
     State(state): State<AppState>,
+    scope: Scope,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<TrialBalance>, AppError> {
     refuse_unknown_parameters(
@@ -274,7 +298,7 @@ pub async fn trial_balance(
             &state.db,
             infrastructure::TrialBalanceScope {
                 as_of,
-                unit_id: single_value(&params, "unit"),
+                unit_id: scope.unit(single_value(&params, "unit"))?,
                 needle: single_value(&params, "q"),
                 classes: facet_values(&params, "class"),
                 sort: single_value(&params, "sort"),
@@ -404,6 +428,197 @@ pub async fn change_chart(
 ) -> Result<Json<infrastructure::ChartChange>, AppError> {
     Ok(Json(
         infrastructure::change_chart(&state.db, &request, &principal.username).await?,
+    ))
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct AccrualQuery {
+    pub status: Option<String>,
+}
+
+/// Assets › Contractor projects.
+pub async fn contractor_projects(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<infrastructure::ContractorProject>>, AppError> {
+    Ok(Json(infrastructure::contractor_projects(&state.db).await?))
+}
+
+pub async fn open_contractor_project(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<infrastructure::OpenProjectRequest>,
+) -> Result<Json<infrastructure::ContractorProject>, AppError> {
+    Ok(Json(
+        infrastructure::open_contractor_project(&state.db, &request, &principal.username).await?,
+    ))
+}
+
+pub async fn contractor_project(
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+) -> Result<Json<infrastructure::ContractorProjectDetail>, AppError> {
+    Ok(Json(infrastructure::contractor_project(&state.db, project_id).await?))
+}
+
+pub async fn pay_project_advance(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(project_id): Path<Uuid>,
+    Json(request): Json<infrastructure::ProjectAdvanceRequest>,
+) -> Result<Json<infrastructure::ContractorProjectDetail>, AppError> {
+    Ok(Json(
+        infrastructure::pay_project_advance(&state.db, project_id, &request, &principal.username)
+            .await?,
+    ))
+}
+
+pub async fn add_project_invoice(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(project_id): Path<Uuid>,
+    Json(request): Json<infrastructure::ProjectInvoiceRequest>,
+) -> Result<Json<infrastructure::ContractorProjectDetail>, AppError> {
+    Ok(Json(
+        infrastructure::add_project_invoice(&state.db, project_id, &request, &principal.username)
+            .await?,
+    ))
+}
+
+pub async fn close_contractor_project(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(project_id): Path<Uuid>,
+    Json(request): Json<infrastructure::CloseProjectRequest>,
+) -> Result<Json<infrastructure::ContractorProjectDetail>, AppError> {
+    Ok(Json(
+        infrastructure::close_contractor_project(
+            &state.db,
+            project_id,
+            &request,
+            &principal.username,
+        )
+        .await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct InventoryValuationQuery {
+    pub unit: Option<String>,
+}
+
+/// Finance › Inventory › Inventory valuation: every piece on hand at cost.
+pub async fn inventory_valuation(
+    State(state): State<AppState>,
+    Query(query): Query<InventoryValuationQuery>,
+) -> Result<Json<infrastructure::InventoryValuation>, AppError> {
+    Ok(Json(
+        infrastructure::inventory_valuation(&state.db, query.unit.as_deref()).await?,
+    ))
+}
+
+/// Finance › Inventory › Stock vs ledger: each unit's stock against 1029/1031.
+pub async fn stock_vs_ledger(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<infrastructure::StockLedgerUnitRow>>, AppError> {
+    Ok(Json(infrastructure::stock_vs_ledger(&state.db).await?))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CogsQuery {
+    pub year: Option<i32>,
+}
+
+/// Finance › Inventory › Goods in transit (BDP, 1031), per allotment line.
+pub async fn goods_in_transit(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<infrastructure::GoodsInTransitRow>>, AppError> {
+    Ok(Json(infrastructure::goods_in_transit(&state.db).await?))
+}
+
+/// Finance › Inventory › Cost of goods sold, per unit and month.
+pub async fn cogs_by_month(
+    State(state): State<AppState>,
+    Query(query): Query<CogsQuery>,
+) -> Result<Json<Vec<infrastructure::CogsMonthRow>>, AppError> {
+    let year = query.year.unwrap_or_else(|| chrono::Datelike::year(&Utc::now().date_naive()));
+    Ok(Json(infrastructure::cogs_by_month(&state.db, year).await?))
+}
+
+/// Finance › Inventory › Stock adjustments: booked, and waiting to be.
+pub async fn stock_adjustments(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<infrastructure::StockAdjustmentRow>>, AppError> {
+    Ok(Json(infrastructure::stock_adjustments(&state.db).await?))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StoreCashQuery {
+    pub site: Option<String>,
+}
+
+/// The site a shop's cash call is about: the relaying node's own, never
+/// another; a hub caller names it.
+fn store_cash_site(principal: &Principal, asked: Option<String>) -> Result<String, AppError> {
+    match (&principal.relayed, asked) {
+        (Some(binding), _) => Ok(binding.site_id.clone()),
+        (None, Some(site)) if !site.trim().is_empty() => Ok(site.trim().to_string()),
+        (None, _) => Err(AppError::Validation("name the shop: ?site=".into())),
+    }
+}
+
+/// Store app › Money › Cash count: the shop's three boxes and their books.
+pub async fn store_cash_boxes(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<StoreCashQuery>,
+) -> Result<Json<Vec<infrastructure::StoreCashBox>>, AppError> {
+    let site = store_cash_site(&principal, query.site)?;
+    Ok(Json(infrastructure::store_cash_boxes(&state.db, &site).await?))
+}
+
+/// The shop's counts, newest first.
+pub async fn store_cash_counts(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<StoreCashQuery>,
+) -> Result<Json<Vec<CashCountRow>>, AppError> {
+    let site = store_cash_site(&principal, query.site)?;
+    Ok(Json(infrastructure::list_counts(&state.db, None, Some(&site)).await?))
+}
+
+/// Count one of the shop's boxes, note by note.
+pub async fn record_store_cash_count(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<StoreCashQuery>,
+    Json(request): Json<infrastructure::StoreCashCountRequest>,
+) -> Result<Json<CashCountRow>, AppError> {
+    let site = store_cash_site(&principal, query.site)?;
+    Ok(Json(
+        infrastructure::store_cash_count(&state.db, &site, &request, &principal.username).await?,
+    ))
+}
+
+/// Payables › Accruals: costs booked before their bill.
+pub async fn accruals(
+    State(state): State<AppState>,
+    Query(query): Query<AccrualQuery>,
+) -> Result<Json<Vec<infrastructure::AccrualRow>>, AppError> {
+    Ok(Json(
+        infrastructure::accruals(&state.db, query.status.as_deref()).await?,
+    ))
+}
+
+/// Settle an accrual with the bill that replaces it (or release it).
+pub async fn settle_accrual(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(entry_id): Path<Uuid>,
+    Json(request): Json<infrastructure::SettleAccrualRequest>,
+) -> Result<Json<infrastructure::AccrualRow>, AppError> {
+    Ok(Json(
+        infrastructure::settle_accrual(&state.db, entry_id, &request, &principal.username)
+            .await?,
     ))
 }
 
@@ -893,6 +1108,7 @@ pub async fn close_period(
 /// `site` was until the books moved to units.
 pub async fn journal(
     State(state): State<AppState>,
+    scope: Scope,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<JournalPage>, AppError> {
     refuse_unknown_parameters(
@@ -915,7 +1131,7 @@ pub async fn journal(
                 to: date("to")?,
                 needle: single_value(&params, "q"),
                 kinds: facet_values(&params, "kind"),
-                units: facet_values(&params, "unit"),
+                units: scope.units(facet_values(&params, "unit"))?,
                 sort: single_value(&params, "sort"),
                 desc: single_value(&params, "dir").as_deref() == Some("desc"),
                 cursor: single_value(&params, "cursor"),
@@ -1208,6 +1424,7 @@ pub async fn statement(
 /// unaffected by the widening.
 pub async fn bills(
     State(state): State<AppState>,
+    scope: Scope,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<BillPage>, AppError> {
     Ok(Json(
@@ -1217,7 +1434,7 @@ pub async fn bills(
                 needle: single_value(&params, "q"),
                 statuses: facet_values(&params, "status"),
                 suppliers: facet_values(&params, "supplier"),
-                sites: facet_values(&params, "site"),
+                sites: scope.sites(&state, facet_values(&params, "site")).await?,
                 sort: single_value(&params, "sort"),
                 // `dir=desc` and nothing else. Absent, empty and anything
                 // unrecognised all mean ascending, which is the direction a
@@ -1449,6 +1666,7 @@ pub async fn payables_aging(
 /// exactly one — as every existing caller does — is unaffected.
 pub async fn payments(
     State(state): State<AppState>,
+    scope: Scope,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<PaymentPage>, AppError> {
     // `from` and `to` bound the payment date, both inclusive — the journal's
@@ -1467,7 +1685,7 @@ pub async fn payments(
             infrastructure::PaymentScope {
                 needle: single_value(&params, "q"),
                 statuses: facet_values(&params, "status"),
-                units: facet_values(&params, "unit"),
+                units: scope.units(facet_values(&params, "unit"))?,
                 suppliers: facet_values(&params, "supplier"),
                 sort: single_value(&params, "sort"),
                 desc: single_value(&params, "dir").as_deref() == Some("desc"),
@@ -1547,6 +1765,7 @@ pub async fn post_payment(
 /// Sending both is the same request twice and narrows to the same rows.
 pub async fn assets(
     State(state): State<AppState>,
+    scope: Scope,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<AssetPage>, AppError> {
     refuse_unknown_parameters(
@@ -1578,7 +1797,7 @@ pub async fn assets(
             &state.db,
             infrastructure::AssetScope {
                 needle: single_value(&params, "q"),
-                sites: facet_values(&params, "site"),
+                sites: scope.sites(&state, facet_values(&params, "site")).await?,
                 categories: facet_values(&params, "category"),
                 decisions,
                 statuses: facet_values(&params, "status"),
@@ -1745,6 +1964,7 @@ pub async fn preview_depreciation(
 /// is where it gets fixed.
 pub async fn money(
     State(state): State<AppState>,
+    scope: Scope,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<MoneyOverview>, AppError> {
     // `Query<Vec<(String, String)>>` rather than a struct, for one reason:
@@ -1774,7 +1994,7 @@ pub async fn money(
                 needle: single_value(&params, "q"),
                 pots: facet_values(&params, "pot"),
                 // `unit`, and repeatable: the books are a unit's since 0605.
-                units: facet_values(&params, "unit"),
+                units: scope.units(facet_values(&params, "unit"))?,
                 flags: facet_values(&params, "flag"),
                 sort: single_value(&params, "sort"),
                 // `dir=desc` and nothing else. Absent, empty and anything
@@ -1810,6 +2030,7 @@ pub async fn money(
 /// most recent period first. `cursor` and `limit` page.
 pub async fn bank_statements(
     State(state): State<AppState>,
+    scope: Scope,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<BankStatementPage>, AppError> {
     refuse_unknown_parameters(
@@ -1821,7 +2042,7 @@ pub async fn bank_statements(
             &state.db,
             infrastructure::BankStatementScope {
                 needle: single_value(&params, "q"),
-                units: facet_values(&params, "unit"),
+                units: scope.units(facet_values(&params, "unit"))?,
                 accounts: facet_values(&params, "account"),
                 states: facet_values(&params, "state"),
                 sort: single_value(&params, "sort"),
@@ -1850,6 +2071,17 @@ pub async fn bank_statement_lines(
 ) -> Result<Json<Vec<BankStatementLineRow>>, AppError> {
     Ok(Json(
         infrastructure::statement_lines(&state.db, statement_id).await?,
+    ))
+}
+
+/// What the books hold on the statement's account that the bank has not shown
+/// yet — the other half of a reconciliation.
+pub async fn bank_book_only(
+    State(state): State<AppState>,
+    Path(statement_id): Path<Uuid>,
+) -> Result<Json<Vec<infrastructure::BookOnlyLine>>, AppError> {
+    Ok(Json(
+        infrastructure::book_only_lines(&state.db, statement_id).await?,
     ))
 }
 
@@ -1966,11 +2198,13 @@ pub async fn ignore_party_proposal(
 /// the accounts kept in one unit's books (0605).
 pub async fn company_bank_accounts(
     State(state): State<AppState>,
+    scope: Scope,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<Vec<CompanyBankAccount>>, AppError> {
     refuse_unknown_parameters(&params, &["unit"])?;
     Ok(Json(
-        infrastructure::list_accounts(&state.db, single_value(&params, "unit").as_deref()).await?,
+        infrastructure::list_accounts(&state.db, scope.unit(single_value(&params, "unit"))?.as_deref())
+            .await?,
     ))
 }
 
@@ -2032,14 +2266,16 @@ pub async fn retire_bank_account(
 /// Every count, newest first. `account` and `site` narrow it to one drawer.
 pub async fn cash_counts(
     State(state): State<AppState>,
+    scope: Scope,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<Vec<CashCountRow>>, AppError> {
     refuse_unknown_parameters(&params, &["account", "site"])?;
+    let site = scope.site(&state, single_value(&params, "site")).await?;
     Ok(Json(
         infrastructure::list_counts(
             &state.db,
             single_value(&params, "account").as_deref(),
-            single_value(&params, "site").as_deref(),
+            site.as_deref(),
         )
         .await?,
     ))
@@ -2123,6 +2359,7 @@ pub async fn book_bank_line(
 /// named no date behind those that did. `cursor` and `limit` page.
 pub async fn payment_instructions(
     State(state): State<AppState>,
+    scope: Scope,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<InstructionPage>, AppError> {
     refuse_unknown_parameters(&params, &[&PAGING[..], &["status", "site"]].concat())?;
@@ -2132,7 +2369,7 @@ pub async fn payment_instructions(
             infrastructure::InstructionScope {
                 needle: single_value(&params, "q"),
                 statuses: facet_values(&params, "status"),
-                sites: facet_values(&params, "site"),
+                sites: scope.sites(&state, facet_values(&params, "site")).await?,
                 sort: single_value(&params, "sort"),
                 desc: single_value(&params, "dir").as_deref() == Some("desc"),
                 cursor: single_value(&params, "cursor"),
@@ -2245,6 +2482,7 @@ pub async fn settle_payment_instruction(
 /// documents, and it agrees with the `cash_in_transit` balance.
 pub async fn deposits(
     State(state): State<AppState>,
+    scope: Scope,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<DepositPage>, AppError> {
     refuse_unknown_parameters(&params, &[&PAGING[..], &["status", "unit"]].concat())?;
@@ -2254,7 +2492,7 @@ pub async fn deposits(
             infrastructure::DepositScope {
                 needle: single_value(&params, "q"),
                 statuses: facet_values(&params, "status"),
-                units: facet_values(&params, "unit"),
+                units: scope.units(facet_values(&params, "unit"))?,
                 sort: single_value(&params, "sort"),
                 desc: single_value(&params, "dir").as_deref() == Some("desc"),
                 cursor: single_value(&params, "cursor"),
@@ -2338,6 +2576,7 @@ pub async fn land_deposit(
 /// here and a day there are the same day.
 pub async fn sale_days(
     State(state): State<AppState>,
+    scope: Scope,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<SaleDayPage>, AppError> {
     refuse_unknown_parameters(
@@ -2373,7 +2612,7 @@ pub async fn sale_days(
         infrastructure::sale_days(
             &state.db,
             infrastructure::SaleDayScope {
-                sites: facet_values(&params, "site"),
+                sites: scope.sites(&state, facet_values(&params, "site")).await?,
                 from: date("from")?,
                 to: date("to")?,
                 posted,

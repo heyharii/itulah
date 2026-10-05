@@ -5,9 +5,9 @@ journal is written by the poster behind an endpoint; nothing here inserts a
 journal row. Small, explainable figures, all in September 2026 (open), all at
 head office (`dc`) unless the document is about store-01.
 
-  AP        receipts (valued by Cloud) → bills matched to them → SUP-002 advance
-            applied → SUP-001 paid in full by transfer, SUP-002 partly by giro
-            → a freight expense bill from SUP-001 with PPh 23 withheld
+  AP        receipts (valued by Cloud) → bills matched to them → 0002 advance
+            applied → 0001 paid in full by transfer, 0002 partly by giro
+            → a freight expense bill from 0001 with PPh 23 withheld
   money     owner's capital and a BCA loan into Giro BCA → HO tops up store-01
             petty cash (interunit PEMBIAYAAN) → petty cash spent → a bank
             statement for September matched line by line, the bank's own
@@ -47,8 +47,9 @@ import uuid
 from datetime import date, timedelta
 from pathlib import Path
 
-HO = "dc"
-STORE = "store-01"
+HO = "dc"          # site_id (premises) for head office
+HO_UNIT = "ho"     # unit_id for head office's own books
+STORE = "store-01"  # both unit_id and site_id for store-01
 BANK_KEY, BANK_Q = "bank_giro", "BCA"   # Giro BCA 8730123456 on 1005 at dc (demo-seed)
 SEP = lambda day: f"2026-09-{day:02d}"   # noqa: E731
 
@@ -153,6 +154,19 @@ def journal_memos(cloud):
     return {j.get("memo") for j in got}
 
 
+def statement_opening(statements, start, ledger_opening):
+    """A statement opens where the previous one closed. Only when none exists
+    yet does it read the ledger balance as of its period start. NOTE: stage
+    order runs `finance` before `finance_volume`, so September's statement is
+    cut before Jan-Aug are back-filled and its ledger opening is then still 0;
+    finance_volume's monthly statements chain from the earliest one forward."""
+    earlier = [t for t in statements if t.get("account_code") == "1005" and t.get("unit_id") == HO_UNIT
+               and str(t.get("period_end", "")) < start and t.get("closing_minor") is not None]
+    if earlier:
+        return max(earlier, key=lambda t: str(t["period_end"]))["closing_minor"]
+    return ledger_opening
+
+
 def bank_account_id(cloud):
     for acct in rows(cloud.get("/api/v1/finance/bank-accounts")):
         if acct["account_no"] == "8730123456":
@@ -166,7 +180,7 @@ def manual(cloud, memos, day, memo, lines):
         return False
     body_lines = []
     for code, site, dr, cr, *extra in lines:
-        line = {"account": {"kind": "account", "account_code": code}, "site_id": site,
+        line = {"account": {"kind": "account", "account_code": code}, "unit_id": site,
                 "debit_minor": dr, "credit_minor": cr, "memo": None}
         if extra:
             line.update(extra[0])
@@ -206,12 +220,45 @@ def doc_number(doc):
     return doc.get("number") or doc.get("doc_number")
 
 
-def side(key=None, site=HO, qualifier="", code=None, category=None):
+def side_code(code, unit=HO_UNIT, category=None):
+    """A cash-document side named by a client account code rather than a
+    meaning — for a one-off that has no `account_resolution` role of its own."""
+    return {"semantic_key": None, "qualifier": "", "account_code": code,
+            "category_code": category, "unit_id": unit}
+
+
+def cash_doc_variety(cloud, checker, ctx):
+    """The Cash screen otherwise shows only POSTED slips: one left DRAFT (just
+    keyed, not yet checked) and one left APPROVED (checked, not yet posted) —
+    the two states a busy Finance desk always has open at month end."""
+    have = {d.get("memo"): d for d in rows(cloud.get("/api/v1/finance/cash-documents?limit=500"))
+            if d.get("status") != "CANCELLED"}
+    memo = "Uang muka perjalanan dinas Oktober (menunggu approval)"
+    if memo not in have:
+        cloud.post("/api/v1/finance/cash-documents", {
+            "doc_date": SEP(29), "from": BANK, "to": side_code("6047"), "amount_minor": 750_000,
+            "party_type": "OTHER", "supplier_id": None, "employee_id": None,
+            "party_name": "Yusuf (persiapan trip Oktober)", "memo": memo,
+            "attachment_file_id": None})
+        say(f"+ {memo} Rp 750,000 (keyed by rina, left DRAFT)")
+    memo = "Biaya pelatihan kasir store-01 (sudah diperiksa, belum dibukukan)"
+    if memo not in have:
+        doc = cloud.post("/api/v1/finance/cash-documents", {
+            "doc_date": SEP(29), "from": BANK, "to": side_code("6061"), "amount_minor": 400_000,
+            "party_type": "OTHER", "supplier_id": None, "employee_id": None,
+            "party_name": "Lembaga Pelatihan Ritel Nusantara", "memo": memo,
+            "attachment_file_id": None})
+        doc_id = doc.get("document_id") or doc.get("id")
+        checker.post(f"/api/v1/finance/cash-documents/{doc_id}/approve", {})
+        say(f"+ {memo} Rp 400,000 (approved by admin, left APPROVED)")
+
+
+def side(key=None, unit=HO_UNIT, qualifier="", code=None, category=None):
     return {"semantic_key": key, "qualifier": qualifier, "account_code": code,
-            "category_code": category, "site_id": site}
+            "category_code": category, "unit_id": unit}
 
 
-BANK = side(BANK_KEY, HO, BANK_Q)
+BANK = side(BANK_KEY, HO_UNIT, BANK_Q)
 STORE_PETTY = side("petty_cash", STORE)
 
 
@@ -265,8 +312,8 @@ def loan(cloud, ctx, memos, bank_id):
     # The facility register holds the schedule; the money arriving is the
     # bank's credit, keyed by Finance HO (no writer posts a disbursement).
     manual(cloud, memos, 2, "Pencairan kredit modal kerja BCA",
-           [("1005", HO, 12_000_000, 0, {"bank_account_id": bank_id}),
-            ("2044", HO, 0, 12_000_000)])
+           [("1005", HO_UNIT, 12_000_000, 0, {"bank_account_id": bank_id}),
+            ("2044", HO_UNIT, 0, 12_000_000)])
     fac = cloud.get(f"/api/v1/finance/facilities/{fac['facility_id']}")
     first = sorted(fac.get("installments") or [], key=lambda i: i["seq"])[0]
     if not first.get("entry_id"):
@@ -280,7 +327,7 @@ def loan(cloud, ctx, memos, bank_id):
 
 
 def supplier_advance(cloud, ctx):
-    bill = ctx["fin_bills"].get("SUP-002")
+    bill = ctx["fin_bills"].get("0002")
     advances = rows(cloud.get("/api/v1/finance/supplier-advances"))
     if bill is None:
         return
@@ -291,7 +338,7 @@ def supplier_advance(cloud, ctx):
     done = rows(cloud.get("/api/v1/finance/journal?kind=SUPPLIER_ADVANCE&from=2026-09-01&to=2026-09-30&limit=5"))
     if not done and not advances:
         adv = cloud.post("/api/v1/finance/supplier-advances", {
-            "purchase_order_id": po["purchase_order_id"], "site_id": HO, "advance_date": SEP(10),
+            "purchase_order_id": po["purchase_order_id"], "unit_id": HO_UNIT, "advance_date": SEP(10),
             "amount_minor": 500_000, "account_key": BANK_KEY, "account_qualifier": BANK_Q,
             "reference": "UM-PO-DEMO-002", "note": "Uang muka 500 rb untuk PO-DEMO-002"})
         aid = adv.get("advance_id") or adv.get("id")
@@ -299,7 +346,7 @@ def supplier_advance(cloud, ctx):
             cloud.post(f"/api/v1/finance/supplier-advances/{aid}/post", {})
         cloud.post(f"/api/v1/finance/supplier-advances/{aid}/apply", {
             "invoice_id": bill["invoice_id"], "amount_minor": 500_000, "posting_date": SEP(26)})
-        say("+ supplier advance SUP-002 Rp 500,000 (10 Sep) applied to INV-SUP-002-002")
+        say("+ supplier advance 0002 Rp 500,000 (10 Sep) applied to INV-0002-002")
 
 
 def pay(cloud, reference, bill_id, amount, day, method="TRANSFER", giro=None):
@@ -307,7 +354,7 @@ def pay(cloud, reference, bill_id, amount, day, method="TRANSFER", giro=None):
         if p.get("reference") == reference:
             p["_existing"] = True
             return p
-    body = {"site_id": HO, "payment_date": SEP(day), "method": method,
+    body = {"unit_id": HO_UNIT, "payment_date": SEP(day), "method": method,
             "account_key": BANK_KEY, "account_qualifier": BANK_Q, "total_minor": amount,
             "reference": reference, "note": None,
             "allocations": [{"invoice_id": bill_id, "amount_minor": amount}],
@@ -318,34 +365,37 @@ def pay(cloud, reference, bill_id, amount, day, method="TRANSFER", giro=None):
 
 def post_payment(cloud, payment, day):
     pid = payment.get("payment_id") or payment.get("id")
-    if payment.get("status") != "POSTED":
+    # DRAFT is the only state waiting to be posted — POSTED is done and
+    # REVERSED (a bounced giro's payment) is a terminal state re-posting
+    # would 409 on, on a re-run that finds it by reference.
+    if payment.get("status") == "DRAFT":
         payment = cloud.post(f"/api/v1/finance/payments/{pid}/post", {"posting_date": SEP(day)})
     return payment
 
 
 def payments(cloud, ctx):
     bills = ctx["fin_bills"]
-    if "SUP-001" in bills:
-        p = pay(cloud, "TRF-SUP-001-0926", bills["SUP-001"]["invoice_id"], 1_980_000, 26)
+    if "0001" in bills:
+        p = pay(cloud, "TRF-0001-0926", bills["0001"]["invoice_id"], 1_980_000, 26)
         post_payment(cloud, p, 26)
-        p.get("_existing") or say("+ SUP-001 paid in full Rp 1,980,000 by transfer from Giro BCA")
-    if "SUP-002" in bills:
+        p.get("_existing") or say("+ 0001 paid in full Rp 1,980,000 by transfer from Giro BCA")
+    if "0002" in bills:
         # 3,480,000 − 500,000 advance = 2,980,000 owed; 1,500,000 by giro now.
-        p = pay(cloud, "BG-SUP-002-0926", bills["SUP-002"]["invoice_id"], 1_500_000, 26,
+        p = pay(cloud, "BG-0002-0926", bills["0002"]["invoice_id"], 1_500_000, 26,
                 method="GIRO", giro=("BCA-GR-000101", "2026-10-05"))
         post_payment(cloud, p, 26)
-        p.get("_existing") or say("+ SUP-002 paid Rp 1,500,000 of 2,980,000 by giro BCA-GR-000101 due 5 Oct")
+        p.get("_existing") or say("+ 0002 paid Rp 1,500,000 of 2,980,000 by giro BCA-GR-000101 due 5 Oct")
 
 
 def freight_bill(cloud, ctx):
-    """SUP-001 charges delivery separately: an EXPENSE bill (6010) with PPh 23
+    """0001 charges delivery separately: an EXPENSE bill (6010) with PPh 23
     2% withheld when it is paid (Cr 2012), the rest by transfer."""
     have = bills_by_number(cloud)
-    number = "ONGKIR-SUP-001-0926"
+    number = "ONGKIR-0001-0926"
     bill = have.get(number)
     if bill is None:
         bill = cloud.post("/api/v1/finance/bills", {
-            "invoice_number": number, "supplier_id": "SUP-001", "supplier_name": None,
+            "invoice_number": number, "supplier_id": "0001", "supplier_name": None,
             "site_id": HO, "invoice_date": SEP(26), "due_date": "2026-10-10",
             "subtotal_minor": 150_000, "tax_minor": 0, "discount_minor": 0, "kind": "EXPENSE",
             "withholding_code": "PPH23_SERVICE", "note": "Ongkos kirim PO-DEMO-001",
@@ -354,7 +404,7 @@ def freight_bill(cloud, ctx):
                        "memo": "Ongkos angkut PO-DEMO-001 ke DC"}]})
         if cloud.get(f"/api/v1/finance/bills/{bill['invoice_id']}")["status"] in ("DRAFT", "MATCHED"):
             cloud.post(f"/api/v1/finance/bills/{bill['invoice_id']}/post", {})
-        say(f"+ expense bill {number} SUP-001 Rp 150,000 (Dr 6010 / Cr 2004)")
+        say(f"+ expense bill {number} 0001 Rp 150,000 (Dr 6010 / Cr 2004)")
     p = pay(cloud, "TRF-ONGKIR-0926", bill["invoice_id"], 150_000, 26)
     pid = p.get("payment_id") or p.get("id")
     if p.get("status") != "POSTED":
@@ -453,7 +503,7 @@ def head_office_pays_the_shop(cloud, checker, ctx):
     got = rows(cloud.get("/api/v1/finance/journal?kind=MANAGEMENT_FEE&from=2026-09-01&to=2026-09-30&limit=5"))
     if not got and "Management fee store-01 September" not in journal_memos(cloud):
         out = cloud.post("/api/v1/finance/management-fees", {
-            "unit_site_id": STORE, "amount_minor": 250_000, "effective_date": SEP(25),
+            "unit_id": STORE, "amount_minor": 250_000, "effective_date": SEP(25),
             "memo": "Management fee store-01 September"})
         say(f"+ {out['entry_number']} management fee store-01 Rp 250,000 (LAIN 2030/1059)")
 
@@ -466,7 +516,7 @@ def prepaid_and_accrual(cloud, checker, ctx):
     memos = journal_memos(cloud)
     # Paid out of Giro BCA as a Kas Keluar straight into 1036 (prepaid
     # insurance): a schedule needs a posted document to hang from.
-    doc = cash_doc(cloud, checker, 3, BANK, side("prepaid_expense", HO, "ASURANSI_BAYAR_DIMUKA"),
+    doc = cash_doc(cloud, checker, 3, BANK, side("prepaid_expense", HO_UNIT, "ASURANSI_BAYAR_DIMUKA"),
                    1_200_000, "PT Asuransi Sinar Mas", "Premi asuransi properti DC Sep 2026 - Agu 2027")
     doc_id = doc.get("document_id") or doc.get("id")
     schedules = [x for st in ("ACTIVE", "COMPLETED")
@@ -483,7 +533,7 @@ def prepaid_and_accrual(cloud, checker, ctx):
     say(f"= prepaid September released ({out if not isinstance(out, dict) else out.get('posted', out.get('allocated', 'ok'))})")
     # Accrual: September's electricity at the DC, billed by PLN in October.
     manual(cloud, memos, 26, "Akrual listrik DC September (tagihan PLN Oktober)",
-           [("6045", HO, 400_000, 0), ("2023", HO, 0, 400_000)])
+           [("6045", HO_UNIT, 400_000, 0), ("2023", HO_UNIT, 0, 400_000)])
 
 
 # ---------------------------------------------------------------------------
@@ -528,7 +578,7 @@ def employee_advance(cloud, checker, ctx):
 
 
 def tax(cloud, ctx):
-    """PPh 23 kept back from SUP-001's freight payment (Rp 3,000, on 2012):
+    """PPh 23 kept back from 0001's freight payment (Rp 3,000, on 2012):
     the tax sub-ledger's obligation for September, filed in October."""
     periods = rows(cloud.get("/api/v1/finance/tax/periods"))
     if any(p.get("tax_type_code") == "PPH23" and p.get("period_year") == 2026
@@ -539,24 +589,119 @@ def tax(cloud, ctx):
     if pay_row is None:
         return
     cloud.post("/api/v1/finance/tax/items", {
-        "tax_type_code": "PPH23", "year": 2026, "month": 9, "site_id": HO,
+        "tax_type_code": "PPH23", "year": 2026, "month": 9, "unit_id": HO_UNIT,
         "kind": "OBLIGATION", "amount_minor": 3_000, "source_kind": "PAYMENT",
         "source_id": pay_row.get("payment_id") or pay_row.get("id"),
-        "evidence": "Bukti potong PPh 23 ongkir SUP-001", "note": "2% x Rp 150.000"})
-    say("+ PPh 23 September: obligation Rp 3,000 (ongkir SUP-001)")
+        "evidence": "Bukti potong PPh 23 ongkir 0001", "note": "2% x Rp 150.000"})
+    say("+ PPh 23 September: obligation Rp 3,000 (ongkir 0001)")
+
+
+ASSET_ACCOUNT = {"AIR_CONDITIONER": "1067", "FFE_TOKO_DAN_GUDANG": "1074",
+                 "FFE_KOMPUTER": "1075", "FFE_OFFICE": "1073"}   # 0355 class -> fixed_asset account
+OPENING_EQUITY = "3002"                                          # Modal Setor
+
+
+def assets(cloud, ctx):
+    """Three fixed assets, capitalised and depreciating: a laptop and office
+    furniture at head office, an air conditioner at store-01 — the Assets
+    screen with something on it, and September's charge run behind them."""
+    have = {a["asset_number"]: a for a in rows(cloud.get("/api/v1/finance/assets?limit=200"))}
+    plan = (
+        ("FA-DC-0001", "Laptop Kasir DC", "FFE_KOMPUTER", HO, 8_000_000, 48),
+        ("FA-DC-0002", "Meja & Kursi Kantor DC", "FFE_OFFICE", HO, 5_000_000, 60),
+        ("FA-ST01-0001", "AC Split Ruang Kasir Store-01", "AIR_CONDITIONER", STORE, 4_500_000, 48),
+    )
+    for number, name, category, site, cost, life in plan:
+        asset = have.get(number)
+        if asset is None:
+            asset = cloud.post("/api/v1/finance/assets", {
+                "asset_number": number, "name": name, "category_code": category,
+                "site_id": site, "acquired_on": SEP(3), "serial_number": None,
+                "notes": "Demo: aset dibeli tunai, dicatat langsung di register",
+                "quantity": None, "acquired_via_line_id": None})
+            say(f"+ asset {number} {name} registered ({category})")
+        aid = asset.get("asset_id") or asset.get("id")
+        if asset.get("decision") != "CAPITALIZE":
+            asset = cloud.post(f"/api/v1/finance/assets/{aid}/assess", {
+                "decision": "CAPITALIZE", "capitalized_cost_minor": cost,
+                "salvage_value_minor": 0, "useful_life_months": life, "rate_bps": None,
+                "method": "STRAIGHT_LINE", "category_code": None,
+                "charge_kind": "DEPRECIATION", "in_service_on": SEP(3),
+                "opening_accumulated_minor": None, "opening_through": None,
+                "reason": "Demo: aset baru, dikapitalisasi saat diterima",
+                "acquired_via_line_id": None, "acquired_via_line_ids": None})
+            say(f"+ asset {number} capitalised Rp {cost:,}, {life} months straight-line")
+        # Assess writes no journal: put the cost in the ledger by hand.
+        manual(cloud, journal_memos(cloud), 3, f"Opening cost of {number}", [
+            (ASSET_ACCOUNT[category], HO_UNIT if site == HO else site, cost, 0),
+            (OPENING_EQUITY, HO_UNIT if site == HO else site, 0, cost)])
+    out = cloud.post("/api/v1/finance/depreciation/run", {"year": 2026, "month": 9})
+    posted = out.get("posted_count") if isinstance(out, dict) else None
+    if posted:
+        say(f"+ depreciation run September: {posted} asset(s) charged, "
+            f"Rp {out.get('posted_total_minor', 0):,}")
 
 
 def recurring_bill(cloud, ctx):
-    if any(t.get("label") == "Ongkos angkut bulanan SUP-001" for t in rows(cloud.get("/api/v1/finance/bill-templates"))):
+    if any(t.get("label") == "Ongkos angkut bulanan 0001" for t in rows(cloud.get("/api/v1/finance/bill-templates"))):
         return
     cloud.post("/api/v1/finance/bill-templates", {
-        "supplier_id": "SUP-001", "supplier_name": None, "site_id": HO,
+        "supplier_id": "0001", "supplier_name": None, "site_id": HO,
         "expense_account_code": "6010", "expense_category_code": None, "expense_site_id": HO,
         "expected_subtotal_minor": 150_000, "expected_tax_minor": 0, "tolerance_bps": 500,
-        "due_day": 25, "label": "Ongkos angkut bulanan SUP-001",
+        "due_day": 25, "label": "Ongkos angkut bulanan 0001",
         "note": "Tagihan ongkir rutin; draf dibuat otomatis tiap bulan", "contract_id": None})
-    say("+ recurring bill template: ongkos angkut SUP-001 Rp 150,000 on the 25th "
+    say("+ recurring bill template: ongkos angkut 0001 Rp 150,000 on the 25th "
         "(the hourly recurring-bills agent raises the draft)")
+
+
+def account_links(cloud, ctx):
+    """The store's petty-cash categories (dian's tin) and HO paying the shop's
+    electricity are meanings with no account behind them yet on this build's
+    seed (0460 links the closed forty-account chart, not these) — link them
+    once on the Account Links screen so the cash documents below can post."""
+    have = {r["role"] for r in rows(cloud.get("/api/v1/finance/account-links"))}
+    for role, code, label in (
+            ("expense_household", "6042", "Biaya Rumah Tangga"),
+            ("expense_stationery", "6041", "Alat Tulis Kantor & Barang Cetakan"),
+            ("expense_transport", "6048", "Biaya Lokal Transport"),
+            ("expense_electricity", "6045", "Biaya Pemakaian Listrik")):
+        if role in have:
+            continue
+        cloud.post("/api/v1/finance/account-links", {
+            "role": role, "source_type": "COMPANY", "source_id": "",
+            "scope_type": "ALL", "scope_key": "", "account_code": code,
+            "category_code": None, "note": f"Demo: {label} (kas kecil store)"})
+        say(f"+ account link {role} → {code} {label}")
+
+
+def journal_template(cloud, ctx):
+    """A reusable manual-journal template (the Journal Entry Template screen,
+    ERPNext's Journal Entry Template / Auto Repeat), and one repeat that has
+    already fired: September's telephone accrual, raised and posted from it
+    rather than hand-keyed — so the Journal list shows both kinds of entry."""
+    existing = {t["name"]: t for t in rows(cloud.get("/api/v1/finance/journal-templates"))}
+    tpl = existing.get("Akrual Telepon & Internet DC")
+    if tpl is None:
+        tpl = cloud.post("/api/v1/finance/journal-templates", {
+            "name": "Akrual Telepon & Internet DC", "is_active": True,
+            "memo": "Akrual biaya telepon & internet DC bulanan (tagihan menyusul)",
+            "lines": [
+                {"account": {"kind": "account", "account_code": "6044"}, "unit_id": HO_UNIT,
+                 "debit_minor": 350_000, "credit_minor": 0, "memo": None},
+                {"account": {"kind": "account", "account_code": "2022"}, "unit_id": HO_UNIT,
+                 "debit_minor": 0, "credit_minor": 350_000, "memo": None}]})
+        say("+ journal template: Akrual Telepon & Internet DC (6044/2022, Rp 350,000)")
+    tpl_id = tpl.get("template_id") or tpl.get("id")
+    repeats = rows(cloud.get("/api/v1/finance/journal-repeats"))
+    if not any(r.get("template_id") == tpl_id for r in repeats):
+        cloud.post("/api/v1/finance/journal-repeats", {
+            "template_id": tpl_id, "frequency": "MONTHLY", "next_date": SEP(1),
+            "end_date": None, "auto_post": True, "is_active": True})
+        say("+ journal repeat: Akrual Telepon & Internet DC, monthly, auto-post")
+    out = cloud.post("/api/v1/finance/journal-repeats/run", {})
+    if out.get("drafted") or out.get("posted"):
+        say(f"+ journal repeats swept: {out.get('posted', 0)} posted, {out.get('drafted', 0)} drafted")
 
 
 def setup(cloud, ctx):
@@ -585,14 +730,18 @@ def setup(cloud, ctx):
 
 def bank_statement(cloud, ctx, bank_id):
     """Giro BCA's rekening koran 1–26 Sep: every movement the books made, plus
-    two the bank made on its own (admin fee, interest), which are booked off the
-    statement (Dr 6043 / Cr 1005 and Dr 1005 / Cr 8002 — two events, I11). The
-    giro to SUP-002 (due 5 Oct) has not been presented, so it is not on it."""
+    three the bank made or reported on its own — an admin fee (booked off the
+    statement, Dr 6043 / Cr 1005, I11), interest the bookkeeper has not looked
+    at yet, and a stamp-duty deduction nobody recognises — so Bank
+    Reconciliation still has two bank-only lines to work. The giro to 0002
+    (due 5 Oct) has not been presented, so it is not on it, and three of the
+    giro moves from `giro_variety` land on the 27th–29th — after this
+    statement's cutoff — so they sit book-only, in transit, the same way."""
     statements = rows(cloud.get("/api/v1/finance/bank-statements"))
-    mine = [s for s in statements if s.get("account_code") == "1005" and s.get("site_id") == HO
+    mine = [s for s in statements if s.get("account_code") == "1005" and s.get("unit_id") == HO_UNIT
             and str(s.get("period_start", "")).startswith("2026-09")]
     if not mine:
-        ledger = cloud.get(f"/api/v1/finance/accounts/1005/ledger?site={HO}"
+        ledger = cloud.get(f"/api/v1/finance/accounts/1005/ledger?unit={HO_UNIT}"
                            "&from=2026-09-01&to=2026-09-26&limit=500")
         lines = [{"value_date": r["posting_date"],
                   "description": (r.get("memo") or r["entry_number"])[:60],
@@ -602,24 +751,29 @@ def bank_statement(cloud, ctx, bank_id):
         lines += [
             {"value_date": SEP(26), "description": "BIAYA ADM REKENING", "reference": None,
              "debit_minor": 15_000, "credit_minor": 0},
+            # Left unbooked on purpose: Finance has not looked at either of
+            # these yet, so Bank Reconciliation has real work to show.
             {"value_date": SEP(26), "description": "BUNGA JASA GIRO", "reference": None,
              "debit_minor": 0, "credit_minor": 8_500},
+            {"value_date": SEP(24), "description": "BIAYA METERAI", "reference": None,
+             "debit_minor": 10_000, "credit_minor": 0},
         ]
-        closing = ledger["opening_minor"] + sum(l["credit_minor"] - l["debit_minor"] for l in lines)
+        opening = statement_opening(statements, SEP(1), ledger["opening_minor"])
+        closing = opening + sum(l["credit_minor"] - l["debit_minor"] for l in lines)
         cloud.post("/api/v1/finance/bank-statements", {
-            "account_code": "1005", "site_id": HO, "bank_account_id": bank_id,
+            "account_code": "1005", "unit_id": HO_UNIT, "bank_account_id": bank_id,
             "period_start": SEP(1), "period_end": SEP(26),
-            "opening_minor": ledger["opening_minor"], "closing_minor": closing,
+            "opening_minor": opening, "closing_minor": closing,
             "source_name": "rekening-koran-BCA-8730123456-2026-09.csv", "lines": lines})
         say(f"+ bank statement Giro BCA 1–26 Sep: {len(lines)} lines, closing Rp {closing:,}")
         statements = rows(cloud.get("/api/v1/finance/bank-statements"))
-        mine = [s for s in statements if s.get("account_code") == "1005" and s.get("site_id") == HO
+        mine = [s for s in statements if s.get("account_code") == "1005" and s.get("unit_id") == HO_UNIT
                 and str(s.get("period_start", "")).startswith("2026-09")]
     stmt = mine[0]
     sid = stmt.get("statement_id") or stmt.get("id")
     # Each line the books already have: confirm the match to its journal line.
     by_entry = {r["entry_number"]: r["line_id"] for r in rows(cloud.get(
-        f"/api/v1/finance/accounts/1005/ledger?site={HO}&from=2026-09-01&to=2026-09-30&limit=500"))}
+        f"/api/v1/finance/accounts/1005/ledger?unit={HO_UNIT}&from=2026-09-01&to=2026-09-30&limit=500"))}
     matched = booked = 0
     for line in rows(cloud.get(f"/api/v1/finance/bank-statements/{sid}/lines")):
         if line.get("matched_journal_line_id") or line.get("status") in ("MATCHED", "BOOKED"):
@@ -634,13 +788,197 @@ def bank_statement(cloud, ctx, bank_id):
                 "account_code": "6043", "category_code": None,
                 "memo": "Biaya administrasi rekening Giro BCA September", "party_name": "Bank BCA"})
             booked += 1
-        elif line["description"] == "BUNGA JASA GIRO":
-            cloud.post(f"/api/v1/finance/bank-lines/{line['line_id']}/book", {
-                "account_code": "8002", "category_code": None,
-                "memo": "Jasa giro BCA September", "party_name": "Bank BCA"})
-            booked += 1
+        # BUNGA JASA GIRO and BIAYA METERAI are deliberately left alone: two
+        # bank-only lines still waiting on Finance, so Bank Reconciliation has
+        # something to show besides a clean sheet.
     if matched or booked:
-        say(f"+ reconciliation: {matched} lines matched to the books, {booked} booked off the statement")
+        say(f"+ reconciliation: {matched} lines matched to the books, {booked} booked off the statement "
+            "(2 bank-only lines left for review: interest, stamp duty)")
+
+
+def bank_statement_late(cloud, ctx, bank_id):
+    """A second statement, 27–30 Sep: the one bank move `giro_variety` makes
+    (BCA-GR-000104 clearing on the 29th) and the transfer that replaced the
+    bounced giro, plus a returned-item fee the bank charged that nobody has
+    booked yet — so Bank Reconciliation still has an open line even after the
+    first statement squared away clean."""
+    statements = rows(cloud.get("/api/v1/finance/bank-statements"))
+    mine = [s for s in statements if s.get("account_code") == "1005" and s.get("unit_id") == HO_UNIT
+            and str(s.get("period_start", "")) == SEP(27)]
+    if not mine:
+        ledger = cloud.get(f"/api/v1/finance/accounts/1005/ledger?unit={HO_UNIT}"
+                           f"&from={SEP(27)}&to={SEP(30)}&limit=500")
+        lines = [{"value_date": r["posting_date"],
+                  "description": (r.get("memo") or r["entry_number"])[:60],
+                  "reference": r["entry_number"],
+                  "debit_minor": r["credit_minor"], "credit_minor": r["debit_minor"]}
+                 for r in rows(ledger)]
+        # Left unmatched on purpose: a returned-item fee nobody has booked yet.
+        lines.append({"value_date": SEP(30), "description": "BIAYA TOLAKAN KLIRING",
+                      "reference": None, "debit_minor": 5_000, "credit_minor": 0})
+        opening = statement_opening(statements, SEP(27), ledger["opening_minor"])
+        closing = opening + sum(l["credit_minor"] - l["debit_minor"] for l in lines)
+        cloud.post("/api/v1/finance/bank-statements", {
+            "account_code": "1005", "unit_id": HO_UNIT, "bank_account_id": bank_id,
+            "period_start": SEP(27), "period_end": SEP(30),
+            "opening_minor": opening, "closing_minor": closing,
+            "source_name": "rekening-koran-BCA-8730123456-2026-09-late.csv", "lines": lines})
+        say(f"+ bank statement Giro BCA 27–30 Sep: {len(lines)} lines, closing Rp {closing:,}")
+        statements = rows(cloud.get("/api/v1/finance/bank-statements"))
+        mine = [s for s in statements if s.get("account_code") == "1005" and s.get("unit_id") == HO_UNIT
+                and str(s.get("period_start", "")) == SEP(27)]
+    stmt = mine[0]
+    sid = stmt.get("statement_id") or stmt.get("id")
+    by_entry = {r["entry_number"]: r["line_id"] for r in rows(cloud.get(
+        f"/api/v1/finance/accounts/1005/ledger?unit={HO_UNIT}&from={SEP(27)}&to={SEP(30)}&limit=500"))}
+    matched = 0
+    for line in rows(cloud.get(f"/api/v1/finance/bank-statements/{sid}/lines")):
+        if line.get("matched_journal_line_id") or line.get("status") in ("MATCHED", "BOOKED"):
+            continue
+        if line.get("reference") in by_entry:
+            cloud.post(f"/api/v1/finance/bank-lines/{line['line_id']}/match", {
+                "journal_line_id": by_entry[line["reference"]], "score": 100,
+                "reasons": ["amount", "date", "reference"], "automatic": False})
+            matched += 1
+        # BIAYA TOLAKAN KLIRING stays unmatched: the open item this statement
+        # exists to demonstrate.
+    if matched:
+        say(f"+ reconciliation (27–30 Sep): {matched} lines matched, 1 bank-only line still open")
+
+
+def ap_ageing_variety(cloud, ctx):
+    """The Purchase Invoice / AP screens read thin with one bill per supplier,
+    all `not_due`: an unpaid one already past its date (0002, an earlier
+    delivery's freight) and a draft still being checked (0001, a service
+    not yet approved) — so ageing has a bucket besides `not_due` and the
+    Purchase Invoice list has more than one status."""
+    have = bills_by_number(cloud)
+    number = "ONGKIR-0002-0912"
+    if number not in have:
+        bill = cloud.post("/api/v1/finance/bills", {
+            "invoice_number": number, "supplier_id": "0002", "supplier_name": None,
+            "site_id": HO, "invoice_date": SEP(5), "due_date": "2026-09-15",
+            "subtotal_minor": 220_000, "tax_minor": 0, "discount_minor": 0, "kind": "EXPENSE",
+            "withholding_code": None, "note": "Ongkos kirim PO-DEMO-002 (belum dibayar)",
+            "lines": [{"account_code": "6010", "site_id": HO, "amount_minor": 220_000,
+                       "draws_reserve": False, "account_overridden": True,
+                       "memo": "Ongkos angkut PO-DEMO-002 ke DC"}]})
+        if cloud.get(f"/api/v1/finance/bills/{bill['invoice_id']}")["status"] in ("DRAFT", "MATCHED"):
+            cloud.post(f"/api/v1/finance/bills/{bill['invoice_id']}/post", {})
+        say(f"+ overdue bill {number} 0002 Rp 220,000, due 15 Sep, unpaid")
+    number = "INV-0001-003"
+    if number not in have:
+        # A MERCHANDISE bill nobody has matched to a receipt yet: the one kind
+        # of bill this build does not auto-post, so it sits DRAFT for review —
+        # the paper arrived ahead of the delivery it is for.
+        cloud.post("/api/v1/finance/bills", {
+            "invoice_number": number, "supplier_id": "0001", "supplier_name": None,
+            "site_id": HO, "invoice_date": SEP(28), "due_date": "2026-10-28",
+            "subtotal_minor": 2_150_000, "tax_minor": 0, "discount_minor": 0,
+            "kind": "MERCHANDISE", "note": "Faktur PO-DEMO-003 (belum dicocokkan, barang belum tiba)"})
+        say(f"+ draft bill {number} 0001 Rp 2,150,000 (left DRAFT, unmatched)")
+
+
+def giro_by_number(cloud, number):
+    for g in rows(cloud.get("/api/v1/finance/giros?limit=200")):
+        if g.get("number") == number:
+            return g
+    return None
+
+
+def giro_variety(cloud, checker, ctx):
+    """The Banking screens read thin with one giro: a vehicle-service bill
+    from 0002, split across four giros so each rung of the ladder has an
+    example (issued, delivered, cleared, bounced-then-replaced), plus one
+    giro the other way — a refund handed to head office as a post-dated
+    cheque (a BKM, direction IN)."""
+    have = bills_by_number(cloud)
+    number = "SERVIS-0002-0918"
+    bill = have.get(number)
+    if bill is None:
+        bill = cloud.post("/api/v1/finance/bills", {
+            "invoice_number": number, "supplier_id": "0002", "supplier_name": None,
+            "site_id": HO, "invoice_date": SEP(18), "due_date": "2026-10-18",
+            "subtotal_minor": 2_000_000, "tax_minor": 0, "discount_minor": 0, "kind": "EXPENSE",
+            "withholding_code": None, "note": "Servis kendaraan operasional DC",
+            "lines": [{"account_code": "6071", "site_id": HO, "amount_minor": 2_000_000,
+                       "draws_reserve": False, "account_overridden": True,
+                       "memo": "Servis rutin kendaraan operasional"}]})
+        say(f"+ expense bill {number} 0002 Rp 2,000,000 (Dr 6071 / Cr 2004)")
+    bill_id = bill["invoice_id"]
+
+    # 1) issued — left exactly where a fresh giro starts.
+    p = pay(cloud, "BG-SERVIS-01", bill_id, 500_000, 15, method="GIRO",
+            giro=("BCA-GR-000102", "2026-10-15"))
+    post_payment(cloud, p, 15)
+    p.get("_existing") or say("+ giro BCA-GR-000102 Rp 500,000 issued to 0002 (servis, 1/4)")
+
+    # 2) delivered — handed to the supplier, nothing posted yet.
+    p = pay(cloud, "BG-SERVIS-02", bill_id, 500_000, 16, method="GIRO",
+            giro=("BCA-GR-000103", "2026-10-16"))
+    post_payment(cloud, p, 16)
+    g = giro_by_number(cloud, "BCA-GR-000103")
+    if g and g["status"] == "ISSUED":
+        cloud.post(f"/api/v1/finance/giros/{g['giro_id']}/deliver", {})
+        say("+ giro BCA-GR-000103 delivered to 0002 (servis, 2/4)")
+
+    # 3) cleared — the bank took it; the only move that touches 1005.
+    p = pay(cloud, "BG-SERVIS-03", bill_id, 500_000, 17, method="GIRO",
+            giro=("BCA-GR-000104", "2026-10-17"))
+    post_payment(cloud, p, 17)
+    g = giro_by_number(cloud, "BCA-GR-000104")
+    if g and g["status"] not in ("CLEARED", "REJECTED"):
+        cloud.post(f"/api/v1/finance/giros/{g['giro_id']}/clear",
+                   {"on": SEP(29), "statement_line_id": None, "reason": None})
+        say("+ giro BCA-GR-000104 cleared by the bank 29 Sep (servis, 3/4)")
+
+    # 4) bounced, then replaced by a transfer for the same bill.
+    p = pay(cloud, "BG-SERVIS-04", bill_id, 500_000, 18, method="GIRO",
+            giro=("BCA-GR-000105", "2026-10-18"))
+    post_payment(cloud, p, 18)
+    g = giro_by_number(cloud, "BCA-GR-000105")
+    if g and g["status"] not in ("CLEARED", "REJECTED"):
+        cloud.post(f"/api/v1/finance/giros/{g['giro_id']}/reject",
+                   {"on": SEP(27), "statement_line_id": None,
+                    "reason": "Ditolak bank: saldo rekening 0002 tidak dapat menerima kliring"})
+        say("+ giro BCA-GR-000105 bounced 27 Sep (servis, 4/4) — debt reopened")
+    if g and not (g.get("replaced_by_payment_id") or g.get("replaced_by_document_id")):
+        r = pay(cloud, "TRF-SERVIS-04-REPLACE", bill_id, 500_000, 28)
+        r = post_payment(cloud, r, 28)
+        rid = r.get("payment_id") or r.get("id")
+        cloud.post(f"/api/v1/finance/giros/{g['giro_id']}/replace", {"payment_id": rid})
+        say("+ bounced giro BCA-GR-000105 replaced by transfer TRF-SERVIS-04-REPLACE")
+
+    # An incoming giro — money the other way, on a BKM. A landlord refunding
+    # a rent deposit with a post-dated cheque rather than a transfer.
+    number = "Refund jaminan sewa gudang cadangan"
+    already = any(d.get("memo") == number and d.get("status") != "CANCELLED"
+                  for d in rows(cloud.get("/api/v1/finance/cash-documents?limit=500")))
+    if not already:
+        # `POST /finance/cash-documents/voucher` exists in the source
+        # (`record_voucher`, money.rs) but this rig's running `cloud` binary
+        # answers it 405 Allow: GET,HEAD — a stale build that predates the
+        # route. Not a finance.py bug; skip this one document rather than
+        # fail the whole stage, and leave the note in the run's output.
+        try:
+            doc = cloud.post("/api/v1/finance/cash-documents/voucher", {
+                "doc_date": SEP(20), "direction": "IN", "money": BANK, "method": "GIRO",
+                "reference": None, "giro_number": "BCA-GR-IN-000001", "giro_due_date": "2026-10-20",
+                "giro_bank": "MANDIRI", "party_type": "OTHER", "supplier_id": None,
+                "employee_id": None, "party_name": "PT Properti Cikupa", "memo": number,
+                "lines": [{"kind": "OTHER",
+                           "account": {"semantic_key": None, "qualifier": "", "account_code": "6002",
+                                       "category_code": None, "unit_id": HO_UNIT},
+                           "amount_minor": 800_000, "discount_minor": 0,
+                           "note": "Refund jaminan sewa gudang cadangan (giro mundur)"}]})
+        except SystemExit as error:
+            say(f"!! skipped: incoming giro BKM needs POST /finance/cash-documents/voucher, "
+                f"which this build's binary does not route yet ({error})")
+        else:
+            doc_id = doc.get("document_id") or doc.get("id")
+            checker.post(f"/api/v1/finance/cash-documents/{doc_id}/approve", {})
+            cloud.post(f"/api/v1/finance/cash-documents/{doc_id}/post", {})
+            say("+ incoming giro BCA-GR-IN-000001 Rp 800,000 from PT Properti Cikupa (BKM)")
 
 
 # ---------------------------------------------------------------------------
@@ -666,6 +1004,8 @@ def run_as(cloud, checker, ctx):
     record_merchandise_bills(cloud, ctx)
     fund(cloud, ctx)
     loan(cloud, ctx, journal_memos(cloud), bank_id)
+    account_links(cloud, ctx)
+    journal_template(cloud, ctx)
     prepaid_and_accrual(cloud, checker, ctx)
     petty_cash(cloud, checker, ctx)
     supplier_advance(cloud, ctx)
@@ -673,7 +1013,12 @@ def run_as(cloud, checker, ctx):
     head_office_pays_the_shop(cloud, checker, ctx)
     payments(cloud, ctx)
     freight_bill(cloud, ctx)
+    ap_ageing_variety(cloud, ctx)
+    giro_variety(cloud, checker, ctx)
+    cash_doc_variety(cloud, checker, ctx)
     tax(cloud, ctx)
+    assets(cloud, ctx)
     recurring_bill(cloud, ctx)
     setup(cloud, ctx)
     bank_statement(cloud, ctx, bank_id)   # last: it mirrors every bank movement above
+    bank_statement_late(cloud, ctx, bank_id)   # the giro clear + replacement, 27-30 Sep

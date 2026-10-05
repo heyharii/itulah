@@ -1,38 +1,51 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { ChevronRight } from "lucide-react"
+import { useState } from "react"
 
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/field"
 import { ListTable, type ListColumn } from "@/components/ui/list-table"
 import { Pill } from "@/components/ui/pill"
 import { RecordSheet } from "@/components/ui/record-sheet"
+import { ScanField } from "@/components/ui/scan-field"
 import { Banner, ErrorState, LoadingState } from "@/components/ui/states"
-import { count, moment } from "@/lib/format"
+import { describe } from "@/lib/errors"
+import { count, day } from "@/lib/format"
+import {
+  inboundDeliveryKey,
+  inboundListKey,
+  receiveInboundByCount,
+} from "@/lib/queries"
 import { cn } from "@/lib/utils"
 import {
   byTrouble,
   deliveryName,
-  resultOf,
   useInboundDelivery,
   verdictOf,
 } from "@/screens/stock/inbound"
 import { Code, Fact, Facts } from "@/screens/stock/parts"
 import { useRange } from "@/screens/stock/shared"
+import { idempotencyKey } from "@itulah/contract/client"
 import type {
   CatalogRow,
   StoreInboundDelivery,
   StoreInboundLine,
-  StoreInboundResult,
 } from "@itulah/contract"
 
-/// One delivery, opened over the list.
+/// One delivery, opened under its row in the list: a count to take while it is
+/// in transit, and the items with what was packed against what was counted once
+/// it is in.
 ///
 /// Two different sheets under one frame, because a delivery is two different
 /// things to a shop depending on where it is:
 ///
-///  - **in transit** it is a job — the facts somebody needs to find the koli
-///    and the steps to count them on the handheld. What was packed is NOT here:
-///    the count is blind, and the node does not send it.
+///  - **in transit** it is a job — the facts somebody needs, and a Receive
+///    action that takes a blind count per SKU, scanned or typed, no reader
+///    required (owner, 29 Sep 2026). What was packed is NOT here: the count
+///    is blind, and the node does not send it.
 ///  - **received** it is a result — the totals, then every SKU with what was
 ///    packed against what was counted, the problems first, each one opening
-///    onto the tags behind its missing and extra units.
+///    onto the tags behind its missing units.
 ///
 /// The sheet follows the list rather than holding a copy: a delivery open in
 /// transit turns into its result the moment the list's poll sees it received,
@@ -58,82 +71,186 @@ export function DeliverySheet({
       title={deliveryName(delivery)}
       caption={
         received
-          ? `Received ${moment(delivery.received_at)}${
+          ? `Received ${day(delivery.received_at)}${
               delivery.received_by === null ? "" : ` by ${delivery.received_by}`
             }`
-          : `Departed ${moment(delivery.departed_at)} from ${delivery.source_site_id}`
+          : `Departed ${day(delivery.departed_at)}`
       }
       badge={<Pill tone={verdict.tone}>{verdict.label}</Pill>}
-      // A received delivery carries a five-column table; the job does not.
       width={received ? "wide" : "rail"}
     >
-      {received ? (
-        <Received delivery={delivery} />
-      ) : (
-        <InTransit delivery={delivery} />
-      )}
+      <DeliveryFacts delivery={delivery} />
+      <div className="mt-8">
+        {received ? (
+          <Received delivery={delivery} />
+        ) : (
+          <InTransit delivery={delivery} startCounting />
+        )}
+      </div>
     </RecordSheet>
   )
 }
 
 // ── In transit ──────────────────────────────────────────────────────────────
 
-function InTransit({ delivery }: { delivery: StoreInboundDelivery }) {
+function InTransit({
+  delivery,
+  startCounting = false,
+}: {
+  delivery: StoreInboundDelivery
+  /// Opened from the row's Count receive: straight into the count.
+  startCounting?: boolean
+}) {
+  const [counting, setCounting] = useState(startCounting)
   return (
     <>
       <DeliveryFacts delivery={delivery} />
 
-      <section className="mt-7">
-        <h3 className="text-card-title font-semibold text-ink">
-          Receive it with the handheld
-        </h3>
-        <p className="mt-1 text-meta text-body">
-          Once every koli is in the stockroom:
-        </p>
-        <ol className="mt-3.5 flex flex-col gap-3">
-          <Step n={1}>
-            Open the handheld and choose <Word>Receive</Word>.
-          </Step>
-          <Step n={2}>
-            Choose this delivery — <Word>{deliveryName(delivery)}</Word>, from{" "}
-            {delivery.source_site_id}.
-          </Step>
-          <Step n={3}>
-            Open each koli and sweep it until the count stops climbing — all{" "}
-            {count(delivery.koli_count)} of them before you finish.
-          </Step>
-          <Step n={4}>
-            Press <Word>Finish</Word>. The result shows here within a quarter of
-            a minute.
-          </Step>
-        </ol>
-      </section>
-
-      <p className="mt-7 rounded-inner bg-soft px-3.5 py-3 text-meta leading-relaxed text-body">
-        How many were packed is not shown until the count is in. A count made
-        against a number tends to find that number, and the point of sweeping is
-        to find what actually arrived.
-      </p>
+      {counting ? (
+        <CountReceive delivery={delivery} onCancel={() => setCounting(false)} />
+      ) : (
+        <section className="mt-8">
+          <Button variant="primary" onClick={() => setCounting(true)}>
+            Receive
+          </Button>
+        </section>
+      )}
     </>
   )
 }
 
-function Step({ n, children }: { n: number; children: React.ReactNode }) {
-  return (
-    <li className="flex gap-3">
-      <span className="grid size-6 shrink-0 place-items-center rounded-full bg-soft-2 text-meta font-semibold text-body tabular-nums">
-        {n}
-      </span>
-      <span className="min-w-0 pt-0.5 text-cell leading-relaxed text-text">
-        {children}
-      </span>
-    </li>
-  )
-}
+/// A blind count per SKU — scanned or typed, Enter adds one — with nothing
+/// about `delivery` shown while it is being taken. Owner, 29 Sep 2026:
+/// receiving needs no RFID, so this replaces the handheld as the ordinary way
+/// a delivery is received; the node turns each count into that many of the
+/// delivery's own manifest pieces and books them exactly as a sweep would.
+function CountReceive({
+  delivery,
+  onCancel,
+}: {
+  delivery: StoreInboundDelivery
+  onCancel: () => void
+}) {
+  const client = useQueryClient()
+  const [counts, setCounts] = useState<Readonly<Record<string, number>>>({})
 
-/// A word on the handheld's own screen — a button or the name somebody picks.
-function Word({ children }: { children: React.ReactNode }) {
-  return <span className="font-medium text-ink">{children}</span>
+  const receive = useMutation({
+    mutationFn: () =>
+      receiveInboundByCount(delivery.delivery_id, {
+        counts: Object.entries(counts).map(([sku_code, quantity]) => ({
+          sku_code,
+          quantity,
+        })),
+        // Replaced by the signed-in principal when the node enforces auth.
+        actor_id: "",
+        idempotency_key: idempotencyKey(),
+      }),
+    onSuccess: () => {
+      setCounts({})
+      void client.invalidateQueries({ queryKey: inboundListKey("ALL") })
+      void client.invalidateQueries({
+        queryKey: inboundDeliveryKey(delivery.delivery_id),
+      })
+    },
+  })
+
+  const setQty = (sku: string, qty: number) => {
+    setCounts((current) => {
+      if (qty <= 0) {
+        if (current[sku] === undefined) return current
+        const rest = { ...current }
+        delete rest[sku]
+        return rest
+      }
+      if (current[sku] === qty) return current
+      return { ...current, [sku]: qty }
+    })
+  }
+
+  /// A scan is a SKU, optionally with a trailing quantity someone typed —
+  /// `"00000012345 x3"` or `"00000012345*3"` — for a shelf counted by the
+  /// carton rather than piece by piece. Anything else adds one.
+  const onScan = (raw: string) => {
+    const match = raw.trim().match(/^(.*?)(?:[\s*xX]+(\d+))?$/)
+    const sku = (match?.[1] ?? raw).trim().toUpperCase()
+    if (sku === "") return
+    const qty = match?.[2] ? Number(match[2]) : 1
+    setCounts((current) => ({ ...current, [sku]: (current[sku] ?? 0) + qty }))
+  }
+
+  const lines = Object.entries(counts)
+  const total = lines.reduce((sum, [, qty]) => sum + qty, 0)
+
+  return (
+    <section className="mt-7">
+      <h3 className="text-card-title font-semibold text-ink">Receive it</h3>
+      <p className="mt-1 text-meta text-body">
+        Scan a barcode or type a SKU and press Enter to add one.
+      </p>
+      <ScanField
+        className="mt-3.5"
+        onScan={onScan}
+        placeholder="Scan a barcode or type a SKU"
+      />
+
+      {lines.length === 0 ? (
+        <p className="mt-3 text-meta text-mute">Nothing counted yet.</p>
+      ) : (
+        <ul className="mt-3.5 flex flex-col gap-2">
+          {lines.map(([sku, qty]) => (
+            <li
+              key={sku}
+              className="flex items-center gap-2.5 rounded-inner border border-hairline px-3 py-2"
+            >
+              <span className="min-w-0 flex-1 truncate font-mono text-cell text-ink">
+                {sku}
+              </span>
+              <Input
+                className="w-16 text-right"
+                inputMode="numeric"
+                aria-label={`Quantity for ${sku}`}
+                value={String(qty)}
+                onChange={(event) => {
+                  const digits = event.target.value.replace(/\D/g, "")
+                  setQty(sku, digits === "" ? 0 : Number(digits))
+                }}
+              />
+              <Button variant="quiet" onClick={() => setQty(sku, 0)}>
+                Remove
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <p className="mt-3 text-meta text-mute tabular-nums">
+        {count(total)} {total === 1 ? "piece" : "pieces"} counted
+      </p>
+
+      {receive.error !== null && (
+        <Banner tone="bad" className="mt-3">
+          {describe(receive.error)}
+        </Banner>
+      )}
+
+      <div className="mt-4 flex items-center gap-2">
+        <Button
+          variant="ghost"
+          onClick={onCancel}
+          disabled={receive.isPending}
+        >
+          Cancel
+        </Button>
+        <Button
+          variant="primary"
+          disabled={lines.length === 0 || receive.isPending}
+          onClick={() => receive.mutate()}
+        >
+          {receive.isPending ? "Receiving…" : "Receive"}
+        </Button>
+      </div>
+    </section>
+  )
 }
 
 // ── Received ────────────────────────────────────────────────────────────────
@@ -141,115 +258,41 @@ function Word({ children }: { children: React.ReactNode }) {
 function Received({ delivery }: { delivery: StoreInboundDelivery }) {
   const detail = useInboundDelivery(delivery.delivery_id, true)
   const { bySku } = useRange()
-  // The list's copy first — it is the one being polled — and the detail's when
-  // the list has not caught up yet.
-  const result =
-    resultOf(delivery) ??
-    (detail.data === undefined ? null : resultOf(detail.data.delivery))
-  const lines = [...(detail.data?.lines ?? [])].sort(byTrouble)
+  // Only what was on the delivery: a piece found that was not packed is not a
+  // line of it.
+  const lines = (detail.data?.lines ?? [])
+    .filter((line) => line.expected > 0)
+    .sort(byTrouble)
   const skipped = detail.data?.skipped_epcs ?? []
-  const troubled = lines.filter((line) => line.missing + line.extra > 0).length
 
   return (
-    <>
-      {result !== null && <Totals result={result} />}
-      {result !== null && result.missing_units > 0 && (
-        <Banner tone="bad" className="mt-3">
-          {count(result.missing_units)}{" "}
-          {result.missing_units === 1 ? "unit was" : "units were"} packed and
-          not found in the sweep. Their tags are listed under each item below.
-        </Banner>
-      )}
-      {result !== null &&
-        result.missing_units === 0 &&
-        result.extra_units > 0 && (
-          <Banner tone="warn" className="mt-3">
-            Everything packed arrived, and {count(result.extra_units)}{" "}
-            {result.extra_units === 1 ? "unit" : "units"} more that were not on
-            this delivery.
-          </Banner>
+    <div className="flex flex-col gap-3 pb-2">
+      <div className="overflow-hidden rounded-card border border-hairline bg-canvas">
+        {detail.isPending ? (
+          <LoadingState>Reading the count…</LoadingState>
+        ) : detail.isError ? (
+          <ErrorState
+            error={detail.error}
+            onRetry={() => void detail.refetch()}
+          />
+        ) : (
+          <ListTable
+            roomy
+            rows={lines}
+            columns={lineColumns(bySku)}
+            rowKey={(line) => line.sku_code}
+            detail={(line) => <LineTags line={line} />}
+            empty="The node holds no lines for this delivery."
+          />
         )}
-
-      <DeliveryFacts delivery={delivery} className="mt-6" />
-
-      <section className="mt-7">
-        <div className="mb-2.5 flex items-baseline justify-between gap-3">
-          <h3 className="text-card-title font-semibold text-ink">By item</h3>
-          {lines.length > 0 && (
-            <span className="text-meta text-mute tabular-nums">
-              {count(lines.length)} {lines.length === 1 ? "SKU" : "SKUs"}
-              {troubled > 0 &&
-                ` · ${count(troubled)} with a difference, listed first`}
-            </span>
-          )}
-        </div>
-        <div className="overflow-hidden rounded-card border border-hairline">
-          {detail.isPending ? (
-            <LoadingState>Reading the count…</LoadingState>
-          ) : detail.isError ? (
-            <ErrorState
-              error={detail.error}
-              onRetry={() => void detail.refetch()}
-            />
-          ) : (
-            <ListTable
-              rows={lines}
-              columns={lineColumns(bySku)}
-              rowKey={(line) => line.sku_code}
-              detail={(line) => <LineTags line={line} />}
-              empty="The node holds no lines for this delivery."
-            />
-          )}
-        </div>
-      </section>
-
+      </div>
       {skipped.length > 0 && <Skipped epcs={skipped} />}
-    </>
+    </div>
   )
 }
 
-/// What was packed against what was counted, as four figures. Missing and
-/// extra keep their colour only while they are not zero — a grey zero is the
-/// good news, and a green one would be a colour for nothing happening.
-function Totals({ result }: { result: StoreInboundResult }) {
-  const cells = [
-    { label: "Expected", value: result.expected_units, tone: "text-ink" },
-    { label: "Received", value: result.received_units, tone: "text-ink" },
-    {
-      label: "Missing",
-      value: result.missing_units,
-      tone: result.missing_units > 0 ? "text-bad-fg" : "text-mute",
-    },
-    {
-      label: "Extra",
-      value: result.extra_units,
-      tone: result.extra_units > 0 ? "text-warn-fg" : "text-mute",
-    },
-  ]
-  return (
-    <dl className="grid grid-cols-4 overflow-hidden rounded-card border border-hairline">
-      {cells.map((cell) => (
-        <div
-          key={cell.label}
-          className="min-w-0 border-l border-hairline px-3 py-2.5 first:border-l-0 md:px-4"
-        >
-          <dt className="truncate text-meta text-body">{cell.label}</dt>
-          <dd
-            className={cn(
-              "mt-1 truncate text-kpi font-semibold tabular-nums",
-              cell.tone,
-            )}
-          >
-            {count(cell.value)}
-          </dd>
-        </div>
-      ))}
-    </dl>
-  )
-}
-
-/// The delivery's own facts — the same five in transit and received, so the
-/// two sheets read as one record at two moments.
+/// The delivery's own facts — the same in transit and received, so the two
+/// sheets read as one record at two moments. The id is in the sheet's header.
 function DeliveryFacts({
   delivery,
   className,
@@ -259,27 +302,22 @@ function DeliveryFacts({
 }) {
   return (
     <Facts className={className}>
-      <Fact term="From">{delivery.source_site_id}</Fact>
-      <Fact term="Departed">{moment(delivery.departed_at)}</Fact>
-      <Fact term="Koli">{count(delivery.koli_count)}</Fact>
       <Fact term="Surat jalan">
         {delivery.shipment_reference ?? (
           <span className="text-mute">None given</span>
         )}
       </Fact>
+      <Fact term="Koli">{count(delivery.koli_count)}</Fact>
+      <Fact term="Departed">{day(delivery.departed_at)}</Fact>
       {delivery.status === "RECEIVED" && (
-        <Fact term="Received">
-          {moment(delivery.received_at)}
+        <>
+          <Fact term="Received">{day(delivery.received_at)}</Fact>
           {delivery.received_by !== null && (
-            <span className="block text-meta text-body">
-              by {delivery.received_by}
-            </span>
+            <Fact term="Received by">{delivery.received_by}</Fact>
           )}
-        </Fact>
+        </>
       )}
-      <Fact term="Delivery" wide>
-        <Code>{delivery.delivery_id}</Code>
-      </Fact>
+
     </Facts>
   )
 }
@@ -315,31 +353,32 @@ function lineColumns(
     },
     {
       id: "expected",
-      header: "Expected",
+      header: "Sent",
       align: "right",
       card: "hide",
       cell: (line) => figure(line.expected, "text-text"),
     },
     {
       id: "received",
-      header: "Received",
+      header: "Counted",
       align: "right",
       card: "hide",
-      cell: (line) => figure(line.received, "font-medium text-ink"),
-    },
-    {
-      id: "missing",
-      header: "Missing",
-      align: "right",
-      card: "hide",
-      cell: (line) => figure(line.missing, "font-medium text-bad-fg"),
-    },
-    {
-      id: "extra",
-      header: "Extra",
-      align: "right",
-      card: "hide",
-      cell: (line) => figure(line.extra, "font-medium text-warn-fg"),
+      // Green when more came than was sent, red when fewer, plain when they
+      // match.
+      cell: (line) => (
+        <span
+          className={cn(
+            "font-medium tabular-nums",
+            line.received > line.expected
+              ? "text-ok-fg"
+              : line.received < line.expected
+                ? "text-bad-fg"
+                : "text-ink",
+          )}
+        >
+          {count(line.received)}
+        </span>
+      ),
     },
     {
       // The phone's: one pill for the line's difference. Hidden on a desk,
@@ -351,8 +390,6 @@ function lineColumns(
       cell: (line) =>
         line.missing > 0 ? (
           <Pill tone="bad">{count(line.missing)} missing</Pill>
-        ) : line.extra > 0 ? (
-          <Pill tone="warn">{count(line.extra)} extra</Pill>
         ) : (
           <Pill tone="ok">Complete</Pill>
         ),
@@ -363,14 +400,7 @@ function lineColumns(
       card: "meta",
       className: "hidden",
       cell: (line) =>
-        [
-          `${count(line.received)} of ${count(line.expected)} received`,
-          line.missing > 0 && line.extra > 0
-            ? `${count(line.extra)} extra`
-            : null,
-        ]
-          .filter(Boolean)
-          .join(" · "),
+        `${count(line.received)} of ${count(line.expected)} counted`,
     },
   ]
 }
@@ -378,10 +408,10 @@ function lineColumns(
 /// What opens under an item: the tags behind its difference. These are what
 /// somebody reads out to the DC, or looks for on a rail.
 function LineTags({ line }: { line: StoreInboundLine }) {
-  if (line.missing_epcs.length === 0 && line.extra_epcs.length === 0) {
+  if (line.missing_epcs.length === 0) {
     return (
       <p className="pt-1 text-meta text-body">
-        Every unit packed was counted, and nothing more.
+        Everything was counted.
       </p>
     )
   }
@@ -392,13 +422,6 @@ function LineTags({ line }: { line: StoreInboundLine }) {
           title="Missing — packed, not found"
           tone="text-bad-fg"
           epcs={line.missing_epcs}
-        />
-      )}
-      {line.extra_epcs.length > 0 && (
-        <TagList
-          title="Extra — found, not packed"
-          tone="text-warn-fg"
-          epcs={line.extra_epcs}
         />
       )}
     </div>
@@ -446,8 +469,7 @@ function Skipped({ epcs }: { epcs: readonly string[] }) {
           <span className="font-medium text-ink tabular-nums">
             {count(epcs.length)} {epcs.length === 1 ? "tag" : "tags"} skipped
           </span>{" "}
-          — read by the handheld, counted as neither received nor extra. Usually
-          a tag that is not one of ours.
+          — not counted either way
         </span>
       </summary>
       <ul className="grid gap-x-4 gap-y-1 border-t border-hairline px-3.5 py-2.5 lg:grid-cols-2">
@@ -458,5 +480,14 @@ function Skipped({ epcs }: { epcs: readonly string[] }) {
         ))}
       </ul>
     </details>
+  )
+}
+
+/// What a delivery's row unfolds to: its items, or the count to take.
+export function DeliveryDetail({ delivery }: { delivery: StoreInboundDelivery }) {
+  return delivery.status === "RECEIVED" ? (
+    <Received delivery={delivery} />
+  ) : (
+    <InTransit delivery={delivery} />
   )
 }

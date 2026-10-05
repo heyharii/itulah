@@ -146,9 +146,7 @@ export function LetterBody({
           >
             <ListOrdered className="size-3.5" />
           </Mark>
-          <span className="ml-2 text-pill text-mute">
-            Prints on the letter
-          </span>
+          <span className="ml-2 text-pill text-mute">Prints on the letter</span>
         </div>
       )}
       <EditorContent editor={editor} />

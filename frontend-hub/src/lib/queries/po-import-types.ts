@@ -4,7 +4,10 @@
 /// working copy: the wire draft is readonly at rest, and the wizard and the
 /// summary edit a shallow structural copy, so a frozen wire type and an
 /// editable form can agree.
-import type { PoImportDraft as WireDraft, PoImportQuestion } from "@itulah/contract"
+import type {
+  PoImportDraft as WireDraft,
+  PoImportQuestion,
+} from "@itulah/contract"
 
 export type {
   PoImportDraft,
@@ -33,6 +36,11 @@ export interface EditableDraft {
     article_name: string | null
     quantity: number | null
     unit: string | null
+    /// The printed `unit` matched to the units master, or the buyer's own
+    /// pick when the paper named nothing or something the master does not
+    /// know. Starts as the wire draft's own reading; the review summary lets
+    /// a buyer override it before the order is raised — see `import.tsx`.
+    unit_code: string | null
     unit_price_minor: number | null
     promised_date: string | null
   }>

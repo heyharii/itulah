@@ -293,7 +293,6 @@ export function AccountLinks() {
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search"
             className="h-8 w-48"
           />
         }
@@ -784,7 +783,7 @@ function AddLinkForm({
               }
               onClick={() => add.mutate()}
             >
-              {add.isPending ? "Saving…" : "Save link"}
+              {add.isPending ? "Submitting…" : "Submit"}
             </Button>
           </div>
         </div>

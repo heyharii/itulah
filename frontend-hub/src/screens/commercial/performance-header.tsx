@@ -226,7 +226,7 @@ export function PerformanceHeader({ of }: { of: "campaigns" | "rules" }) {
 
   return (
     <>
-      <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+      <div className="mb-5 flex flex-wrap items-center justify-end gap-3">
         <div className="inline-flex items-center gap-1 rounded-full border border-hairline bg-canvas p-0.5">
           {WINDOWS.map((one) => (
             <button
@@ -252,7 +252,7 @@ export function PerformanceHeader({ of }: { of: "campaigns" | "rules" }) {
 
       {/* The tiles. Clicking one draws it below — the console gesture, and the
           reason the chart's line needs no control of its own. */}
-      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
         {METRICS.map((one) => (
           <Tile
             key={one.id}
@@ -287,10 +287,10 @@ export function PerformanceHeader({ of }: { of: "campaigns" | "rules" }) {
         ))}
       </div>
 
-      <Card className="mb-4 overflow-hidden">
-        <div className="flex flex-col gap-4 p-3.5 lg:flex-row">
+      <Card className="mb-6 overflow-hidden">
+        <div className="flex flex-col gap-6 p-6 lg:flex-row">
           <div className="min-w-0 flex-1">
-            <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+            <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="text-card-title font-semibold text-ink">
                   {chosen.label} over time
@@ -330,13 +330,13 @@ export function PerformanceHeader({ of }: { of: "campaigns" | "rules" }) {
             )}
           </div>
 
-          <aside className="shrink-0 rounded-card bg-soft p-3.5 lg:w-[15rem]">
+          <aside className="shrink-0 rounded-card bg-soft p-5 lg:w-[16rem]">
             <Ratio share={share} spend={spend} sales={sales} />
             {/* Kept beside the ratio rather than as tiles of their own. They
                 are the only reading of how shoppers responded, and they cannot
                 be summed across offers — so they sit where a lower bound can be
                 said in words instead of implied by a big number. */}
-            <dl className="mt-3.5 border-t border-hairline pt-3 text-meta">
+            <dl className="mt-5 border-t border-hairline pt-4 text-meta">
               <Side
                 term="Customers"
                 value={count(now.customer_count)}
@@ -383,7 +383,7 @@ function Side({
 }) {
   return (
     <div
-      className="flex items-baseline justify-between gap-3 py-1"
+      className="flex items-baseline justify-between gap-3 py-1.5"
       title={hint}
     >
       <dt className="text-mute">{term}</dt>
@@ -462,7 +462,7 @@ function Tile({
       onClick={onSelect}
       aria-pressed={live}
       className={cn(
-        "rounded-card border bg-canvas px-3.5 py-3 text-left shadow-soft transition-colors",
+        "rounded-card border bg-canvas px-5 py-4 text-left shadow-soft transition-colors",
         live ? "border-accent bg-accent-bg/40" : "border-hairline hover:bg-soft"
       )}
     >

@@ -73,6 +73,9 @@ const IMMUTABLE_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct MediaConfig {
     pub account_id: String,
+    /// An S3-compatible endpoint other than R2 — `https://storage.googleapis.com`
+    /// for Google Cloud Storage. When set, `account_id` is not needed.
+    pub endpoint: Option<String>,
     pub bucket: String,
     pub access_key_id: String,
     pub secret_access_key: String,
@@ -94,8 +97,13 @@ impl MediaConfig {
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty())
         };
+        let endpoint = read("STORAGE_ENDPOINT");
         Some(Self {
-            account_id: read("R2_ACCOUNT_ID")?,
+            account_id: match &endpoint {
+                Some(_) => read("R2_ACCOUNT_ID").unwrap_or_default(),
+                None => read("R2_ACCOUNT_ID")?,
+            },
+            endpoint,
             bucket: read("R2_BUCKET")?,
             access_key_id: read("R2_ACCESS_KEY_ID")?,
             secret_access_key: read("R2_SECRET_ACCESS_KEY")?,
@@ -235,6 +243,9 @@ impl CatalogueMedia {
             config.access_key_id.clone(),
             config.secret_access_key.clone(),
         );
+        if let Some(endpoint) = &config.endpoint {
+            store_config = store_config.with_endpoint(endpoint.clone());
+        }
         if let Some(base) = &config.public_base_url {
             store_config = store_config.with_public_base_url(base.clone());
         }
@@ -465,6 +476,7 @@ mod tests {
     fn config(public: Option<&str>) -> MediaConfig {
         MediaConfig {
             account_id: "acct".into(),
+            endpoint: None,
             bucket: "images".into(),
             access_key_id: "AKID".into(),
             secret_access_key: "secret".into(),

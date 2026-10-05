@@ -14,6 +14,7 @@ import {
   articleDetail,
   articleKeys,
   type ArticleDetail,
+  type ArticleSku,
 } from "@/lib/queries/articles"
 import {
   articleImage,
@@ -23,7 +24,11 @@ import {
 import { queryState } from "@/lib/query-state"
 import { ColourSwatch } from "@/screens/master/colour-picker"
 import { ArticleForm } from "@/screens/master/form"
+import { markupFrom } from "@/screens/procurement/line-pricing-model"
+import { Matrix } from "@/screens/procurement/setups"
 import { termLabel } from "@/screens/procurement/shared"
+import { cn } from "@/lib/utils"
+import { useSupplierName } from "@/screens/procurement/supplier-name"
 import type { CatalogueVocabulary } from "@itulah/contract"
 
 /// One article, whole.
@@ -83,6 +88,9 @@ export function ArticleSheet({
         articleCode === null ? undefined : { kind: "article", id: articleCode }
       }
       onOpenChange={(next) => !next && onClose()}
+      // Wider on the SKUs tab: a colour x size grid is read across, and in
+      // a 27.5rem rail five sizes already scrolled sideways.
+      width={tab === "skus" && !editing ? "table" : "rail"}
       id={detail.data?.article_code ?? articleCode ?? undefined}
       title={detail.data?.name ?? "Article"}
       actions={
@@ -190,9 +198,34 @@ function Overview({
         <Fact term="Colourways">{count(article.colours.length)} of 10</Fact>
         <Fact term="Sizes">{count(article.size_codes.length)}</Fact>
         <Fact term="Currency">{article.currency ?? "—"}</Fact>
+        <Fact term="Stock unit">{article.stock_unit_code}</Fact>
+        <Fact term="Default purchase unit">
+          {article.purchase_unit_code ??
+            `${article.stock_unit_code} (stock unit)`}
+        </Fact>
+        <Fact term="Default sales unit">
+          {article.sales_unit_code ?? `${article.stock_unit_code} (stock unit)`}
+        </Fact>
         <Fact term="Created">{day(article.created_at)}</Fact>
         <Fact term="Version">{article.version}</Fact>
       </Facts>
+
+      <div>
+        <SubHead>UoM</SubHead>
+        {article.units.length === 0 ? (
+          <p className="text-meta text-mute">
+            Only ever counted in {article.stock_unit_code}.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-1">
+            {article.units.map((one) => (
+              <li key={one.unit_code} className="text-meta text-ink">
+                1 {one.unit_code} = {one.factor} {article.stock_unit_code}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <div>
         <SubHead>Minted by</SubHead>
@@ -205,13 +238,9 @@ function Overview({
           // No dead ends: the delivery that prompted this product is one click
           // away, which is the only route from a thing back to why it exists.
           //
-          // To `/master`, not to the order book. The setup panel is mounted by
-          // the Articles screen, and it followed the trigger back there on
-          // 2026-09-13 — this link kept pointing at Purchase orders, where
-          // nothing is listening for `?setup=`, so it landed on a screen and
-          // opened nothing.
+          // To New articles, the page that answers `?setup=` (2026-10-02).
           <AppLink
-            to="/master"
+            to="/master/new-articles"
             sheet={{ key: "setup", value: article.created_by_session_id }}
             className="font-mono text-id text-accent hover:underline"
           >
@@ -330,7 +359,15 @@ function Colourway({
 
 // ---------------------------------------------------------------------------
 
-/// The variants, as they were minted.
+/// The variants, as they were minted — colour down, size across, a price in
+/// every cell.
+///
+/// The same grid New articles fills in, on the owner's word of 2026-09-28: a
+/// list of fifteen SKUs read one line at a time was "which XXLs cost more" as
+/// a sum somebody did in their head, and the grid answers it at a glance. The
+/// price most SKUs carry reads plain; one that differs is blue, below cost
+/// red. The SKU code rides on the chip under a hovered cell, with the markup
+/// when the article has one cost to measure it against.
 ///
 /// Every code here is fixed. A SKU is the article's eight digits, the colour's
 /// one and the size's two, and it is already encoded into the EPC on the tag
@@ -345,41 +382,135 @@ function Skus({ article }: { article: ArticleDetail }) {
     )
   }
 
+  // Axes from the SKUs themselves, so a SKU minted without a colour or a size
+  // still has a row and a column to stand in.
+  const colourKey = (sku: ArticleSku) => sku.colour_digit ?? "none"
+  const sizeKey = (sku: ArticleSku) => sku.size_code ?? "none"
+  const colours = [
+    ...new Map(
+      [...article.skus]
+        .sort((one, two) => colourKey(one).localeCompare(colourKey(two)))
+        .map((sku) => [
+          colourKey(sku),
+          {
+            key: colourKey(sku),
+            label: sku.colour_label ?? sku.colour_code ?? "No colour",
+          },
+        ])
+    ).values(),
+  ]
+  const sizes = [
+    ...new Map(
+      [...article.skus]
+        .sort((one, two) => sizeKey(one).localeCompare(sizeKey(two)))
+        .map((sku) => [
+          sizeKey(sku),
+          {
+            code: sizeKey(sku),
+            label: sku.size_label ?? sku.size_code ?? "One size",
+          },
+        ])
+    ).values(),
+  ]
+  const at = new Map(
+    article.skus.map((sku) => [`${colourKey(sku)}|${sizeKey(sku)}`, sku])
+  )
+
+  // The article's price is the one most of its live SKUs carry.
+  const tally = new Map<number, number>()
+  for (const sku of article.skus)
+    if (sku.active && sku.base_price_minor !== null)
+      tally.set(
+        sku.base_price_minor,
+        (tally.get(sku.base_price_minor) ?? 0) + 1
+      )
+  const base =
+    [...tally.entries()].sort((one, two) => two[1] - one[1])[0]?.[0] ?? null
+  const differ = article.skus.filter(
+    (sku) =>
+      sku.active &&
+      sku.base_price_minor !== null &&
+      sku.base_price_minor !== base
+  ).length
+  // One cost to measure a markup against, or none: two suppliers at two
+  // prices is not a cost, it is a question this panel cannot answer.
+  const costs = new Set(
+    article.supplier_items
+      .map((offer) => offer.unit_price_minor)
+      .filter((price): price is number => price !== null)
+  )
+  const cost = costs.size === 1 ? [...costs][0] : null
+
   return (
-    <MiniTable head={["SKU", { label: "Base price", align: "right" }]}>
-      {article.skus.map((sku) => (
-        <MiniRow key={sku.sku_id}>
-          <MiniCell>
-            <span className="block font-mono text-id text-ink">
-              {sku.sku_code}
-            </span>
-            <span className="block text-[0.875rem] text-mute">
-              {sku.colour_label ?? sku.colour_code ?? "no colour"} ·{" "}
-              {sku.size_label ?? sku.size_code ?? "no size"}
-            </span>
-            {sku.qr_payload !== null && (
-              // The QR says *what* this is; the EPC says *which one*. Shown
-              // because a person holding a printed tag is holding this string
-              // and nothing else to search by.
+    <div className="flex flex-col gap-2">
+      <p className="text-[0.875rem] text-mute">
+        {base === null ? (
+          "No SKU has a price yet."
+        ) : (
+          <>
+            <span className="font-medium text-ink">{money(base)}</span>
+            {cost !== null && <> · {markupFrom(cost, base) || "0"}% markup</>}
+            {differ > 0 && (
+              <>
+                {" "}
+                ·{" "}
+                <span className="font-medium text-accent">
+                  {count(differ)}
+                </span>{" "}
+                {differ === 1 ? "SKU priced" : "SKUs priced"} differently
+              </>
+            )}
+          </>
+        )}
+      </p>
+      <Matrix
+        colours={colours}
+        sizes={sizes}
+        columnClass="w-[5.25rem]"
+        // `group` so the chip answers to this one cell; `relative` so it
+        // anchors to it.
+        cellProps={() => ({ className: "group relative" })}
+        cell={(colour, size) => {
+          const sku = at.get(`${colour.key}|${size.code}`)
+          if (sku === undefined) return <span className="text-faint">—</span>
+          const price = sku.base_price_minor
+          return (
+            <>
               <span
-                className="block truncate font-mono text-[0.875rem] text-faint"
-                title={sku.qr_payload}
+                className={cn(
+                  "text-[0.875rem]",
+                  !sku.active
+                    ? "text-mute line-through"
+                    : price === null
+                      ? "text-faint"
+                      : cost !== null && price < cost
+                        ? "text-bad"
+                        : price !== base
+                          ? "font-medium text-accent"
+                          : "text-ink"
+                )}
               >
-                {sku.qr_payload}
+                {price === null ? "—" : count(price)}
               </span>
-            )}
-          </MiniCell>
-          <MiniCell align="right">
-            <span className="block">{money(sku.base_price_minor)}</span>
-            {!sku.active && (
-              <Pill tone="neutral" className="mt-1">
-                Cancelled
-              </Pill>
-            )}
-          </MiniCell>
-        </MiniRow>
-      ))}
-    </MiniTable>
+              {/* Above the cell, not under it: the last row has no footer
+                  beneath it for a chip to hang into, and the grid's box
+                  would cut it off. */}
+              <span
+                aria-hidden
+                className="sku-price-pop pointer-events-none absolute right-1 bottom-[calc(100%-0.25rem)] z-10 hidden rounded-[0.3125rem] bg-tooltip px-2 py-0.5 text-[0.875rem] whitespace-nowrap text-on-dark tabular-nums shadow-pop group-hover:block"
+              >
+                <span className="font-mono">{sku.sku_code}</span>
+                {!sku.active
+                  ? " · cancelled"
+                  : cost !== null && price !== null
+                    ? ` · ${(markupFrom(cost, price) || "0").replace(".", ",")}% markup`
+                    : ""}
+              </span>
+            </>
+          )
+        }}
+      />
+    </div>
   )
 }
 
@@ -388,6 +519,7 @@ function Skus({ article }: { article: ArticleDetail }) {
 /// Goods arrive carrying the supplier's code and never ours, so this join is
 /// the only thing that turns a delivery note into one of our articles.
 function Suppliers({ article }: { article: ArticleDetail }) {
+  const supplierName = useSupplierName()
   if (article.supplier_items.length === 0) {
     return (
       <EmptyState>
@@ -398,7 +530,7 @@ function Suppliers({ article }: { article: ArticleDetail }) {
   }
 
   return (
-    <MiniTable head={["Supplier", { label: "Unit price", align: "right" }]}>
+    <MiniTable head={["Supplier", { label: "Unit Price", align: "right" }]}>
       {article.supplier_items.map((offer) => (
         <MiniRow key={offer.supplier_item_id}>
           <MiniCell>
@@ -407,7 +539,7 @@ function Suppliers({ article }: { article: ArticleDetail }) {
               sheet={{ key: "supplier", value: offer.supplier_id }}
               className="block text-[0.875rem] text-accent hover:underline"
             >
-              {offer.supplier_name}
+              {supplierName(offer.supplier_id, offer.supplier_name)}
             </AppLink>
             <span className="block font-mono text-[0.875rem] text-mute">
               {offer.supplier_article_code}

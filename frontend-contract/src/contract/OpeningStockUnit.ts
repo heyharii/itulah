@@ -8,7 +8,7 @@ import type { OpeningReconciliation } from "./OpeningReconciliation";
  * the stock of every premises a unit owns is explained by the one balance in
  * its books, so it is only the sum over those premises that can agree with it.
  */
-export type OpeningStockUnit = { unit_id: string, articles: number, quantity: number, value_minor: number,
+export type OpeningStockUnit = { unit_id: string, articles: number, quantity: number, value_minor: number, 
 /**
  * The client's inventory account in this unit's books, as the map resolves it.
  */

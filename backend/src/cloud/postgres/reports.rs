@@ -54,17 +54,20 @@ pub async fn daily_sales_report(pool: &PgPool, query: DailyReportQuery) -> Resul
          COALESCE(SUM(paid_minor),0)::bigint paid_minor, \
          COALESCE(SUM(change_minor),0)::bigint change_minor \
          FROM ( \
-           SELECT net_minor,tax_minor,total_minor,paid_minor,change_minor,completed_at sold_at \
+           SELECT net_minor,tax_minor,total_minor,paid_minor,change_minor \
              FROM sale WHERE site_id=$1 AND status='COMPLETED' \
+              AND completed_at >= $2 AND completed_at < $3 \
            UNION ALL \
            SELECT COALESCE(net_ex_tax_minor,total_minor),COALESCE(tax_total_minor,0), \
-                  total_minor,paid_minor,change_minor,occurred_at sold_at \
-             FROM edge_sale WHERE site_id=$1 \
-         ) trade WHERE sold_at >= $2 AND sold_at < $3",
+                  total_minor,paid_minor,change_minor \
+             FROM edge_sale WHERE site_id=$1 AND business_date=$4 \
+         ) trade",
     )
     .bind(&site_id)
     .bind(start)
     .bind(end)
+    // A till's sale counts on its shift's day (0714), whatever the clock said.
+    .bind(query.date)
     .fetch_one(pool)
     .await?;
 
@@ -76,12 +79,13 @@ pub async fn daily_sales_report(pool: &PgPool, query: DailyReportQuery) -> Resul
            UNION ALL \
            SELECT COALESCE(SUM(l.quantity),0)::bigint units \
              FROM edge_sale_line l JOIN edge_sale s ON s.sale_id=l.sale_id \
-            WHERE s.site_id=$1 AND s.occurred_at >= $2 AND s.occurred_at < $3 \
+            WHERE s.site_id=$1 AND s.business_date=$4 \
          ) quantities",
     )
     .bind(&site_id)
     .bind(start)
     .bind(end)
+    .bind(query.date)
     .fetch_one(pool)
     .await?;
 
@@ -91,13 +95,14 @@ pub async fn daily_sales_report(pool: &PgPool, query: DailyReportQuery) -> Resul
             WHERE s.site_id=$1 AND s.status='COMPLETED' AND s.completed_at >= $2 AND s.completed_at < $3 \
            UNION ALL \
            SELECT p.method,p.amount_minor FROM edge_sale_tender p JOIN edge_sale s ON s.sale_id=p.sale_id \
-            WHERE s.site_id=$1 AND s.occurred_at >= $2 AND s.occurred_at < $3 \
+            WHERE s.site_id=$1 AND s.business_date=$4 \
          ) SELECT method,COALESCE(SUM(amount_minor),0)::bigint amount_minor,COUNT(*)::bigint tender_count \
              FROM tenders GROUP BY method ORDER BY method",
     )
     .bind(&site_id)
     .bind(start)
     .bind(end)
+    .bind(query.date)
     .fetch_all(pool)
     .await?;
 
@@ -269,6 +274,10 @@ pub async fn sales_series(pool: &PgPool, query: SalesSeriesQuery) -> Result<Valu
     .fetch_all(pool)
     .await?;
 
+    // Head office's site id, resolved from its kind (0603) and carried so a
+    // client recognises head office without ever spelling the id.
+    let head_office_site_id = super::sites::head_office_site_id(pool).await?;
+
     let buckets = buckets_between(bucket, query.from, query.to);
 
     Ok(json!({
@@ -283,6 +292,7 @@ pub async fn sales_series(pool: &PgPool, query: SalesSeriesQuery) -> Result<Valu
             "site_name": row.get::<String,_>("name"),
             "site_kind": row.get::<String,_>("kind"),
         })).collect::<Vec<_>>(),
+        "head_office_site_id": head_office_site_id,
         "cells": cells.iter().map(|row| json!({
             "site_id": row.get::<String,_>("site_id"),
             "bucket_start": row.get::<NaiveDate,_>("bucket_start"),

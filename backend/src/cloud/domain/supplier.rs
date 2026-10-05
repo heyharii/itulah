@@ -148,25 +148,22 @@ pub struct SupplierItem {
     /// last rather than a sort every reader has to redo.
     #[serde(default)]
     pub size_codes: Vec<String>,
-    /// This item's own pack sizes: a carton of it holds 24, a pack 6. They
-    /// override the global conversion for this item only. See migration 0399.
+    /// Read from the linked article (`internal_article_code`), never kept
+    /// here: units belong to the goods, not to who sells them (0653). Empty
+    /// and null while the item is linked to no article yet.
     #[serde(default)]
-    pub units: Vec<SupplierItemUnit>,
+    pub article_units: Vec<crate::cloud::domain::uom::ItemUnit>,
+    #[serde(default)]
+    pub stock_unit_code: Option<String>,
+    /// What a new order line for it starts in (ERPNext `purchase_uom`).
+    #[serde(default)]
+    pub purchase_unit_code: Option<String>,
     pub status: SupplierStatus,
     pub version: i64,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_by: String,
     pub updated_at: DateTime<Utc>,
-}
-
-/// One of an item's own pack sizes: pieces in one of a unit, for this item.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
-pub struct SupplierItemUnit {
-    pub unit_code: String,
-    /// Pieces in one, as a decimal string: "24".
-    pub factor: String,
 }
 
 /// One colour a supplier offers an item in, named from the colour master.
@@ -203,6 +200,64 @@ pub fn optional_supplier_text(value: Option<String>) -> Option<String> {
         let value = value.trim().to_owned();
         (!value.is_empty()).then_some(value)
     })
+}
+
+/// A supplier's telephone numbers, as the one `phone` column keeps them: each
+/// number on its own, joined by ", ". The form offers a row a number; a pasted
+/// "0812 3456 7890; 021-555-1234" or one number a line reads the same way.
+///
+/// Shape, not existence — the same rule the form applies: a run of digits
+/// shorter than 8 or longer than 15 is no phone number, and is refused with the
+/// number named. The same number twice is the same statement made twice, so it
+/// is kept once. Blank means none: `Ok(None)`.
+pub fn normalize_supplier_phones(value: Option<String>) -> Result<Option<String>, String> {
+    let Some(raw) = optional_supplier_text(value) else {
+        return Ok(None);
+    };
+    let mut kept: Vec<String> = Vec::new();
+    for part in raw.split([',', ';', '\n']) {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let digits = part.chars().filter(char::is_ascii_digit).count();
+        if digits < 8 {
+            return Err(format!("phone number '{part}' is too short"));
+        }
+        if digits > 15 {
+            return Err(format!("phone number '{part}' is too long"));
+        }
+        let only_digits = |text: &str| {
+            text.chars()
+                .filter(char::is_ascii_digit)
+                .collect::<String>()
+        };
+        if !kept.iter().any(|one| only_digits(one) == only_digits(part)) {
+            kept.push(part.to_owned());
+        }
+    }
+    Ok((!kept.is_empty()).then(|| kept.join(", ")))
+}
+
+#[cfg(test)]
+mod phone_tests {
+    use super::normalize_supplier_phones as phones;
+
+    #[test]
+    fn several_numbers_become_one_clean_list() {
+        assert_eq!(
+            phones(Some("0812 3456 7890;021-555-1234\n 0812 3456 7890".into())),
+            Ok(Some("0812 3456 7890, 021-555-1234".into()))
+        );
+    }
+
+    #[test]
+    fn blank_is_none_and_nonsense_is_refused() {
+        assert_eq!(phones(Some("  ,; ".into())), Ok(None));
+        assert_eq!(phones(None), Ok(None));
+        assert!(phones(Some("0812 3456 7890, 12".into())).is_err());
+        assert!(phones(Some("1234567890123456".into())).is_err());
+    }
 }
 
 /// Tag codes, uppercased and de-duplicated, order preserved.

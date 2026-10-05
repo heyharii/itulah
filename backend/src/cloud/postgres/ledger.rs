@@ -439,6 +439,19 @@ pub fn required_semantic_keys() -> Vec<SemanticKeyDoc> {
             "Payables",
             None,
         ),
+        // The POTONGAN a supplier bill is settled with on a BKK line (0704): a
+        // discount for paying, a rounding difference. Its own key beside
+        // `purchase_discount` because it is its own fact — agreed when paying,
+        // not when buying — and pointed at the same Potongan Pembelian to
+        // begin with, which Finance can move.
+        key(
+            "settlement_discount",
+            "Discount taken when settling a supplier bill",
+            "8004 Potongan Pembelian",
+            false,
+            "Payables",
+            None,
+        ),
         key(
             "non_merchandise_payable",
             "Non-merchandise payable",
@@ -1755,6 +1768,56 @@ pub async fn account_balance(
         credit_minor: credit,
         balance_minor: debit - credit,
     })
+}
+
+/// What every account under one heading is worth — the figure ERPNext's
+/// Chart of Accounts prints beside each node — in one read rather than one
+/// request per row. Headings are summed over their nested-set interval, like
+/// [`account_balance`]; `parent` absent means the root classes.
+pub async fn child_balances(
+    pool: &PgPool,
+    parent: Option<&str>,
+    unit_id: Option<&str>,
+    as_of: Option<NaiveDate>,
+) -> Result<Vec<AccountBalance>, AppError> {
+    let rows = sqlx::query(
+        "WITH moved AS (
+             SELECT l.account_code,
+                    SUM(l.debit_minor) AS debit,
+                    SUM(l.credit_minor) AS credit
+               FROM journal_line l
+               JOIN journal_entry e USING (entry_id)
+              WHERE ($2::text IS NULL OR l.unit_id = $2)
+                AND ($3::date IS NULL OR e.posting_date <= $3)
+              GROUP BY l.account_code
+         )
+         SELECT selected.account_code,
+                COALESCE(SUM(m.debit),0)::bigint AS debit,
+                COALESCE(SUM(m.credit),0)::bigint AS credit
+           FROM ledger_account selected
+           JOIN ledger_account descendant
+             ON descendant.lft >= selected.lft AND descendant.rgt <= selected.rgt
+           LEFT JOIN moved m ON m.account_code = descendant.account_code
+          WHERE selected.parent_code IS NOT DISTINCT FROM $1
+          GROUP BY selected.account_code",
+    )
+    .bind(parent)
+    .bind(unit_id)
+    .bind(as_of)
+    .fetch_all(pool)
+    .await?;
+    rows.iter()
+        .map(|row| {
+            let debit: i64 = row.try_get("debit")?;
+            let credit: i64 = row.try_get("credit")?;
+            Ok(AccountBalance {
+                account_code: row.try_get("account_code")?,
+                debit_minor: debit,
+                credit_minor: credit,
+                balance_minor: debit - credit,
+            })
+        })
+        .collect()
 }
 
 // ── the trial balance ────────────────────────────────────────────────────

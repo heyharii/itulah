@@ -18,7 +18,11 @@ import { useSheet } from "@/lib/sheets"
 import { useDebounced } from "@/lib/use-debounced"
 import { cn } from "@/lib/utils"
 import { ContractComposer } from "@/screens/contracts/composer"
-import { monthLabel, partyOf, siteOf } from "@/screens/contracts/format"
+import {
+  monthLabel,
+  siteOf,
+  useContractParty,
+} from "@/screens/contracts/format"
 import {
   CONTRACT_GROUPS,
   type ContractGroupCode,
@@ -170,7 +174,6 @@ export function Contracts() {
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Number, party or location"
               className="h-8 w-56"
             />
             <Button variant="primary" onClick={() => setAdding(true)}>
@@ -479,6 +482,7 @@ function GroupRow({
   row: GaContractRow
   onOpen: (contractId: string) => void
 }) {
+  const partyName = useContractParty()
   return (
     <div
       onClick={() => onOpen(row.contract_id)}
@@ -489,7 +493,7 @@ function GroupRow({
       </span>
       <div className="min-w-0">
         <span className="block truncate text-cell font-medium text-ink">
-          {partyOf(row)}
+          {partyName(row)}
         </span>
         {row.notes !== null && (
           <span className="block truncate text-pill text-mute">
@@ -540,6 +544,7 @@ function UtilityRow({
   row: GaContractRow
   onOpen: (contractId: string) => void
 }) {
+  const partyName = useContractParty()
   return (
     <div
       onClick={() => onOpen(row.contract_id)}
@@ -547,7 +552,7 @@ function UtilityRow({
     >
       <div className="min-w-0">
         <span className="block truncate text-cell font-medium text-ink">
-          {partyOf(row)}
+          {partyName(row)}
         </span>
         <span className="block truncate text-pill text-mute">
           {row.contract_type_name}

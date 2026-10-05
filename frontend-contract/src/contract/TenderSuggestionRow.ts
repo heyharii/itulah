@@ -9,21 +9,21 @@
  * as the text they came in as and the shape gains the derives a response
  * needs. Lane-A's kernel is kept clean the same way, for the same reason.
  */
-export type TenderSuggestionRow = { sale_id: string, tender_seq: number, batch_line_id: string,
+export type TenderSuggestionRow = { sale_id: string, tender_seq: number, batch_line_id: string, 
 /**
  * `MATCHED` or `RETENDER`. The two a comparison of two lists can reach on
  * the evidence in front of it; the other three answers say something about
  * a day the kernel was not given.
  */
-decision: string,
+decision: string, 
 /**
  * Where the books say the money is owed. Set for a retender only.
  */
-from_acquirer: string | null,
+from_acquirer: string | null, 
 /**
  * Where it is actually owed.
  */
-to_acquirer: string | null,
+to_acquirer: string | null, 
 /**
  * In words, because a person has to accept this and a score would tell
  * them nothing about which field agreed.

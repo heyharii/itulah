@@ -11,7 +11,7 @@ Written 2026-09-26. Covers four things that turned out to be one design:
    update, collect diagnostics, retire.
 
 Plus the two client shells that were asked about in the same breath: the hub
-on phones (PWA) and on desktops (Electron).
+on phones (PWA) and on desktops (Tauri).
 
 Everything below was read before it was written: `bin/store.rs`,
 `edge/sync.rs` (`EdgeSyncConfig`), `cloud/postgres/sync.rs`
@@ -35,7 +35,7 @@ Everything below was read before it was written: `bin/store.rs`,
 | Auto-start / auto-restart? | Windows service **Automatic (Delayed Start)** with SCM recovery **restart after 5 s / 30 s / 60 s**, reset daily. A crash loop is reported to HO on the next successful cycle. |
 | Updates? | **Pulled, signed, windowed, reversible.** HO sets a desired version per ring (canary → stable); the node downloads, verifies an Ed25519 signature, applies only inside the maintenance window and only with no open cash session, health-checks, and rolls back binary **and database** on failure (§5). |
 | Hub on phones | **PWA + Web Push**, iOS 16.4+ and Android alike. No Xcode, no Play Console, same origin, so the `SameSite=Strict` cookie keeps working. |
-| Hub on desktops | **Electron**, loading the hosted hub (dev: `localhost:5273`). Chromium matches what Android and Chrome desktop run, `electron-updater` is the most mature update path there is, and an office PC does not care about 120 MB. **`pos-desktop` stays Tauri** — it is a small signed terminal on low-spec till PCs with Rust-side HMAC and a printer DLL; moving it buys nothing. |
+| Hub on desktops | **Tauri** (decided 3 Oct 2026, replacing Electron), loading the hosted hub. Installer about 2.5 MB against Electron's ~100 MB; on Windows it renders with WebView2, the same Chromium as Edge. On macOS WKWebView ignores `window.print()` and downloads, so the shell handles both. Same shell family as `pos-desktop`. |
 | Create a brand-new store from the hub? | **Later, and separately (§8).** A site is not a row: `account_map` must resolve every meaning at every site (FINANCE-HARD-RULES I9), plus `org_place`, pools, inventory places, EDC terminals. Enrolment ships first for the thirteen sites that already exist. |
 
 ---
@@ -369,12 +369,13 @@ shop PC cannot read its own backups back.
   / `<install>` as Chrome ships it) exists, a three-step Add-to-Home-Screen
   sheet on iOS, and notification permission asked **after** install.
   **Web Push (VAPID)** fed from the notification table.
-- **Desktop (Electron)**, `frontend-hub/desktop/`: loads the hosted hub (dev:
-  `localhost:5273`, so the Vite proxy and cookies behave as today); tray and
-  launch-at-login; notifications from an SSE stream (Electron has no push
-  service); `electron-updater`; signed and notarised. A later option: a
-  `protocol.handle` bridge that lets the desktop hub reach a DC node on the LAN
-  through `/edge`, which the hosted hub cannot proxy.
+- **Desktop (Tauri)**, `frontend-hub/desktop/`: loads the hosted hub through a
+  small launch page that says so when the hub cannot be reached; tray and
+  launch-at-login; notifications from an SSE stream (a webview has no push
+  service); printing and downloads handled by the shell on macOS; signed
+  updates through `tauri-plugin-updater` (not wired yet). The hub reaches the
+  shell only through `notify`, `print` and `print_html`, granted to its own
+  origin at run time.
 - **LAN discovery**: the node advertises `_itulah-store._tcp` over mDNS and
   shows a pairing QR in its console, so tablets, handhelds and `pos-desktop`
   stop asking for a typed node URL.
@@ -400,7 +401,7 @@ Until then the hub enrols nodes for the sites that exist.
 | **2. Package** | Windows service mode, DPAPI, logs, MSI, CI build + signing, silent install | 1 |
 | **3. Watch** | heartbeat, Fleet table and charts, alerts, local console, tray | 1 (2 for tray) |
 | **4. Control** | `node.*` commands, updater with rings and rollback, backups | 3 |
-| **5. Clients** | hub PWA + Web Push; Electron hub; mDNS discovery | independent of 1–4; Web Push reuses 3's alerts |
+| **5. Clients** | hub PWA + Web Push; Tauri desktop hub; mDNS discovery | independent of 1–4; Web Push reuses 3's alerts |
 | **6. New store** | site creation with its finance setup | finance review |
 
 ## 9a. What `heyharii/retail` already taught us
@@ -662,9 +663,10 @@ Built:
 - **Adaptive sync** (`edge/pace.rs`): interval ×2 when busy, ×6 when short of
   CPU or memory, three calm readings to relax; tills are never slowed.
   `OOMScoreAdjust=-500` on the unit.
-- **Desktop hub** `frontend-hub/desktop` (Electron): hosted hub in its own
-  window, tray, start at login, native notifications from the stream,
-  electron-updater.
+- **Desktop hub** `frontend-hub/desktop` (Tauri, was Electron): hosted hub in
+  its own window, tray, start at login, native notifications from the stream,
+  printing and downloads on macOS, a "Can't reach Central" page instead of a
+  blank window. Built and run on macOS 3 Oct 2026; updater not wired yet.
 
 Tested end to end in a Lima Ubuntu VM (systemd 255): silent install by code,
 approval, sync, heartbeat; crash → back in 6 s; hang → own watchdog (exit 70);

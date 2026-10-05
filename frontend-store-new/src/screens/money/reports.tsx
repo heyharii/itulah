@@ -38,7 +38,6 @@ import {
   Fact,
   Facts,
   MoneyScreen,
-  Note,
   SheetBlock,
   SpanPicker,
   Toolbar,
@@ -97,7 +96,7 @@ export function Reports() {
   })
 
   return (
-    <MoneyScreen sub="What this shop took, read from its own node — so it answers with the line to head office down.">
+    <MoneyScreen>
       <Toolbar>
         <SpanPicker
           options={SPANS}
@@ -112,7 +111,7 @@ export function Reports() {
       </Toolbar>
 
       {queryState(takings, {
-        loading: "Reading this shop's takings…",
+        loading: "Loading…",
         render: (report) => (
           <Report
             report={report}
@@ -132,7 +131,7 @@ export function Reports() {
                     }
                   />
                   {queryState(series, {
-                    loading: "Reading the run of days…",
+                    loading: "Loading…",
                     render: (answer) => (
                       <Run run={answer} grouping={grouping} />
                     ),
@@ -177,7 +176,6 @@ function Report({
         <Stat
           label="Average sale"
           value={money(sales.average_minor)}
-          sub="takings over sales"
         />
         <Stat
           label="Items sold"
@@ -193,7 +191,7 @@ function Report({
         <Stat
           label="In the drawer"
           value={money(report.cash_expected_minor)}
-          sub="cash taken, less change"
+          sub="Cash less change"
         />
       </StatStrip>
 
@@ -247,7 +245,7 @@ function Run({ run, grouping }: { run: SalesSeries; grouping: Bucket }) {
   if (run.cells.length === 0) {
     return (
       <p className="px-4 py-12 text-center text-meta text-body">
-        Nothing was sold in this span, so there is no run to draw.
+        No sales in this period.
       </p>
     )
   }
@@ -266,8 +264,8 @@ function Run({ run, grouping }: { run: SalesSeries; grouping: Bucket }) {
         className="h-[13.75rem] md:h-[15rem]"
       />
       <p className="px-1 pt-2 pb-1 text-meta text-mute">
-        Busiest {grouping} was {bucketTitle(busiest.bucket_start, grouping)} at{" "}
-        <span className="tabular-nums">{money(busiest.gross_minor)}</span>.
+        Busiest: {bucketTitle(busiest.bucket_start, grouping)} ·{" "}
+        <span className="tabular-nums">{money(busiest.gross_minor)}</span>
       </p>
     </div>
   )
@@ -291,7 +289,7 @@ function Tenders({ report }: { report: SalesWindow }) {
       />
       {report.tenders.length === 0 ? (
         <p className="px-4 py-8 text-center text-meta text-body">
-          Nothing taken in this span.
+          Nothing taken.
         </p>
       ) : (
         <ul className="px-4 py-1">
@@ -332,13 +330,6 @@ function Tenders({ report }: { report: SalesWindow }) {
           })}
         </ul>
       )}
-      <p className="border-t border-hairline bg-soft px-4 py-3 text-meta leading-relaxed text-body">
-        <span className="font-medium text-ink">In the drawer</span> is cash
-        only. Card and QRIS takings are settled through an acquirer and are not
-        banknotes — counting them there would report a drawer short by exactly
-        the day&rsquo;s card trade, every day, with the arithmetic looking
-        perfect.
-      </p>
     </div>
   )
 }
@@ -366,14 +357,14 @@ function Receipts({
           sub={
             report.receipts.length === 0
               ? undefined
-              : `${units(report.sales.count)} in this span · press one to read it`
+              : `${units(report.sales.count)} sales`
           }
         />
         {report.receipts.length === 0 ? (
           <EmptyState>
             {days === 1
-              ? "Nothing has been rung up today yet."
-              : "This shop recorded no sales in that span."}
+              ? "No sales today."
+              : "No sales in this period."}
           </EmptyState>
         ) : (
           <OpenRows onOpen={onOpen}>
@@ -381,17 +372,11 @@ function Receipts({
               rows={report.receipts}
               columns={RECEIPT_COLUMNS}
               rowKey={(receipt) => receipt.id}
-              empty="No receipt in this span."
+              empty="No receipts."
             />
           </OpenRows>
         )}
       </Card>
-      {report.receipts_truncated && (
-        <Note>
-          The figures above are computed over the whole span whatever this list
-          stops at, so a truncated list never makes the summary lie.
-        </Note>
-      )}
     </>
   )
 }
@@ -526,11 +511,11 @@ function ReceiptSheet({
 
       <div className="mt-6">
         {queryState(printed, {
-          loading: "Reading the receipt…",
+          loading: "Loading…",
           render: (paper) => (
             <>
               <SheetBlock
-                title="What was sold"
+                title="Items"
                 aside={`${units(paper.lines.length)} ${paper.lines.length === 1 ? "line" : "lines"}`}
               >
                 <ul className="rounded-card border border-hairline">

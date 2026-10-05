@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button"
 import { ConfirmButton } from "@/components/ui/dialog"
 import { Day } from "@/components/ui/day"
 import { Field, Input, Money, Select } from "@/components/ui/field"
-import { Pill } from "@/components/ui/pill"
-import { SubHead } from "@/components/ui/rows"
+import { Status } from "@/components/ui/pill"
+import { ListChecks, Gauge, Store } from "lucide-react"
 import { ErrorState } from "@/components/ui/states"
 import { count, day, money } from "@/lib/format"
 import { queryState } from "@/lib/query-state"
@@ -25,6 +25,7 @@ import {
 } from "@/lib/queries/commercial"
 import { percent } from "@/screens/commercial/shared"
 import { Quiet } from "@/screens/commercial/parts"
+import { BlockHead } from "@/screens/commercial/campaign-outcome"
 import { bpsOfPercent } from "@/screens/commercial/objective"
 
 /// Where the campaign sheet's checklist scrolls to. One campaign sheet is open
@@ -57,13 +58,13 @@ export function CampaignPlan({ campaignId }: { campaignId: string }) {
   })
 
   return queryState(plan, {
-    loading: "Reading what this campaign runs…",
+    loading: "Loading…",
     render: (data) => (
-      <>
+      <div className="flex flex-col gap-8">
         <Activities campaignId={campaignId} plan={data} />
         <Reach campaignId={campaignId} plan={data} />
         <Rails campaignId={campaignId} plan={data} />
-      </>
+      </div>
     ),
   })
 }
@@ -118,7 +119,10 @@ function Activities({
 
   return (
     <div id={PLAN_ANCHOR} className="scroll-mt-4">
-      <SubHead
+      <BlockHead
+        icon={ListChecks}
+        title="Activities"
+        className="mb-5"
         aside={
           <button
             type="button"
@@ -128,9 +132,7 @@ function Activities({
             {adding ? "Close" : "Add"}
           </button>
         }
-      >
-        What it runs
-      </SubHead>
+      />
 
       {adding && (
         <ActivityForm
@@ -141,9 +143,9 @@ function Activities({
       )}
 
       {plan.activities.length === 0 ? (
-        <Quiet>Nothing added yet.</Quiet>
+        <Quiet>Nothing added.</Quiet>
       ) : (
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-3">
           {plan.activities.map((one) => (
             <Activity
               key={one.activity_id}
@@ -162,13 +164,11 @@ function Activities({
       )}
 
       {plan.undeclared_rule_ids.length > 0 && (
-        <div className="mt-2.5 rounded-inner border border-hairline px-3 py-2.5">
+        <div className="mt-5 rounded-inner border border-hairline px-4 py-4">
           <div className="text-eyebrow font-medium text-body">
-            Published offers not in the plan
+            Not in the plan
           </div>
-          {/* Published offers that name this campaign and that no activity
-              here claims. They run either way; a press files one. */}
-          <div className="mt-2 flex flex-wrap gap-1.5">
+          <div className="mt-3 flex flex-wrap gap-2.5">
             {plan.undeclared_rule_ids.map((ruleId) => (
               <button
                 key={ruleId}
@@ -176,7 +176,7 @@ function Activities({
                 disabled={file.isPending}
                 onClick={() => file.mutate(ruleId)}
                 aria-label={`Add ${ruleId} to the plan`}
-                className="rounded-full border border-hairline px-2.5 py-1 font-mono text-[0.875rem] text-body hover:bg-soft"
+                className="rounded-full border border-hairline px-3.5 py-1.5 font-mono text-[0.875rem] text-body hover:bg-soft"
               >
                 {ruleId} +
               </button>
@@ -203,10 +203,10 @@ function Activity({
   onForget: () => void
 }) {
   return (
-    <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 rounded-inner bg-soft px-3 py-2">
-      <Pill tone={activity.status === "DROPPED" ? "warn" : "neutral"}>
+    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5 rounded-inner bg-soft px-4 py-3.5">
+      <Status tone={activity.status === "DROPPED" ? "warn" : "neutral"}>
         {kindLabel(activity.kind)}
-      </Pill>
+      </Status>
       <span className="min-w-0 flex-1 truncate text-[0.875rem] text-ink">
         {activity.name}
       </span>
@@ -237,7 +237,7 @@ function Activity({
         variant="quiet"
         tone="danger"
         title={`Remove ${activity.name}?`}
-        description="It comes off this campaign's plan. Nothing changes at the shops — a published offer keeps running."
+        description="It comes off the plan."
         confirmLabel="Remove"
         pending={busy}
         onConfirm={onForget}
@@ -289,14 +289,14 @@ function ActivityForm({
     name.trim() === ""
       ? "Give it a name."
       : needsRef && reference.trim() === ""
-        ? "Add the rule id, markdown id or code."
+        ? "Add a reference."
         : ends !== "" && starts !== "" && ends < starts
           ? "It cannot end before it starts."
           : undefined
 
   return (
-    <div className="mb-2.5 rounded-card border border-hairline px-3.5 py-3">
-      <div className="grid gap-3 sm:grid-cols-2">
+    <div className="mb-5 rounded-card border border-hairline px-5 py-5">
+      <div className="grid gap-5 sm:grid-cols-2">
         <Field label="Kind">
           <Select value={kind} onChange={setKind}>
             {KINDS.map((one) => (
@@ -310,52 +310,43 @@ function ActivityForm({
           <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="Window poster, 13 shops"
           />
         </Field>
         <Field label="Reference" required={needsRef}>
           <Input
             value={reference}
             onChange={(event) => setReference(event.target.value)}
-            placeholder="rule-leb-1"
             className="font-mono"
           />
         </Field>
         {/* Printing, a mailing list, an agency — never the discount it gives
             away, which is measured from the tills. */}
         <Field label="Cost">
-          <Money
-            value={cost}
-            onChange={setCost}
-            prefix="Rp"
-            placeholder="0"
-            label="Cost"
-          />
+          <Money value={cost} onChange={setCost} prefix="Rp" label="Cost" />
         </Field>
         <Field label="Starts">
-          <Day value={starts} onChange={setStarts} placeholder="Not set" />
+          <Day value={starts} onChange={setStarts} />
         </Field>
         <Field label="Ends">
           <Day
             value={ends}
             onChange={setEnds}
-            placeholder="Not set"
             notBefore={starts === "" ? null : starts}
           />
         </Field>
       </div>
 
       {add.isError && (
-        <div className="mt-3">
+        <div className="mt-5">
           <ErrorState error={add.error} />
         </div>
       )}
 
-      <div className="mt-3 flex items-center justify-between gap-3">
+      <div className="mt-6 flex items-center justify-between gap-4">
         <span className="min-w-0 text-[0.875rem] text-bad">
           {problem ?? ""}
         </span>
-        <span className="flex shrink-0 items-center gap-2">
+        <span className="flex shrink-0 items-center gap-3">
           <Button variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
@@ -365,7 +356,7 @@ function ActivityForm({
             disabled={problem !== undefined}
             onClick={() => add.mutate()}
           >
-            {add.isPending ? "Adding…" : "Add"}
+            {add.isPending ? "Submitting…" : "Submit"}
           </Button>
         </span>
       </div>
@@ -380,11 +371,11 @@ const DIMENSIONS: readonly {
   label: string
   example: string
 }[] = [
-  { value: "SITE", label: "Shops", example: "store-01" },
+  { value: "SITE", label: "Stores", example: "store-01" },
   { value: "CHANNEL", label: "Channels", example: "STORE" },
   { value: "SEGMENT", label: "Member segments", example: "GOLD" },
   { value: "DIVISION", label: "Divisions", example: "MEN" },
-  { value: "ARTICLE", label: "Styles", example: "ART-0001" },
+  { value: "ARTICLE", label: "Articles", example: "ART-0001" },
   { value: "TAG", label: "Tags", example: "summer" },
 ]
 
@@ -448,7 +439,10 @@ function Reach({
 
   return (
     <div>
-      <SubHead
+      <BlockHead
+        icon={Store}
+        title="Reach"
+        className="mb-5"
         aside={
           editing ? (
             <span className="flex items-center gap-2">
@@ -465,7 +459,7 @@ function Reach({
                 onClick={() => save.mutate(declared)}
                 className="text-accent hover:underline"
               >
-                {save.isPending ? "Saving…" : "Save"}
+                {save.isPending ? "Submitting…" : "Submit"}
               </button>
             </span>
           ) : (
@@ -478,21 +472,19 @@ function Reach({
             </button>
           )
         }
-      >
-        Where it runs
-      </SubHead>
+      />
 
-      <div className="rounded-card border border-hairline px-3.5 py-3">
+      <div className="rounded-card border border-hairline px-5 py-5">
         {declared.length === 0 ? (
-          <p className="text-meta text-body">Everywhere, for everybody.</p>
+          <p className="text-meta text-body">Everywhere.</p>
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-4">
             {DIMENSIONS.filter((one) =>
               declared.some((entry) => entry.dimension === one.value)
             ).map((one) => (
               <div
                 key={one.value}
-                className="flex flex-wrap items-baseline gap-1.5"
+                className="flex flex-wrap items-center gap-2.5"
               >
                 <span className="text-eyebrow text-mute">{one.label}</span>
                 {declared
@@ -500,7 +492,7 @@ function Reach({
                   .map((entry) => (
                     <span
                       key={entry.value}
-                      className="inline-flex items-center gap-1 rounded-full bg-soft px-2.5 py-0.5 text-[0.875rem] text-body"
+                      className="inline-flex items-center gap-1 rounded-full bg-soft px-3.5 py-1 text-[0.875rem] text-body"
                     >
                       {entry.value}
                       {editing && (
@@ -531,7 +523,7 @@ function Reach({
         )}
 
         {editing && (
-          <div className="mt-3 flex flex-wrap items-end gap-2">
+          <div className="mt-5 flex flex-wrap items-end gap-3">
             <Field label="Add" className="w-40">
               <Select value={dimension} onChange={setDimension}>
                 {DIMENSIONS.map((one) => (
@@ -551,9 +543,6 @@ function Reach({
                     add()
                   }
                 }}
-                placeholder={
-                  DIMENSIONS.find((one) => one.value === dimension)?.example
-                }
               />
             </Field>
             <Button variant="ghost" onClick={add}>
@@ -573,14 +562,14 @@ function Reach({
                     ])
                   }
                 >
-                  Use the published shops
+                  Use the published stores
                 </Button>
               )}
           </div>
         )}
 
         {save.isError && (
-          <div className="mt-3">
+          <div className="mt-5">
             <ErrorState error={save.error} />
           </div>
         )}
@@ -610,28 +599,19 @@ function Drift({ plan }: { plan: CampaignPlanView }) {
     return null
   }
   return (
-    <p className="mt-3 text-[0.875rem] leading-relaxed text-warn-fg">
+    <p className="mt-5 flex flex-col gap-2 text-[0.875rem] leading-relaxed text-warn-fg">
       {wideOpen && (
-        <>
-          Declared for {count(declaredSites.length)} shop
+        <span>
+          Declared for {count(declaredSites.length)} store
           {declaredSites.length === 1 ? "" : "s"}, but the published campaign
-          names no shop — so the offers inside it reach every shop. Narrowing
-          that takes a new price change, not a change here.
-        </>
+          names none, so it reaches every store.
+        </span>
       )}
       {declared_not_bound.length > 0 && (
-        <>
-          {" "}
-          Declared but not in the published campaign:{" "}
-          {declared_not_bound.join(", ")}. Nothing runs there.
-        </>
+        <span>Declared, not published: {declared_not_bound.join(", ")}.</span>
       )}
       {bound_not_declared.length > 0 && (
-        <>
-          {" "}
-          In the published campaign and never declared:{" "}
-          {bound_not_declared.join(", ")}.
-        </>
+        <span>Published, not declared: {bound_not_declared.join(", ")}.</span>
       )}
     </p>
   )
@@ -756,9 +736,12 @@ function Rails({
 
   return (
     <div id={LIMITS_ANCHOR} className="scroll-mt-4">
-      <SubHead
+      <BlockHead
+        icon={Gauge}
+        title="Limits"
+        className="mb-5"
         aside={
-          <span className="flex items-center gap-2">
+          <span className="flex items-center gap-4">
             <button
               type="button"
               disabled={check.isPending || plan.guardrails.length === 0}
@@ -776,13 +759,11 @@ function Rails({
             </button>
           </span>
         }
-      >
-        What it must not cross
-      </SubHead>
+      />
 
       {adding && (
-        <div className="mb-2.5 rounded-card border border-hairline px-3.5 py-3">
-          <div className="grid gap-3 sm:grid-cols-3">
+        <div className="mb-5 rounded-card border border-hairline px-5 py-5">
+          <div className="grid gap-5 sm:grid-cols-3">
             <Field label="Measure" className="sm:col-span-2">
               <Select value={measure} onChange={setMeasure}>
                 {MEASURES.map((one) => (
@@ -801,9 +782,6 @@ function Rails({
                 label="Limit"
               />
             </Field>
-            {/* Stopping dispatches a pause to every shop. Shops are always a
-                little behind, so the line is crossed before anyone here sees
-                it. */}
             <Field label="When it is crossed" className="sm:col-span-3">
               <Select value={action} onChange={setAction}>
                 <option value="WARN">Say so here</option>
@@ -811,7 +789,7 @@ function Rails({
               </Select>
             </Field>
           </div>
-          <div className="mt-3 flex items-center justify-between gap-3">
+          <div className="mt-6 flex items-center justify-between gap-4">
             <span className="min-w-0 text-[0.875rem] text-bad">
               {problem ?? ""}
             </span>
@@ -847,9 +825,9 @@ function Rails({
       )}
 
       {plan.guardrails.length === 0 ? (
-        <Quiet>No limit set.</Quiet>
+        <Quiet>No limits.</Quiet>
       ) : (
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-3">
           {plan.guardrails.map((rail) => {
             const reading = check.data?.readings.find(
               (one) => one.guardrail_id === rail.guardrail_id
@@ -857,7 +835,7 @@ function Rails({
             return (
               <div
                 key={rail.guardrail_id}
-                className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 rounded-inner bg-soft px-3 py-2"
+                className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5 rounded-inner bg-soft px-4 py-3.5"
               >
                 <span className="min-w-0 flex-1 truncate text-[0.875rem] text-ink">
                   {measureOf(rail.measure)?.label ?? rail.measure}
@@ -877,14 +855,14 @@ function Rails({
                   </span>
                 )}
                 {rail.breach_action === "PAUSE_CAMPAIGN" && (
-                  <Pill tone="warn">Stops it</Pill>
+                  <span className="text-[0.875rem] text-warn-fg">Stops it</span>
                 )}
                 <ConfirmButton
                   label="Remove"
                   variant="quiet"
                   tone="danger"
                   title="Remove this limit?"
-                  description={`${measureOf(rail.measure)?.label ?? rail.measure} stops being watched. Nothing changes at the shops.`}
+                  description="It stops being watched."
                   confirmLabel="Remove"
                   pending={write.isPending}
                   onConfirm={() =>
@@ -902,24 +880,23 @@ function Rails({
       )}
 
       {(write.isError || check.isError) && (
-        <div className="mt-2">
+        <div className="mt-4">
           <ErrorState error={write.error ?? check.error} />
         </div>
       )}
 
       {check.data?.paused === true && (
-        <p className="mt-2 text-[0.875rem] leading-relaxed text-bad-fg">
-          A limit set to stop the campaign was crossed, so the campaign has been
-          paused and the pause dispatched to every shop.
+        <p className="mt-4 text-[0.875rem] leading-relaxed text-bad-fg">
+          A limit was crossed. The campaign is paused.
         </p>
       )}
 
       {plan.open_breaches.length > 0 && (
-        <div className="mt-2.5 flex flex-col gap-1.5">
+        <div className="mt-5 flex flex-col gap-3">
           {plan.open_breaches.map((breach) => (
             <div
               key={breach.breach_id}
-              className="rounded-inner border border-hairline px-3 py-2.5"
+              className="rounded-inner border border-hairline px-4 py-4"
             >
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <span className="text-[0.875rem] font-medium text-bad-fg">
@@ -931,24 +908,22 @@ function Rails({
                     ` · seen ${count(breach.seen_count)} times`}
                 </span>
               </div>
-              <p className="mt-1 text-[0.875rem] leading-relaxed text-body tabular-nums">
+              <p className="mt-2 text-[0.875rem] leading-relaxed text-body tabular-nums">
                 {drawLimit(breach.measure, breach.observed)} against a line of{" "}
                 {drawLimit(breach.measure, breach.threshold)}
                 {breach.action_taken === "PAUSED" &&
                   " — the campaign was stopped"}
                 {breach.action_taken === "PAUSE_FAILED" &&
                   " — the campaign could NOT be stopped"}
-                . Read over {day(breach.window_from)} – {day(breach.window_to)},
-                which is what the centre could see: a shop had already gone
-                further.
+                . Read over {day(breach.window_from)} – {day(breach.window_to)}.
               </p>
               <button
                 type="button"
                 disabled={acknowledge.isPending}
                 onClick={() => acknowledge.mutate(breach.breach_id)}
-                className="mt-1.5 text-[0.875rem] text-accent hover:underline"
+                className="mt-3 text-[0.875rem] text-accent hover:underline"
               >
-                I have seen this
+                Acknowledge
               </button>
             </div>
           ))}

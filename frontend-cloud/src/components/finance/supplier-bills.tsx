@@ -172,7 +172,7 @@ function UnbilledPanel({
           <p className="text-muted-foreground max-w-2xl pb-2 text-[11.5px]">
             None of this is in the books. The client's chart has no
             goods-received-not-invoiced account, so stock that has arrived and not been
-            billed sits in the warehouse and not on the balance sheet — at a month end,
+            billed sits in the Gudang and not on the balance sheet — at a month end,
             inventory and payables both understate by roughly this much. The figure is an
             estimate at the ordered price, not a balance.
           </p>

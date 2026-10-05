@@ -26,7 +26,7 @@
 //! # Why the numbering is the imprest lane's counter
 //!
 //! A payout's `KKC-` document and a claim's `KLC-` number come from
-//! `next_document_number`, the same gapless, month-scoped counter the store
+//! `number_series` (0701), the same gapless, month-scoped counter the store
 //! expenses use, locked inside the caller's transaction. Two lanes minting
 //! document numbers by two rules would produce two documents claiming one
 //! position.
@@ -37,7 +37,9 @@ use crate::cloud::domain::{
     ClaimType, ClaimTypeCatalogue, ClaimTypeCode, EmployeeId, ExpenseClaim, ExpenseClaimWire,
     UnitId,
 };
-use crate::cloud::postgres::{next_document_number, poster, LineAccount, PostingIntent, PostingLine};
+use crate::cloud::postgres::{
+    number_series, poster, LineAccount, PostingIntent, PostingLine,
+};
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::Serialize;
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -426,14 +428,13 @@ pub async fn insert_claim(pool: &PgPool, claim: &ExpenseClaim) -> Result<String,
     let history = serde_json::to_value(claim.history())
         .map_err(|error| corrupt("claim history", error.to_string()))?;
     let mut tx = pool.begin().await?;
-    // Counted under the unit's internal id, printed under its client code
-    // (`KLC-C004-…`), never the id.
-    let printed = super::unit_code(&mut *tx, claim.unit().as_str()).await?;
-    let claim_number = next_document_number(
+    // Counted per unit, printed under its client code (`KLC-C004-…`) by the
+    // expense-claim series (0701).
+    let claim_number = number_series::next_number(
         &mut tx,
-        &format!("KLC:{}", claim.unit().as_str()),
-        &format!("KLC-{printed}"),
+        number_series::EXPENSE_CLAIM,
         claim.posted_on(),
+        Some(claim.unit().as_str()),
     )
     .await?;
     sqlx::query(
@@ -678,14 +679,13 @@ pub async fn pay_claim(
 
     let mut tx = pool.begin().await?;
     let unit = claim.unit().as_str().to_string();
-    // Counted under the internal id, printed under the unit's client code
-    // (0600): the counter's scope is the unit whose petty cash pays.
-    let printed = super::unit_code(&mut *tx, &unit).await?.to_uppercase();
-    let document_number = next_document_number(
+    // Counted per unit — the unit whose petty cash pays — and printed under its
+    // client code by the claim-payout series (0701).
+    let document_number = number_series::next_number(
         &mut tx,
-        &format!("KKC:{unit}"),
-        &format!("KKC-{printed}"),
+        number_series::CLAIM_PAYOUT,
         paid_on,
+        Some(&unit),
     )
     .await?;
 

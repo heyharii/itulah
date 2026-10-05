@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ops workload · Clean bento</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.453.0/dist/umd/lucide.min.js"></script>
+<style>
+:root{
+  --ink:#25282d;--h:#35465d;--t:#586b84;--m:#8490a1;--faint:#b4bdc9;
+  --canvas:#fff;--bg:#f7f8fa;--soft:#f3f5f8;--soft-2:#edf1f7;--line:#e0e6ee;--line-2:#e9edf3;
+  --accent:#387cf6;--accent-bg:#edf4ff;--accent-ink:#2865cc;--accent-soft:#c9dbfa;
+  --f-po:#2a78d6;--f-dist:#eb6834;--f-str:#1baf7a;--f-rts:#eda100;
+  --warn:#d99400;--warn-ink:#8a5d00;--warn-bg:#fdf6e6;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  /* one gap, one padding, one radius, three number sizes — the whole system */
+  --gap:12px;--pad:20px;--radius:16px;
+}
+@media (max-width:1180px){:root{--gap:10px;--pad:16px;--radius:14px}}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font:14px/1.45 Inter,system-ui,sans-serif;color:var(--t);background:var(--bg);overflow:hidden;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+svg.lucide{width:16px;height:16px;stroke-width:1.7;flex-shrink:0}
+.app{display:flex;height:100vh;height:100dvh}
+
+/* shell — same as option A */
+.rail{width:104px;flex-shrink:0;background:var(--canvas);border-right:1px solid var(--line-2);display:flex;flex-direction:column;align-items:center}
+.brand{height:64px;display:grid;place-items:center;flex-shrink:0}
+.mark{width:30px;height:30px;border-radius:9px;background:#354d6b;color:#fff;font-weight:700;display:grid;place-items:center;position:relative;font-size:16px}
+.mark::after{content:"";position:absolute;right:5px;bottom:5px;width:5px;height:5px;border-radius:50%;background:#a7c9f0}
+.nav{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px;flex:1;overflow:auto;scrollbar-width:none}
+.nav a{width:88px;min-height:54px;flex-shrink:0;border-radius:9px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;color:#68717d;text-decoration:none;font-size:11px;font-weight:500;line-height:14px}
+.nav a:hover{background:#f5f6f8}
+.nav a.on{background:var(--accent-bg);color:var(--accent-ink);font-weight:600}
+.nav a svg{width:18px;height:18px;stroke-width:1.6}
+.nav .sep{width:28px;height:1px;background:var(--line-2);margin:7px 0;flex-shrink:0}
+.rail .foot{padding:10px 0 14px;display:flex;flex-direction:column;align-items:center;gap:4px}
+.rail .foot a{width:36px;height:30px;display:grid;place-items:center;border-radius:7px;color:#68717d}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.wsbar{height:52px;flex-shrink:0;display:flex;align-items:center;gap:6px;padding:0 16px;border-bottom:1px solid var(--line-2);background:var(--bg)}
+.wtab{height:32px;padding:0 10px 0 12px;border-radius:8px;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--m);text-decoration:none;border:1px solid transparent}
+.wtab:hover{color:var(--h);background:var(--soft-2)}
+.wtab.on{background:#fff;border-color:var(--line);color:var(--h);font-weight:500;box-shadow:0 1px 2px rgba(30,40,60,.04)}
+.wtab svg{width:13px;height:13px;color:var(--faint)}
+.seg{display:flex;background:var(--soft-2);border-radius:8px;padding:3px;max-width:100%;overflow-x:auto;scrollbar-width:none}
+.seg a,.seg button{height:28px;padding:0 10px;border-radius:6px;display:flex;align-items:center;font-size:13px;color:var(--t);text-decoration:none;white-space:nowrap;transition:color .12s}
+.seg a:hover,.seg button:hover{color:var(--h)}
+.seg .on,.seg [aria-pressed=true]{background:#fff;color:var(--h);font-weight:500;box-shadow:0 0 0 1px var(--line)}
+.wsbar .seg{margin-left:auto}
+
+/* page = header + bento + note, exactly one screen (desktop and tablet) */
+.page{flex:1;min-height:0;overflow:auto;padding:20px 24px;display:flex;flex-direction:column}
+.head{display:flex;align-items:center;justify-content:space-between;gap:10px 16px;flex-wrap:wrap;margin-bottom:16px;flex-shrink:0}
+.head h1{font-size:20px;font-weight:600;color:var(--h);letter-spacing:-.02em}
+.head p{color:var(--m);margin-top:2px}
+.note{margin-top:12px;flex-shrink:0;font-size:13px;color:var(--m);display:flex;align-items:center;gap:8px}
+.note svg{width:14px;height:14px}
+.bento{flex:1;min-height:0;display:grid;gap:var(--gap)}
+@media (max-width:1180px){.page{padding:16px}.head{margin-bottom:12px}.note{margin-top:10px}}
+
+/* ---- one tile anatomy: label + badge · number · one line · footer slot ---- */
+.tile{--tone:#fff;--tone-ink:var(--h);--tone-icon:var(--m);--tone-line:var(--line);
+  position:relative;background:var(--tone);border:1px solid var(--tone-line);border-radius:var(--radius);padding:var(--pad);min-width:0;min-height:0;display:flex;flex-direction:column;text-decoration:none;color:inherit;container-type:size;isolation:isolate}
+a.tile{transition:transform .2s var(--ease-out),box-shadow .2s var(--ease-out)}
+a.tile:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(30,40,60,.08)}
+a.tile:active{transform:translateY(0) scale(.99)}
+.top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.lbl{color:var(--t);font-weight:500;line-height:20px;padding-top:6px;min-width:0}
+.badge{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;background:#fff;color:var(--tone-icon);box-shadow:0 0 0 1px var(--tone-line);flex-shrink:0}
+.badge svg{width:17px;height:17px}
+/* big cropped illustration — fills the corner, never carries data */
+.art{position:absolute;inset:0;border-radius:inherit;overflow:hidden;pointer-events:none;z-index:-1}
+.art svg{position:absolute;right:-6%;bottom:-14%;width:auto;height:min(78%,240px);aspect-ratio:1;color:var(--tone-icon);opacity:.11;stroke-width:1.25}
+.row{margin-top:auto;display:flex;flex-direction:column;min-width:0}
+.body{min-width:0;flex:1}
+.num{font-weight:600;color:var(--tone-ink);font-variant-numeric:tabular-nums;line-height:1;letter-spacing:-.035em;white-space:nowrap}
+.num small{font-size:15px;font-weight:500;color:var(--t);letter-spacing:0;margin-left:6px}
+/* three sizes only */
+.t1 .num{font-size:clamp(40px,32cqh,112px)}
+.t2 .num{font-size:clamp(30px,25cqh,72px)}
+.t3 .num{font-size:clamp(30px,24cqh,64px)}
+.desc{color:var(--t);margin-top:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.desc .warn{color:var(--warn-ink);font-weight:500}
+.ds{display:none}
+.slot{height:30px;margin-top:14px;display:flex;align-items:center;gap:12px;min-width:0}
+.slot:empty{display:none}
+/* wide tiles and the hero: number left, action right, same baseline */
+.t1 .row,.wide .row{flex-direction:row;align-items:flex-end;justify-content:space-between;gap:16px}
+.t1 .slot,.wide .slot{margin-top:0;flex-shrink:0}
+.t1 .slot{height:36px}
+
+/* the tile adapts to the space it gets, so every layout fits one tablet screen */
+@container (max-width:300px){.dl{display:none}.ds{display:inline}}
+@container (max-width:420px){.t1 .dl{display:none}.t1 .ds{display:inline}}
+@container (max-width:230px){
+  .desc{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+  .slot .btn{width:32px;padding:0}
+  .slot .btn .bt{display:none}
+}
+@container (max-height:190px){
+  .row{flex-direction:row;align-items:flex-end;justify-content:space-between;gap:12px}
+  .slot{margin-top:0;flex-shrink:0}
+  .desc{margin-top:4px}
+  .hbar{display:none}
+  .art svg{opacity:.07}
+}
+/* short tile: words win over decoration */
+@container (max-height:190px) and (max-width:480px){.slot .bar,.slot .faces,.slot .boxes,.slot .hours{display:none}}
+@container (max-height:190px) and (max-width:330px){.slot .btn{width:32px;padding:0}.slot .btn .bt{display:none}}
+
+/* tones: colour says the tier and the meaning, not decoration */
+.tone-hero{--tone:linear-gradient(140deg,#3478f0 0%,#2358c9 100%);--tone-ink:#fff;--tone-icon:#fff;--tone-line:transparent;color:#fff}
+.tone-hero .lbl,.tone-hero .desc,.tone-hero .num small{color:rgba(255,255,255,.85)}
+.tone-hero .badge{background:rgba(255,255,255,.16);box-shadow:none;color:#fff}
+.tone-hero .art svg{opacity:.12}
+.tone-blue{--tone:#eef4ff;--tone-icon:#2f6fe4;--tone-line:#dbe7fb}
+.tone-green{--tone:#ecf7f0;--tone-icon:#1d8a4f;--tone-line:#d3ecdc}
+.tone-amber{--tone:#fdf5e4;--tone-icon:#c58400;--tone-line:#f3e2bd}
+.tone-violet{--tone:#f2f0fc;--tone-icon:#6a58d6;--tone-line:#e2ddf7}
+.tone-white{--tone-icon:var(--h)}
+.tone-flow{--tone-icon:var(--fc)}
+.tone-flow::before{content:"";position:absolute;left:var(--pad);right:var(--pad);top:0;height:3px;border-radius:0 0 3px 3px;background:var(--fc)}
+.tone-flow .badge{background:color-mix(in srgb,var(--fc) 12%,#fff);box-shadow:none}
+.tone-flow .art svg{opacity:.09}
+
+/* footer slot contents — one visual per tile, no extra text */
+.bar{flex:1;display:flex;gap:2px;height:8px;min-width:60px}
+.bar span{border-radius:2px;min-width:4px}
+.bar span:first-child{border-radius:4px 2px 2px 4px}
+.bar span:last-child{border-radius:2px 4px 4px 2px}
+.b-asg{background:var(--accent)}
+.b-open{background:var(--accent-soft)}
+.hbar{display:flex;gap:2px;height:6px;margin-top:12px;max-width:360px}
+.hbar span{border-radius:2px}
+.hbar span:first-child{border-radius:3px 2px 2px 3px;background:#fff}
+.hbar span:last-child{border-radius:2px 3px 3px 2px;background:rgba(255,255,255,.3)}
+.faces{display:flex}
+.faces i{width:28px;height:28px;border-radius:50%;background:#fff;color:#1d6b3f;font:600 10px/28px Inter,sans-serif;font-style:normal;text-align:center;box-shadow:0 0 0 2px var(--tone);margin-left:-6px;flex-shrink:0}
+.faces i:first-child{margin-left:0}
+.faces i.later{background:transparent;box-shadow:0 0 0 2px var(--tone),inset 0 0 0 1px #9cc9ad;color:#5d8a6f}
+.faces i.notyet{background:var(--warn-bg);color:var(--warn-ink);box-shadow:0 0 0 2px var(--tone),inset 0 0 0 1.5px var(--warn)}
+.faces i.off{opacity:.4;background:#dfeee5}
+@container (max-width:280px){.faces i{width:24px;height:24px;line-height:24px;font-size:9px;margin-left:-9px}}
+.boxes{display:flex;gap:4px}
+.boxes i{width:20px;height:24px;border-radius:5px;background:#fff;box-shadow:inset 0 0 0 1.5px #a9c4f5;position:relative}
+.boxes i::after{content:"";position:absolute;left:4px;right:4px;top:7px;height:1.5px;background:#a9c4f5;border-radius:1px}
+.boxes i.late{background:var(--warn-bg);box-shadow:inset 0 0 0 1.5px var(--warn)}
+.boxes i.late::after{background:var(--warn)}
+.hours{display:flex;align-items:flex-end;gap:4px;height:28px}
+.hours i{width:14px;border-radius:3px 3px 1px 1px;background:#8f80e6}
+.hours i.now{background:#cfc8f4}
+.btn{height:30px;padding:0 10px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--tone-line);background:#fff;color:var(--h);font-weight:500;font-size:13px;white-space:nowrap;text-decoration:none;flex-shrink:0;transition:transform .16s var(--ease-out),background-color .15s}
+.btn:hover{background:var(--soft)}
+.btn:active{transform:scale(.97)}
+.btn.light{background:#fff;border-color:#fff;color:#2358c9;height:36px;padding:0 14px;font-size:14px}
+.btn.light:hover{background:#eef4ff}
+.arrow{position:absolute;right:calc(var(--gap) / -2 - 11px);top:50%;width:22px;height:22px;margin-top:-11px;border-radius:50%;background:var(--bg);border:1px solid var(--line);display:grid;place-items:center;color:var(--m);z-index:2}
+.arrow svg{width:13px;height:13px}
+
+/* tasks vs people, per activity — the one table on the page */
+.acts-list{flex:1;min-height:0;display:grid;grid-template-rows:repeat(5,minmax(0,1fr));margin-top:10px}
+.arow{display:grid;grid-template-columns:minmax(0,1fr) auto 92px;align-items:center;gap:12px;border-top:1px solid var(--line-2);min-height:0;font-variant-numeric:tabular-nums}
+.arow:first-child{border-top:0}
+.arow .an{display:flex;align-items:center;gap:8px;color:var(--h);font-weight:500;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.arow .an svg{color:var(--m);width:15px;height:15px}
+.arow .at,.arow .ap{text-align:right;white-space:nowrap;color:var(--m)}
+.arow b{color:var(--h);font-weight:600}
+.arow .ap{display:flex;align-items:center;justify-content:flex-end;gap:5px}
+.arow .ap svg{width:14px;height:14px;color:var(--warn)}
+.arow .ap.short,.arow .ap.short b{color:var(--warn-ink)}
+.ahead{display:grid;grid-template-columns:minmax(0,1fr) auto 92px;gap:12px;font-size:12px;color:var(--m);margin-top:8px}
+.ahead span:not(:first-child){text-align:right}
+@container (max-width:340px){.arow,.ahead{grid-template-columns:minmax(0,1fr) auto 64px;gap:8px}.arow .an svg{display:none}.arow .unit{display:none}}
+@container (max-height:200px){.ahead{display:none}.acts-list{margin-top:6px}.arow{font-size:13px}}
+
+.toast{position:fixed;left:calc(50% + 52px);bottom:20px;transform:translate(-50%,16px);opacity:0;pointer-events:none;background:var(--ink);color:#fff;border-radius:10px;padding:10px 16px;box-shadow:0 12px 32px rgba(0,0,0,.22);transition:transform .22s var(--ease-out),opacity .22s var(--ease-out);z-index:31;max-width:calc(100vw - 32px)}
+.toast.show{transform:translate(-50%,0);opacity:1}
+
+@media (max-width:820px){
+  .rail{width:64px}
+  .nav{padding:8px 6px}
+  .nav a{width:48px;min-height:44px;font-size:0;gap:0}
+  .toast{left:calc(50% + 32px)}
+  .wtab:not(.on){display:none}
+}
+/* phone: one screen is not possible with this much, so stack by importance and scroll */
+.page.stack{display:block}
+.stack .bento{display:flex;flex-direction:column}
+.stack .tile{container-type:inline-size;min-height:150px}
+.stack .t1 .num{font-size:64px}.stack .t2 .num{font-size:44px}.stack .t3 .num{font-size:40px}
+.stack .art svg{height:130px}
+.stack .acts-list{grid-template-rows:none;grid-auto-rows:40px}
+.stack .arrow{display:none}
+@media (prefers-reduced-motion:reduce){a.tile,a.tile:hover{transform:none;transition:box-shadow .2s}}
+
+/* Calm, fixed typography and a consistent bento anatomy */
+:root{--radius:12px;--pad:20px;--gap:12px;--h:#40536b;--t:#6b7c92;--m:#8996a7}
+.tile{container-type:normal;overflow:hidden;isolation:auto}
+.art,.hbar,.bar,.faces,.boxes,.hours,.arrow{display:none!important}
+.tone-hero{--tone:#edf4ff;--tone-ink:#3666a5;--tone-icon:#6289bc;--tone-line:#d7e4f7;color:#3666a5}
+.tone-hero .lbl,.tone-hero .desc,.tone-hero .num small{color:#6e88ad}
+.tone-hero .badge{background:#f7faff;color:#6289bc}
+.tone-blue,.tone-green,.tone-amber,.tone-violet{--tone:#fff;--tone-line:#e0e6ee;--tone-icon:#8a9bb1}
+.tone-flow::before{display:none}.tone-flow .badge{background:#f2f5f9;color:#8a9bb1}
+.badge{width:28px;height:28px;border-radius:7px;box-shadow:none;background:#f5f7fa}
+.lbl{font-size:14px;line-height:1.5;padding-top:2px;color:#62758f;font-weight:500}
+.row,.t1 .row,.wide .row{display:flex;flex-direction:column;align-items:stretch;gap:10px;margin-top:16px}
+.t1 .num{font-size:44px}.t2 .num,.t3 .num{font-size:32px}
+.num{font-weight:500;line-height:1.1;letter-spacing:-.02em}.num small{font-size:14px;font-weight:400}
+.desc{font-size:14px;line-height:1.5;margin-top:8px;white-space:normal;overflow:visible}
+.slot,.t1 .slot,.wide .slot{height:auto;margin-top:0;justify-content:flex-start}
+.slot:empty{display:none}
+.btn,.btn.light{font-size:14px;height:34px;padding:0 12px;border-radius:7px;box-shadow:none}
+.btn.light{background:#fff;border:1px solid #c8daf4;color:#4775b0}
+.ahead,.arow{grid-template-columns:1fr 70px 20px;font-size:14px;gap:10px}
+.acts-list{grid-template-rows:repeat(5,minmax(40px,1fr));margin-top:12px}
+.arow{font-size:14px;min-height:40px}.arow .an{font-weight:400}.arow b{font-weight:500}.arow .unit{display:inline}
+.arow .an svg{display:block}.arow .ap svg{color:#a5b1c1}
+.note,.seg a,.seg button,.wtab{font-size:14px}
+.head{gap:12px}.head p{font-size:14px}
+@media(min-width:600px){.bento{min-height:530px}.page{overflow:auto}}
+@media(max-width:1180px){:root{--pad:16px}.t1 .num{font-size:36px}.t2 .num,.t3 .num{font-size:28px}.tile .desc{font-size:14px}.btn.light{height:32px}.row,.t1 .row{margin-top:12px}.acts-list{grid-template-rows:repeat(5,minmax(40px,1fr))}}
+@media(max-height:760px) and (min-width:600px){.bento{min-height:560px}.note{display:none}}
+
+/* Keep first bento within a tablet viewport without clipping its contents */
+.head{flex-wrap:nowrap;align-items:center;margin-bottom:14px}
+.head .seg{max-width:58%;flex-shrink:1}
+.head .seg button{font-size:14px;padding:0 8px}
+.head p{display:none}
+.note{display:none}
+.bento{min-height:0!important}
+.t1 .row{margin-top:10px;flex-direction:row;align-items:flex-end;gap:12px}
+.t1 .desc{margin-top:6px}
+.t1 .slot{flex-shrink:0}
+.t1 .num{font-size:40px}
+.acts-list{display:flex;flex-direction:column;gap:0;min-height:0;flex:1}
+.arow{flex:1;min-height:36px}
+.t2 .num,.t3 .num{font-size:28px}
+.tile{padding:16px}
+.lbl{padding:0}.badge{width:24px;height:24px}
+.row{margin-top:12px}
+.desc{font-size:14px;line-height:1.4;margin-top:6px}
+@media(max-width:759px){.head{flex-wrap:wrap}.head .seg{max-width:100%}.page{overflow:auto}.bento{min-height:760px!important}.t1 .slot{display:none}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail" aria-label="Aplikasi">
+    <div class="brand"><span class="mark">c</span></div>
+    <nav class="nav">
+      <a href="#"><i data-lucide="layout-dashboard"></i><span>Executive</span></a>
+      <span class="sep"></span>
+      <a href="#"><i data-lucide="shopping-cart"></i><span>Buying</span></a>
+      <a href="#"><i data-lucide="shirt"></i><span>Merchandise</span></a>
+      <a href="#" class="on" aria-current="page"><i data-lucide="truck"></i><span>Ops</span></a>
+      <a href="#"><i data-lucide="boxes"></i><span>Inventory</span></a>
+      <a href="#"><i data-lucide="megaphone"></i><span>Marketing</span></a>
+      <a href="#"><i data-lucide="store"></i><span>Sales</span></a>
+      <a href="#"><i data-lucide="landmark"></i><span>Finance</span></a>
+      <a href="#"><i data-lucide="users"></i><span>HR</span></a>
+      <a href="#"><i data-lucide="messages-square"></i><span>GA</span></a>
+    </nav>
+    <div class="foot"><a href="#" aria-label="Tanya AI"><i data-lucide="sparkles"></i></a><a href="#" aria-label="Pengaturan"><i data-lucide="settings"></i></a></div>
+  </aside>
+  <div class="main">
+    <div class="wsbar">
+      <a class="wtab" href="sidebar-types-prototype.html">In process<i data-lucide="x"></i></a>
+      <span class="wtab on">Workload<i data-lucide="x"></i></span>
+      <nav class="seg" aria-label="Opsi desain"><a href="ops-workload-prototype.html">A · Antrian</a><a href="ops-workload-bento-clean-prototype.html" class="on" aria-current="page">B · Bento</a></nav>
+    </div>
+    <main class="page" id="page"></main>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* Same sample data as option A. Sources: ops boards, HR roster + attendance,
+   Activity log, and the delivery date on each PO. Nothing is estimated. */
+const DATA={
+  flows:[
+    {id:'po',name:'PO receiving',icon:'clipboard-list',tasks:11,asg:3,extra:'+4 PO tiba hari ini',short:'+4 tiba'},
+    {id:'dist',name:'Distribution',icon:'truck',tasks:21,asg:6},
+    {id:'str',name:'Return from store',icon:'store',tasks:6,asg:1},
+    {id:'rts',name:'Return to supplier',icon:'undo-2',tasks:5,asg:0}
+  ],
+  // tasks ready per activity vs people in today (roster + attendance) vs people usually on it
+  acts:[['Count','list-checks',9,'tugas',2,3],['Tagging','tag',5,'tugas',2,3],['Picking','hand',12,'tugas',3,3],['Packing','package',8,'tugas',4,4],['Dispatch','truck',9,'trip',1,2]],
+  done:7,cameIn:13,doneByHour:[['07',1],['08',4],['09',2]],
+  arriving:[['PO-1054',0],['PO-1055',0],['PO-1056',0],['PO-1057',0],['PO-1036',1]],
+  people:[['RK','in','Rina'],['AP','in','Agus'],['BS','in','Budi'],['WH','in','Wati'],['JS','in','Joko'],['DL','later','Dewi · shift siang'],['SW','notyet','Sari · belum absen'],['ES','off','Eko · cuti']],
+  waiting:[['MD',5],['Buyer',1],['Supplier',1],['Finance',1]]
+};
+const ready=DATA.flows.reduce((n,f)=>n+f.tasks,0),asg=DATA.flows.reduce((n,f)=>n+f.asg,0),open=ready-asg;
+const waitN=DATA.waiting.reduce((n,w)=>n+w[1],0);
+const inN=DATA.people.filter(p=>p[1]==='in').length,sched=DATA.people.length;
+const arrToday=DATA.arriving.filter(a=>!a[1]).length,arrLate=DATA.arriving.length-arrToday;
+
+/* Same hierarchy everywhere: one tier-1 tile, tier-2 tiles, tier-3 flows.
+   Each layout has a landscape grid (desktop + tablet landscape) and a portrait grid (tablet portrait). */
+const LAYOUTS=[
+  {id:'l1',label:'1 · Angka utama',
+   land:{cols:'repeat(4,minmax(0,1fr))',rows:'1fr 1.15fr .95fr',areas:['ready ready done next','acts acts po dist','acts acts str rts']},
+   port:{cols:'repeat(3,minmax(0,1fr))',rows:'.9fr 1.2fr 1fr 1fr',areas:['ready ready done','acts acts next','po po dist','str str rts']}},
+  {id:'l2',label:'2 · Kerja & orang',
+   land:{cols:'1.15fr 1.15fr 1fr 1fr 1fr',rows:'1fr 1.15fr',areas:['ready ready po dist team','acts acts str rts wait']},
+   port:{cols:'repeat(2,minmax(0,1fr))',rows:'.9fr 1.25fr 1fr 1fr .9fr',areas:['ready ready','acts acts','po dist','str rts','team wait']}},
+  {id:'l3',label:'3 · Alur hari ini',
+   land:{cols:'repeat(4,minmax(0,1fr))',rows:'1fr 1.15fr .95fr',areas:['next ready ready done','acts acts team wait','po dist str rts'],arrows:['next','ready']},
+   port:{cols:'repeat(3,minmax(0,1fr))',rows:'1fr 1.2fr 1fr 1fr',areas:['next ready ready','acts acts done','po dist team','str rts wait'],arrows:['next']}},
+  {id:'l4',label:'4 · Flow besar',
+   land:{cols:'repeat(4,minmax(0,1fr))',rows:'1.1fr 1fr 1fr .95fr',areas:['po dist ready ready','po dist acts acts','str rts acts acts','str rts team wait']},
+   port:{cols:'repeat(2,minmax(0,1fr))',rows:'1.1fr 1.1fr .9fr 1.3fr .9fr',areas:['po dist','str rts','ready ready','acts acts','team wait']}}
+];
+let layout=LAYOUTS[0];
+let cfg;
+const screenMode=()=>innerWidth<600?'stack':(innerWidth<innerHeight||innerWidth<760)?'port':'land';
+
+const ic=n=>`<i data-lucide="${n}"></i>`;
+const has=(list,k)=>list&&list.includes(k);
+const arrow=k=>cfg&&has(cfg.arrows,k)?`<span class="arrow">${ic('chevron-right')}</span>`:'';
+// one tile shape for everything
+function tile({k,tier,tone,fc,tag='section',href,label,icon,num,unit,desc,slot,inner,wide,art=true}){
+  const top=`<div class="top"><span class="lbl">${label}</span><span class="badge">${ic(href?'arrow-up-right':icon)}</span></div>`;
+  const text=Array.isArray(desc)?`<span class="dl">${desc[0]}</span><span class="ds">${desc[1]}</span>`:desc;
+  const content=inner||`<div class="row"><div class="body"><div class="num">${num}<small>${unit}</small></div><p class="desc">${text}</p></div><div class="slot">${slot||''}</div></div>`;
+  return `<${tag} class="tile t${tier} tone-${tone} ${wide?'wide':''}" style="grid-area:${k}${fc?`;--fc:var(--f-${fc})`:''}"${href?` href="${href}"`:''}>${art?`<span class="art" aria-hidden="true">${ic(icon)}</span>`:''}${top}${content}${arrow(k)}</${tag}>`;
+}
+const bar=parts=>`<div class="bar" aria-hidden="true">${parts.filter(p=>p[1]>0).map(([c,n])=>`<span class="${c}" style="flex:${n}"></span>`).join('')}</div>`;
+
+const tiles={
+  ready:()=>tile({k:'ready',tier:1,tone:'hero',icon:'list-todo',label:'Bisa dikerjakan sekarang',
+    inner:`<div class="row"><div class="body"><div class="num">${ready}<small>tugas</small></div>
+      <p class="desc"><span class="dl">Total pekerjaan siap dari empat flow</span><span class="ds">Empat flow</span></p>
+      <div class="hbar" aria-hidden="true"><span style="flex:${asg}"></span><span style="flex:${open}"></span></div></div>
+      </div>`}),
+  acts:()=>tile({k:'acts',tier:2,tone:'white',icon:'scale',art:false,label:'Pekerjaan siap',
+    inner:`<div class="ahead"><span>Aktivitas</span><span>Siap</span><span></span></div><div class="acts-list">${DATA.acts.map(([n,icon,t,u,p,usual])=>`<div class="arow"><span class="an">${ic(icon)}${n}</span><span class="at"><b>${t}</b> <span class="unit">${u}</span></span><span class="ap">${ic('chevron-right')}</span></div>`).join('')}</div>`}),
+  next:()=>tile({k:'next',tier:2,tone:'blue',icon:'package-plus',label:'Akan masuk hari ini',num:arrToday,unit:'PO',
+      desc:[`1.520 pcs${arrLate?` · <span class="warn">${arrLate} telat dari kemarin</span>`:''}`,`1.520 pcs${arrLate?` · <span class="warn">+${arrLate} telat</span>`:''}`],
+      slot:`<div class="boxes" aria-label="${DATA.arriving.length} PO">${DATA.arriving.map(([id,late])=>`<i class="${late?'late':''}" title="${id}${late?' · jadwal kemarin':''}"></i>`).join('')}</div>`}),
+  team:()=>tile({k:'team',tier:2,tone:'green',icon:'users',label:'Karyawan masuk',num:inN,unit:`dari ${sched}`,
+      desc:[`1 shift siang · <span class="warn">1 belum absen</span> · 1 cuti`,`<span class="warn">1 belum absen</span> · 1 cuti`],
+      slot:`<div class="faces">${DATA.people.map(([i,s,n])=>`<i class="${s}" title="${n}">${i}</i>`).join('')}</div>`}),
+  wait:()=>tile({k:'wait',tier:2,tone:'amber',icon:'hourglass',label:'Menunggu pihak lain',num:waitN,unit:'dokumen',
+      desc:[DATA.waiting.map(([w,n])=>`${w} ${n}`).join(' · '),`${DATA.waiting[0][0]} ${DATA.waiting[0][1]} · ${waitN-DATA.waiting[0][1]} lainnya`],
+      slot:`<button class="btn" data-remind aria-label="Ingatkan semua">${ic('bell-ring')}<span class="bt">Ingatkan semua</span></button>`}),
+  done:()=>{const max=Math.max(...DATA.doneByHour.map(h=>h[1]));
+    return tile({k:'done',tier:2,tone:'violet',icon:'circle-check',label:'Selesai hari ini',num:DATA.done,unit:'tugas',desc:[`${DATA.cameIn} tugas baru masuk sejak pagi`,`${DATA.cameIn} baru masuk`],
+      slot:`<div class="hours" aria-label="Selesai per jam">${DATA.doneByHour.map(([h,n],i)=>`<i class="${i===DATA.doneByHour.length-1?'now':''}" style="height:${Math.max(4,n/max*28)}px" title="${h}:00 · ${n} tugas"></i>`).join('')}</div>`})},
+  flow:f=>tile({k:f.id,tier:3,tone:'flow',fc:f.id,tag:'a',href:'sidebar-types-prototype.html',icon:f.icon,label:f.name,num:f.tasks,unit:'tugas',
+      desc:[`Siap dikerjakan${f.extra?` · ${f.extra}`:''}`,`Siap dikerjakan`],slot:bar([['b-asg',f.asg],['b-open',f.tasks-f.asg]])})
+};
+
+function render(){
+  const page=document.getElementById('page'),mode=screenMode();
+  cfg=mode==='stack'?null:layout[mode];
+  const used=cfg?cfg.areas.join(' ').split(' '):['ready','acts','next','done'];
+  const order=['ready','acts','next','done','team','wait'].filter(k=>used.includes(k));
+  const grid=cfg?`grid-template-columns:${cfg.cols};grid-template-rows:${cfg.rows};grid-template-areas:${cfg.areas.map(r=>`'${r}'`).join(' ')}`:'';
+  page.className='page'+(mode==='stack'?' stack':'');
+  page.innerHTML=`<header class="head"><div><h1>Workload</h1><p>Hari ini, Sab 3 Okt · per 09:10</p></div>
+    <span style="font-size:14px;color:var(--m)">Hari ini · 3 Okt</span></header>
+    <div class="bento" style="${grid}">${order.map(k=>tiles[k]()).join('')}${DATA.flows.map(tiles.flow).join('')}</div>
+    <p class="note">${ic('info')}Data contoh · Jumlah tugas dari empat flow Ops.</p>`;
+  lucide.createIcons();
+}
+
+let toastT;
+function toast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>el.classList.remove('show'),3200)}
+document.addEventListener('click',e=>{
+  const l=e.target.closest('[data-layout]');if(l){layout=LAYOUTS.find(x=>x.id===l.dataset.layout);history.replaceState(null,'','#'+layout.id);render();return}
+  if(e.target.closest('[data-remind]'))toast(`${DATA.waiting.length} pengingat terkirim · tiap pihak dapat 1 pesan berisi daftar dokumennya`);
+});
+let lastMode=screenMode();
+addEventListener('resize',()=>{const m=screenMode();if(m!==lastMode){lastMode=m;render()}});
+render();
+</script>
+</body>
+</html>

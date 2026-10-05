@@ -1,12 +1,11 @@
-import { Outlet, useRouter, useRouterState } from "@tanstack/react-router"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { Outlet, useRouter } from "@tanstack/react-router"
+import { useCallback, useEffect, useState } from "react"
 
 import { BottomBar } from "@/components/shell/bottom-bar"
-import { Rail } from "@/components/shell/rail"
 import { Sidebar } from "@/components/shell/sidebar"
 import { TopBar } from "@/components/shell/top-bar"
 import { atLeast, useLayout } from "@/lib/layout"
-import { hasSidebar, moduleForPath } from "@/lib/navigation"
+import { usePriceBookWatch } from "@/lib/price-book-watch"
 import { cn } from "@/lib/utils"
 
 /// The shell: rail · sidebar · (bar over content) — the hub's
@@ -28,9 +27,7 @@ export function AppShell() {
   const docked = atLeast(layout, "desktop")
   const phone = layout === "phone"
   const router = useRouter()
-  const pathname = useRouterState({ select: (s) => s.location.pathname })
-  // A module with one screen gets no column: the rail already names it.
-  const column = hasSidebar(moduleForPath(pathname))
+  usePriceBookWatch()
 
   /// Whether the drawer is over the content. A boolean, closed by whatever
   /// closes it — the hub's lesson: a drawer keyed to the path it was opened on
@@ -71,10 +68,11 @@ export function AppShell() {
 
   return (
     <div className="app-shell flex h-svh w-full overflow-hidden bg-soft-3">
+      {/* One sidebar (v2): every module a row, the open one unfolded; ⌘B
+          folds it to its icons rather than hiding it. */}
       {docked && (
-        <Rail sidebarOpen={sidebarOpen} onToggleSidebar={toggleSidebar} />
+        <Sidebar folded={!sidebarOpen} onToggle={toggleSidebar} />
       )}
-      {docked && <DockedSidebar open={sidebarOpen && column} />}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
         <TopBar
           onOpenNav={docked || phone ? undefined : () => setDrawerOpen(true)}
@@ -136,7 +134,6 @@ function NavDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
             if ((event.target as HTMLElement).closest("a") !== null) onClose()
           }}
         >
-          <Rail />
           <Sidebar variant="drawer" onClose={onClose} />
         </div>
       </div>
@@ -147,51 +144,6 @@ function NavDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
 /// The sidebar as a column, folded by sliding rather than by narrowing: a
 /// column whose width animates makes every list beside it re-measure on every
 /// frame. The width changes once per fold.
-function DockedSidebar({ open }: { open: boolean }) {
-  const [present, setPresent] = useState(open)
-  const [shown, setShown] = useState(open)
-  if (open && !present) setPresent(true)
-  if (!open && shown) setShown(false)
-  const timer = useRef<number | undefined>(undefined)
-
-  useEffect(() => {
-    window.clearTimeout(timer.current)
-    if (open) {
-      let second = 0
-      const first = requestAnimationFrame(() => {
-        second = requestAnimationFrame(() => setShown(true))
-      })
-      return () => {
-        cancelAnimationFrame(first)
-        cancelAnimationFrame(second)
-      }
-    }
-    // A timer rather than `transitionend`, which never fires when reduced
-    // motion has taken the travel out.
-    timer.current = window.setTimeout(() => setPresent(false), 220)
-    return () => window.clearTimeout(timer.current)
-  }, [open])
-
-  return (
-    <div
-      className={cn(
-        "relative h-full shrink-0 overflow-hidden",
-        present ? "w-[15.5rem]" : "w-0",
-      )}
-    >
-      <div
-        inert={!open}
-        className={cn(
-          "absolute inset-y-0 left-0 h-full transition-[transform,opacity] duration-(--t-panel) ease-(--ease-out)",
-          shown ? "translate-x-0 opacity-100" : "-translate-x-6 opacity-0",
-        )}
-      >
-        {present && <Sidebar />}
-      </div>
-    </div>
-  )
-}
-
 const SIDEBAR_KEY = "till.sidebar-open"
 
 function readSidebarOpen(): boolean {

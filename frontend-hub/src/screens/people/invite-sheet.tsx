@@ -1,8 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { Check, Copy, Plus, X } from "lucide-react"
+import { Check, Copy, MessageCircle, Plus, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { button } from "@/components/ui/button-style"
 import { Field, Input, Select } from "@/components/ui/field"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, Problem } from "@/components/ui/states"
@@ -24,8 +25,9 @@ import { useCanWrite } from "@/lib/session"
 ///
 /// One row per person; "Create links" hands back a link for each, and the
 /// links are shown here ONCE. There is no email and no WhatsApp integration —
-/// the owner's instruction — so the only thing this screen does with a link
-/// is copy it, and say plainly that it will not be shown again.
+/// the owner's instruction — so a link is copied, or handed to WhatsApp's own
+/// share page (`wa.me`, nothing of ours in between), and the screen says
+/// plainly that it will not be shown again.
 
 interface DraftPerson {
   readonly key: string
@@ -69,9 +71,7 @@ export function InviteSheet({
   const [rows, setRows] = useState<DraftPerson[]>(() => [
     draftPerson(defaultUnitId),
   ])
-  const [issued, setIssued] = useState<readonly IssuedInvitation[] | null>(
-    null
-  )
+  const [issued, setIssued] = useState<readonly IssuedInvitation[] | null>(null)
 
   const eligible = rows.filter(personReady)
 
@@ -82,7 +82,9 @@ export function InviteSheet({
           name: row.name.trim(),
           role_code: row.roleCode,
           unit_id: row.unitId,
-          ...(row.position.trim() !== "" ? { position: row.position.trim() } : {}),
+          ...(row.position.trim() !== ""
+            ? { position: row.position.trim() }
+            : {}),
         }))
       ),
     onSuccess: (answer) => {
@@ -145,10 +147,10 @@ export function InviteSheet({
               onClick={() => create.mutate()}
             >
               {create.isPending
-                ? "Creating links…"
+                ? "Submitting…"
                 : eligible.length > 1
-                  ? `Create ${eligible.length} links`
-                  : "Create link"}
+                  ? "Submit"
+                  : "Submit"}
             </Button>
           </div>
         )
@@ -224,7 +226,6 @@ function Composer({
                     else inputs.current.delete(row.key)
                   }}
                   value={row.name}
-                  placeholder="Full name"
                   onChange={(event) => set(index, { name: event.target.value })}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
@@ -238,7 +239,6 @@ function Composer({
                 <Select
                   value={row.roleCode}
                   onChange={(next) => set(index, { roleCode: next })}
-                  placeholder="Choose a role…"
                 >
                   {roles.map((role) => (
                     <option key={role.code} value={role.code}>
@@ -251,7 +251,6 @@ function Composer({
                 <Select
                   value={row.unitId}
                   onChange={(next) => set(index, { unitId: next })}
-                  placeholder="Choose a unit…"
                 >
                   {units.map((unit) => (
                     <option key={unit.id} value={unit.id}>
@@ -263,7 +262,6 @@ function Composer({
               <Field label="Position" className="col-span-2">
                 <Input
                   value={row.position}
-                  placeholder="Optional — e.g. Head cashier"
                   onChange={(event) =>
                     set(index, { position: event.target.value })
                   }
@@ -318,8 +316,8 @@ function LinksList({ items }: { items: readonly IssuedInvitation[] }) {
   return (
     <div className="flex flex-col gap-3.5">
       <Banner tone="warn">
-        Each link is shown here once and never again. Copy it now and send it
-        however you like — chat, email, in person.
+        Each link is shown here once and never again. Send it now — WhatsApp,
+        chat, email, in person.
       </Banner>
       <div className="flex flex-col gap-2.5">
         {items.map((item) => (
@@ -340,6 +338,7 @@ function LinksList({ items }: { items: readonly IssuedInvitation[] }) {
                 {item.link}
               </code>
               <CopyLinkButton link={item.link} />
+              <WhatsAppLinkButton link={item.link} name={item.name} />
             </div>
           </div>
         ))}
@@ -375,5 +374,35 @@ export function CopyLinkButton({ link }: { link: string }) {
         </>
       )}
     </Button>
+  )
+}
+
+/// Hand the link to WhatsApp: `wa.me` with no number opens its own "send to"
+/// picker, the message already written. A link out, not a button — it goes
+/// somewhere — styled as the quiet partner of Copy. The message is Indonesian
+/// because it is read by the person invited, in their chat, not on a screen
+/// of ours.
+export function WhatsAppLinkButton({
+  link,
+  name,
+}: {
+  link: string
+  name?: string | null
+}) {
+  const greeting = name?.trim() ? `Halo ${name.trim()}, ini` : "Ini"
+  const text = `${greeting} link untuk masuk ke Central. Berlaku 72 jam, sekali pakai:\n${link}`
+  return (
+    <a
+      href={`https://wa.me/?text=${encodeURIComponent(text)}`}
+      target="_blank"
+      rel="noreferrer"
+      className={button({
+        variant: "ghost",
+        size: "sm",
+        className: "shrink-0",
+      })}
+    >
+      <MessageCircle className="size-3.5" /> WhatsApp
+    </a>
   )
 }

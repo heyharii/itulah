@@ -182,7 +182,7 @@ function ShopTile({
       onClick={onClick}
       title={note}
       className={cn(
-        "flex min-w-0 flex-col items-start gap-0.5 rounded-inner border px-3 py-2.5 text-left transition-colors",
+        "flex min-w-0 flex-col items-start gap-0.5 rounded-inner border px-4 py-3.5 text-left transition-colors",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
         on
           ? "border-accent bg-accent-bg"
@@ -351,7 +351,7 @@ export function NewPriceSheet({
         {
           siteId: null,
           siteIds: null,
-          where: "Every shop",
+          where: "Every store",
           price: "",
           from: null,
         },
@@ -393,7 +393,7 @@ export function NewPriceSheet({
             {
               siteId: null,
               siteIds: batch.shops,
-              where: `${count(batch.shops.length)} shops`,
+              where: `${count(batch.shops.length)} stores`,
               price: batch.price,
               from: batch.from,
             },
@@ -417,7 +417,7 @@ export function NewPriceSheet({
     target.price !== "" ? minorOf(target.price) : priceOf(skuId)
 
   const where =
-    targets.length === 1 ? targets[0].where : `${count(siteIds.length)} shops`
+    targets.length === 1 ? targets[0].where : `${count(siteIds.length)} stores`
 
   const unpriced = chosen.filter((one) =>
     targets.some((target) => priceIn(target, one.sku_id) === null)
@@ -476,7 +476,7 @@ export function NewPriceSheet({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       title="New price"
-      id={chosen.length === 0 ? undefined : `${count(chosen.length)} products`}
+      id={chosen.length === 0 ? undefined : `${count(chosen.length)} SKUs`}
       width="wide"
       footer={
         <div className="flex items-center justify-between gap-3">
@@ -487,13 +487,13 @@ export function NewPriceSheet({
             )}
           >
             {chosen.length === 0
-              ? "Choose the products."
+              ? "Choose the SKUs."
               : unpriced.length > 0
-                ? `${count(unpriced.length)} product${unpriced.length === 1 ? " has" : "s have"} no price yet.`
-                : `${count(chosen.length)} product${chosen.length === 1 ? "" : "s"} · ${where}`}
+                ? `${count(unpriced.length)} SKU${unpriced.length === 1 ? " has" : "s have"} no price yet.`
+                : `${count(chosen.length)} SKU${chosen.length === 1 ? "" : "s"} · ${where}`}
           </span>
           <Button variant="primary" disabled={!ready} onClick={commit}>
-            Add to this change
+            Add
           </Button>
         </div>
       }
@@ -501,38 +501,31 @@ export function NewPriceSheet({
       {/* Nothing is amended: this writes a new price, and the newest book that
           names a product is the one every till reads — the old figure stays in
           the book that carried it. */}
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-8">
         {/* ── products ───────────────────────────────────────────────────── */}
-        <Section title="Products">
+        <Section title="Articles">
           <Input
             value={search}
-            placeholder="Search a style, SKU or description"
             onChange={(event) => setSearch(event.target.value)}
           />
 
           {seeded.loading && seeds.length > 0 ? (
-            <Quiet>
-              Opening {count(seeds.length)} style
-              {seeds.length === 1 ? "" : "s"} from the grid…
-            </Quiet>
+            <Quiet>Loading…</Quiet>
           ) : seeded.failed ? (
-            <Quiet>
-              The styles from the grid could not be opened. Search for them
-              above instead.
-            </Quiet>
+            <Quiet>Could not load the selected articles.</Quiet>
           ) : null}
 
           {needle.length === 0 ? null : needle.length < 2 ? (
-            <Quiet>Two characters is enough to start.</Quiet>
+            <Quiet>Type at least 2 characters.</Quiet>
           ) : results.isError ? (
-            <Quiet>The product search is not answering.</Quiet>
+            <Quiet>Search failed.</Quiet>
           ) : results.data === undefined ? (
-            <Quiet>Searching the catalogue…</Quiet>
+            <Quiet>Searching…</Quiet>
           ) : results.data.length === 0 ? (
             <Quiet>Nothing matches “{needle}”.</Quiet>
           ) : (
             <div>
-              <div className="mb-1.5 flex justify-end">
+              <div className="mb-3 flex justify-end">
                 <Button
                   variant="quiet"
                   onClick={() => results.data.forEach(pick)}
@@ -543,17 +536,14 @@ export function NewPriceSheet({
               {/* The search is capped; at the cap, say so rather than let
                   the list pass for every match. */}
               {results.data.length >= PRODUCT_CAP && (
-                <Quiet>
-                  Showing the first {count(PRODUCT_CAP)} matches. Type more to
-                  narrow the search.
-                </Quiet>
+                <Quiet>First {count(PRODUCT_CAP)} matches.</Quiet>
               )}
               {/* A window onto the matches rather than the whole list, so the
                   price and the shops stay on screen while somebody picks. */}
-              <div className="max-h-[17rem] overflow-y-auto rounded-inner border border-hairline-2 px-3">
+              <div className="max-h-[17rem] overflow-y-auto rounded-inner border border-hairline-2 px-4">
                 <MiniTable
                   head={[
-                    "Product",
+                    "Article",
                     { label: "Variant", align: "left" },
                     "Now",
                     { label: "", align: "right" },
@@ -565,21 +555,21 @@ export function NewPriceSheet({
                     )
                     return (
                       <MiniRow key={product.sku_id}>
-                        <MiniCell>
+                        <MiniCell className="py-3.5">
                           <Named
                             name={product.article_name ?? product.article_code}
                             code={product.sku_code}
                           />
                         </MiniCell>
-                        <MiniCell>
+                        <MiniCell className="py-3.5">
                           <span className="text-[0.875rem] text-mute">
                             {variantOf(product)}
                           </span>
                         </MiniCell>
-                        <MiniCell align="right">
+                        <MiniCell align="right" className="py-3.5">
                           {money(product.unit_price_minor)}
                         </MiniCell>
-                        <MiniCell align="right">
+                        <MiniCell align="right" className="py-3.5">
                           <Button
                             variant="quiet"
                             onClick={() =>
@@ -612,20 +602,15 @@ export function NewPriceSheet({
                 : undefined
             }
           >
-            <Money
-              value={bulk}
-              onChange={setBulk}
-              prefix="Rp"
-              placeholder="199.000"
-            />
+            <Money value={bulk} onChange={setBulk} prefix="Rp" />
           </Field>
 
           {chosen.length > 0 && (
             <MiniTable
               head={[
-                "Product",
+                "Article",
                 "Now",
-                { label: "New price", align: "right" },
+                { label: "New Price", align: "right" },
                 { label: "", align: "right" },
               ]}
             >
@@ -633,7 +618,7 @@ export function NewPriceSheet({
                 const minor = priceOf(product.sku_id)
                 return (
                   <MiniRow key={product.sku_id}>
-                    <MiniCell>
+                    <MiniCell className="py-3.5">
                       <Named
                         name={product.article_name ?? product.article_code}
                         code={[product.sku_code, variantOf(product)]
@@ -641,26 +626,25 @@ export function NewPriceSheet({
                           .join(" · ")}
                       />
                     </MiniCell>
-                    <MiniCell align="right">
+                    <MiniCell align="right" className="py-3.5">
                       <span className="text-mute tabular-nums">
                         {money(product.unit_price_minor)}
                       </span>
                     </MiniCell>
-                    <MiniCell align="right">
+                    <MiniCell align="right" className="py-3.5">
                       <Money
                         value={priceText(product.sku_id)}
                         label={`Price for ${product.sku_code}`}
-                        placeholder="—"
                         invalid={
                           minor === null && priceText(product.sku_id) !== ""
                         }
-                        className="h-7 w-28 px-2.5 text-right text-[0.875rem]"
+                        className="h-9 w-32 px-3 text-right text-[0.875rem]"
                         onChange={(next) =>
                           setOwn((was) => ({ ...was, [product.sku_id]: next }))
                         }
                       />
                     </MiniCell>
-                    <MiniCell align="right">
+                    <MiniCell align="right" className="py-3.5">
                       <Button
                         variant="quiet"
                         onClick={() => drop(product.sku_id)}
@@ -676,16 +660,16 @@ export function NewPriceSheet({
         </Section>
 
         {/* ── the level ──────────────────────────────────────────────────── */}
-        <Section title="Shops">
+        <Section title="Stores">
           {/* Every shop is a tile of its own rather than the absence of one.
               "Nothing lit" and "the company price" are the same state to the
               engine, but not to a reader: an empty grid looks like a question
               nobody has answered yet, and the company price is the answer most
               of these rows want. */}
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <ShopTile
               on={scope === "FLEET"}
-              label="Every shop"
+              label="Every store"
               onClick={() => setSiteIds([])}
               className="col-span-full sm:col-span-1"
             />
@@ -705,15 +689,15 @@ export function NewPriceSheet({
               {/* The header only appears where the row is a row. Below `sm`
                   the three fields stack, and a caption sitting above the first
                   of three stacks would be labelling one of them. */}
-              <div className="hidden bg-soft px-3 py-1.5 text-[0.875rem] font-medium tracking-[0.06em] text-mute uppercase sm:grid sm:grid-cols-[1fr_8.5rem_10.5rem] sm:gap-2">
-                <span>Shop</span>
+              <div className="hidden bg-soft px-4 py-3 text-[0.875rem] font-medium text-mute sm:grid sm:grid-cols-[1fr_8.5rem_10.5rem] sm:gap-3">
+                <span>Store</span>
                 <span>Its own price</span>
                 <span>Starts</span>
               </div>
               {siteIds.map((id) => (
                 <div
                   key={id}
-                  className="grid grid-cols-1 gap-1.5 border-t border-hairline px-3 py-2 first:border-t-0 sm:grid-cols-[1fr_8.5rem_10.5rem] sm:items-center sm:gap-2 sm:first:border-t"
+                  className="grid grid-cols-1 gap-2 border-t border-hairline px-4 py-3 first:border-t-0 sm:grid-cols-[1fr_8.5rem_10.5rem] sm:items-center sm:gap-3 sm:first:border-t"
                 >
                   <span
                     title={id}
@@ -724,7 +708,6 @@ export function NewPriceSheet({
                   <Money
                     value={shopPrice[id] ?? ""}
                     label={`What ${labelOf(id)} charges`}
-                    placeholder="Same"
                     onChange={(digits) =>
                       setShopPrice((was) => ({ ...was, [id]: digits }))
                     }

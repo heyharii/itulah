@@ -341,7 +341,10 @@ def run(cloud, dc, store, ctx):
         if found.get("code") == voucher["code"]:
             print(f"  = voucher {voucher['code']} already issued")
             continue
-        issuer, who = (maya, "maya") if voucher["kind"] == "GOODWILL" else (rina, "rina")
+        # The goodwill card was the store manager's, but the Store manager job
+        # role (0633) carries no Marketing section and the voucher route now
+        # asks for it, so head office issues it too.
+        issuer, who = rina, "rina"
         issuer.post("/api/v1/commercial/vouchers", {**voucher, "currency": "IDR"})
         print(f"  + voucher {voucher['code']} {voucher['kind']} Rp {voucher['value_minor']:,}"
               f" by {_actor(issuer, who)}")

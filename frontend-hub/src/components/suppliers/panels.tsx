@@ -28,7 +28,7 @@ import { queryState } from "@/lib/query-state"
 import { cn } from "@/lib/utils"
 
 /// The two panels a supplier's master carries on both screens that read it:
-/// Buying's Suppliers and GA's Vendors. One record (0212), so one panel per
+/// Procurement's Suppliers and GA's Vendors. One record (0212), so one panel per
 /// face of it — copied never, or the day one half learns the other's fix is
 /// the day the fix is lost.
 ///
@@ -129,7 +129,9 @@ export function SupplierBankAccountsPanel({
 
   return (
     <div className="flex flex-col gap-3.5">
-      {add.isError && <Banner tone="bad">{(add.error as Error).message}</Banner>}
+      {add.isError && (
+        <Banner tone="bad">{(add.error as Error).message}</Banner>
+      )}
       {change.isError && (
         <Banner tone="bad">{(change.error as Error).message}</Banner>
       )}
@@ -292,7 +294,7 @@ export function SupplierBankAccountsPanel({
                   pending={add.isPending}
                   disabled={!ready}
                 >
-                  {add.isPending ? "Adding…" : "Add it"}
+                  {add.isPending ? "Submitting…" : "Submit"}
                 </Button>
               )}
             </form.Subscribe>
@@ -333,7 +335,12 @@ export function SupplierContactsPanel({ supplierId }: { supplierId: string }) {
   const client = useQueryClient()
   const idempotency = useIdempotencyKey()
   const [adding, setAdding] = useState(false)
-  const [draft, setDraft] = useState({ name: "", role: "", phone: "", email: "" })
+  const [draft, setDraft] = useState({
+    name: "",
+    role: "",
+    phone: "",
+    email: "",
+  })
 
   const contacts = useQuery({
     queryKey: procurementKeys.supplierContacts(supplierId),
@@ -408,8 +415,13 @@ export function SupplierContactsPanel({ supplierId }: { supplierId: string }) {
           ) : (
             <MiniTable head={["Contact", "Reaches", ""]}>
               {rows.map((contact) => (
-                <tr key={contact.contact_id} className="border-t border-hairline">
-                  <td className={cn("py-2 pr-2", contact.retired && "text-mute")}>
+                <tr
+                  key={contact.contact_id}
+                  className="border-t border-hairline"
+                >
+                  <td
+                    className={cn("py-2 pr-2", contact.retired && "text-mute")}
+                  >
                     {contact.name}
                     {contact.is_primary && !contact.retired && (
                       <Pill tone="ok" className="ml-2">
@@ -427,7 +439,9 @@ export function SupplierContactsPanel({ supplierId }: { supplierId: string }) {
                       </span>
                     )}
                   </td>
-                  <td className={cn("py-2 pr-2", contact.retired && "text-mute")}>
+                  <td
+                    className={cn("py-2 pr-2", contact.retired && "text-mute")}
+                  >
                     {contact.phone ?? "—"}
                     {contact.email !== null && (
                       <span className="block font-mono text-[0.875rem] text-mute">
@@ -483,7 +497,10 @@ export function SupplierContactsPanel({ supplierId }: { supplierId: string }) {
             <Input
               value={draft.name}
               onChange={(event) =>
-                setDraft((current) => ({ ...current, name: event.target.value }))
+                setDraft((current) => ({
+                  ...current,
+                  name: event.target.value,
+                }))
               }
             />
           </Field>
@@ -491,7 +508,10 @@ export function SupplierContactsPanel({ supplierId }: { supplierId: string }) {
             <Input
               value={draft.role}
               onChange={(event) =>
-                setDraft((current) => ({ ...current, role: event.target.value }))
+                setDraft((current) => ({
+                  ...current,
+                  role: event.target.value,
+                }))
               }
             />
           </Field>
@@ -527,7 +547,7 @@ export function SupplierContactsPanel({ supplierId }: { supplierId: string }) {
               pending={add.isPending}
               disabled={!ready}
             >
-              {add.isPending ? "Adding…" : "Add them"}
+              {add.isPending ? "Submitting…" : "Submit"}
             </Button>
             <Button variant="quiet" onClick={() => setAdding(false)}>
               Cancel

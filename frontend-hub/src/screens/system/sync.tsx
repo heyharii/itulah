@@ -91,14 +91,14 @@ const discrepancyColumns: ColumnDef<TableSetup, PoolDiscrepancy>[] = [
   },
   {
     accessorKey: "computed_on_hand",
-    header: "Centre says",
+    header: "Centre Says",
     size: 120,
     meta: { align: "right" },
     cell: ({ row }) => count(row.original.computed_on_hand),
   },
   {
     accessorKey: "observed_on_hand",
-    header: "Server says",
+    header: "Server Says",
     size: 120,
     meta: { align: "right" },
     cell: ({ row }) => count(row.original.observed_on_hand),
@@ -127,14 +127,14 @@ const discrepancyColumns: ColumnDef<TableSetup, PoolDiscrepancy>[] = [
   },
   {
     accessorKey: "allotted_difference",
-    header: "Allotted gap",
+    header: "Allotted Gap",
     size: 120,
     meta: { align: "right" },
     cell: ({ row }) => count(row.original.allotted_difference),
   },
   {
     accessorKey: "snapshot_seq",
-    header: "Snapshot",
+    header: "Checkpoint",
     size: 110,
     meta: { align: "right" },
     cell: ({ row }) => count(row.original.snapshot_seq),
@@ -431,7 +431,6 @@ function CommandsTab({
             <Input
               value={typed}
               onChange={(event) => setTyped(event.target.value)}
-              placeholder="00000000-0000-0000-0000-000000000000"
               className="font-mono"
               autoComplete="off"
             />
@@ -728,7 +727,7 @@ function IssueSheet({
                 disabled={!can}
                 onClick={() => form.handleSubmit()}
               >
-                {issue.isPending ? "Issuing…" : "Issue"}
+                {issue.isPending ? "Submitting…" : "Submit"}
               </Button>
             )}
           </form.Subscribe>
@@ -797,7 +796,6 @@ function IssueSheet({
                   scrolling the box. */}
               <PickMany
                 label="Targets"
-                placeholder="The whole fleet"
                 choices={(origins.data ?? []).map((origin) => ({
                   value: origin.origin_id,
                   label: origin.label ?? origin.origin_id,

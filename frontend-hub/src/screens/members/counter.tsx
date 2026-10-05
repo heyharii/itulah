@@ -229,7 +229,6 @@ export function EnrolCard({
               <Input
                 value={memberId}
                 onChange={(event) => setMemberId(event.target.value)}
-                placeholder="M-000123"
                 autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck={false}
@@ -242,7 +241,6 @@ export function EnrolCard({
               <Input
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Left blank"
               />
             </Field>
             <Problem error={enrol.error} />

@@ -123,12 +123,7 @@ export function OneOffs() {
 
       <Toolbar>
         {unit.units.length > 0 && (
-          <Select
-            value={unitId}
-            onChange={setUnitId}
-            placeholder="Every unit"
-            className="h-8 w-52"
-          >
+          <Select value={unitId} onChange={setUnitId} className="h-8 w-52">
             <option value="">Every unit</option>
             {unit.units.map((one) => (
               <option key={one.id} value={one.id}>
@@ -297,7 +292,6 @@ function OneOffSheet({
               <Input
                 value={reason}
                 onChange={(event) => setReason(event.target.value)}
-                placeholder="double filing"
               />
             </Field>
             <div>
@@ -456,7 +450,6 @@ function FileOneOffSheet({
         <Field label="Unit" required>
           <PickOne
             label="Unit"
-            placeholder="Choose a unit…"
             choices={filingUnits.choices}
             value={unitId === "" ? null : unitId}
             onChange={(next) => {
@@ -476,7 +469,6 @@ function FileOneOffSheet({
         <Field label="Who" required>
           <PickOne
             label="Who"
-            placeholder="Choose a person…"
             choices={(team.data ?? []).map((one) => ({
               value: one.employee_id,
               label:
@@ -499,7 +491,6 @@ function FileOneOffSheet({
         >
           <PickOne
             label="Component"
-            placeholder="Choose a component…"
             choices={oneOffs.map((one) => ({
               value: one.code,
               label: `${one.label} · ${one.code}`,
@@ -515,7 +506,6 @@ function FileOneOffSheet({
           >
             <PickOne
               label="Potong advance"
-              placeholder="Not linked to an advance"
               choices={recoverable.map((one) => ({
                 value: one.advance_id,
                 label: `${one.advance_number} · ${money(one.outstanding_minor)} outstanding`,
@@ -530,7 +520,6 @@ function FileOneOffSheet({
             inputMode="numeric"
             value={amount}
             onChange={(event) => setAmount(event.target.value)}
-            placeholder="300000"
           />
         </Field>
         {/* The cap and the freeze, where the figure is typed. The cap is the
@@ -552,7 +541,6 @@ function FileOneOffSheet({
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            placeholder="kasbon — cicilan 1 dari 3"
           />
         </Field>
       </div>
@@ -620,7 +608,6 @@ function ImportSheet({
         <Field label="Unit" required>
           <PickOne
             label="Unit"
-            placeholder="Choose a unit…"
             choices={filingUnits.choices}
             value={unitId === "" ? null : unitId}
             onChange={(next) => setChosenUnit(next ?? "")}

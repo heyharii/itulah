@@ -162,7 +162,7 @@ const columns: ColumnDef<TableSetup, MoneyAccountRow>[] = [
   },
   {
     accessorKey: "per_books_minor",
-    header: "Per books",
+    header: "Per Books",
     size: 150,
     meta: {
       align: "right",
@@ -182,7 +182,7 @@ const columns: ColumnDef<TableSetup, MoneyAccountRow>[] = [
   {
     id: "statement",
     accessorFn: (row) => row.last_statement?.closing_minor ?? null,
-    header: "Last statement",
+    header: "Last Statement",
     size: 175,
     // Offered for its empty end above all: `is empty` is "every account the
     // bank has never been heard from about", which is the list somebody chases
@@ -332,7 +332,6 @@ export function BankReconciliation() {
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search"
               className="h-8 w-48"
             />
             <Button variant="primary" onClick={() => setImporting(true)}>
@@ -702,7 +701,7 @@ function AccountSheet({
         ) : (
           <EmptyState>
             No money account on this reading has that code. It may be mapped at
-            another location, or as at another date.
+            another unit, or as at another date.
           </EmptyState>
         )
       ) : open !== undefined ? (
@@ -1209,7 +1208,6 @@ function BookLine({
   return (
     <div className="mt-2 flex flex-col gap-2 border-t border-hairline pt-2.5">
       <AccountAndCategory
-        placeholder="Which account is the other side of this"
         // Headings and retired accounts are shown and refused rather than
         // hidden: somebody who cannot find the account they are looking at
         // assumes the search is broken. The server refuses the same two.
@@ -1225,11 +1223,7 @@ function BookLine({
         required
         hint="It is the only record of the judgement."
       >
-        <Input
-          value={memo}
-          onChange={(event) => setMemo(event.target.value)}
-          placeholder="Monthly administration charge"
-        />
+        <Input value={memo} onChange={(event) => setMemo(event.target.value)} />
       </Field>
 
       <div className="flex items-center justify-end gap-2">
@@ -1413,7 +1407,6 @@ function ImportSheet({
                     form.setFieldValue("accountName", account.name)
                   }}
                   seed="10110"
-                  placeholder="Which account is this statement for"
                 />
               ) : (
                 <div className="flex items-center gap-2 rounded-inner border border-hairline px-3 py-2">
@@ -1504,7 +1497,6 @@ function ImportSheet({
                   onBlur={field.handleBlur}
                   onChange={field.handleChange}
                   signed
-                  placeholder="0"
                 />
               </Field>
             )}
@@ -1526,7 +1518,6 @@ function ImportSheet({
                   onBlur={field.handleBlur}
                   onChange={field.handleChange}
                   signed
-                  placeholder="0"
                 />
               </Field>
             )}
@@ -1545,7 +1536,6 @@ function ImportSheet({
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(event) => field.handleChange(event.target.value)}
-                placeholder="2026-09-01,Transfer BCA,TRX0091,0,4500000"
                 className="font-mono text-[0.875rem]"
               />
             </Field>

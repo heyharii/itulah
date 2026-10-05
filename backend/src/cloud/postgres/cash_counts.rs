@@ -439,3 +439,137 @@ pub async fn post_variance(
         .find(|count| count.count_id == count_id)
         .ok_or_else(|| AppError::NotFound("cash count".into()))
 }
+
+// ---------------------------------------------------------------------------
+// The shop's own three boxes (store app › Money › Cash count, 2 Oct 2026)
+// ---------------------------------------------------------------------------
+
+/// One of a shop's three boxes of cash, as its books hold it today.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct StoreCashBox {
+    /// `cash` (takings not yet banked), `petty_cash` or `cashier_float`.
+    pub meaning: String,
+    pub account_code: String,
+    pub account_name: String,
+    pub books_minor: i64,
+    pub last_counted_on: Option<NaiveDate>,
+    pub last_variance_minor: Option<i64>,
+}
+
+/// A count as the shop sends it: which box, and the notes and coins.
+#[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct StoreCashCountRequest {
+    pub meaning: String,
+    pub counted_on: Option<NaiveDate>,
+    #[serde(default)]
+    pub witnessed_by: String,
+    #[serde(default)]
+    pub reason: String,
+    pub notes: Vec<CashCountNote>,
+}
+
+/// The account a shop's box is kept on, in the unit owning the site.
+async fn box_account(pool: &PgPool, meaning: &str, unit_id: &str) -> Result<String, AppError> {
+    if !CASH_MEANINGS.contains(&meaning) {
+        return Err(AppError::Validation(format!(
+            "'{meaning}' is not a box a shop counts; expected cash, petty_cash or cashier_float"
+        )));
+    }
+    sqlx::query_scalar(
+        "SELECT account_code FROM account_resolution
+          WHERE role = $1 AND unit_id = $2 AND source_type = 'COMPANY' AND source_id = ''
+          ORDER BY account_code LIMIT 1",
+    )
+    .bind(meaning)
+    .bind(unit_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| {
+        AppError::Validation(format!(
+            "no account is linked for {meaning} in {unit_id}'s books; set it on Account Links"
+        ))
+    })
+}
+
+/// The three boxes at a site, with today's book figure and the last count.
+pub async fn store_cash_boxes(pool: &PgPool, site_id: &str) -> Result<Vec<StoreCashBox>, AppError> {
+    let unit_id = super::sites::unit_of_site(pool, site_id).await?;
+    let today = Utc::now().date_naive();
+    let mut boxes = Vec::new();
+    for meaning in CASH_MEANINGS {
+        let Ok(account_code) = box_account(pool, meaning, &unit_id).await else {
+            continue;
+        };
+        let books = books_at(pool, &account_code, &unit_id, today).await?;
+        let name: String = sqlx::query_scalar(
+            "SELECT COALESCE(name_en, name) FROM ledger_account WHERE account_code = $1",
+        )
+        .bind(&account_code)
+        .fetch_optional(pool)
+        .await?
+        .unwrap_or_else(|| account_code.clone());
+        let last = sqlx::query(
+            "SELECT counted_on, counted_minor - per_books_minor AS variance
+               FROM cash_count WHERE account_code = $1 AND site_id = $2
+              ORDER BY counted_on DESC, created_at DESC LIMIT 1",
+        )
+        .bind(&account_code)
+        .bind(site_id)
+        .fetch_optional(pool)
+        .await?;
+        boxes.push(StoreCashBox {
+            meaning: meaning.to_string(),
+            account_code,
+            account_name: name,
+            books_minor: books,
+            last_counted_on: last.as_ref().map(|row| row.try_get("counted_on")).transpose()?,
+            last_variance_minor: last.as_ref().map(|row| row.try_get("variance")).transpose()?,
+        });
+    }
+    Ok(boxes)
+}
+
+/// Record a shop's count of one of its boxes. The total is the notes'.
+pub async fn store_cash_count(
+    pool: &PgPool,
+    site_id: &str,
+    request: &StoreCashCountRequest,
+    actor: &str,
+) -> Result<CashCountRow, AppError> {
+    let unit_id = super::sites::unit_of_site(pool, site_id).await?;
+    let account_code = box_account(pool, request.meaning.trim(), &unit_id).await?;
+    if request.notes.iter().any(|note| note.denomination_minor <= 0 || note.quantity < 0) {
+        return Err(AppError::Validation(
+            "each note or coin is a positive denomination and a count of zero or more".into(),
+        ));
+    }
+    let counted: i64 = request
+        .notes
+        .iter()
+        .map(|note| note.denomination_minor * i64::from(note.quantity))
+        .sum();
+    let counted_on = request.counted_on.unwrap_or_else(|| Utc::now().date_naive());
+    let books = books_at(pool, &account_code, &unit_id, counted_on).await?;
+    if counted != books && request.reason.trim().is_empty() {
+        return Err(AppError::Validation(format!(
+            "the box holds {counted} and the books say {books}; say why it differs"
+        )));
+    }
+    record_count(
+        pool,
+        &RecordCountRequest {
+            account_code,
+            site_id: site_id.to_string(),
+            counted_on,
+            counted_by: actor.to_string(),
+            witnessed_by: request.witnessed_by.clone(),
+            counted_minor: counted,
+            reason: request.reason.clone(),
+            notes: request.notes.clone(),
+        },
+        actor,
+    )
+    .await
+}

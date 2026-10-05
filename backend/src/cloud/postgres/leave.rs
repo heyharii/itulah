@@ -474,6 +474,34 @@ pub async fn requests_of(
         .collect()
 }
 
+/// Approved leave requests that overlap an attendance range for one employee.
+///
+/// This is narrower than `requests_of`: attendance asks about a bounded span,
+/// and should not hydrate the employee's entire leave history for every day
+/// it derives.
+pub async fn approved_requests_overlapping(
+    pool: &PgPool,
+    employee_id: &str,
+    from: NaiveDate,
+    to: NaiveDate,
+    catalogue: &LeaveTypeCatalogue,
+) -> Result<Vec<LeaveRequestRecord>, AppError> {
+    let rows = sqlx::query(&format!(
+        "SELECT {REQUEST_COLUMNS} FROM leave_request
+          WHERE employee_id = $1 AND state = 'APPROVED'
+            AND from_date <= $3 AND to_date >= $2
+          ORDER BY from_date, id"
+    ))
+    .bind(employee_id)
+    .bind(from)
+    .bind(to)
+    .fetch_all(pool)
+    .await?;
+    rows.iter()
+        .map(|row| decode_request(row, catalogue))
+        .collect()
+}
+
 /// The manager's queue: what is waiting on a decision.
 ///
 /// `unit_id` is `None` for head office, which reads every place's. The partial

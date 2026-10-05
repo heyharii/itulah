@@ -11,8 +11,7 @@ export type GaRepairPage = { rows: Array<GaRepairRow>,
  * Opaque. Pass it back as `cursor` for the next page; absent means this
  * was the last one.
  */
-next_cursor: string | null, 
-total: number, facets: GaRepairFacets, 
+next_cursor: string | null, total: number, facets: GaRepairFacets, 
 /**
  * Σ `actual_cost_minor` of the rows on this page — a read of Finance's
  * side, never a copy of it.

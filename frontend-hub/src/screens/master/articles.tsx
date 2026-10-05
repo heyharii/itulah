@@ -1,16 +1,14 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { LayoutGrid, Rows3, Search } from "lucide-react"
+import { Search } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { PageHeader } from "@/components/ui/page-header"
-import { SetupSheets, SetupTrigger } from "@/screens/procurement/setups"
 import { Pill } from "@/components/ui/pill"
-import { Segmented } from "@/components/ui/segmented"
 import { EmptyState, LoadMore } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { FilterOmnibox } from "@/components/ui/filter-omnibox"
@@ -56,8 +54,9 @@ import { sizeLabel, sizeSpan, termLabel } from "@/screens/procurement/shared"
 /// grid is the only shape that lets a garment catch the eye; whoever is
 /// checking that everything is priced and every colourway has SKUs needs the
 /// numbers in columns they can compare down. Neither is a decoration of the
-/// other, which is why the toggle is a `Segmented` over one query rather than
-/// two screens.
+/// other, which is why the two are one query rather than two screens. The
+/// grid is hidden for now (2026-09-29): the page opens as the table, with no
+/// switch.
 ///
 /// The filters are counted by the server over everything the SEARCH matches —
 /// never over the current facet selection. Choosing Menswear must not make the
@@ -113,6 +112,8 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
       <span className="flex items-center gap-2.5">
         <Thumbnail
           url={row.original.article.image_url}
+          name={row.original.article.name}
+          division={row.original.article.division_code}
           className="size-8 shrink-0 rounded-inner border border-hairline"
         />
         <span className="flex min-w-0 flex-col">
@@ -170,7 +171,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
   {
     id: "price",
     accessorFn: (row) => row.article.base_price_min_minor ?? -1,
-    header: "Price range",
+    header: "Price Range",
     size: 190,
     meta: { align: "right" },
     // `-1` rather than null in the accessor: unpriced articles are what
@@ -205,7 +206,9 @@ export function Articles() {
   /// keys standing for the same page.
   const articleOrder = useSheet("articleOrder")
 
-  const [view, setView] = useState<"grid" | "table">("grid")
+  /// Table only for now: the owner hid the grid (2026-09-29) — 12k articles
+  /// are read as rows. The grid code stays so it can come back as a switch.
+  const [view] = useState<"grid" | "table">("table")
   const [sorting, setSorting] = useState<SortingState>([])
 
   const needle = (search.value ?? "").trim()
@@ -435,12 +438,7 @@ export function Articles() {
       <PageHeader
         title="Articles"
         sub="Every article the company sells, with the colourways, sizes and SKUs minted against it."
-        // A delivery that arrived under no article is a gap in THIS
-        // catalogue, which is why the queue hangs from this header and not
-        // from the order book's. Moved back 2026-09-13 on the owner's word.
-        actions={<SetupTrigger />}
       />
-      <SetupSheets />
 
       {/* Two columns from 1440 up: the catalogue, and the facets standing
           beside it.
@@ -499,9 +497,8 @@ export function Articles() {
                     ? search.open(event.target.value)
                     : search.close()
                 }
-                placeholder="Search article, SKU or QR"
                 aria-label="Search the article master — article code, SKU, name, QR payload or the supplier's own code"
-                className="h-[2.125rem] w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
+                className="h-control w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
               />
             </span>
             <span className="mr-auto text-[0.875rem] text-body dock:mr-0">
@@ -538,31 +535,6 @@ export function Articles() {
                 hide, and a menu that can only disappoint is worse than no
                 menu. */}
             {view === "table" && <ColumnsMenu table={table} />}
-            <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
-            <Segmented
-              options={[
-                {
-                  value: "grid",
-                  label: (
-                    <span className="inline-flex items-center gap-1.5">
-                      <LayoutGrid className="size-3.5" />
-                      Grid
-                    </span>
-                  ),
-                },
-                {
-                  value: "table",
-                  label: (
-                    <span className="inline-flex items-center gap-1.5">
-                      <Rows3 className="size-3.5" />
-                      Table
-                    </span>
-                  ),
-                },
-              ]}
-              value={view}
-              onChange={setView}
-            />
             <ViewPicker model={filters} id="articles" all="All articles" />
           </div>
 
@@ -575,7 +547,6 @@ export function Articles() {
             model={{ ...filters, fields: counted }}
             text={search.value ?? undefined}
             onText={(next) => (next ? search.open(next) : search.close())}
-            placeholder="Search article, SKU, name, QR or supplier code, or filter"
             className="mb-3 dock:hidden"
           />
 
@@ -722,6 +693,8 @@ function ArticleCard({
     >
       <Thumbnail
         url={article.image_url}
+        name={article.name}
+        division={article.division_code}
         fallback="No photograph"
         className="h-[9.875rem] w-full"
       >

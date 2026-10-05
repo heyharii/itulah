@@ -16,7 +16,7 @@ import { Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
-import { day, label, money } from "@/lib/format"
+import { dateText, day, label, money } from "@/lib/format"
 import { accountLedger, financeKeys, trialBalance } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
@@ -209,7 +209,7 @@ const trialColumns: ColumnDef<TableSetup, TrialBalanceRow>[] = [
     // on this number, so the first screenful is the largest positions rather
     // than the lowest account codes.
     accessorFn: (row) => row.debit_minor - row.credit_minor,
-    header: "Debit less credit",
+    header: "Debit Less Credit",
     size: 160,
     // The position, and the only size question worth asking of this list: the
     // two sides beside it are movements and a big debit against a big credit
@@ -340,7 +340,6 @@ function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search"
             className="h-8 w-48"
           />
         }
@@ -735,7 +734,6 @@ function AccountMovements({
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search memos"
             className="h-8 w-48"
           />
         }
@@ -790,7 +788,7 @@ function AccountMovements({
               label="Balance"
               format={money}
               labelOf={(bucket) =>
-                new Date(`${bucket}T00:00:00`).toLocaleDateString("id-ID", {
+                dateText(new Date(`${bucket}T00:00:00`), {
                   day: "2-digit",
                   month: "short",
                 })

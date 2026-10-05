@@ -110,7 +110,7 @@ export function Prepaids() {
             "Unit",
             "Account",
             ">Paid",
-            ">Per month",
+            ">Per Month",
             ">Progress",
             ">Outstanding",
             "Status",
@@ -200,7 +200,6 @@ export function Prepaids() {
             name: "description",
             label: "What was paid for",
             required: true,
-            placeholder: "Store and warehouse rent C006",
           },
           {
             name: "unit_id",
@@ -218,19 +217,16 @@ export function Prepaids() {
             label: "Amount paid",
             kind: "money",
             required: true,
-            placeholder: "100000000",
           },
           {
             name: "months",
             label: "Over how many months",
             required: true,
-            placeholder: "12",
           },
           {
             name: "starts_on",
             label: "First month",
             required: true,
-            placeholder: "2026-09-01",
           },
         ]}
         onSubmit={(v, minor) =>
@@ -315,7 +311,7 @@ function PrepaidDetail({ prepaid }: { prepaid: Prepaid }) {
             Fully released. Nothing is carried against this any more.
           </p>
         ) : (
-          <Table head={["Month", ">Release", ">Carried after"]}>
+          <Table head={["Month", ">Release", ">Carried After"]}>
             {Array.from({ length: Math.min(left, 12) }, (_, i) => {
               const d = new Date(start.getFullYear(), start.getMonth() + i, 1)
               return (

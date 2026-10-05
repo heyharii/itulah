@@ -9,9 +9,14 @@
 # from 43b4e85). Read this before deciding which jobs to require on a branch —
 # requiring a job that cannot pass teaches everyone to ignore the tick.
 #
-#   gates   GREEN. Formatting, and the four structural tests that pass on the
-#           committed tree: kernel_purity, write_authority, migration_hygiene,
-#           route_catalog. Cheap, no database. Require this one.
+#   gates   GREEN. Formatting, and the structural tests that need no database:
+#           kernel_purity, write_authority, migration_hygiene, route_catalog and
+#           scope_authority (added to the job 2026-09-28). Require this one.
+#
+#   contract  Added 2026-09-28 and not yet measured on a cold runner: it runs
+#           `make contract-check`, regenerating `frontend-contract/src` from the
+#           Rust structs and failing when the committed files no longer match.
+#           Require it once it has been seen green.
 #
 #   lints   RED — 21 files, of which 19 are committed. Mostly `unwrap_err()`
 #           inside `#[cfg(test)]` modules tripping the workspace's
@@ -21,15 +26,9 @@
 #           is the work, and hiding it behind `continue-on-error` is how the
 #           previous gate died.
 #
-#   hub2    GREEN. `frontend-hub-2` only: typecheck, eslint, the design-lint
-#           that guards the four rules which break the visual language
-#           silently, and vitest. Require this one.
-#
-#           `frontend-hub` and the other four front ends are deliberately NOT
-#           in it. `tsc -b` on the old hub fails with three errors that predate
-#           this job and belong to nobody's lane today — adding it would put a
-#           red tick beside every push, which is how the previous gate died.
-#           They join when somebody clears them.
+#   No front end is checked here. The `hub2` job went with `frontend-hub-2`
+#   (removed 2026-09-24); `frontend-hub` has no `check` script yet, and joins
+#   when it gets one.
 #
 #   tests   RED, three ways, none of them this lane's:
 #             - 19 of ~464 unit tests: `edge::zpl` and `edge::printing` while
@@ -76,6 +75,11 @@ jobs:
         working-directory: backend
         run: cargo fmt --all -- --check
 
+      # Two migrations with one number apply in an order nobody chose (the
+      # pos-e2e rig lost half an hour to 0816 and 0817 on 2026-10-02).
+      - name: Migration numbers are unique
+        run: scripts/check-migrations.sh
+
       # These read Rust source and the migration folders. They need no
       # database, which is why they are here rather than in `tests`: a
       # structural failure should be reported in a minute, not after a
@@ -94,7 +98,49 @@ jobs:
           cargo test --test migration_hygiene \
                      --test route_catalog \
                      --test kernel_purity \
-                     --test write_authority
+                     --test write_authority \
+                     --test scope_authority
+
+  # The browser contract is generated from the Rust structs by `make contract`,
+  # and nothing checked it before this job. A field renamed on the wire, or a
+  # type added to `backend/tests/contract_types.rs` without re-running the
+  # generator, leaves `frontend-contract/src` behind — and nobody finds out
+  # until a browser reaches for a name the server no longer sends. The job is
+  # `make contract-check` and nothing else: generate, then fail when
+  # `git status --porcelain frontend-contract/src` comes out non-empty.
+  #
+  # Deliberately NOT here, and not required anywhere: `make invariants` needs a
+  # live database; `cargo test -- --ignored` runs the three race tests R1/R2/R3
+  # in `backend/tests/consistency_under_concurrency.rs`, which are known holes
+  # and permanently red today. Requiring them would only teach everyone to
+  # ignore the tick.
+  contract:
+    name: contract (generated browser types)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the toolchain
+        run: rustup toolchain install stable --profile minimal
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Only the Rust build is cached. There is nothing to install on the Node
+      # side: `frontend-contract` has no dependencies of its own, and a cache
+      # keyed on that package alone would serve whatever was committed before
+      # the wire changed.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+
+      # Rust and Node both: the generator is a Rust test (`cargo test --features
+      # ts --test contract_types`) and its second half is `node
+      # generate-index.mjs`. `frontend-contract` has no dependencies of its own,
+      # so there is no `npm ci` before it.
+      - name: Contract is current
+        run: make contract-check
 
   lints:
     name: lints (clippy)
@@ -159,23 +205,3 @@ jobs:
       - name: Integration tests
         working-directory: backend
         run: cargo test --workspace --tests
-
-  hub2:
-    name: hub2 (typecheck + lint + design + tests)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      # No lockfile cache key here: `frontend-contract` is a sibling path
-      # dependency generated from the Rust types, so a cache keyed on this
-      # app's lockfile alone would serve a stale contract after `make contract`.
-      - name: Install
-        working-directory: frontend-hub-2
-        run: npm ci
-      # One command, so what CI runs and what a person runs before pushing
-      # cannot drift. Its four steps are in `frontend-hub-2/package.json`.
-      - name: Check
-        working-directory: frontend-hub-2
-        run: npm run check

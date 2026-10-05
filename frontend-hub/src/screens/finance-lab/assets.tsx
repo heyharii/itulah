@@ -157,7 +157,6 @@ export function LabAssets() {
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search"
             className="pl-8"
           />
         </div>

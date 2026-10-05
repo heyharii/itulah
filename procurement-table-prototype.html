@@ -1,0 +1,1308 @@
+<!doctype html>
+<html lang="en" data-theme="light" data-dir="a">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Central Procurement Table</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
+<style>
+/* Layout: hub shell (icon rail · menu · page) holding one full-bleed table,
+   the way the reference CRM does — toolbar of labelled pickers above, a live
+   calculation bar pinned below. Tokens are frontend-hub's; dark is derived
+   from the hub's own graphite rail ramp. */
+:root {
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --canvas: #ffffff;
+  --panel: #ffffff;
+  --rail: #242526;
+  --rail-ink: #ffffff;
+  --rail-text: #c3c4c7;
+  --rail-hover: #303234;
+  --soft: #f8f8f9;
+  --soft-2: #f0f0f2;
+  --hover: #f6f6f7;
+  --hairline: #e6e6e9;
+  --hairline-2: #dadade;
+  --hairline-strong: #c6c6cc;
+  --ink: #20242c;
+  --text: #394150;
+  --body: #626b78;
+  --mute: #737c89;
+  --faint: #b9c0c9;
+  --accent: #2563eb;
+  --accent-bg: #eff5ff;
+  --cta: #2563eb;
+  --cta-hover: #1d4ed8;
+  --cta-fg: #ffffff;
+  --ok-fg: #15803d;
+  --ok-bg: #d9f4d2;
+  --warn-fg: #b45309;
+  --warn-bg: #faeacd;
+  --bad-fg: #be123c;
+  --bad-bg: #fbeaea;
+  --info-fg: #2c57bf;
+  --a-orange: #e0823c;
+  --a-green: #46a06a;
+  --a-blue: #4a82f0;
+  --a-pink: #d65b95;
+  --a-violet: #8a6cf0;
+  --scrim: rgba(246, 246, 247, 0.72);
+  --shadow-pop: 0 1px 2px rgba(20, 22, 26, 0.06), 0 12px 32px -8px rgba(20, 22, 26, 0.18);
+  --tooltip: #101012;
+  --tooltip-fg: #ffffff;
+
+  --r-shell: 16px;
+  --r-card: 10px;
+  --r-inner: 7px;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --t-press: 120ms;
+  --t-pop: 160ms;
+  --t-sheet: 280ms;
+  --t-exit: 200ms;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --canvas: #1a1b1d; --panel: #1e1f21; --rail: #121314; --rail-ink: #ffffff; --rail-text: #b7b9bd; --rail-hover: #26272a;
+    --soft: #212224; --soft-2: #27282b; --hover: #222326; --hairline: #2b2d30; --hairline-2: #35373b; --hairline-strong: #4a4c51;
+    --ink: #f2f2f3; --text: #d5d6d9; --body: #a5a8ad; --mute: #8b8e94; --faint: #575a60;
+    --accent: #4f8ff7; --accent-bg: rgba(79, 143, 247, 0.14); --cta: #2563eb; --cta-hover: #3b74f0; --cta-fg: #ffffff;
+    --ok-fg: #5fcf7b; --ok-bg: rgba(95, 207, 123, 0.13); --warn-fg: #f0b45c; --warn-bg: rgba(240, 180, 92, 0.13);
+    --bad-fg: #f47676; --bad-bg: rgba(244, 118, 118, 0.14); --info-fg: #86adff;
+    --scrim: rgba(8, 8, 10, 0.5); --shadow-pop: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 16px 40px -8px rgba(0, 0, 0, 0.6);
+    --tooltip: #f2f2f3; --tooltip-fg: #18191b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --canvas: #1a1b1d; --panel: #1e1f21; --rail: #121314; --rail-ink: #ffffff; --rail-text: #b7b9bd; --rail-hover: #26272a;
+  --soft: #212224; --soft-2: #27282b; --hover: #222326; --hairline: #2b2d30; --hairline-2: #35373b; --hairline-strong: #4a4c51;
+  --ink: #f2f2f3; --text: #d5d6d9; --body: #a5a8ad; --mute: #8b8e94; --faint: #575a60;
+  --accent: #4f8ff7; --accent-bg: rgba(79, 143, 247, 0.14); --cta: #2563eb; --cta-hover: #3b74f0; --cta-fg: #ffffff;
+  --ok-fg: #5fcf7b; --ok-bg: rgba(95, 207, 123, 0.13); --warn-fg: #f0b45c; --warn-bg: rgba(240, 180, 92, 0.13);
+  --bad-fg: #f47676; --bad-bg: rgba(244, 118, 118, 0.14); --info-fg: #86adff;
+  --scrim: rgba(8, 8, 10, 0.5); --shadow-pop: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 16px 40px -8px rgba(0, 0, 0, 0.6);
+  --tooltip: #f2f2f3; --tooltip-fg: #18191b;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--canvas); color: var(--text);
+  font: 400 14px/1.45 var(--font-sans); letter-spacing: -0.005em;
+  -webkit-font-smoothing: antialiased; overflow: hidden;
+}
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+svg { flex-shrink: 0; }
+.ico { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.ico-18 { width: 18px; height: 18px; }
+.mono { font-family: var(--font-mono); font-size: 14px; letter-spacing: -0.01em; }
+.num { font-variant-numeric: tabular-nums; }
+.mute { color: var(--mute); }
+
+/* ---------- shell ---------- */
+.app { display: grid; grid-template-columns: 60px 248px minmax(0, 1fr); height: 100dvh; }
+.rail { background: var(--rail); display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0; }
+.logo { width: 32px; height: 32px; border-radius: 9px; background: #000; display: grid; place-items: center; position: relative; margin-bottom: 14px; box-shadow: 0 0 0 1px rgba(255,255,255,0.08); }
+.logo b { color: #fff; font: 700 17px/1 var(--font-sans); letter-spacing: -0.04em; }
+.logo i { position: absolute; right: 7px; bottom: 8px; width: 5px; height: 5px; border-radius: 50%; background: #2563eb; }
+.rail-btn { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; color: var(--rail-text); position: relative; transition: background-color var(--t-press) ease, color var(--t-press) ease; }
+.rail-btn[aria-current="page"] { background: var(--rail-hover); color: var(--rail-ink); }
+.rail-btn[aria-current="page"]::before { content: ""; position: absolute; left: -10px; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: #2563eb; }
+.rail-spacer { flex: 1; }
+@media (hover: hover) and (pointer: fine) { .rail-btn:hover { background: var(--rail-hover); color: var(--rail-ink); } }
+
+.menu { background: var(--panel); border-right: 1px solid var(--hairline); display: flex; flex-direction: column; min-height: 0; }
+.menu-head { height: 56px; display: flex; align-items: center; gap: 10px; padding: 0 16px; flex-shrink: 0; }
+.menu-head h2 { margin: 0; font-size: 15px; font-weight: 600; color: var(--ink); letter-spacing: -0.01em; }
+.menu-scroll { flex: 1; overflow: auto; padding: 4px 10px 12px; display: flex; flex-direction: column; gap: 18px; }
+.menu-group { display: flex; flex-direction: column; gap: 1px; }
+.menu-label { color: var(--mute); padding: 0 8px 6px; font-size: 14px; }
+.menu-item { height: 34px; display: flex; align-items: center; gap: 10px; padding: 0 8px; border-radius: var(--r-inner); color: var(--text); text-align: left; width: 100%; transition: background-color var(--t-press) ease; }
+.menu-item .ico { color: var(--mute); }
+.menu-item .count { margin-left: auto; color: var(--mute); font-variant-numeric: tabular-nums; }
+.menu-item .count.hot { color: var(--warn-fg); }
+.menu-item[aria-current="page"] { background: var(--soft-2); color: var(--ink); font-weight: 500; }
+.menu-item[aria-current="page"] .ico { color: var(--ink); }
+@media (hover: hover) and (pointer: fine) { .menu-item:hover { background: var(--hover); } }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--mute)); flex-shrink: 0; }
+.menu-foot { border-top: 1px solid var(--hairline); padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 1px; }
+
+.main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.top { height: 56px; flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 0 20px 0 24px; }
+.top h1 { margin: 0; font-size: 22px; line-height: 30px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); white-space: nowrap; }
+.view-pill { height: 28px; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px; border: 1px solid var(--hairline-2); border-radius: 999px; color: var(--text); font-size: 14px; }
+.view-pill .dot { width: 7px; height: 7px; background: var(--ok-fg); }
+.top-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.icon-btn { width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; color: var(--body); position: relative; transition: background-color var(--t-press) ease, transform var(--t-press) var(--ease-out); }
+.icon-btn:active { transform: scale(0.96); }
+@media (hover: hover) and (pointer: fine) { .icon-btn:hover { background: var(--soft-2); color: var(--ink); } }
+.badge-dot { position: absolute; top: 7px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--bad-fg); box-shadow: 0 0 0 2px var(--canvas); }
+.me { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px 0 4px; border-radius: 999px; border: 1px solid var(--hairline); color: var(--ink); white-space: nowrap; }
+.avatar { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 14px; font-weight: 600; line-height: 1;
+  background: color-mix(in srgb, var(--c, var(--a-blue)) 26%, var(--soft-2)); color: color-mix(in srgb, var(--c, var(--a-blue)) 72%, var(--ink)); flex-shrink: 0; }
+.burger { display: none; }
+.search { display: none; align-items: center; gap: 8px; height: 36px; width: 260px; padding: 0 10px; border: 1px solid var(--hairline-2); border-radius: 9px; background: var(--canvas); color: var(--body); }
+.search.on { display: flex; }
+.search input { flex: 1; min-width: 0; border: 0; background: none; color: var(--ink); font: inherit; outline: none; }
+.search kbd { font: 500 14px/1 var(--font-sans); color: var(--mute); border: 1px solid var(--hairline-2); border-radius: 5px; padding: 2px 6px; }
+
+/* tabs: one underline that slides — transform only */
+.tabs { position: relative; display: flex; gap: 22px; padding: 0 24px; border-bottom: 1px solid var(--hairline); flex-shrink: 0; }
+.tab { height: 40px; color: var(--mute); font-weight: 500; transition: color var(--t-press) ease; white-space: nowrap; }
+.tab[aria-selected="true"] { color: var(--ink); }
+@media (hover: hover) and (pointer: fine) { .tab:hover { color: var(--ink); } }
+.tab-line { position: absolute; left: 0; bottom: -1px; height: 2px; width: 100px; background: var(--ink); transform-origin: left; transition: transform 220ms var(--ease-out); }
+
+/* KPIs: figures, not cards — a hairline between them, click to filter */
+.kpis { display: flex; padding: 2px 24px 4px; flex-shrink: 0; overflow-x: auto; scrollbar-width: none; }
+.kpis::-webkit-scrollbar { display: none; }
+.kpi { display: flex; flex-direction: column; gap: 2px; padding: 0 28px; border-left: 1px solid var(--hairline); text-align: left; white-space: nowrap; border-radius: 0; }
+.kpi:first-child { padding-left: 0; border-left: 0; }
+.kpi .l { color: var(--mute); }
+.kpi .v { font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); font-variant-numeric: tabular-nums; }
+.kpi.bad .v { color: var(--bad-fg); }
+.kpi.go .v { color: var(--accent); }
+button.kpi { transition: opacity var(--t-press) ease; }
+button.kpi[aria-pressed="true"] .l { color: var(--ink); text-decoration: underline; text-underline-offset: 4px; text-decoration-color: var(--hairline-strong); }
+@media (hover: hover) and (pointer: fine) { button.kpi:hover .l { color: var(--ink); } }
+/* KPI line: at most three facts the page can't say elsewhere, read as one
+   line under the title — what needs someone first, the size of things last.
+   Only an exception carries colour; only an exception is a filter. */
+.kline { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; padding: 0 24px 4px; flex-shrink: 0; margin-top: -6px; }
+.kl { display: inline-flex; align-items: baseline; gap: 6px; height: 30px; padding: 0 10px; border-radius: 8px; color: var(--mute); white-space: nowrap; line-height: 30px; }
+.kline > .kl:first-child { margin-left: -10px; }
+.kl b { font-size: 16px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.kl.bad b { color: var(--bad-fg); }
+.kl.go b { color: var(--accent); }
+.kl.warn b { color: var(--warn-fg); }
+button.kl { transition: background-color var(--t-press) ease, color var(--t-press) ease, transform var(--t-press) var(--ease-out); }
+button.kl:active { transform: scale(0.97); }
+button.kl[aria-pressed="true"] { background: var(--soft-2); color: var(--ink); box-shadow: inset 0 0 0 1px var(--hairline-2); }
+@media (hover: hover) and (pointer: fine) { button.kl:hover { background: var(--soft-2); color: var(--text); } }
+.kpis[hidden], .kline[hidden] { display: none; }
+/* toolbar: labelled pickers, the reference's "Sort by | Pipeline Value" */
+.toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 24px; flex-shrink: 0; flex-wrap: wrap; }
+.picker { height: 34px; display: inline-flex; align-items: stretch; border: 1px solid var(--hairline-2); border-radius: 9px; overflow: hidden; background: var(--canvas); transition: border-color var(--t-press) ease, transform var(--t-press) var(--ease-out); }
+.picker:active { transform: scale(0.98); }
+.picker .k { display: flex; align-items: center; padding: 0 10px; color: var(--mute); border-right: 1px solid var(--hairline); background: var(--soft); }
+.picker .v { display: flex; align-items: center; gap: 6px; padding: 0 8px 0 10px; color: var(--ink); font-weight: 500; white-space: nowrap; }
+.picker .v .ico { color: var(--mute); width: 14px; height: 14px; }
+.picker.set { border-color: color-mix(in srgb, var(--accent) 55%, var(--hairline-2)); }
+@media (hover: hover) and (pointer: fine) { .picker:hover { border-color: var(--hairline-strong); } }
+.tb-spacer { flex: 1; }
+.btn { height: 34px; display: inline-flex; align-items: center; gap: 7px; padding: 0 12px; border-radius: 9px; font-weight: 500; white-space: nowrap; transition: background-color var(--t-press) ease, transform var(--t-press) var(--ease-out), box-shadow var(--t-press) ease; }
+.btn:active { transform: scale(0.97); }
+.btn-ghost { border: 1px solid var(--hairline-2); color: var(--ink); background: var(--canvas); }
+.btn-soft { background: var(--soft-2); color: var(--ink); }
+.btn-primary { background: var(--cta); color: var(--cta-fg); box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), 0 1px 2px rgba(37,99,235,0.3); }
+@media (hover: hover) and (pointer: fine) {
+  .btn-ghost:hover { background: var(--soft); }
+  .btn-soft:hover { background: var(--hairline); }
+  .btn-primary:hover { background: var(--cta-hover); }
+}
+.filter-count { min-width: 20px; height: 20px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 14px; display: inline-grid; place-items: center; padding: 0 6px; line-height: 1; }
+.only-narrow { display: none; }
+
+/* ---------- table ---------- */
+.tablewrap { flex: 1; min-height: 0; overflow: auto; position: relative; border-top: 1px solid var(--hairline); }
+table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; min-width: 900px; }
+th, td { padding: 0 12px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+th:first-child, td:first-child { padding-left: 24px; }
+th:last-child, td:last-child { padding-right: 20px; }
+thead th { position: sticky; top: 0; z-index: 3; height: 44px; background: var(--canvas); color: var(--body); font-weight: 500; border-bottom: 1px solid var(--hairline); }
+th.sortable { cursor: pointer; user-select: none; }
+th .th { display: inline-flex; align-items: center; gap: 4px; }
+th .sort-ico { width: 14px; height: 14px; color: var(--faint); }
+th[aria-sort] .sort-ico { color: var(--ink); }
+@media (hover: hover) and (pointer: fine) { th.sortable:hover { color: var(--ink); } }
+tbody td { height: var(--row-h); border-bottom: 1px solid var(--hairline); color: var(--text); background: var(--canvas); font-size: 15px; }
+tbody tr { transition: none; }
+@media (hover: hover) and (pointer: fine) { tbody tr:hover td { background: var(--hover); } }
+tbody tr.sel td { background: var(--accent-bg); }
+.right { text-align: right; }
+th.right .th { justify-content: flex-end; width: 100%; }
+html[data-dir="a"] { --row-h: 56px; }
+html[data-dir="b"] { --row-h: 60px; }
+
+tfoot td { position: sticky; bottom: 0; z-index: 3; height: 44px; background: var(--canvas); border-top: 1px solid var(--hairline); color: var(--mute); padding: 0; }
+.calc { width: 100%; height: 44px; display: flex; align-items: center; gap: 6px; padding: 0 12px; color: var(--mute); white-space: nowrap; transition: background-color var(--t-press) ease; }
+tfoot td:first-child .calc { padding-left: 24px; }
+.calc.right { justify-content: flex-end; }
+.calc b { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
+.calc .ghost { color: var(--faint); transition: color var(--t-press) ease; display: inline-flex; align-items: center; gap: 4px; }
+.calc .ghost .ico { width: 14px; height: 14px; }
+.calc:hover .ghost, .calc:focus-visible .ghost { color: var(--mute); }
+@media (hover: hover) and (pointer: fine) { .calc:hover { background: var(--hover); } }
+
+/* checkbox */
+.cb { width: 16px; height: 16px; border-radius: 5px; border: 1.5px solid var(--hairline-strong); display: grid; place-items: center; background: var(--canvas); transition: background-color var(--t-press) ease, border-color var(--t-press) ease, transform var(--t-press) var(--ease-out); }
+.cb:active { transform: scale(0.9); }
+.cb[aria-checked="true"], .cb[aria-checked="mixed"] { background: var(--accent); border-color: var(--accent); }
+.cb svg { width: 12px; height: 12px; stroke: #fff; stroke-width: 2.6; fill: none; opacity: 0; }
+.cb[aria-checked="true"] svg.c-yes, .cb[aria-checked="mixed"] svg.c-mix { opacity: 1; }
+.cb svg.c-mix { display: none; }
+.cb[aria-checked="mixed"] svg.c-mix { display: block; }
+.cb[aria-checked="mixed"] svg.c-yes { display: none; }
+
+/* cells */
+.name { display: flex; flex-direction: column; min-width: 0; }
+.name .n { color: var(--ink); font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+.name .s { color: var(--mute); overflow: hidden; text-overflow: ellipsis; }
+html[data-dir="a"] .name .s:not(.keep) { display: none; }
+.who { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.who span { overflow: hidden; text-overflow: ellipsis; }
+.chips { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.chip { height: 24px; display: inline-flex; align-items: center; padding: 0 8px; border-radius: 6px; font-size: 14px; line-height: 1; white-space: nowrap;
+  background: color-mix(in srgb, var(--c, var(--body)) 15%, transparent); color: color-mix(in srgb, var(--c, var(--body)) 78%, var(--ink));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c, var(--body)) 24%, transparent); }
+.chip.tag { --c: var(--body); }
+.chip.more { --c: var(--body); cursor: default; }
+.kinds { color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+.kinds .more { color: var(--mute); }
+.money { display: flex; justify-content: space-between; gap: 8px; font-variant-numeric: tabular-nums; color: var(--ink); }
+.money .cur { color: var(--mute); }
+.fill { display: flex; align-items: center; justify-content: flex-end; }
+.fill .pct { font-variant-numeric: tabular-nums; color: var(--ink); }
+.fill .pct.low { color: var(--bad-fg); }
+.last { display: flex; align-items: center; gap: 8px; color: var(--text); }
+.last .ico { color: var(--mute); width: 15px; height: 15px; }
+.last .out { color: var(--mute); }
+.last .out.warn { color: var(--warn-fg); }
+.last .out.bad { color: var(--bad-fg); }
+.status { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.status .dot { width: 7px; height: 7px; }
+.row-menu { width: 30px; height: 30px; border-radius: 7px; display: grid; place-items: center; color: var(--mute); }
+@media (hover: hover) and (pointer: fine) { .row-menu:hover { background: var(--soft-2); color: var(--ink); } }
+.btn-review { height: 28px; padding: 0 10px; border-radius: 7px; background: var(--cta); color: var(--cta-fg); font-weight: 500; transition: transform var(--t-press) var(--ease-out), background-color var(--t-press) ease; }
+.btn-review:active { transform: scale(0.96); }
+@media (hover: hover) and (pointer: fine) { .btn-review:hover { background: var(--cta-hover); } }
+.link { color: var(--ink); text-decoration: underline; text-decoration-color: var(--hairline-strong); text-underline-offset: 3px; }
+.empty { padding: 64px 24px; text-align: center; color: var(--mute); display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.empty b { color: var(--ink); font-weight: 600; font-size: 15px; }
+
+/* sticky first columns on narrow screens */
+@media (max-width: 760px) {
+  td.c-cb, th.c-cb { position: sticky; left: 0; z-index: 2; }
+  td.c-name, th.c-name { position: sticky; left: 52px; z-index: 2; box-shadow: 1px 0 0 var(--hairline); }
+  thead th.c-cb, thead th.c-name { z-index: 4; }
+  th:first-child, td:first-child { padding-left: 16px; }
+}
+
+/* ---------- popovers (origin-aware) ---------- */
+.pop { position: fixed; z-index: 50; min-width: 220px; max-width: calc(100vw - 24px); background: var(--panel); border: 1px solid var(--hairline-2); border-radius: 12px; box-shadow: var(--shadow-pop); padding: 6px;
+  opacity: 0; transform: scale(0.97); pointer-events: none; transition: opacity 120ms ease, transform 120ms var(--ease-out); }
+.pop.open { opacity: 1; transform: none; pointer-events: auto; transition-duration: var(--t-pop); }
+.pop-label { padding: 8px 10px 4px; color: var(--mute); }
+.opt { width: 100%; min-height: 36px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-radius: 8px; text-align: left; color: var(--text); }
+.opt .check { margin-left: auto; color: var(--accent); width: 16px; height: 16px; opacity: 0; }
+.opt[aria-checked="true"] { color: var(--ink); font-weight: 500; }
+.opt[aria-checked="true"] .check { opacity: 1; }
+.opt .meta { margin-left: auto; color: var(--mute); font-variant-numeric: tabular-nums; }
+.opt[aria-checked="true"] .meta { margin-left: 8px; }
+.opt.danger { color: var(--bad-fg); }
+@media (hover: hover) and (pointer: fine) { .opt:hover { background: var(--soft-2); } }
+.opt:focus-visible { outline-offset: -2px; }
+.pop hr { border: 0; border-top: 1px solid var(--hairline); margin: 6px 0; }
+
+/* notifications */
+.notif { width: 400px; padding: 0; }
+.notif-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 6px; }
+.notif-head h3 { margin: 0; font-size: 15px; color: var(--ink); font-weight: 600; }
+.notif-head .n { color: var(--mute); }
+.notif-head .mark { margin-left: auto; color: var(--mute); }
+@media (hover: hover) and (pointer: fine) { .notif-head .mark:hover { color: var(--ink); } }
+.notif-tabs { display: flex; gap: 16px; padding: 0 16px; border-bottom: 1px solid var(--hairline); }
+.notif-tabs button { height: 34px; color: var(--mute); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.notif-tabs button[aria-selected="true"] { color: var(--ink); border-color: var(--ink); }
+.notif-list { max-height: min(460px, 70vh); overflow: auto; padding: 6px; }
+.n-item { width: 100%; display: grid; grid-template-columns: 28px 1fr 8px; gap: 10px; padding: 10px; border-radius: 9px; text-align: left; }
+@media (hover: hover) and (pointer: fine) { .n-item:hover { background: var(--soft-2); } }
+.n-item .what { color: var(--text); white-space: normal; }
+.n-item .what b { color: var(--ink); font-weight: 500; }
+.n-item .quote { margin-top: 6px; padding: 8px 10px; border: 1px solid var(--hairline-2); border-radius: 8px; color: var(--text); background: var(--soft); white-space: normal; }
+.n-item .when { margin-top: 4px; color: var(--mute); }
+.n-item .unread { width: 7px; height: 7px; border-radius: 50%; background: var(--bad-fg); margin-top: 7px; }
+.sys { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--soft-2); color: var(--body); }
+
+/* tooltip & hover card (delay first, instant after) */
+.tip { position: fixed; z-index: 60; background: var(--tooltip); color: var(--tooltip-fg); border-radius: 7px; padding: 6px 9px; font-size: 14px; pointer-events: none;
+  opacity: 0; transform: scale(0.97); transition: opacity 125ms ease, transform 125ms var(--ease-out); white-space: nowrap; }
+.tip.open { opacity: 1; transform: none; }
+.tip.instant { transition-duration: 0ms; }
+.card { position: fixed; z-index: 55; width: 300px; background: var(--panel); border: 1px solid var(--hairline-2); border-radius: 12px; box-shadow: var(--shadow-pop); padding: 14px;
+  opacity: 0; transform: scale(0.97); transform-origin: top left; pointer-events: none; transition: opacity 140ms ease, transform 140ms var(--ease-out); }
+.card.open { opacity: 1; transform: none; pointer-events: auto; }
+.card.instant { transition-duration: 0ms; }
+.card h4 { margin: 0; font-size: 15px; color: var(--ink); font-weight: 600; }
+.card dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 12px 0 0; }
+.card dt { color: var(--mute); }
+.card dd { margin: 0; color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* ---------- sheet (Review Count) ---------- */
+.scrim { position: fixed; inset: 0; z-index: 70; background: var(--scrim); opacity: 0; pointer-events: none; transition: opacity var(--t-exit) ease; }
+.scrim.open { opacity: 1; pointer-events: auto; transition-duration: var(--t-sheet); }
+.sheet { position: fixed; z-index: 71; top: 16px; right: 16px; bottom: 16px; width: min(56rem, calc(100vw - 32px)); background: var(--panel); border: 1px solid var(--hairline-2); border-radius: var(--r-shell); box-shadow: var(--shadow-pop);
+  display: flex; flex-direction: column; overflow: hidden; transform: translateX(calc(100% + 20px)); transition: transform var(--t-exit) var(--ease-drawer); }
+.sheet.open { transform: none; transition-duration: var(--t-sheet); }
+.sheet-head { display: flex; align-items: flex-start; gap: 12px; padding: 18px 20px 14px 28px; border-bottom: 1px solid var(--hairline); }
+.sheet-head h2 { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; color: var(--ink); }
+.sheet-head .po { color: var(--mute); }
+.sheet-body { flex: 1; min-height: 0; overflow: auto; padding: 20px 28px 28px; display: flex; flex-direction: column; gap: 28px; }
+.facts { display: grid; grid-template-columns: max-content minmax(0,1fr) max-content minmax(0,1fr); gap: 8px 16px; }
+.facts dt { color: var(--mute); }
+.facts dd { margin: 0 24px 0 0; color: var(--text); font-variant-numeric: tabular-nums; }
+.facts .wide { grid-column: span 3; }
+.facts .bad { color: var(--bad-fg); }
+.facts .ok { color: var(--ok-fg); }
+.rtable { border: 1px solid var(--hairline); border-radius: var(--r-card); overflow: clip; }
+.rtable table { min-width: 0; }
+.rtable th { height: 42px; background: var(--soft); color: var(--body); font-weight: 500; position: static; }
+.rtable td { height: 64px; background: var(--panel); border-bottom: 0; border-top: 1px solid var(--hairline); white-space: normal; }
+.rtable td, .rtable th { padding: 0 16px; }
+.rtable tfoot td { position: static; background: var(--soft); height: 48px; color: var(--text); padding: 0 16px; }
+.qty { display: flex; flex-direction: column; line-height: 1.3; font-variant-numeric: tabular-nums; }
+.qty .u { color: var(--mute); }
+.right-qty { align-items: flex-end; }
+tbody td .qty { line-height: 1.35; }
+.diff { display: inline-block; padding: 3px 9px; border-radius: 6px; background: var(--bad-bg); color: var(--bad-fg); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.match { display: inline-flex; align-items: center; gap: 6px; color: var(--ok-fg); }
+.switch-row { display: flex; justify-content: flex-end; align-items: center; gap: 10px; color: var(--body); margin-bottom: -12px; }
+.switch { width: 34px; height: 20px; border-radius: 999px; background: var(--hairline-2); position: relative; transition: background-color 160ms ease; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.2); transition: transform 180ms var(--ease-out); }
+.switch[aria-checked="true"] { background: var(--accent); }
+.switch[aria-checked="true"]::after { transform: translateX(14px); }
+.returns { border: 1px solid var(--hairline-2); border-radius: var(--r-inner); }
+.returns li { list-style: none; display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 10px 16px; color: var(--ink); }
+.returns li + li { border-top: 1px solid var(--hairline); }
+.returns ul { margin: 0; padding: 0; }
+.returns .ico { color: var(--info-fg); width: 18px; height: 18px; }
+.returns .what { flex: 1; font-weight: 500; }
+.returns .then { color: var(--body); }
+.sheet-foot { display: flex; align-items: center; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--hairline); }
+
+/* ---------- bulk bar, toasts ---------- */
+.bulk { position: fixed; z-index: 40; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 14px; background: var(--panel); border: 1px solid var(--hairline-2); border-radius: 12px; box-shadow: var(--shadow-pop);
+  transform: translate(-50%, 12px); opacity: 0; pointer-events: none; transition: transform 150ms var(--ease-out), opacity 150ms ease; }
+.bulk.open { transform: translate(-50%, 0); opacity: 1; pointer-events: auto; transition-duration: 220ms; }
+.bulk .n { color: var(--ink); font-weight: 500; margin-right: 8px; white-space: nowrap; }
+.toasts { position: fixed; z-index: 80; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
+body.has-bulk .toasts { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
+.toast { pointer-events: auto; min-width: 280px; max-width: calc(100vw - 32px); display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; background: var(--panel); border: 1px solid var(--hairline-2); border-radius: 12px; box-shadow: var(--shadow-pop);
+  transform: translateY(16px); opacity: 0; transition: transform 300ms var(--ease-out), opacity 300ms ease; }
+.toast.in { transform: none; opacity: 1; }
+.toast.out { transform: translateY(8px); opacity: 0; transition-duration: 160ms; }
+.toast .ico { color: var(--ok-fg); margin-top: 2px; }
+.toast b { color: var(--ink); font-weight: 500; display: block; }
+.toast span { color: var(--mute); }
+
+/* prototype chrome: plainly not the design */
+.proto { position: fixed; z-index: 90; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); display: flex; gap: 6px; padding: 5px; border-radius: 12px; background: #2a2b2e; color: #e8e8ea; box-shadow: 0 8px 24px rgba(0,0,0,0.3); font: 500 14px/1 system-ui, sans-serif; }
+body.sheet-open .proto { opacity: 0; pointer-events: none; }
+body.has-bulk .proto { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+.proto .seg { display: flex; background: #1c1d1f; border-radius: 8px; padding: 2px; }
+.proto button { height: 28px; padding: 0 10px; border-radius: 6px; color: #a9abb0; white-space: nowrap; }
+.proto button[aria-pressed="true"] { background: #3a3b3f; color: #fff; }
+
+/* ---------- responsive ---------- */
+@media (max-width: 1180px) {
+  .app { grid-template-columns: 60px minmax(0, 1fr); }
+  .menu { position: fixed; z-index: 60; top: 0; bottom: 0; left: 60px; width: 264px; transform: translateX(calc(-100% - 60px)); transition: transform var(--t-exit) var(--ease-drawer); box-shadow: var(--shadow-pop); }
+  body.menu-open .menu { transform: none; transition-duration: var(--t-sheet); }
+  .burger { display: grid; }
+}
+@media (max-width: 760px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .rail { display: none; }
+  .menu { left: 0; }
+  .top { padding: 0 12px 0 8px; gap: 6px; }
+  .top h1 { font-size: 18px; }
+  .me > span:not(.avatar), .view-pill { display: none; }
+  .me { padding: 0 4px; border-color: transparent; }
+  .tabs { padding: 0 16px; }
+  .toolbar { padding: 10px 16px; }
+  .wide-only { display: none !important; }
+  .only-narrow { display: inline-flex; }
+  .btn .lbl { display: none; }
+  .search.on { position: absolute; left: 8px; right: 8px; top: 14px; width: auto; z-index: 5; }
+  .notif { width: calc(100vw - 24px); }
+  .facts { grid-template-columns: max-content minmax(0,1fr); }
+  .facts .wide { grid-column: auto; }
+  .sheet { top: 8px; right: 8px; bottom: 8px; width: calc(100vw - 16px); }
+  .sheet-body { padding: 16px; }
+  .rtable { overflow-x: auto; }
+  .rtable table { min-width: 560px; }
+  .proto { right: 8px; left: 8px; justify-content: center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet, .menu, .bulk, .toast, .pop, .card, .tip, .tab-line { transition-property: opacity !important; transform: none !important; }
+  .sheet:not(.open) { opacity: 0; pointer-events: none; }
+}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M5 21h14"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></symbol>
+    <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></symbol>
+    <symbol id="i-ok" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m8 12 3 3 5-6"/></symbol>
+    <symbol id="i-recount" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+    <symbol id="i-sort" viewBox="0 0 24 24"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></symbol>
+    <symbol id="i-sort-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+    <symbol id="i-sort-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M3 5h18M6 12h12M10 19h4"/></symbol>
+    <symbol id="i-cart" viewBox="0 0 24 24"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></symbol>
+    <symbol id="i-shirt" viewBox="0 0 24 24"><path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/></symbol>
+    <symbol id="i-truck" viewBox="0 0 24 24"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></symbol>
+    <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol>
+    <symbol id="i-mega" viewBox="0 0 24 24"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></symbol>
+    <symbol id="i-store" viewBox="0 0 24 24"><path d="M3 9 4.5 4h15L21 9"/><path d="M4 9v11h16V9"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/></symbol>
+    <symbol id="i-bank" viewBox="0 0 24 24"><path d="M3 22h18M6 18v-7M10 18v-7M14 18v-7M18 18v-7M12 2l8 5H4z"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+    <symbol id="i-building" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4M8 6h.01M16 6h.01M12 6h.01M12 10h.01M12 14h.01M16 10h.01M16 14h.01M8 10h.01M8 14h.01"/></symbol>
+    <symbol id="i-tag" viewBox="0 0 24 24"><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><circle cx="7.5" cy="7.5" r=".5"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"/></symbol>
+    <symbol id="i-invite" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></symbol>
+    <symbol id="i-view" viewBox="0 0 24 24"><path d="M3 3h18v18H3z"/><path d="M3 9h18M9 21V9"/></symbol>
+    <symbol id="i-graph" viewBox="0 0 24 24"><path d="m3 17 6-6 4 4 8-8"/><path d="M14 7h7v7"/></symbol>
+  </defs>
+</svg>
+
+<div class="app">
+  <nav class="rail" aria-label="Apps">
+    <div class="logo" aria-label="Central"><b>C</b><i></i></div>
+    <button class="rail-btn" aria-current="page" aria-label="Procurement" data-tip="Procurement"><svg class="ico ico-18"><use href="#i-cart"/></svg></button>
+    <button class="rail-btn" aria-label="Merchandise" data-tip="Merchandise"><svg class="ico ico-18"><use href="#i-shirt"/></svg></button>
+    <button class="rail-btn" aria-label="Ops" data-tip="Ops"><svg class="ico ico-18"><use href="#i-truck"/></svg></button>
+    <button class="rail-btn" aria-label="Inventory" data-tip="Inventory"><svg class="ico ico-18"><use href="#i-box"/></svg></button>
+    <button class="rail-btn" aria-label="Marketing" data-tip="Marketing"><svg class="ico ico-18"><use href="#i-mega"/></svg></button>
+    <button class="rail-btn" aria-label="Sales" data-tip="Sales"><svg class="ico ico-18"><use href="#i-store"/></svg></button>
+    <button class="rail-btn" aria-label="Finance" data-tip="Finance"><svg class="ico ico-18"><use href="#i-bank"/></svg></button>
+    <button class="rail-btn" aria-label="HR" data-tip="HR"><svg class="ico ico-18"><use href="#i-users"/></svg></button>
+    <button class="rail-btn" aria-label="Reports" data-tip="Reports"><svg class="ico ico-18"><use href="#i-chart"/></svg></button>
+    <div class="rail-spacer"></div>
+    <button class="rail-btn" aria-label="System" data-tip="System"><svg class="ico ico-18"><use href="#i-sliders"/></svg></button>
+  </nav>
+
+  <aside class="menu" id="menu" aria-label="Procurement">
+    <div class="menu-head"><h2>Procurement</h2></div>
+    <div class="menu-scroll" id="menuScroll"></div>
+  </aside>
+
+  <main class="main">
+    <header class="top">
+      <button class="icon-btn burger" id="burger" aria-label="Open menu"><svg class="ico ico-18"><use href="#i-menu"/></svg></button>
+      <h1 id="title">Suppliers</h1>
+      <button class="view-pill" id="viewPill"><span class="dot"></span><span id="viewLabel">Active</span><svg class="ico" style="width:14px;height:14px;color:var(--mute)"><use href="#i-down"/></svg></button>
+      <div class="top-right">
+        <label class="search" id="search"><svg class="ico"><use href="#i-search"/></svg><input id="q" type="search" placeholder="Search" autocomplete="off" /><kbd>/</kbd></label>
+        <button class="icon-btn" id="searchBtn" aria-label="Search"><svg class="ico ico-18"><use href="#i-search"/></svg></button>
+        <button class="icon-btn" id="bell" aria-label="Notifications"><svg class="ico ico-18"><use href="#i-bell"/></svg><span class="badge-dot" id="bellDot"></span></button>
+        <button class="me" id="me"><span class="avatar" style="--c:var(--a-pink)">R</span><span>Rina Kusuma</span></button>
+      </div>
+    </header>
+
+
+    <div class="kline" id="kline"></div>
+    <div class="kpis" id="kpis" hidden></div>
+    <div class="toolbar" id="toolbar"></div>
+
+    <div class="tablewrap" id="tablewrap"></div>
+  </main>
+</div>
+
+<div class="pop" id="pop" role="menu"></div>
+<div class="tip" id="tip" role="tooltip"></div>
+<div class="card" id="card"></div>
+<div class="scrim" id="scrim"></div>
+<section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle"></section>
+<div class="bulk" id="bulk" role="toolbar" aria-label="Selection"></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<div class="proto" aria-label="Prototype controls">
+  <div class="seg"><button data-dir="a">A · Video</button><button data-dir="b">B · Calm</button></div>
+  <div class="seg"><button data-kpi-style="line">KPI line</button><button data-kpi-style="strip">Strip</button><button data-kpi-style="off">Off</button></div>
+  <div class="seg"><button data-theme-set="dark">Dark</button><button data-theme-set="light">Light</button></div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const TODAY = new Date("2026-10-04T12:00:00+07:00");
+  const $ = (s, el = document) => el.querySelector(s);
+  const icon = (id, cls = "ico") => `<svg class="${cls}"><use href="#i-${id}"/></svg>`;
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const fmtN = (n) => Number(n).toLocaleString("id-ID");
+  const pcs = (n) => `${fmtN(n)} ${n === 1 ? "pc" : "pcs"}`;
+  const rp = (n) => `Rp ${fmtN(Math.round(n))}`;
+  const rpShort = (n) => n >= 1e9 ? `Rp ${(n / 1e9).toLocaleString("id-ID", { maximumFractionDigits: 2 })} M`
+    : n >= 1e6 ? `Rp ${(n / 1e6).toLocaleString("id-ID", { maximumFractionDigits: 1 })} jt` : rp(n);
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const day = (iso) => { const [, m, d] = iso.split("-"); return `${d} ${MON[Number(m) - 1]}`; };
+  const dayYear = (iso) => `${day(iso)} ${iso.slice(0, 4)}`;
+  const daysAgo = (iso) => Math.round((TODAY - new Date(iso + "T12:00:00+07:00")) / 864e5);
+  const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+
+  // ---------------------------------------------------------------- data
+  const BUYERS = {
+    rina: { name: "Rina Kusuma", c: "var(--a-pink)" },
+    dimas: { name: "Dimas Pratama", c: "var(--a-blue)" },
+    sari: { name: "Sari Wulandari", c: "var(--a-violet)" },
+    bayu: { name: "Bayu Saputra", c: "var(--a-orange)" },
+    ayu: { name: "Ayu Lestari", c: "var(--a-green)" },
+  };
+  const DIVS = { Pria: "var(--a-blue)", Wanita: "var(--a-pink)", Anak: "var(--a-orange)", Aksesoris: "var(--a-violet)" };
+  const S = (name, divs, tags, buyer, open, onOrder, fill, last, out, terms = "60 days · Giro", active = true) =>
+    ({ name, divs, tags, buyer, open, onOrder, fill, last, out, terms, active });
+  const suppliers = [
+    S("Indorama, PT", ["Pria"], ["Kemeja", "Kaos", "Basic"], "rina", 6, 412500000, 82, "2026-10-04", "Short"),
+    S("Garmen AA, UD", ["Wanita"], ["Gaun", "Gamis"], "dimas", 3, 98400000, 64, "2026-10-02", "Over", "30 days · Transfer"),
+    S("Garmen Nusantara, PT", ["Pria", "Anak"], ["Celana", "Chino"], "sari", 4, 256000000, 91, "2026-09-30", "Received"),
+    S("Tekstil Bandung Raya, CV", ["Wanita"], ["Blus", "Rok"], "rina", 2, 74250000, 77, "2026-09-28", "Short"),
+    S("Konveksi Sinar Jaya, UD", ["Anak"], ["Kaos", "Seragam"], "bayu", 5, 133900000, 95, "2026-10-03", "Received", "45 days · Giro"),
+    S("Batik Pekalongan Indah, CV", ["Pria", "Wanita"], ["Batik", "Kemeja"], "ayu", 2, 188600000, 88, "2026-09-21", "Received"),
+    S("Rajut Mandiri, PT", ["Wanita"], ["Rajut", "Cardigan"], "dimas", 3, 142000000, 71, "2026-09-26", "Return"),
+    S("Denim Karya Abadi, PT", ["Pria", "Wanita"], ["Denim", "Jaket", "Celana"], "sari", 4, 321750000, 86, "2026-10-01", "Received"),
+    S("Sepatu Cibaduyut Prima, CV", ["Aksesoris"], ["Sepatu", "Kulit"], "bayu", 2, 96300000, 58, "2026-09-15", "Short", "30 days · Transfer"),
+    S("Tas Kulit Garut, UD", ["Aksesoris"], ["Tas", "Kulit"], "ayu", 1, 45800000, 93, "2026-09-12", "Received"),
+    S("Kaos Kaki Sentosa, UD", ["Aksesoris", "Anak"], ["Kaos kaki"], "rina", 2, 18900000, 99, "2026-09-29", "Received"),
+    S("Busana Muslim Amanah, CV", ["Wanita"], ["Gamis", "Hijab", "Tunik"], "dimas", 6, 287300000, 84, "2026-10-04", "Over"),
+    S("Jaket Parahyangan, PT", ["Pria"], ["Jaket", "Parka"], "sari", 2, 164500000, 79, "2026-08-30", "Received"),
+    S("Seragam Sekolah Cemerlang, CV", ["Anak"], ["Seragam"], "bayu", 3, 119000000, 97, "2026-09-25", "Received"),
+    S("Pakaian Dalam Lestari, PT", ["Pria", "Wanita"], ["Pakaian dalam"], "ayu", 2, 52600000, 90, "2026-09-19", "Received"),
+    S("Topi Bordir Tasik, UD", ["Aksesoris"], ["Topi", "Bordir"], "rina", 1, 12400000, 68, "2026-08-21", "Short", "14 days · Cash"),
+    S("Kain Tenun Troso, CV", ["Wanita"], ["Tenun", "Kain"], "dimas", 1, 38750000, 100, "2026-07-30", "Received"),
+    S("Kemeja Formal Elegan, PT", ["Pria"], ["Kemeja", "Formal"], "sari", 4, 176200000, 87, "2026-10-02", "Received"),
+    S("Anak Ceria Kids, CV", ["Anak"], ["Kaos", "Celana", "Piyama"], "bayu", 3, 88300000, 74, "2026-09-27", "Over"),
+    S("Hijab Syari Collection, UD", ["Wanita"], ["Hijab"], "ayu", 2, 41500000, 92, "2026-09-30", "Received"),
+    S("Sarung Tenun Majalaya, CV", ["Pria"], ["Sarung"], "rina", 1, 27000000, 96, "2026-09-10", "Received"),
+    S("Celana Chino Cipta, PT", ["Pria"], ["Celana", "Chino"], "dimas", 2, 69800000, 81, "2026-09-23", "Received"),
+    S("Gaun Pesta Anggun, CV", ["Wanita"], ["Gaun", "Pesta"], "sari", 1, 58400000, 62, "2026-09-05", "Short"),
+    S("Sandal Jepit Nusantara, UD", ["Aksesoris"], ["Sandal"], "bayu", 0, 0, 100, "2026-06-18", "Received", "30 days · Transfer", false),
+  ];
+  // deterministic weekly deliveries, 12 weeks
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
+  suppliers.forEach((s, i) => {
+    s.code = `SUP-${String(i + 1).padStart(4, "0")}`;
+    const base = 1 + Math.round(s.open * 0.8);
+    s.weeks = Array.from({ length: 12 }, (_, w) => Math.max(0, Math.round(base * (0.35 + rnd()) + (w > 8 ? rnd() * 2 : 0) - (s.active ? 0 : 3))));
+  });
+
+  const P = (no, sup, buyer, due, items, qty, value, received, status) => ({ no, sup, buyer, due, items, qty, value, received, status });
+  const orders = [
+    P("PO-041026-020", "Indorama, PT", "rina", "2026-10-07", 4, 400, 16000000, 0, "review"),
+    P("PO-041026-014", "Busana Muslim Amanah, CV", "dimas", "2026-10-07", 2, 200, 8000000, 0, "review"),
+    P("PO-041026-013", "Tekstil Bandung Raya, CV", "rina", "2026-10-07", 1, 100, 4000000, 0, "review"),
+    P("PO-041026-012", "Garmen AA, UD", "dimas", "2026-10-07", 1, 100, 4000000, 0, "review"),
+    P("PO-021026-001", "Indorama, PT", "rina", "2026-10-10", 2, 600, 6720000, 0, "review"),
+    P("PO-041026-017", "Konveksi Sinar Jaya, UD", "bayu", "2026-10-07", 1, 300, 12000000, 260, "partial"),
+    P("PO-280926-004", "Denim Karya Abadi, PT", "sari", "2026-09-30", 3, 450, 31500000, 120, "overdue"),
+    P("PO-041026-010", "Garmen Nusantara, PT", "sari", "2026-10-15", 1, 200, 3200000, 0, "active"),
+    P("PO-041026-007", "Indorama, PT", "rina", "2026-10-07", 1, 8, 320000, 0, "active"),
+    P("PO-041026-018", "Konveksi Sinar Jaya, UD", "bayu", "2026-10-07", 1, 200, 8000000, 200, "full"),
+    P("PO-041026-016", "Sepatu Cibaduyut Prima, CV", "bayu", "2026-10-07", 1, 100, 4000000, 60, "short"),
+    P("PO-041026-015", "Kaos Kaki Sentosa, UD", "rina", "2026-10-07", 1, 100, 4000000, 100, "full"),
+    P("PO-041026-019", "Busana Muslim Amanah, CV", "dimas", "2026-10-07", 1, 100, 4000000, 100, "full"),
+    P("PO-300926-002", "Batik Pekalongan Indah, CV", "ayu", "2026-10-03", 2, 240, 21600000, 240, "full"),
+  ];
+  const STATUS = {
+    review: { word: "Review Count", c: "var(--accent)", active: true },
+    active: { word: "Active", c: "var(--mute)", active: true },
+    partial: { word: "Partially received", c: "var(--info-fg)", active: true },
+    overdue: { word: "Overdue", c: "var(--bad-fg)", active: true, exception: true },
+    full: { word: "Fully received", c: "var(--ok-fg)", active: false },
+    short: { word: "Short received", c: "var(--warn-fg)", active: false },
+  };
+  const returns = [
+    { no: "RS-00000004", po: "PO-041026-019", sup: "Busana Muslim Amanah, CV", pcs: 50, status: "To hand over", at: "2026-10-04", by: "rina" },
+    { no: "RS-00000003", po: "PO-041026-005", sup: "Indorama, PT", pcs: 12, status: "Handed over", at: "2026-10-03", by: "dimas" },
+    { no: "RS-00000002", po: "PO-021026-003", sup: "Garmen Nusantara, PT", pcs: 60, status: "To hand over", at: "2026-10-02", by: "rina" },
+    { no: "RS-00000001", po: "PO-021026-002", sup: "Indorama, PT", pcs: 100, status: "To hand over", at: "2026-10-02", by: "rina" },
+  ];
+  const L = (name, kind, ordered, counted, wrong = 0, unit = null) => ({ name, kind, ordered, counted, wrong, unit });
+  const reviews = {
+    "PO-041026-020": { by: "Nina Oktaviani", at: "04 Oct, 18:29", lines: [L("Kemeja Gelambir", "Pria · Kemeja", 100, 100), L("Kemeja Oxford", "Pria · Kemeja", 100, 100), L("Kaos Polos Combed", "Pria · Kaos", 100, 70), L("Kaos Henley", "Pria · Kaos", 100, 100)] },
+    "PO-041026-014": { by: "Nina Oktaviani", at: "04 Oct, 18:12", lines: [L("Gamis Syari Polos", "Wanita · Gamis", 100, 120), L("Tunik Linen", "Wanita · Tunik", 100, 70)] },
+    "PO-041026-013": { by: "Nina Oktaviani", at: "04 Oct, 18:12", lines: [L("Blus Katun Motif", "Wanita · Blus", 100, 70)] },
+    "PO-041026-012": { by: "Nina Oktaviani", at: "04 Oct, 18:12", lines: [L("Gaun Midi Plisket", "Wanita · Gaun", 100, 130)] },
+    "PO-021026-001": { by: "Rina Kusuma", at: "04 Oct, 17:39", lines: [L("Kemeja Lengan Panjang", "Pria · Basic · Blus", 400, 40, 20, { code: "kodi", f: 20 }), L("Gamis Panjang", "Wanita · Gaun", 200, 260)] },
+  };
+  const notifs = [
+    { id: 1, who: "Nina Oktaviani", c: "var(--a-green)", text: "counted <b>PO-041026-014</b>", quote: "2 of 2 items differ · 30 pcs short · 20 pcs extra", when: "2m ago", ctx: "Busana Muslim Amanah, CV", po: "PO-041026-014", unread: true },
+    { id: 2, who: "Rina Kusuma", c: "var(--a-pink)", text: "raised <b>RS-00000004</b> for PO-041026-019", when: "18m ago", ctx: "50 pcs", tab: "returns", unread: true },
+    { id: 3, sys: true, text: "Fill rate for <b>Garmen AA, UD</b> dropped to 64%", when: "1h ago", ctx: "Last 90 days", tab: "suppliers", unread: true },
+    { id: 4, who: "Bayu Saputra", c: "var(--a-orange)", text: "received <b>PO-041026-018</b> in full", when: "3h ago", ctx: "Konveksi Sinar Jaya, UD", tab: "orders" },
+    { id: 5, who: "Sari Wulandari", c: "var(--a-violet)", text: "closed <b>PO-041026-016</b> short", when: "Yesterday", ctx: "40 pcs not delivered", tab: "orders" },
+  ];
+
+  // ---------------------------------------------------------------- state
+  const state = {
+    tab: store.get("pt.tab", "suppliers"),
+    dir: store.get("pt.dir", "a"),
+    theme: store.get("pt.theme2", "light"),
+    view: { suppliers: "Active", orders: "Active", returns: "Open" },
+    sort: { suppliers: { key: "onOrder", dir: -1 }, orders: { key: "due", dir: 1 }, returns: { key: "at", dir: -1 } },
+    division: "any", days: 90, status: "any", q: "",
+    selected: new Set(),
+    calc: { suppliers: { name: "count" }, orders: { no: "count" }, returns: { no: "count" } },
+    kpiStyle: store.get("pt.kpi", "line"), kpiFilter: null,
+    hideMatched: false, notifTab: "all",
+  };
+
+  // ---------------------------------------------------------------- small renderers
+  const isA = () => state.dir === "a";
+
+  function kindsCell(s) {
+    if (isA()) {
+      const all = [...s.divs.map((d) => ({ t: d, c: DIVS[d] })), ...s.tags.map((t) => ({ t }))];
+      const shown = all.slice(0, 2), rest = all.slice(2);
+      return `<span class="chips">${shown.map((x) => `<span class="chip${x.c ? "" : " tag"}" ${x.c ? `style="--c:${x.c}"` : ""}>${esc(x.t)}</span>`).join("")}${rest.length ? `<span class="chip more" data-tip="${esc(rest.map((x) => x.t).join(", "))}">+${rest.length}</span>` : ""}</span>`;
+    }
+    const tags = s.tags.slice(0, 2).join(", ");
+    const more = s.tags.length > 2 ? ` <span class="more">+${s.tags.length - 2}</span>` : "";
+    return `<span class="kinds">${esc(s.divs.join(", "))} · ${esc(tags)}${more}</span>`;
+  }
+  // A number, never a bar: red only when it needs someone.
+  const fillCell = (v) => `<span class="fill"><span class="pct${v < 75 ? " low" : ""}">${v}%</span></span>`;
+  function spark(weeks) {
+    const max = Math.max(1, ...weeks);
+    const bars = weeks.map((w, i) => {
+      const h = Math.max(2, Math.round((w / max) * 16));
+      const fill = isA() ? "var(--ok-fg)" : i === weeks.length - 1 ? "var(--body)" : "var(--faint)";
+      const op = isA() ? (0.45 + (i / weeks.length) * 0.55).toFixed(2) : 1;
+      return `<rect x="${i * 5}" y="${18 - h}" width="3" height="${h}" rx="1" fill="${fill}" opacity="${op}"/>`;
+    }).join("");
+    return `<svg width="58" height="18" viewBox="0 0 58 18" aria-label="Deliveries, last 12 weeks">${bars}</svg>`;
+  }
+  function lastCell(s) {
+    const cls = s.out === "Short" ? "bad" : s.out === "Over" ? "warn" : "";
+    const colour = isA() ? "" : cls;
+    return `<span class="last">${isA() ? icon("cal") : ""}<span class="num">${day(s.last)}</span><span class="out ${colour}">${isA() ? s.out : "· " + s.out}</span></span>`;
+  }
+  function statusCell(o) {
+    if (o.status === "review") return `<button class="btn-review" data-act="review" data-po="${o.no}">Review Count</button>`;
+    const st = STATUS[o.status];
+    const showColour = isA() || st.exception;
+    return `<span class="status"><span class="dot" style="--c:${showColour ? st.c : "var(--faint)"}"></span><span style="color:${st.exception ? st.c : "var(--text)"}">${st.word}</span></span>`;
+  }
+  function recvCell(o) {
+    if (!o.received) return '<span class="mute">—</span>';
+    const owed = o.qty - o.received;
+    const note = o.status === "short" ? `<span class="u">${pcs(owed)} closed short</span>`
+      : owed > 0 ? `<span class="u" style="color:${o.status === "overdue" ? "var(--bad-fg)" : "var(--warn-fg)"}">${pcs(owed)} short</span>` : "";
+    return `<span class="qty right-qty"><span>${pcs(o.received)}</span>${note}</span>`;
+  }
+
+
+  // ---------------------------------------------------------------- columns per tab
+  const COLS = {
+    suppliers: [
+      { key: "cb", w: 52, cls: "c-cb" },
+      { key: "name", label: "Supplier", w: 230, sort: (s) => s.name, calcs: ["count"], cls: "c-name",
+        cell: (s) => `<span class="name"><span class="n" data-card="${s.code}">${esc(s.name)}</span><span class="s mono">${s.code}</span></span>` },
+      { key: "kinds", label: "Division & tags", w: 220, cell: kindsCell },
+      { key: "open", label: "Open POs", w: 100, right: true, sort: (s) => s.open, num: (s) => s.open, calcs: ["sum", "avg", "max", "count"], cell: (s) => `<span class="num">${s.open || '<span class="mute">—</span>'}</span>` },
+      { key: "onOrder", label: "On order", w: 170, right: true, sort: (s) => s.onOrder, num: (s) => s.onOrder, money: true, calcs: ["sum", "avg", "max"],
+        cell: (s) => s.onOrder ? `<span class="money"><span class="cur">Rp</span><span>${fmtN(s.onOrder)}</span></span>` : '<span class="mute">—</span>' },
+      { key: "fill", label: "Fill rate", w: 110, right: true, sort: (s) => s.fill, num: (s) => s.fill, pct: true, calcs: ["avg", "min", "max"], cell: (s) => fillCell(s.fill) },
+      { key: "weeks", label: "Deliveries", w: 110, cell: (s) => spark(s.weeks) },
+      { key: "last", label: "Last delivery", w: 170, sort: (s) => s.last, cell: lastCell },
+      { key: "menu", w: 56, cell: () => `<button class="row-menu" data-act="rowmenu" aria-label="More">${icon("more")}</button>` },
+    ],
+    orders: [
+      { key: "cb", w: 52, cls: "c-cb" },
+      { key: "no", label: "PO", w: 220, sort: (o) => o.no, calcs: ["count"], cls: "c-name",
+        cell: (o) => `<span class="name"><span class="n">${esc(o.sup)}</span><span class="s mono keep">${o.no}</span></span>` },
+      { key: "due", label: "Delivery date", w: 140, sort: (o) => o.due, cell: (o) => `<span class="num" style="color:${o.status === "overdue" ? "var(--bad-fg)" : "inherit"}">${dayYear(o.due)}</span>` },
+      { key: "qty", label: "Ordered", w: 120, right: true, sort: (o) => o.qty, num: (o) => o.qty, unit: "pcs", calcs: ["sum", "avg", "max"], cell: (o) => `<span class="num">${pcs(o.qty)}</span>` },
+      { key: "value", label: "Value", w: 160, right: true, sort: (o) => o.value, num: (o) => o.value, money: true, calcs: ["sum", "avg", "max"],
+        cell: (o) => `<span class="money"><span class="cur">Rp</span><span>${fmtN(o.value)}</span></span>` },
+      { key: "received", label: "Received", w: 170, right: true, sort: (o) => o.received / o.qty, num: (o) => o.received, unit: "pcs", calcs: ["sum"], cell: recvCell },
+      { key: "status", label: "Status", w: 170, sort: (o) => o.status, cell: statusCell },
+      { key: "menu", w: 56, cell: () => `<button class="row-menu" data-act="rowmenu" aria-label="More">${icon("more")}</button>` },
+    ],
+    returns: [
+      { key: "cb", w: 52, cls: "c-cb" },
+      { key: "no", label: "Return", w: 200, sort: (r) => r.no, calcs: ["count"], cls: "c-name",
+        cell: (r) => `<span class="name"><span class="n mono" style="font-weight:500">${r.no}</span><span class="s keep">${day(r.at)} · ${BUYERS[r.by].name}</span></span>` },
+      { key: "sup", label: "Supplier", w: 240, sort: (r) => r.sup, cell: (r) => esc(r.sup) },
+      { key: "po", label: "PO", w: 170, sort: (r) => r.po, cell: (r) => `<span class="mono">${r.po}</span>` },
+      { key: "pcs", label: "Pieces", w: 120, right: true, sort: (r) => r.pcs, num: (r) => r.pcs, unit: "pcs", calcs: ["sum", "avg", "max"], cell: (r) => `<span class="num">${pcs(r.pcs)}</span>` },
+      { key: "status", label: "Status", w: 170, sort: (r) => r.status, cell: (r) => `<span class="status"><span class="dot" style="--c:${r.status === "Handed over" ? "var(--ok-fg)" : isA() ? "var(--warn-fg)" : "var(--faint)"}"></span>${r.status}</span>` },
+      { key: "at", label: "Raised", w: 140, sort: (r) => r.at, cell: (r) => `<span class="num">${day(r.at)}</span>` },
+      { key: "menu", w: 56, cell: () => `<button class="row-menu" data-act="rowmenu" aria-label="More">${icon("more")}</button>` },
+    ],
+  };
+  const idOf = (tab, r) => tab === "suppliers" ? r.code : r.no;
+
+  // ---------------------------------------------------------------- filtering
+  function rowsFor(tab) {
+    const q = state.q.trim().toLowerCase();
+    let rows;
+    if (tab === "suppliers") {
+      rows = suppliers.filter((s) =>
+        (state.view.suppliers === "All" || (state.view.suppliers === "Active") === s.active) &&
+        (state.division === "any" || s.divs.includes(state.division)) &&
+        (state.days >= 9999 || daysAgo(s.last) <= state.days) &&
+        (state.kpiFilter !== "lowfill" || s.fill < 75) &&
+        (state.kpiFilter !== "short30" || (s.out === "Short" && daysAgo(s.last) <= 30)) &&
+        (!q || [s.name, s.code, ...s.tags, ...s.divs].join(" ").toLowerCase().includes(q)));
+    } else if (tab === "orders") {
+      rows = orders.filter((o) =>
+        (state.view.orders === "All" || (state.view.orders === "Active") === STATUS[o.status].active) &&
+        (state.status === "any" || o.status === state.status) &&
+        (!q || [o.no, o.sup].join(" ").toLowerCase().includes(q)));
+    } else {
+      rows = returns.filter((r) =>
+        (state.view.returns === "All" || (state.view.returns === "Open") === (r.status !== "Handed over")) &&
+        (!q || [r.no, r.po, r.sup].join(" ").toLowerCase().includes(q)));
+    }
+    const { key, dir } = state.sort[tab];
+    const col = COLS[tab].find((c) => c.key === key);
+    if (col && col.sort) rows = [...rows].sort((a, b) => { const x = col.sort(a), y = col.sort(b); return (x > y ? 1 : x < y ? -1 : 0) * dir; });
+    return rows;
+  }
+  const activeFilters = () => (state.kpiFilter !== null) + (state.tab === "suppliers" ? (state.division !== "any") + (state.days !== 90) : 0) + (state.tab === "orders" ? state.status !== "any" : 0);
+
+  // ---------------------------------------------------------------- calculations
+  const CALC_NAME = { count: "Count", sum: "Sum", avg: "Average", min: "Min", max: "Max" };
+  function calcValue(col, fn, rows) {
+    if (fn === "count") return `${rows.length} ${state.tab === "suppliers" ? "suppliers" : state.tab === "orders" ? "orders" : "returns"} in view`;
+    const vals = rows.map(col.num).filter((v) => v !== undefined);
+    if (!vals.length) return "—";
+    let v = fn === "sum" ? vals.reduce((a, b) => a + b, 0) : fn === "avg" ? vals.reduce((a, b) => a + b, 0) / vals.length : fn === "min" ? Math.min(...vals) : Math.max(...vals);
+    const shown = col.money ? rpShort(v) : col.pct ? `${Math.round(v)}%` : col.unit ? pcs(Math.round(v)) : fmtN(Math.round(v * 10) / 10);
+    return `<span>${CALC_NAME[fn]}</span><b>${shown}</b>`;
+  }
+
+  // ---------------------------------------------------------------- table
+  function renderTable() {
+    const tab = state.tab, cols = COLS[tab], rows = rowsFor(tab);
+    const ids = rows.map((r) => idOf(tab, r));
+    const selIn = ids.filter((id) => state.selected.has(id)).length;
+    const head = cols.map((c) => {
+      if (c.key === "cb") return `<th class="c-cb"><button class="cb" role="checkbox" data-act="all" aria-label="Select all" aria-checked="${selIn === 0 ? "false" : selIn === ids.length ? "true" : "mixed"}"><svg class="c-yes" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><svg class="c-mix" viewBox="0 0 24 24"><path d="M6 12h12"/></svg></button></th>`;
+      if (!c.label) return `<th></th>`;
+      const sorted = state.sort[tab].key === c.key;
+      const ico = sorted ? (state.sort[tab].dir > 0 ? "sort-up" : "sort-down") : "sort";
+      return `<th class="${c.cls || ""} ${c.right ? "right" : ""} ${c.sort ? "sortable" : ""}" ${c.sort ? `data-sort="${c.key}" tabindex="0"` : ""} ${sorted ? `aria-sort="${state.sort[tab].dir > 0 ? "ascending" : "descending"}"` : ""}><span class="th">${c.right && c.sort ? `<svg class="ico sort-ico"><use href="#i-${ico}"/></svg>` : ""}${c.label}${!c.right && c.sort ? `<svg class="ico sort-ico"><use href="#i-${ico}"/></svg>` : ""}</span></th>`;
+    }).join("");
+    const body = rows.map((r) => {
+      const id = idOf(tab, r), sel = state.selected.has(id);
+      return `<tr class="${sel ? "sel" : ""}" data-id="${id}">${cols.map((c) => {
+        if (c.key === "cb") return `<td class="c-cb"><button class="cb" role="checkbox" data-act="sel" aria-checked="${sel}" aria-label="Select"><svg class="c-yes" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><svg class="c-mix" viewBox="0 0 24 24"><path d="M6 12h12"/></svg></button></td>`;
+        return `<td class="${c.cls || ""} ${c.right ? "right" : ""}">${c.cell(r)}</td>`;
+      }).join("")}</tr>`;
+    }).join("");
+    const foot = cols.map((c) => {
+      if (c.key === "cb") return `<td></td>`;
+      if (!c.calcs) return `<td></td>`;
+      const fn = state.calc[tab][c.key];
+      const inner = fn ? calcValue(c, fn, rows) : `<span class="ghost">${icon("plus")}${CALC_NAME[c.calcs[0]]}</span>`;
+      return `<td><button class="calc ${c.right ? "right" : ""}" data-calc="${c.key}">${inner}</button></td>`;
+    }).join("");
+    const colgroup = cols.map((c) => `<col style="width:${c.w}px">`).join("");
+    $("#tablewrap").innerHTML = rows.length
+      ? `<table><colgroup>${colgroup}</colgroup><thead><tr>${head}</tr></thead><tbody>${body}</tbody><tfoot><tr>${foot}</tr></tfoot></table>`
+      : `<div class="empty"><b>Nothing matches</b><span>No ${tab === "suppliers" ? "supplier" : tab === "orders" ? "order" : "return"} fits these filters.</span><button class="btn btn-ghost" data-act="clear">Clear filters</button></div>`;
+    renderBulk();
+  }
+
+  // ---------------------------------------------------------------- toolbar
+  function picker(k, v, act, set) {
+    return `<button class="picker ${set ? "set" : ""}" data-act="${act}"><span class="k">${k}</span><span class="v">${esc(v)}${icon("down")}</span></button>`;
+  }
+  const SORTS = {
+    suppliers: [["onOrder", "On order"], ["fill", "Fill rate"], ["open", "Open POs"], ["last", "Last delivery"], ["name", "Supplier"]],
+    orders: [["due", "Delivery date"], ["value", "Value"], ["qty", "Ordered"], ["received", "Received"], ["no", "PO number"]],
+    returns: [["at", "Raised"], ["pcs", "Pieces"], ["sup", "Supplier"]],
+  };
+  const sortLabel = () => (SORTS[state.tab].find(([k]) => k === state.sort[state.tab].key) || [0, "—"])[1];
+  function renderToolbar() {
+    const t = state.tab;
+    const n = activeFilters();
+    let left;
+    if (isA()) {
+      left = picker("Sort by", sortLabel(), "sort", false);
+      if (t === "suppliers") left += `<span class="wide-only" style="display:contents">${picker("Division", state.division === "any" ? "Any" : state.division, "division", state.division !== "any")}${picker("Last delivery", state.days >= 9999 ? "Any time" : `${state.days} days`, "days", state.days !== 90)}</span>`;
+      if (t === "orders") left += `<span class="wide-only" style="display:contents">${picker("Status", state.status === "any" ? "Any" : STATUS[state.status].word, "status", state.status !== "any")}</span>`;
+      if (t !== "returns") left += `<button class="btn btn-ghost only-narrow" data-act="filters">${icon("filter")}Filters${n ? `<span class="filter-count">${n}</span>` : ""}</button>`;
+    } else {
+      left = `<button class="btn btn-ghost" data-act="sort">${icon("sort")}<span class="lbl">${esc(sortLabel())}</span></button>`;
+      if (t !== "returns") left += `<button class="btn btn-ghost" data-act="filters">${icon("filter")}Filter${n ? `<span class="filter-count">${n}</span>` : ""}</button>`;
+    }
+    const primary = t === "returns" ? "New return" : "New PO";
+    $("#toolbar").innerHTML = `${left}<span class="tb-spacer"></span><button class="btn btn-ghost" data-act="export">${icon("export")}<span class="lbl">Export</span></button><button class="btn btn-primary" data-act="new">${icon("plus")}<span class="lbl">${primary}</span></button>`;
+  }
+
+  // ---------------------------------------------------------------- menu panel
+  function renderMenu() {
+    const reviewN = orders.filter((o) => o.status === "review").length;
+    const openRet = returns.filter((r) => r.status !== "Handed over").length;
+    const item = (tab, ico, label, count, hot) => `<button class="menu-item" data-tab="${tab}" ${state.tab === tab ? 'aria-current="page"' : ""}>${icon(ico)}${label}${count != null ? `<span class="count ${hot ? "hot" : ""}">${count}</span>` : ""}</button>`;
+    $("#menuScroll").innerHTML = `
+      <div class="menu-group">
+        ${item("orders", "list", "Purchase orders", reviewN, true)}
+        ${item("suppliers", "building", "Suppliers", suppliers.filter((s) => s.active).length)}
+        <button class="menu-item">${icon("search")}Sourcing</button>
+        ${item("returns", "undo", "Return to supplier", openRet, openRet > 0)}
+        <button class="menu-item">${icon("tag")}Price amendments<span class="count">2</span></button>
+      </div>
+`;
+  }
+
+  // ---------------------------------------------------------------- tabs, title, view pill
+  const TITLES = { suppliers: "Suppliers", orders: "Purchase orders", returns: "Return to supplier" };
+  function renderChrome() {
+    document.documentElement.dataset.dir = state.dir;
+    document.documentElement.dataset.theme = state.theme;
+    document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === state.tab)));
+    $("#title").textContent = TITLES[state.tab];
+    $("#viewLabel").textContent = state.view[state.tab];
+    document.querySelectorAll(".proto [data-dir]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.dir === state.dir)));
+    document.querySelectorAll("[data-kpi-style]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kpiStyle === state.kpiStyle)));
+    document.querySelectorAll("[data-theme-set]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themeSet === state.theme)));
+    $("#bellDot").hidden = !notifs.some((n) => n.unread);
+  }
+  function kpiLine() {
+    const on = (f) => (f.startsWith("status:") ? state.status === f.slice(7) : state.kpiFilter === f.slice(4));
+    const item = ({ v, l, tone = "", f = null }) => {
+      const quiet = v === 0 || v === "0";
+      // A zero is said quietly and is not a filter — unless it is the one applied.
+      if (!f || (quiet && !on(f))) return `<span class="kl ${quiet ? "" : tone}"><b>${v}</b>${l}</span>`;
+      const pressed = on(f);
+      return `<button class="kl ${tone}" data-kpi="${f}" aria-pressed="${pressed}"><b>${v}</b>${l}</button>`;
+    };
+    let items;
+    if (state.tab === "suppliers") {
+      const act = suppliers.filter((x) => x.active);
+      items = [
+        { v: act.filter((x) => x.fill < 75).length, l: "below 75% fill rate", tone: "bad", f: "kpi:lowfill" },
+        { v: act.filter((x) => x.out === "Short" && daysAgo(x.last) <= 30).length, l: "short in 30 days", tone: "bad", f: "kpi:short30" },
+        { v: rpShort(act.reduce((a, x) => a + x.onOrder, 0)), l: "on order" },
+      ];
+    } else if (state.tab === "orders") {
+      const open = orders.filter((o) => STATUS[o.status].active);
+      items = [
+        { v: orders.filter((o) => o.status === "review").length, l: "to review", tone: "go", f: "status:review" },
+        { v: orders.filter((o) => o.status === "overdue").length, l: "overdue", tone: "bad", f: "status:overdue" },
+        { v: rpShort(open.reduce((a, o) => a + o.value * (1 - o.received / o.qty), 0)), l: "on order" },
+      ];
+    } else {
+      const open = returns.filter((r) => r.status !== "Handed over");
+      items = [
+        { v: open.length, l: "to hand over", tone: "warn" },
+        { v: fmtN(open.reduce((a, r) => a + r.pcs, 0)), l: "pcs going back" },
+      ];
+    }
+    return items.map(item).join("");
+  }
+  function renderKpis() {
+    $("#kline").hidden = state.kpiStyle !== "line";
+    $("#kpis").hidden = state.kpiStyle !== "strip";
+    if (state.kpiStyle === "line") { $("#kline").innerHTML = kpiLine(); return; }
+    if (state.kpiStyle !== "strip") return;
+    const k = (label, value, { tone = "", filter = null } = {}) => filter
+      ? `<button class="kpi ${tone}" data-kpi="${filter}" aria-pressed="${state.status === filter.split(":")[1] || (filter === "fill:low" && state.sort.suppliers.key === "fill" && state.sort.suppliers.dir > 0)}"><span class="l">${label}</span><span class="v">${value}</span></button>`
+      : `<div class="kpi ${tone}"><span class="l">${label}</span><span class="v">${value}</span></div>`;
+    let html = "";
+    if (state.tab === "suppliers") {
+      const act = suppliers.filter((x) => x.active);
+      const shortRecent = act.filter((x) => x.out === "Short" && daysAgo(x.last) <= 30).length;
+      const low = act.filter((x) => x.fill < 75).length;
+      html = k("Active suppliers", act.length) + k("On order", rpShort(act.reduce((a, x) => a + x.onOrder, 0)))
+        + k("Avg fill rate", `${Math.round(act.reduce((a, x) => a + x.fill, 0) / act.length)}%`)
+        + k("Fill rate under 75%", low, { tone: low ? "bad" : "", filter: "fill:low" }) + k("Short in 30 days", shortRecent);
+    } else if (state.tab === "orders") {
+      const open = orders.filter((o) => STATUS[o.status].active);
+      const review = orders.filter((o) => o.status === "review").length;
+      const overdue = orders.filter((o) => o.status === "overdue").length;
+      html = k("To review", review, { tone: review ? "go" : "", filter: "status:review" }) + k("Still open", open.length)
+        + k("Overdue", overdue, { tone: overdue ? "bad" : "", filter: "status:overdue" })
+        + k("On order", rpShort(open.reduce((a, o) => a + o.value * (1 - o.received / o.qty), 0)));
+    } else {
+      const open = returns.filter((r) => r.status !== "Handed over");
+      html = k("Open returns", open.length) + k("Pieces to hand over", fmtN(open.reduce((a, r) => a + r.pcs, 0)))
+        + k("Handed over", returns.length - open.length);
+    }
+    $("#kpis").innerHTML = html;
+  }
+  function render() { renderChrome(); renderMenu(); renderKpis(); renderToolbar(); renderTable(); }
+
+  // ---------------------------------------------------------------- popover
+  const pop = $("#pop");
+  let popAnchor = null, popCloseTimer = 0;
+  function openPop(anchor, html, { align = "start", cls = "" } = {}) {
+    clearTimeout(popCloseTimer);
+    pop.className = `pop ${cls}`;
+    pop.innerHTML = html;
+    pop.hidden = false;
+    const r = anchor.getBoundingClientRect();
+    const w = pop.offsetWidth, h = pop.offsetHeight;
+    let left = align === "end" ? r.right - w : r.left;
+    left = Math.max(12, Math.min(left, innerWidth - w - 12));
+    let top = r.bottom + 6, origin = "top";
+    if (top + h > innerHeight - 12) { top = Math.max(12, r.top - h - 6); origin = "bottom"; }
+    pop.style.left = `${left}px`; pop.style.top = `${top}px`;
+    pop.style.transformOrigin = `${origin} ${align === "end" ? "right" : "left"}`;
+    popAnchor = anchor;
+    requestAnimationFrame(() => pop.classList.add("open"));
+    const first = pop.querySelector("button");
+    if (first && !cls.includes("notif")) first.focus({ preventScroll: true });
+  }
+  function closePop() {
+    if (!popAnchor) return;
+    pop.classList.remove("open");
+    const a = popAnchor; popAnchor = null;
+    popCloseTimer = setTimeout(() => { pop.hidden = true; }, 130);
+    return a;
+  }
+  const opt = (act, value, label, on, meta = "", lead = "") =>
+    `<button class="opt" role="menuitemradio" aria-checked="${on}" data-pick="${act}" data-value="${esc(value)}">${lead}<span>${esc(label)}</span>${meta ? `<span class="meta">${meta}</span>` : ""}${icon("check", "ico check")}</button>`;
+
+  function divisionOptions() {
+    return opt("division", "any", "Any division", state.division === "any") + Object.keys(DIVS).map((d) =>
+      opt("division", d, d, state.division === d, String(suppliers.filter((s) => s.divs.includes(d)).length), `<span class="dot" style="--c:${DIVS[d]}"></span>`)).join("");
+  }
+  const daysOptions = () => [[30, "30 days"], [60, "60 days"], [90, "90 days"], [180, "180 days"], [9999, "Any time"]].map(([v, l]) => opt("days", v, l, state.days === v)).join("");
+  const statusOptions = () => opt("status", "any", "Any status", state.status === "any") + Object.entries(STATUS).map(([k, s]) => opt("status", k, s.word, state.status === k, String(orders.filter((o) => o.status === k).length), `<span class="dot" style="--c:${s.c}"></span>`)).join("");
+
+  function openNotifs(anchor) {
+    const list = notifs.filter((n) => state.notifTab === "all" || n.unread);
+    const unread = notifs.filter((n) => n.unread).length;
+    const html = `<div class="notif-head"><h3>Notifications</h3><span class="n">${unread || ""}</span><button class="mark" data-act="readall">Mark all as read</button></div>
+      <div class="notif-tabs" role="tablist"><button role="tab" data-ntab="all" aria-selected="${state.notifTab === "all"}">All</button><button role="tab" data-ntab="unread" aria-selected="${state.notifTab === "unread"}">Unread</button></div>
+      <div class="notif-list">${list.length ? list.map((n) => `<button class="n-item" data-notif="${n.id}">
+        ${n.sys ? `<span class="sys">${icon("graph")}</span>` : `<span class="avatar" style="--c:${n.c};width:28px;height:28px">${n.who[0]}</span>`}
+        <span><span class="what">${n.sys ? "" : `<b>${esc(n.who)}</b> `}${n.text}</span>${n.quote ? `<span class="quote" style="display:block">${esc(n.quote)}</span>` : ""}<span class="when" style="display:block">${n.when} · ${esc(n.ctx)}</span></span>
+        <span>${n.unread ? '<span class="unread" style="display:block"></span>' : ""}</span></button>`).join("") : `<div class="empty" style="padding:32px">You're up to date</div>`}</div>`;
+    openPop(anchor, html, { align: "end", cls: "notif" });
+  }
+
+  // ---------------------------------------------------------------- tooltip + hover card (delay first, instant after)
+  const tip = $("#tip"), card = $("#card");
+  let tipTimer = 0, lastTipClose = 0, cardTimer = 0, lastCardClose = 0, cardFor = null;
+  function showTip(el) {
+    const instant = performance.now() - lastTipClose < 400;
+    clearTimeout(tipTimer);
+    tipTimer = setTimeout(() => {
+      tip.textContent = el.dataset.tip;
+      tip.classList.toggle("instant", instant);
+      const r = el.getBoundingClientRect();
+      const left = el.closest(".rail") ? r.right + 10 : r.left + r.width / 2 - tip.offsetWidth / 2;
+      const top = el.closest(".rail") ? r.top + r.height / 2 - tip.offsetHeight / 2 : r.top - tip.offsetHeight - 8;
+      tip.style.left = `${Math.max(8, left)}px`; tip.style.top = `${top}px`;
+      tip.style.transformOrigin = el.closest(".rail") ? "left center" : "bottom center";
+      tip.classList.add("open");
+    }, instant ? 0 : 450);
+  }
+  function hideTip() { clearTimeout(tipTimer); if (tip.classList.contains("open")) lastTipClose = performance.now(); tip.classList.remove("open"); }
+  function showCard(el) {
+    const s = suppliers.find((x) => x.code === el.dataset.card);
+    if (!s || cardFor === el) return;
+    const instant = performance.now() - lastCardClose < 400;
+    clearTimeout(cardTimer);
+    cardTimer = setTimeout(() => {
+      cardFor = el;
+      const recent = orders.filter((o) => o.sup === s.name).slice(0, 3);
+      card.innerHTML = `<h4>${esc(s.name)}</h4><span class="mono mute">${s.code}</span>
+        <dl><dt>Terms</dt><dd>${s.terms}</dd><dt>On order</dt><dd>${s.onOrder ? rp(s.onOrder) : "—"}</dd><dt>Fill rate</dt><dd>${s.fill}% · last 90 days</dd>
+        ${recent.length ? `<dt>Recent</dt><dd>${recent.map((o) => `<span class="mono">${o.no}</span>`).join("<br>")}</dd>` : ""}</dl>`;
+      card.classList.toggle("instant", instant);
+      const r = el.getBoundingClientRect();
+      card.style.left = `${Math.min(r.left, innerWidth - 312)}px`;
+      card.style.top = `${Math.min(r.bottom + 8, innerHeight - card.offsetHeight - 12)}px`;
+      card.classList.add("open");
+    }, instant ? 0 : 500);
+  }
+  function hideCard() { clearTimeout(cardTimer); if (card.classList.contains("open")) lastCardClose = performance.now(); card.classList.remove("open"); cardFor = null; }
+
+  // ---------------------------------------------------------------- bulk bar
+  function renderBulk() {
+    const n = state.selected.size, bulk = $("#bulk");
+    document.body.classList.toggle("has-bulk", n > 0);
+    if (!n) { bulk.classList.remove("open"); return; }
+    const noun = state.tab === "suppliers" ? (n === 1 ? "supplier" : "suppliers") : state.tab === "orders" ? (n === 1 ? "order" : "orders") : (n === 1 ? "return" : "returns");
+    const actions = state.tab === "suppliers" ? `<button class="btn btn-soft" data-act="new">${icon("plus")}New PO</button>` : state.tab === "orders" ? `<button class="btn btn-soft" data-act="remind">${icon("bell")}Remind supplier</button>` : "";
+    bulk.innerHTML = `<span class="n num">${n} ${noun} selected</span>${actions}<button class="btn btn-soft" data-act="export">${icon("export")}Export</button><button class="icon-btn" data-act="unselect" aria-label="Clear selection">${icon("x")}</button>`;
+    requestAnimationFrame(() => bulk.classList.add("open"));
+  }
+
+  // ---------------------------------------------------------------- toasts
+  function toast(title, sub = "") {
+    const el = document.createElement("div");
+    el.className = "toast";
+    el.innerHTML = `${icon("ok", "ico ico-18")}<div><b>${esc(title)}</b>${sub ? `<span>${esc(sub)}</span>` : ""}</div>`;
+    $("#toasts").appendChild(el);
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add("in")));
+    let timer, left = 4000, started = Date.now();
+    const go = () => { started = Date.now(); timer = setTimeout(leave, left); };
+    const leave = () => { el.classList.add("out"); setTimeout(() => el.remove(), 200); };
+    el.addEventListener("mouseenter", () => { clearTimeout(timer); left -= Date.now() - started; });
+    el.addEventListener("mouseleave", go);
+    go();
+  }
+
+  // ---------------------------------------------------------------- Review Count sheet
+  let reviewing = null;
+  const correct = (l) => l.counted - l.wrong;
+  const gap = (l) => correct(l) - l.ordered;
+  function qtyCell(n, l) {
+    if (!n) return '<span class="mute">—</span>';
+    const unit = l.unit ? `<span class="u">${fmtN(Math.floor(n / l.unit.f))}${n % l.unit.f ? ` ${l.unit.code} + ${n % l.unit.f} pcs` : ` ${l.unit.code}`}</span>` : "";
+    return `<span class="qty"><span>${pcs(n)}</span>${unit}</span>`;
+  }
+  function diffCell(l) {
+    const d = gap(l);
+    if (d === 0) return `<span class="match">${icon("check")}Matches</span>`;
+    const said = l.unit && Math.abs(d) % l.unit.f === 0 ? `${fmtN(Math.abs(d) / l.unit.f)} ${l.unit.code}` : pcs(Math.abs(d));
+    return `<span class="diff">${d < 0 ? "−" : "+"}${said}</span>`;
+  }
+  function renderSheet() {
+    const po = reviewing, o = orders.find((x) => x.no === po), r = reviews[po];
+    const lines = r.lines;
+    const off = lines.filter((l) => gap(l) !== 0 || l.wrong > 0);
+    const canHide = off.length > 0 && off.length < lines.length;
+    const shown = canHide && state.hideMatched ? off : lines;
+    const ordered = lines.reduce((s, l) => s + l.ordered, 0);
+    const counted = lines.reduce((s, l) => s + correct(l), 0);
+    const short = lines.reduce((s, l) => s + Math.max(-gap(l), 0), 0);
+    const extra = lines.reduce((s, l) => s + Math.max(gap(l), 0), 0);
+    const wrong = lines.reduce((s, l) => s + l.wrong, 0);
+    const diffText = off.length === 0 ? "Matches the order" : [`${off.length} of ${lines.length} items differ`, short && `${pcs(short)} short`, extra && `${pcs(extra)} extra`, wrong && `${pcs(wrong)} not as ordered`].filter(Boolean).join(" · ");
+    const wrongUnit = lines.find((l) => l.wrong && l.unit);
+    $("#sheet").innerHTML = `
+      <header class="sheet-head"><div style="flex:1;min-width:0"><h2 id="sheetTitle">Review Count <span style="display:inline-flex;color:${off.length ? "var(--bad-fg)" : "var(--ok-fg)"}">${icon(off.length ? "alert" : "ok", "ico ico-18")}</span></h2><div class="mono po">${po}</div></div>
+        <button class="icon-btn" data-act="closesheet" aria-label="Close">${icon("x", "ico ico-18")}</button></header>
+      <div class="sheet-body">
+        <dl class="facts">
+          <dt>Supplier</dt><dd>${esc(o.sup)}</dd><dt>Total Ordered</dt><dd>${pcs(ordered)}</dd>
+          <dt>Counted</dt><dd>${esc(r.by)} · ${r.at}</dd><dt>Total Counted</dt><dd>${pcs(counted)}</dd>
+          <dt>Difference</dt><dd class="wide ${off.length ? "bad" : "ok"}">${diffText}</dd>
+        </dl>
+        <div style="display:flex;flex-direction:column;gap:16px">
+          ${canHide ? `<label class="switch-row">Hide matched<button class="switch" role="switch" data-act="hidematched" aria-checked="${state.hideMatched}" aria-label="Hide matched items"></button></label>` : ""}
+          <div class="rtable"><table>
+            <colgroup><col style="width:56px"><col><col style="width:9.5rem"><col style="width:9.5rem"><col style="width:9.5rem"></colgroup>
+            <thead><tr><th class="right">No.</th><th>Article</th><th>Ordered Quantity</th><th>Counted Quantity</th><th>Difference</th></tr></thead>
+            <tbody>${shown.map((l) => `<tr><td class="right mute num">${lines.indexOf(l) + 1}</td>
+              <td><span class="name" style="white-space:normal"><span class="n" title="${esc(l.name)}">${esc(l.name)}</span><span class="s" style="display:block">${esc(l.kind)}</span></span></td>
+              <td>${qtyCell(l.ordered, l)}</td><td>${qtyCell(correct(l), l)}</td><td>${diffCell(l)}</td></tr>`).join("")}</tbody>
+            <tfoot><tr><td></td><td style="font-weight:500">Total</td><td class="num">${pcs(ordered)}</td><td class="num">${pcs(counted)}</td>
+              <td style="color:var(--bad-fg);font-weight:500">${!short && !extra ? '<span class="mute">—</span>' : `<span class="qty">${short ? `<span>−${pcs(short)}</span>` : ""}${extra ? `<span>+${pcs(extra)}</span>` : ""}</span>`}</td></tr>
+              ${wrong ? `<tr><td></td><td style="font-weight:500">Not as Ordered</td><td></td><td style="color:var(--bad-fg)"><span class="qty"><span>${pcs(wrong)}</span>${wrongUnit ? `<span class="u">${fmtN(wrong / wrongUnit.unit.f)} ${wrongUnit.unit.code}</span>` : ""}</span></td><td></td></tr>` : ""}
+            </tfoot></table></div>
+        </div>
+        ${wrong || extra ? `<div class="returns"><ul>
+          ${wrong ? `<li>${icon("undo")}<span class="what">${pcs(wrong)} not as ordered</span><span class="then">Will be returned to the supplier</span></li>` : ""}
+          ${extra ? `<li>${icon("undo")}<span class="what">${pcs(extra)} extra</span><span class="then">Will be returned to the supplier</span></li>` : ""}
+        </ul></div>` : ""}
+      </div>
+      <footer class="sheet-foot">
+        <button class="btn btn-soft" data-act="recount">${icon("recount")}Recount</button><span style="flex:1"></span>
+        ${short ? `<button class="btn btn-soft" data-act="submit" data-choice="close" title="${pcs(short)} removed · the PO completes as received">Close Short</button>
+        <button class="btn btn-primary" data-act="submit" data-choice="keep" title="${pcs(short)} stay open on the order">${icon("check")}Partial Receive</button>`
+        : `<button class="btn btn-primary" data-act="submit" data-choice="keep">${icon("check")}Submit</button>`}
+      </footer>`;
+  }
+  function openSheet(po) {
+    if (!reviews[po]) return;
+    reviewing = po; state.hideMatched = false;
+    renderSheet();
+    $("#scrim").classList.add("open");
+    document.body.classList.add("sheet-open");
+    requestAnimationFrame(() => $("#sheet").classList.add("open"));
+    setTimeout(() => $("#sheet .sheet-foot .btn-primary")?.focus({ preventScroll: true }), 60);
+  }
+  function closeSheet() {
+    $("#sheet").classList.remove("open"); $("#scrim").classList.remove("open"); reviewing = null;
+    document.body.classList.remove("sheet-open");
+  }
+  function submitReview(choice) {
+    const o = orders.find((x) => x.no === reviewing), lines = reviews[reviewing].lines;
+    const into = lines.reduce((s, l) => s + Math.min(Math.max(correct(l), 0), l.ordered), 0);
+    const back = lines.reduce((s, l) => s + Math.max(gap(l), 0) + l.wrong, 0);
+    o.received = into;
+    o.status = choice === "close" ? "short" : into >= o.qty ? "full" : "partial";
+    let sub = choice === "close" ? `${pcs(o.qty - into)} removed from the order` : into < o.qty ? `${pcs(o.qty - into)} stay open` : "";
+    if (back) {
+      const no = `RS-${String(returns.length + 1).padStart(8, "0")}`;
+      returns.unshift({ no, po: o.no, sup: o.sup, pcs: back, status: "To hand over", at: "2026-10-04", by: "rina" });
+      sub = [sub, `${no} raised · ${pcs(back)}`].filter(Boolean).join(" · ");
+    }
+    const po = reviewing;
+    closeSheet();
+    render();
+    toast(`${po} ${o.status === "short" ? "closed short" : o.status === "full" ? "fully received" : "partially received"}`, sub);
+  }
+
+  // ---------------------------------------------------------------- events
+  document.addEventListener("click", (e) => {
+    const t = e.target.closest("button, [data-sort], .switch-row");
+    if (!t) { if (popAnchor && !pop.contains(e.target)) closePop(); if (document.body.classList.contains("menu-open") && !e.target.closest(".menu")) document.body.classList.remove("menu-open"); return; }
+
+    // inside the popover
+    if (pop.contains(t)) {
+      if (t.dataset.pick) {
+        const v = t.dataset.value, k = t.dataset.pick;
+        if (k === "sortkey") { const s = state.sort[state.tab]; if (s.key === v) s.dir *= -1; else { s.key = v; s.dir = ["name", "no", "sup", "due"].includes(v) ? 1 : -1; } }
+        else if (k === "view") state.view[state.tab] = v;
+        else if (k === "division") state.division = v;
+        else if (k === "days") state.days = Number(v);
+        else if (k === "status") state.status = v;
+        else if (k === "calc") { const [col, fn] = v.split(":"); if (fn === "none") delete state.calc[state.tab][col]; else state.calc[state.tab][col] = fn; }
+        state.selected.clear();
+        // a filters popover stays open to set several at once
+        const keep = pop.classList.contains("multi");
+        if (!keep) closePop();
+        render();
+        if (keep) openFilters(popAnchorFallback);
+        return;
+      }
+      if (t.dataset.ntab) { state.notifTab = t.dataset.ntab; openNotifs($("#bell")); return; }
+      if (t.dataset.act === "readall") { notifs.forEach((n) => (n.unread = false)); renderChrome(); openNotifs($("#bell")); return; }
+      if (t.dataset.notif) {
+        const n = notifs.find((x) => String(x.id) === t.dataset.notif); n.unread = false; closePop(); renderChrome();
+        if (n.po && orders.find((o) => o.no === n.po)?.status === "review") openSheet(n.po);
+        else if (n.tab) { setTab(n.tab); }
+        return;
+      }
+      if (t.dataset.rowact) { const a = t.dataset.rowact; closePop(); toast(a === "po" ? "New PO started" : a === "return" ? "Return drafted" : "Opened", ""); return; }
+      return;
+    }
+
+    const act = t.dataset.act;
+    if (t.dataset.sort) { const s = state.sort[state.tab]; if (s.key === t.dataset.sort) s.dir *= -1; else { s.key = t.dataset.sort; s.dir = ["name", "no", "sup", "due", "buyer", "po"].includes(s.key) ? 1 : -1; } renderToolbar(); renderTable(); return; }
+    if (t.dataset.calc) {
+      const col = COLS[state.tab].find((c) => c.key === t.dataset.calc), cur = state.calc[state.tab][col.key];
+      openPop(t, `<div class="pop-label">Calculate ${col.label.toLowerCase()}</div>${col.calcs.map((fn) => opt("calc", `${col.key}:${fn}`, CALC_NAME[fn], cur === fn)).join("")}<hr>${opt("calc", `${col.key}:none`, "None", !cur)}`, { align: col.right ? "end" : "start" });
+      return;
+    }
+    if (t.dataset.kpi) {
+      const [k, v] = t.dataset.kpi.split(":");
+      if (k === "status") { state.status = state.status === v ? "any" : v; state.view.orders = "Active"; }
+      if (k === "kpi") state.kpiFilter = state.kpiFilter === v ? null : v;
+      if (k === "fill") { const s2 = state.sort.suppliers; state.sort.suppliers = s2.key === "fill" && s2.dir > 0 ? { key: "onOrder", dir: -1 } : { key: "fill", dir: 1 }; }
+      state.selected.clear(); renderKpis(); renderToolbar(); renderTable(); return;
+    }
+    if (t.dataset.tab) { setTab(t.dataset.tab); document.body.classList.remove("menu-open"); return; }
+    if (t.dataset.division) { state.division = state.division === t.dataset.division ? "any" : t.dataset.division; state.tab = "suppliers"; state.selected.clear(); render(); return; }
+    if (t.dataset.saved) {
+      clearFilters(false);
+      if (t.dataset.saved === "short") { state.tab = "orders"; state.view.orders = "All"; state.status = "short"; }
+      if (t.dataset.saved === "overdue") { state.tab = "orders"; state.status = "overdue"; }
+      if (t.dataset.saved === "lowfill") { state.tab = "suppliers"; state.sort.suppliers = { key: "fill", dir: 1 }; }
+      document.body.classList.remove("menu-open"); render(); return;
+    }
+    if (t.dataset.dir) { state.dir = t.dataset.dir; store.set("pt.dir", state.dir); render(); return; }
+    if (t.dataset.kpiStyle) { state.kpiStyle = t.dataset.kpiStyle; store.set("pt.kpi", state.kpiStyle); renderChrome(); renderKpis(); return; }
+    if (t.dataset.themeSet) { state.theme = t.dataset.themeSet; store.set("pt.theme2", state.theme); renderChrome(); return; }
+
+    if (popAnchor) { const was = closePop(); if (was === t) return; }
+    switch (act) {
+      case "sort": openPop(t, `<div class="pop-label">Sort by</div>${SORTS[state.tab].map(([k, l]) => opt("sortkey", k, l, state.sort[state.tab].key === k, state.sort[state.tab].key === k ? (state.sort[state.tab].dir > 0 ? "Ascending" : "Descending") : "")).join("")}`); break;
+      case "division": openPop(t, divisionOptions()); break;
+      case "days": openPop(t, daysOptions()); break;
+      case "status": openPop(t, statusOptions()); break;
+      case "filters": openFilters(t); break;
+      case "sel": { const id = t.closest("tr").dataset.id; state.selected.has(id) ? state.selected.delete(id) : state.selected.add(id); renderTable(); break; }
+      case "all": { const ids = rowsFor(state.tab).map((r) => idOf(state.tab, r)); const allOn = ids.every((id) => state.selected.has(id)); ids.forEach((id) => allOn ? state.selected.delete(id) : state.selected.add(id)); renderTable(); break; }
+      case "unselect": state.selected.clear(); renderTable(); break;
+      case "clear": clearFilters(true); break;
+      case "review": openSheet(t.dataset.po); break;
+      case "closesheet": closeSheet(); break;
+      case "hidematched": state.hideMatched = !state.hideMatched; renderSheet(); $("#sheet .switch")?.focus(); break;
+      case "submit": submitReview(t.dataset.choice); break;
+      case "recount": { const po = reviewing; closeSheet(); toast(`${po} sent back to count`, "The Gudang counts it again"); break; }
+      case "export": toast(`Exported ${state.selected.size || rowsFor(state.tab).length} rows`, "CSV · in your downloads"); break;
+      case "new": toast(state.tab === "returns" ? "New return" : "New PO", state.selected.size ? `For ${state.selected.size} selected` : ""); break;
+      case "remind": toast(`Reminder sent to ${state.selected.size} suppliers`); state.selected.clear(); renderTable(); break;
+      case "rowmenu": {
+        const items = state.tab === "suppliers" ? [["open", "Open supplier"], ["po", "New PO"], ["return", "Raise a return"]] : state.tab === "orders" ? [["open", "Open order"], ["return", "Raise a return"]] : [["open", "Open return"]];
+        openPop(t, items.map(([k, l]) => `<button class="opt" data-rowact="${k}">${l}</button>`).join(""), { align: "end" });
+        break;
+      }
+    }
+    if (t.id === "bell") openNotifs(t);
+    if (t.id === "viewPill") {
+      const views = state.tab === "returns" ? ["Open", "Settled", "All"] : state.tab === "orders" ? ["Active", "Completed", "All"] : ["Active", "Paused", "All"];
+      openPop(t, views.map((v) => opt("view", v, v, state.view[state.tab] === v)).join(""));
+    }
+    if (t.id === "searchBtn") toggleSearch(true);
+    if (t.id === "burger") document.body.classList.toggle("menu-open");
+  });
+
+  let popAnchorFallback = null;
+  function openFilters(anchor) {
+    popAnchorFallback = anchor;
+    const sec = (label, inner) => `<div class="pop-label">${label}</div>${inner}`;
+    const html = state.tab === "suppliers" ? `${sec("Division", divisionOptions())}<hr>${sec("Last delivery", daysOptions())}` : sec("Status", statusOptions());
+    openPop(anchor, `<div style="max-height:min(70vh,560px);overflow:auto;min-width:260px">${html}</div>`, { cls: "multi" });
+  }
+  function clearFilters(doRender) { state.kpiFilter = null; state.division = "any"; state.days = 90; state.status = "any"; state.q = ""; $("#q").value = ""; state.view.orders = "Active"; state.view.suppliers = "Active"; state.view.returns = "Open"; if (doRender) render(); }
+  function setTab(tab) { state.tab = tab; state.selected.clear(); state.status = "any"; state.kpiFilter = null; store.set("pt.tab", tab); render(); }
+  function toggleSearch(on) {
+    const s = $("#search");
+    s.classList.toggle("on", on); $("#searchBtn").hidden = on;
+    if (on) $("#q").focus(); else { state.q = ""; $("#q").value = ""; renderTable(); }
+  }
+  $("#q").addEventListener("input", (e) => { state.q = e.target.value; state.selected.clear(); renderTable(); });
+  $("#q").addEventListener("blur", () => { if (!state.q) toggleSearch(false); });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      if (popAnchor) { const a = closePop(); a?.focus?.({ preventScroll: true }); return; }
+      if (reviewing) { closeSheet(); return; }
+      if (document.body.classList.contains("menu-open")) { document.body.classList.remove("menu-open"); return; }
+      if ($("#search").classList.contains("on")) { toggleSearch(false); return; }
+      if (state.selected.size) { state.selected.clear(); renderTable(); }
+    }
+    if (e.key === "/" && !/input|textarea/i.test(document.activeElement.tagName) && !reviewing) { e.preventDefault(); toggleSearch(true); }
+    if ((e.key === "Enter" || e.key === " ") && e.target.matches("th[data-sort]")) { e.preventDefault(); e.target.click(); }
+  });
+
+  document.addEventListener("pointerover", (e) => {
+    if (e.pointerType !== "mouse") return;
+    const tipEl = e.target.closest("[data-tip]");
+    if (tipEl) showTip(tipEl);
+    const cardEl = e.target.closest("[data-card]");
+    if (cardEl) showCard(cardEl);
+  });
+  document.addEventListener("pointerout", (e) => {
+    const from = e.target.closest("[data-tip]"); if (from && !from.contains(e.relatedTarget)) hideTip();
+    const cardEl = e.target.closest("[data-card]");
+    if (cardEl && !card.contains(e.relatedTarget) && !cardEl.contains(e.relatedTarget)) hideCard();
+  });
+  card.addEventListener("pointerleave", hideCard);
+  $("#tablewrap").addEventListener("scroll", () => { hideCard(); hideTip(); if (popAnchor && $("#tablewrap").contains(popAnchor)) closePop(); }, { passive: true });
+  $("#scrim").addEventListener("click", closeSheet);
+  addEventListener("resize", () => { if (popAnchor) closePop(); });
+
+  pop.hidden = true;
+  render();
+})();
+</script>
+</body>
+</html>

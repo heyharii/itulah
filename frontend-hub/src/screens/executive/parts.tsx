@@ -205,9 +205,7 @@ export function Line({
       <span className="min-w-0">{label}</span>
       <span className="flex shrink-0 items-baseline gap-3 tabular-nums">
         {aside !== undefined && (
-          <span className="text-[0.875rem] font-normal text-mute">
-            {aside}
-          </span>
+          <span className="text-[0.875rem] font-normal text-mute">{aside}</span>
         )}
         {value}
       </span>

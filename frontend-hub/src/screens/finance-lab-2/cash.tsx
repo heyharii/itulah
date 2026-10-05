@@ -136,10 +136,10 @@ export function Cash() {
         narrowed ? (
           <EmptyState>No cash account matches these filters.</EmptyState>
         ) : (
-        <EmptyState>
-          No cash account is mapped yet. A place money can sit is a meaning
-          bound to an account on the Account map.
-        </EmptyState>
+          <EmptyState>
+            No cash account is mapped yet. A place money can sit is a meaning
+            bound to an account on the Account map.
+          </EmptyState>
         )
       ) : (
         <div className="flex flex-col gap-4">

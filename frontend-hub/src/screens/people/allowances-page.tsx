@@ -65,7 +65,7 @@ export function ClaimAllowancesPage() {
                 head={[
                   "Kind",
                   { label: "From", align: "left" },
-                  { label: "A year", align: "right" },
+                  { label: "A Year", align: "right" },
                   { label: "Stated by", align: "left" },
                 ]}
               >
@@ -152,7 +152,6 @@ function AllowanceSheet({ onClose }: { onClose: () => void }) {
         <Field label="Kind" required>
           <PickOne
             label="Kind"
-            placeholder="Choose…"
             choices={(types.data ?? [])
               .filter((one) => one.retired_at === null)
               .map((one) => ({ value: one.code, label: one.name }))}
@@ -168,7 +167,6 @@ function AllowanceSheet({ onClose }: { onClose: () => void }) {
             inputMode="numeric"
             value={limit}
             onChange={(e) => setLimit(e.target.value)}
-            placeholder="3000000"
           />
         </Field>
         <Field label="Why" required>

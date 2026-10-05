@@ -12,4 +12,8 @@ code: string, label: string,
 /**
  * True takes the base flag from whichever unit holds it.
  */
-is_base?: boolean | null, };
+is_base?: boolean | null, 
+/**
+ * COUNT when absent.
+ */
+category?: string | null, whole_number?: boolean | null, aliases?: Array<string> | null, };

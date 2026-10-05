@@ -14,7 +14,7 @@ WITH rules AS (
        AND (r.category_code IS NULL OR r.category_code = l.category_code)
      GROUP BY l.line_id
 )
-SELECT l.entry_id, e.entry_number, e.source_kind, l.line_number, l.account_code, l.category_code, l.site_id,
+SELECT l.entry_id, e.entry_number, e.source_kind, l.line_number, l.account_code, l.category_code, l.unit_id,
        r.allowed, r.denied
   FROM rules r
   JOIN journal_line l ON l.line_id = r.line_id

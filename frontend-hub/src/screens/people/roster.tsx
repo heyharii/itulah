@@ -327,7 +327,6 @@ export function Roster() {
               <Input
                 value={reason}
                 onChange={(event) => setReason(event.target.value)}
-                placeholder="jadwal minggu ini"
                 className="h-8"
               />
             </Field>

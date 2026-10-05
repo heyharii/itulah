@@ -20,7 +20,6 @@ import {
 import {
   clauseOf,
   isComplete,
-  isMoney,
   numeric,
   SERVER,
   toSpec,
@@ -145,7 +144,6 @@ function ValueEditor({
     return (
       <Input
         value={values.join(", ")}
-        placeholder="Separated by commas"
         onChange={(event) =>
           onChange(
             event.target.value
@@ -164,7 +162,6 @@ function ValueEditor({
       value={at(index)}
       type={kind === "date" ? "date" : "text"}
       inputMode={kind === "number" ? "numeric" : undefined}
-      placeholder={isMoney(column) ? "5.000.000" : undefined}
       onChange={(event) =>
         set(
           index,
@@ -307,7 +304,7 @@ export function SegmentForm({
               disabled={problem !== undefined}
               onClick={() => save.mutate()}
             >
-              {save.isPending ? "Saving…" : editing ? "Save version" : "Create"}
+              {save.isPending ? "Submitting…" : editing ? "Submit" : "Submit"}
             </Button>
           </div>
         </div>
@@ -326,19 +323,14 @@ export function SegmentForm({
           <Input
             value={name}
             autoFocus
-            placeholder="Lapsing big spenders"
             onChange={(event) => setName(event.target.value)}
           />
         </Field>
 
-        <Field
-          label="Why it exists"
-          aside="What the conditions cannot say"
-        >
+        <Field label="Why it exists" aside="What the conditions cannot say">
           <Textarea
             value={purpose}
             rows={2}
-            placeholder="People worth a message before they are gone for good."
             onChange={(event) => setPurpose(event.target.value)}
           />
         </Field>

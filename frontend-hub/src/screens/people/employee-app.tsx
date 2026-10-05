@@ -330,16 +330,11 @@ function HandOverSheet({
           <Input
             value={delegator}
             onChange={(e) => setDelegator(e.target.value)}
-            placeholder="username"
           />
         </Field>
       )}
       <Field label="To" required>
-        <Input
-          value={stand}
-          onChange={(e) => setStand(e.target.value)}
-          placeholder="their username"
-        />
+        <Input value={stand} onChange={(e) => setStand(e.target.value)} />
       </Field>
       <Field label="From" required>
         <Day value={from} onChange={setFrom} />
@@ -348,11 +343,7 @@ function HandOverSheet({
         <Day value={to} onChange={setTo} />
       </Field>
       <Field label="Why" required>
-        <Input
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="cuti tahunan"
-        />
+        <Input value={reason} onChange={(e) => setReason(e.target.value)} />
       </Field>
     </FormSheet>
   )

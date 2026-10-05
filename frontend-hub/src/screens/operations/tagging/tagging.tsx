@@ -1,167 +1,209 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import { useQuery } from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { ConfirmButton, Panel } from "@/components/ui/dialog"
-import { FilterPanel } from "@/components/ui/filter-panel"
-import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { MiniTable } from "@/components/ui/rows"
-import { Toolbar } from "@/components/ui/segmented"
-import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import { Sheet } from "@/components/ui/sheet"
+import { EmptyState } from "@/components/ui/states"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import {
-  EmptyState,
-  LoadingState,
-  Problem,
-  Receipt,
-} from "@/components/ui/states"
-import { LabelSurface, RunPill } from "@/screens/operations/tagging/print-queue"
+  Preview,
+  PrintAllButton,
+  PrinterCard,
+  PrintJobButton,
+  ReprintButton,
+} from "@/screens/operations/tagging/print-queue"
+import { printedOf, useRuns } from "@/screens/operations/tagging/print-run"
 import { dc } from "@/lib/api"
-import { useFilters } from "@/lib/filters"
-import { ago, count, day } from "@/lib/format"
+import { count, day } from "@/lib/format"
+import { ROOMY } from "@/screens/operations/roomy"
+import { SupplierName } from "@/screens/procurement/supplier-name"
 import { keys } from "@/lib/operations/keys"
 import { queryState } from "@/lib/query-state"
-import { useEdgeActor } from "@/lib/edge-session"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import { idempotencyKey } from "@itulah/contract/client"
-import type { TaggingWorkJob } from "@itulah/contract"
+import type { PrintSessionSummary, TaggingWorkJob } from "@itulah/contract"
 
-/// **Tagging** — the articles this warehouse has not tagged yet.
+/// **Printing** — one row per PO.
 ///
-/// One screen, one list, and it is a list of **articles**: the centre issues a
-/// tagging job per article when a delivery is accepted, and what somebody on
-/// the floor is holding is a pile of one article's garments. The job is the
-/// paperwork; the article is the thing.
-///
-/// The EPCs arrived as **finished strings** minted at the centre. Nothing here
-/// computes one and nothing reorders them — they print in the order they were
-/// minted so the sequence on the rail matches the sequence in the ledger.
-///
-/// Two verbs, and they are deliberately different weights. **Print** is at the
-/// end of every row and shows what comes out of the machine for that article,
-/// because printing is the work. **The tags are on** is inside the record, behind a question: it
-/// turns a counted quantity into that many individually tracked units and puts
-/// them in the warehouse, and there is no way to take it back.
-const columns: ColumnDef<TableSetup, TaggingWorkJob>[] = [
-  {
-    accessorKey: "article_code",
-    header: "Article",
-    size: 260,
-    // There is no search box on this screen, so `contains` is the only way to
-    // reach one article in a queue of forty — and the code is what is printed
-    // on the docket somebody is holding while they look.
-    meta: { filter: { kind: "text", label: "Article" } },
-    cell: ({ row }) => (
-      <span className="min-w-0">
-        <span className="block truncate font-medium text-ink">
-          {row.original.article_name}
-        </span>
-        <span className="block truncate font-mono text-[0.875rem] text-mute">
-          {row.original.article_code}
-        </span>
-      </span>
-    ),
-  },
-  {
-    id: "variants",
-    accessorFn: (row: TaggingWorkJob) => row.lines.length,
-    header: "Variants",
-    size: 100,
-    meta: { align: "right" },
-    cell: ({ row }) => count(row.original.lines.length),
-  },
-  {
-    accessorKey: "total_quantity",
-    header: "Labels",
-    size: 100,
-    // How much work a job is, which is how a floor decides what to start
-    // before the shift ends: five hundred labels is an afternoon and twelve is
-    // ten minutes.
-    meta: {
-      align: "right",
-      filter: { kind: "number", label: "Labels", unit: "labels" },
-    },
-    cell: ({ row }) => (
-      <span className="font-medium text-ink">
-        {count(row.original.total_quantity)}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "issued_at",
-    header: "Issued",
-    size: 140,
-    meta: { filter: { kind: "date", label: "Issued" } },
-    // The decision metric, and the default sort. An article the centre issued
-    // four days ago is stock the warehouse cannot sell yet.
-    cell: ({ row }) => (
-      <span className="text-body">{ago(row.original.issued_at)}</span>
-    ),
-  },
-]
+/// The centre issues a tagging job per article when a delivery is accepted;
+/// what somebody at the bench thinks in is the PO whose goods are on the
+/// table. So the jobs are grouped by the PO they came from, and the PO is the
+/// row. A run still belongs to its article job — the sheet drives each job's
+/// run and "Print all" walks them in turn. A job raised before the node kept
+/// its delivery line carries no PO and is its own row, titled by its article.
+function poOf(job: TaggingWorkJob): { key: string; label: string } {
+  if (job.po_number) return { key: `po:${job.po_number}`, label: job.po_number }
+  return { key: `job:${job.job_id}`, label: job.article_code }
+}
+
+interface Group {
+  key: string
+  label: string
+  supplier: string | null
+  delivered_at: string | null
+  jobs: TaggingWorkJob[]
+  skus: number
+  labels: number
+  issued_at: string
+}
+
+export function group(jobs: readonly TaggingWorkJob[]): Group[] {
+  const map = new Map<string, Group>()
+  for (const job of jobs) {
+    const { key, label } = poOf(job)
+    const found = map.get(key)
+    if (found === undefined) {
+      map.set(key, {
+        key,
+        label,
+        supplier: job.supplier_name,
+        delivered_at: job.delivered_at,
+        jobs: [job],
+        skus: job.lines.length,
+        labels: job.total_quantity,
+        issued_at: job.issued_at,
+      })
+    } else {
+      found.jobs.push(job)
+      found.skus += job.lines.length
+      found.labels += job.total_quantity
+      found.supplier ??= job.supplier_name
+      found.delivered_at ??= job.delivered_at
+      if (Date.parse(job.issued_at) < Date.parse(found.issued_at))
+        found.issued_at = job.issued_at
+    }
+  }
+  return [...map.values()].sort(
+    (a, b) => Date.parse(a.issued_at) - Date.parse(b.issued_at)
+  )
+}
+
+function printedIn(
+  g: Group,
+  runs: Map<string, PrintSessionSummary | null>
+): number {
+  return g.jobs.reduce(
+    (total, job) => total + printedOf(job, runs.get(job.job_id)),
+    0
+  )
+}
 
 export function Tagging() {
-  const job = useSheet("job")
-  const printing = useSheet("print")
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: "issued_at", desc: false },
-  ])
+  const sheet = useSheet("job")
+  const [tab, setTab] = useState<"todo" | "done">("todo")
 
   const jobs = useQuery({
     queryKey: keys.taggingJobs(),
     queryFn: ({ signal }) => dc.taggingJobs(signal),
   })
+  const groups = useMemo(() => group(jobs.data ?? []), [jobs.data])
+  const runs = useRuns(jobs.data ?? [])
 
-  const rows = useMemo(() => jobs.data ?? [], [jobs.data])
-  const printed = rows.find((row) => row.job_id === printing.value)
+  const finished = (g: Group) => printedIn(g, runs) >= g.labels && g.labels > 0
+  const todo = groups.filter((g) => !finished(g))
+  const done = groups.filter(finished)
+  const rows = tab === "todo" ? todo : done
 
-  /// Asked of the three columns above, not of the two below.
-  ///
-  /// The print pill and the button carry no data — nothing to ask them — and
-  /// taking the predicate from the stable module-scope array is also what
-  /// keeps it out of the rebuild `printing` already causes below.
-  const filters = useFilters(columns)
-
-  const columnsWithPrint = useMemo<ColumnDef<TableSetup, TaggingWorkJob>[]>(
+  const columns = useMemo<ColumnDef<TableSetup, Group>[]>(
     () => [
-      ...filters.columns,
       {
-        // A row does not leave this list when its labels print — printed is
-        // not attached, and the row is waiting for somebody to say the tags
-        // are on. But it used to say nothing at all about which of the two it
-        // was: eleven labels out of the machine and the row still read exactly
-        // like one nobody had touched.
-        id: "printed",
-        header: "Printed",
-        size: 150,
-        cell: ({ row }) => <RunPill jobId={row.original.job_id} />,
+        id: "no",
+        header: "No.",
+        size: 70,
+        enableSorting: false,
+        meta: { align: "right", priority: 2 },
+        cell: ({ row }) => <span className="text-mute">{row.index + 1}</span>,
       },
       {
-        id: "action",
-        header: "",
-        size: 120,
-        meta: { align: "right" },
+        id: "po",
+        header: "PO",
+        size: 190,
+        meta: { card: "id" },
         cell: ({ row }) => (
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={(event) => {
-              event.stopPropagation()
-              printing.open(row.original.job_id)
-            }}
-          >
-            Print
-          </Button>
+          <span className="font-mono text-id text-ink">
+            {row.original.label}
+          </span>
         ),
       },
+      {
+        id: "supplier",
+        header: "Supplier",
+        size: 260,
+        meta: { card: "title" },
+        cell: ({ row }) => (
+          <span className="block truncate text-text">
+            <SupplierName code={null} name={row.original.supplier} />
+          </span>
+        ),
+      },
+      {
+        id: "delivery",
+        header: "Delivery",
+        size: 140,
+        meta: { priority: 3 },
+        cell: ({ row }) =>
+          row.original.delivered_at === null ? (
+            <span className="text-mute">—</span>
+          ) : (
+            day(row.original.delivered_at)
+          ),
+      },
+      {
+        id: "skus",
+        header: "SKU",
+        size: 90,
+        meta: { align: "right", priority: 2 },
+        cell: ({ row }) => count(row.original.skus),
+      },
+      {
+        id: "labels",
+        header: "Labels",
+        size: 110,
+        meta: { align: "right", card: "metric" },
+        cell: ({ row }) => (
+          <span className="font-medium text-ink">
+            {count(row.original.labels)}
+          </span>
+        ),
+      },
+      {
+        id: "printed",
+        header: "Printed",
+        size: 110,
+        meta: { align: "right", priority: 2 },
+        cell: ({ row }) => {
+          const printed = printedIn(row.original, runs)
+          return printed === 0 ? (
+            <span className="text-mute">—</span>
+          ) : (
+            count(printed)
+          )
+        },
+      },
+      {
+        id: "print",
+        header: "",
+        meta: { card: "status", grow: 160 },
+        cell: ({ row }) => {
+          const left = row.original.labels - printedIn(row.original, runs)
+          return left > 0 ? (
+            <PrintAllButton
+              jobs={row.original.jobs}
+              runs={runs}
+              left={left}
+              row
+            />
+          ) : null
+        },
+      },
     ],
-    [filters.columns, printing]
+    [runs]
   )
 
   const table = useTable(
@@ -169,50 +211,30 @@ export function Tagging() {
       () => ({
         features: tableSetup,
         data: rows,
-        columns: columnsWithPrint,
-        getRowId: (row: TaggingWorkJob) => row.job_id,
-        state: { columnFilters: filters.columnFilters, sorting },
-        onSortingChange: setSorting,
+        columns,
+        getRowId: (row: Group) => row.key,
       }),
-      [rows, columnsWithPrint, filters.columnFilters, sorting]
+      [rows, columns]
     )
   )
 
-  const labels = rows.reduce((total, row) => total + row.total_quantity, 0)
-  // Worked out rather than taken from the end of the list: the node does not
-  // promise an order, and "oldest" read off `rows[rows.length - 1]` is a
-  // number that is right until the day it silently is not.
-  const oldest = rows.reduce<string | null>(
-    (earliest, row) =>
-      earliest === null || Date.parse(row.issued_at) < Date.parse(earliest)
-        ? row.issued_at
-        : earliest,
-    null
-  )
+  const open = groups.find((g) => g.key === sheet.value)
 
   return (
     <PageContent>
-      <PageHeader
-        crumb="Operations"
-        title="Tagging"
-        sub="Articles the centre has minted labels for. Print them, attach them, then say so."
+      <PageHeader title="Printing" />
+
+      <SubTabs
+        value={tab}
+        onChange={(next) => setTab(next as "todo" | "done")}
+        tabs={[
+          {
+            value: "todo",
+            label: `To print${todo.length ? ` · ${todo.length}` : ""}`,
+          },
+          { value: "done", label: "Printed" },
+        ]}
       />
-
-      <KpiStrip className="grid-cols-2 xl:grid-cols-3">
-        <Kpi label="Articles untagged" value={count(rows.length)} />
-        <Kpi label="Labels to print" value={count(labels)} />
-        <Kpi
-          label="Oldest"
-          value={oldest === null ? "—" : ago(oldest)}
-          delta="since the centre issued it"
-        />
-      </KpiStrip>
-
-      {/* The figures above are about the whole queue and stay that way; the
-          clauses here change only which rows are listed underneath. */}
-      <Toolbar>
-        <FilterPanel model={filters} table={table} />
-      </Toolbar>
 
       <Card className="overflow-hidden">
         {queryState(jobs, {
@@ -220,153 +242,134 @@ export function Tagging() {
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
-                Nothing to tag. Head office issues these when goods are
-                accepted, so the list fills itself.
+                {tab === "todo" ? "Nothing to print." : "Nothing printed yet."}
               </EmptyState>
             ) : (
-              <DataTable<TaggingWorkJob>
+              <DataTable<Group>
                 table={table}
                 touch
-                onRowClick={(row) => job.open(row.job_id)}
-                isSelected={(row) => row.job_id === job.value}
-                className="max-h-[calc(100vh-20rem)]"
+                onRowClick={(row) => sheet.open(row.key)}
+                isSelected={(row) => row.key === sheet.value}
+                pageScroll
+                className={ROOMY}
               />
             ),
         })}
       </Card>
 
-      <JobSheet id={job.value ?? null} onClose={job.close} />
-
-      {/* One dialog. Print queue was a second list of the same jobs beside a
-          card of printer settings — the list is this screen, and the settings
-          now sit under the label they decide the shape of. */}
-      <Panel
-        open={printing.value !== undefined}
-        onOpenChange={(open) => !open && printing.close()}
-        title={printed?.article_name ?? "Label"}
-        sub={printed?.article_code}
-      >
-        {printing.value !== undefined && (
-          <LabelSurface jobId={printing.value} onConfirmed={printing.close} />
-        )}
-      </Panel>
+      <PoSheet
+        group={open}
+        runs={runs}
+        loading={jobs.isPending}
+        onClose={sheet.close}
+      />
     </PageContent>
   )
 }
 
-/// The article's variants, and the confirmation that ends the job.
-///
-/// Confirming is said once, for the whole article, by the person who attached
-/// the labels. That is the moment a counted quantity becomes that many
-/// individually tracked units and enters the warehouse — so it is behind a
-/// question, not behind a button.
-function JobSheet({ id, onClose }: { id: string | null; onClose: () => void }) {
-  const actor = useEdgeActor()
-  const client = useQueryClient()
+/// The PO's SKUs, the tag as it will print, and the bench.
+export function PoSheet({
+  group: g,
+  runs,
+  loading,
+  onClose,
+}: {
+  group: Group | undefined
+  runs: Map<string, PrintSessionSummary | null>
+  loading: boolean
+  onClose: () => void
+}) {
+  const [picked, setPicked] = useState<{ job: string; sku: string } | null>(
+    null
+  )
 
-  const jobs = useQuery({
-    queryKey: keys.taggingJobs(),
-    queryFn: ({ signal }) => dc.taggingJobs(signal),
-  })
-  const job = (jobs.data ?? []).find((row) => row.job_id === id)
-
-  const run = useQuery({
-    queryKey: keys.jobRun(id ?? ""),
-    queryFn: ({ signal }) => dc.jobPrintSession(id!, signal),
-    enabled: id !== null,
-  })
-
-  const confirm = useMutation({
-    mutationFn: () =>
-      dc.confirmTagging({
-        job_id: id!,
-        actor_id: actor,
-        // Confirming creates one tracked unit per label. Applied twice it is
-        // twice the warehouse, and the second set has no garments behind it.
-        idempotency_key: idempotencyKey(),
-      }),
-    onSuccess: () => {
-      // The job leaves the list, the units appear in the pools, and the ledger
-      // gains a movement group. All three are on screen somewhere.
-      void client.invalidateQueries({ queryKey: keys.taggingJobs() })
-      void client.invalidateQueries({ queryKey: keys.pools() })
-      void client.invalidateQueries({ queryKey: ["inventory", "movements"] })
-    },
-  })
+  const lines = (g?.jobs ?? []).flatMap((job) =>
+    job.lines.map((line, i) => ({ job, line, first: i === 0 }))
+  )
+  const chosen =
+    lines.find(
+      (l) => l.job.job_id === picked?.job && l.line.sku_code === picked?.sku
+    ) ?? lines[0]
+  const left = g ? g.labels - printedIn(g, runs) : 0
 
   return (
     <Sheet
-      open={id !== null}
-      onOpenChange={(open) => !open && onClose()}
-      id={job?.article_code}
-      title={job?.article_name ?? "Tagging job"}
+      open={g !== undefined || loading}
+      onOpenChange={(next) => !next && onClose()}
+      title={g?.label ?? "PO"}
+      width="wide"
+      actions={
+        g && left > 0 ? (
+          <PrintAllButton jobs={g.jobs} runs={runs} left={left} />
+        ) : undefined
+      }
     >
-      {job === undefined ? (
-        jobs.isPending ? (
-          <LoadingState>Reading the print queue…</LoadingState>
-        ) : (
-          <EmptyState>
-            That article is no longer waiting — it has been confirmed, or the
-            centre withdrew the job.
-          </EmptyState>
-        )
+      {g === undefined ? (
+        <EmptyState>Nothing to print.</EmptyState>
       ) : (
-        <div className="flex flex-col gap-5">
-          <Facts>
-            <Fact term="Labels">{count(job.total_quantity)}</Fact>
-            <Fact term="Variants">{count(job.lines.length)}</Fact>
-            <Fact term="Issued">{day(job.issued_at)}</Fact>
-            <Fact term="Printed">
-              {run.data === null || run.data === undefined
-                ? "not queued"
-                : `${count(run.data.printed_count)} of ${count(run.data.total_items)}`}
-            </Fact>
-          </Facts>
+        <div className="flex flex-col gap-6">
+          {chosen && (
+            <Preview jobId={chosen.job.job_id} sku={chosen.line.sku_code} />
+          )}
 
-          <div>
-            <h4 className="mb-2 text-card-title font-semibold text-ink">
-              Variants
-            </h4>
-            <MiniTable head={["SKU", "Colour", "Size", "Labels"]}>
-              {job.lines.map((line) => (
-                <tr key={line.sku_code} className="border-t border-hairline">
-                  <td className="py-2 pr-2 font-mono text-[0.875rem] text-ink">
+          <MiniTable
+            head={[
+              { label: "No.", align: "left" },
+              { label: "SKU", align: "left" },
+              { label: "Article", align: "left" },
+              { label: "Colour", align: "left" },
+              { label: "Size", align: "left" },
+              "Labels",
+              "Printed",
+              "",
+            ]}
+          >
+            {lines.map(({ job, line, first }, index) => {
+              const run = runs.get(job.job_id)
+              const on =
+                chosen?.job.job_id === job.job_id &&
+                chosen.line.sku_code === line.sku_code
+              const finished = run != null && run.pending_count === 0
+              return (
+                <tr
+                  key={`${job.job_id}:${line.sku_code}`}
+                  onClick={() =>
+                    setPicked({ job: job.job_id, sku: line.sku_code })
+                  }
+                  className={`h-16 cursor-pointer border-t border-hairline ${on ? "bg-soft-2" : ""}`}
+                >
+                  <td className="py-3.5 text-mute">{index + 1}</td>
+                  <td className="py-3.5 pl-3 font-mono text-id text-ink">
                     {line.sku_code}
                   </td>
-                  <td className="py-2 text-right">{line.colour_label}</td>
-                  <td className="py-2 text-right">{line.size_label}</td>
-                  <td className="py-2 text-right tabular-nums">
+                  <td className="py-3.5 pl-3">{job.article_name}</td>
+                  <td className="py-3.5 pl-3">{line.colour_label}</td>
+                  <td className="py-3.5 pl-3">{line.size_label}</td>
+                  <td className="py-3.5 pl-3 text-right tabular-nums">
                     {count(line.quantity)}
                   </td>
+                  <td className="py-3.5 pl-3 text-right tabular-nums">
+                    {finished ? (
+                      count(line.quantity)
+                    ) : (
+                      <span className="text-mute">—</span>
+                    )}
+                  </td>
+                  <td className="py-3.5 pl-3 text-right">
+                    {finished ? (
+                      <ReprintButton job={job} run={run} epcs={line.epcs} />
+                    ) : (
+                      first && (
+                        <PrintJobButton job={job} run={run} runs={runs} />
+                      )
+                    )}
+                  </td>
                 </tr>
-              ))}
-            </MiniTable>
-          </div>
+              )
+            })}
+          </MiniTable>
 
-          {confirm.isSuccess && confirm.data && (
-            <Receipt>
-              {count(confirm.data.tagged_units)} pieces are now individually
-              tracked and in this warehouse.
-            </Receipt>
-          )}
-          <Problem error={confirm.error} />
-
-          <ConfirmButton
-            label="The tags are on"
-            title="Confirm this job is tagged"
-            description={
-              <>
-                This turns {count(job.total_quantity)} counted pieces into that
-                many individually tracked units, and puts them in the warehouse.
-                Say it once, for the whole job, when the labels are physically
-                attached — there is no way to take it back.
-              </>
-            }
-            confirmLabel="They are on"
-            variant="primary"
-            pending={confirm.isPending}
-            onConfirm={() => confirm.mutate()}
-          />
+          <PrinterCard />
         </div>
       )}
     </Sheet>

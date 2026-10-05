@@ -98,7 +98,9 @@ export function FleetDayBars({
 /// same width, so a row does not jump when the fetch lands.
 export function FleetDayBarsPlaceholder({ className }: { className?: string }) {
   return (
-    <span className={cn("inline-flex h-5 items-stretch gap-[1.5px]", className)}>
+    <span
+      className={cn("inline-flex h-5 items-stretch gap-[1.5px]", className)}
+    >
       {Array.from({ length: 90 }, (_, index) => (
         <span
           key={index}

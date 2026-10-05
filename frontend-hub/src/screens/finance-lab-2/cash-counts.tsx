@@ -121,7 +121,6 @@ export function CashCounts() {
           value={from}
           onChange={setFrom}
           notAfter={to === "" ? null : to}
-          placeholder="From"
           label="From date"
           className="h-8 w-36"
         />
@@ -132,7 +131,6 @@ export function CashCounts() {
           value={to}
           onChange={setTo}
           notBefore={from === "" ? null : from}
-          placeholder="To"
           label="To date"
           className="h-8 w-36"
         />
@@ -409,7 +407,6 @@ function CountPanel({
             <Input
               value={countedBy}
               onChange={(event) => setCountedBy(event.target.value)}
-              placeholder="Sari"
             />
           </Field>
           <Field
@@ -419,7 +416,6 @@ function CountPanel({
             <Input
               value={witness}
               onChange={(event) => setWitness(event.target.value)}
-              placeholder="Budi"
             />
           </Field>
         </div>

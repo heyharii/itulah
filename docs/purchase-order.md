@@ -10,7 +10,7 @@ the order itself. The rest of the chain:
 | Stage | Document |
 |---|---|
 | A lorry arrives, one person counts | [receiving — count](./receiving-count.md) |
-| A second person accepts, operational stock exists | [receiving — verification](./receiving-verification.md) |
+| The count is accepted, operational stock exists | [receiving — verification](./receiving-verification.md) |
 | Finance matches the bill, books it and pays | [supplier bill](./supplier-bill.md) |
 | Goods get our own identity | `tagging` (not yet written) |
 | Goods reach the shops | [`../DISTRIBUTION-V1-FREEZE.md`](../DISTRIBUTION-V1-FREEZE.md) |

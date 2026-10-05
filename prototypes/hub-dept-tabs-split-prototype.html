@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Central: tab departemen + split (prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Central without the column: department tabs, and a split.
+
+   · The TABS are the departments this person's role holds (a buyer: Buying,
+     Merchandise, Inventory, Finance) — four or five, not eleven, which is
+     what ran the old chip row out of width. Each tab remembers the screen it
+     was left on, and says how many things in it are waiting for you and
+     whether something in it is still running. The others are one + away,
+     or ⌘K.
+   · The SUBMENU is a row under the tabs: the focused pane's department,
+     its main screens, and a More fold for the rest.
+   · The SPLIT puts a second screen beside the first — any department's.
+     The right pane can FOLLOW the left: pick a PO on the left and the right
+     shows its detail, its articles' stock, or its supplier. That is today's
+     "record beside the list", generalised.
+
+   Tokens are frontend-hub's (src/styles/index.css).
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  font-size:14.4px;
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f8f9; --soft-2:#f0f0f2; --soft-3:#f6f6f7;
+  --hairline:#e6e6e9; --hairline-2:#dadade; --hairline-strong:#c6c6cc;
+  --scrim:rgba(246,246,247,.72);
+  --accent:#2563eb; --accent-bg:#eff5ff; --cta:#2563eb; --cta-hover:#1d4ed8;
+  --ok:#36b827; --ok-bg:#d9f4d2; --ok-fg:#15803d;
+  --warn:#c9892e; --warn-bg:#faeacd; --warn-fg:#b45309;
+  --bad:#d05151; --bad-bg:#fbeaea; --bad-fg:#be123c;
+  --info-fg:#2c57bf; --info-bg:#ddebfa;
+  --r-card:.625rem; --r-inner:.4375rem; --r-sheet:1rem;
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1);
+  --shadow-soft:0 1px 3px rgb(24 39 60/4%);
+  --shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);
+  --shadow-shell:0 10px 34px rgb(24 39 60/8%);
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:Inter,system-ui,sans-serif;font-size:.875rem;color:var(--text);background:var(--soft-3);-webkit-font-smoothing:antialiased;font-feature-settings:"cv11","ss01"}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+input{font:inherit;color:var(--ink)}
+svg.lucide{width:1.0625rem;height:1.0625rem;stroke-width:1.7;flex-shrink:0}
+.spin{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:.8125rem}
+.num{font-variant-numeric:tabular-nums;text-align:right}
+.app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+
+/* ── top bar: home, department tabs, tools ─────────────────────────────── */
+.bar{height:3.25rem;flex-shrink:0;display:flex;align-items:center;gap:.35rem;padding:0 .9rem 0 .7rem;background:var(--soft-3)}
+.home{width:2.25rem;height:2.25rem;border-radius:var(--r-inner);display:grid;place-items:center;flex-shrink:0}
+.home:hover{background:var(--soft-2)}
+.home.on{background:var(--canvas);box-shadow:0 0 0 1px var(--hairline),var(--shadow-soft)}
+.mark{width:1.6rem;height:1.6rem;border-radius:.42rem;background:#0b0b0b;color:#fff;display:grid;place-items:center;font-weight:600;font-size:.9rem;position:relative}
+.mark::after{content:"";position:absolute;right:.25rem;bottom:.27rem;width:.26rem;height:.26rem;border-radius:50%;background:#3b82f6}
+.tabs{display:flex;align-items:center;gap:4px;min-width:0;overflow-x:auto;scrollbar-width:none}
+.dtab{height:2.25rem;display:flex;align-items:center;gap:.5rem;padding:0 .45rem 0 .7rem;border-radius:var(--r-inner);color:var(--body);white-space:nowrap;cursor:pointer;user-select:none;position:relative;flex-shrink:0;transition:background 120ms,color 120ms}
+.dtab:hover{background:var(--soft-2);color:var(--text)}
+.dtab.on{background:var(--canvas);color:var(--ink);box-shadow:0 0 0 1px var(--hairline),var(--shadow-soft)}
+.dtab.on .lbl{font-weight:500}
+.dtab .ic svg{width:1rem;height:1rem}
+.dtab .pair{display:flex;align-items:center;gap:.3rem;color:var(--mute);font-size:.8125rem;padding-left:.15rem}
+.dtab .pair svg{width:.85rem;height:.85rem;color:var(--faint)}
+.cnt{min-width:1.15rem;height:1.15rem;border-radius:.6rem;background:var(--warn-bg);color:var(--warn-fg);font-size:.72rem;font-weight:600;display:grid;place-items:center;padding:0 .3rem}
+.dtab .run svg{width:.9rem;height:.9rem;color:var(--accent)}
+.dtab .x{width:1.3rem;height:1.3rem;border-radius:.3rem;display:grid;place-items:center;color:var(--mute);visibility:hidden}
+.dtab .x svg{width:.8rem;height:.8rem}
+.dtab:hover .x{visibility:visible}
+.dtab .x:hover{background:var(--soft-2);color:var(--ink)}
+.dtab.dragging{opacity:.45}
+.ib{width:2rem;height:2rem;border-radius:var(--r-inner);display:grid;place-items:center;color:var(--line-ico);flex-shrink:0;position:relative}
+.ib:hover{background:var(--soft-2);color:var(--text)}
+.ib .badge{position:absolute;top:.1rem;right:.05rem;min-width:.95rem;height:.95rem;border-radius:.5rem;background:var(--warn);color:#fff;font-size:.65rem;font-weight:600;display:grid;place-items:center;padding:0 .2rem;box-shadow:0 0 0 2px var(--soft-3)}
+.tools{margin-left:auto;display:flex;align-items:center;gap:.25rem;flex-shrink:0}
+.search{height:2.1rem;width:15rem;border-radius:var(--r-inner);box-shadow:inset 0 0 0 1px var(--hairline-2);background:var(--canvas);display:flex;align-items:center;gap:.5rem;padding:0 .65rem;color:var(--mute);margin-right:.3rem}
+.search span{flex:1;text-align:left}
+.search kbd{font-family:inherit;font-size:.78rem;color:var(--faint)}
+.av{width:1.75rem;height:1.75rem;border-radius:50%;background:linear-gradient(135deg,#e8def4,#f8dde8);color:#5b3b72;display:grid;place-items:center;font-size:.72rem;font-weight:600;margin-left:.35rem}
+
+/* ── submenu: the focused pane's department ────────────────────────────── */
+.subbar{height:2.9rem;flex-shrink:0;display:flex;align-items:center;gap:.2rem;padding:0 .9rem;border-bottom:1px solid var(--hairline);background:var(--soft-3)}
+.dchip{display:flex;align-items:center;gap:.45rem;font-weight:500;color:var(--ink);padding:0 .75rem 0 .3rem;margin-right:.35rem;border-right:1px solid var(--hairline-2);height:1.4rem;white-space:nowrap}
+.dchip .d,.d{width:.5rem;height:.5rem;border-radius:50%;display:inline-block;flex-shrink:0}
+.sp{height:2rem;padding:0 .7rem;border-radius:var(--r-inner);color:var(--body);white-space:nowrap;display:flex;align-items:center;gap:.3rem}
+.sp:hover{background:var(--soft-2);color:var(--text)}
+.sp.on{background:var(--canvas);color:var(--ink);font-weight:500;box-shadow:0 0 0 1px var(--hairline)}
+.sp svg{width:.85rem;height:.85rem}
+.subbar .right{margin-left:auto;display:flex;gap:.3rem;align-items:center}
+.btn{height:2.2rem;padding:0 .85rem;border-radius:var(--r-inner);box-shadow:inset 0 0 0 1px var(--hairline-2);background:var(--canvas);color:var(--ink);display:inline-flex;align-items:center;gap:.45rem;font-weight:500;white-space:nowrap}
+.btn:hover{background:var(--soft)}
+.btn.pri{background:var(--cta);color:#fff;box-shadow:none}
+.btn.pri:hover{background:var(--cta-hover)}
+.btn.sm{height:1.95rem;padding:0 .65rem}
+.btn.ghost{box-shadow:none;background:none;color:var(--body)}
+.btn.ghost:hover{background:var(--soft-2);color:var(--ink)}
+.btn svg{width:.95rem;height:.95rem}
+kbd.k{font-family:inherit;font-size:.72rem;color:var(--mute);background:var(--soft-2);border-radius:.25rem;padding:0 .3rem}
+
+/* ── stage: one pane, or two ───────────────────────────────────────────── */
+.stage{flex:1;min-height:0;display:flex;position:relative}
+.stage.split{padding:.55rem;gap:0;background:var(--soft-2)}
+.pane{min-width:0;display:flex;flex-direction:column}
+.stage:not(.split) .pane{flex:1}
+.split .pane{background:var(--canvas);border-radius:var(--r-card);box-shadow:0 0 0 1px var(--hairline);overflow:hidden;transition:box-shadow 150ms}
+.split .pane.focus{box-shadow:0 0 0 1px var(--hairline-strong),var(--shadow-pop)}
+.pane-h{height:2.7rem;display:flex;align-items:center;gap:.5rem;padding:0 .45rem 0 .9rem;border-bottom:1px solid var(--hairline);flex-shrink:0;white-space:nowrap;background:var(--soft)}
+.pane-h .t{font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;min-width:0}
+.pane-h .grow{flex:1}
+.pscroll{flex:1;min-height:0;overflow-y:auto}
+.content{max-width:100rem;margin:0 auto;padding:1.6rem 2rem 6rem}
+.split .content{padding:1.2rem 1.3rem 5rem}
+.divider{width:.55rem;flex-shrink:0;cursor:col-resize;display:grid;place-items:center}
+.divider i{width:3px;height:2.6rem;border-radius:2px;background:var(--hairline-strong);transition:background 120ms,height 120ms}
+.divider:hover i,.resizing .divider i{background:var(--accent);height:4rem}
+.resizing{cursor:col-resize;user-select:none}
+.follow{display:inline-flex;align-items:center;gap:.3rem;color:var(--accent);font-size:.8125rem;background:var(--accent-bg);height:1.5rem;padding:0 .5rem;border-radius:.75rem}
+.follow svg{width:.8rem;height:.8rem}
+.seg2{display:flex;background:var(--soft-2);border-radius:.45rem;padding:2px}
+.seg2 button{height:1.65rem;padding:0 .6rem;border-radius:.35rem;color:var(--body);font-size:.8125rem}
+.seg2 button.on{background:var(--canvas);color:var(--ink);box-shadow:var(--shadow-soft);font-weight:500}
+.drop{position:absolute;top:.55rem;right:.55rem;bottom:.55rem;width:46%;border:2px dashed var(--accent);background:rgb(37 99 235/.05);border-radius:var(--r-card);display:none;place-items:center;color:var(--accent);font-weight:500;z-index:20;text-align:center}
+.drop.show{display:grid;animation:fade 120ms}
+.drop.hot{background:rgb(37 99 235/.12)}
+.drop svg{width:1.6rem;height:1.6rem;margin:0 auto .4rem;display:block}
+
+/* ── page furniture ────────────────────────────────────────────────────── */
+.eyebrow{display:flex;align-items:center;gap:.4rem;color:var(--body);margin-bottom:.3rem}
+.ph{display:flex;align-items:flex-end;gap:1rem;margin-bottom:1.3rem;flex-wrap:wrap}
+.ph h1{margin:0;font-size:1.55rem;font-weight:600;letter-spacing:-.02em;color:var(--ink);display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
+.split .ph h1{font-size:1.3rem}
+.split .eyebrow{display:none}
+.ph p{margin:.3rem 0 0;color:var(--body)}
+.ph .act{margin-left:auto;display:flex;gap:.5rem}
+.chip{display:inline-flex;align-items:center;gap:.35rem;height:1.5rem;padding:0 .55rem;border-radius:.4rem;font-size:.8125rem;font-weight:500;white-space:nowrap}
+.chip.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.chip.ok{background:var(--ok-bg);color:var(--ok-fg)}
+.chip.info{background:var(--info-bg);color:var(--info-fg)}
+.chip.mute{background:var(--soft-2);color:var(--body)}
+.chip.bad{background:var(--bad-bg);color:var(--bad-fg)}
+.card{background:var(--canvas);border-radius:var(--r-card);box-shadow:0 0 0 1px var(--hairline);overflow:hidden}
+.card-h{padding:.85rem 1.1rem;border-bottom:1px solid var(--hairline);display:flex;align-items:center;gap:.5rem;font-weight:500;color:var(--ink)}
+.card-b{padding:1rem 1.1rem}
+table{width:100%;border-collapse:collapse}
+th{height:2.5rem;text-align:left;font-weight:500;color:var(--body);padding:0 1rem;border-bottom:1px solid var(--hairline);white-space:nowrap;background:var(--soft)}
+td{height:2.9rem;padding:0 1rem;border-bottom:1px solid var(--hairline);white-space:nowrap;color:var(--text)}
+tr:last-child td{border-bottom:0}
+tbody tr.click{cursor:pointer}
+tbody tr.click:hover td{background:var(--soft)}
+tbody tr.sel td{background:var(--accent-bg)}
+tbody tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+td.strong{color:var(--ink);font-weight:500}
+.neg{color:var(--bad-fg);font-weight:500}
+.grid{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(17rem,1fr))}
+.stat span{color:var(--body)}
+.stat b{display:block;font-size:1.4rem;font-weight:600;color:var(--ink);letter-spacing:-.02em;margin-top:.2rem}
+.banner{display:flex;align-items:center;gap:.8rem;padding:.85rem 1.1rem;border-radius:var(--r-card);margin-bottom:1.1rem;flex-wrap:wrap}
+.banner.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.banner.ok{background:var(--ok-bg);color:var(--ok-fg)}
+.banner.info{background:var(--info-bg);color:var(--info-fg)}
+.banner .grow{flex:1;min-width:12rem}
+.banner b{font-weight:600}
+.filters{display:flex;gap:.4rem;margin-bottom:1rem;flex-wrap:wrap}
+.filters button{height:1.9rem;padding:0 .75rem;border-radius:1rem;box-shadow:inset 0 0 0 1px var(--hairline-2);color:var(--body);background:var(--canvas)}
+.filters button.on{background:var(--ink);color:#fff;box-shadow:none}
+.dl{display:grid;grid-template-columns:7.5rem 1fr;gap:.65rem 1rem;margin:0}
+.dl dt{color:var(--body)}
+.dl dd{margin:0;color:var(--ink)}
+.prog{height:.5rem;border-radius:.25rem;background:var(--soft-2);overflow:hidden}
+.prog i{display:block;height:100%;background:var(--accent);border-radius:.25rem;transition:width 380ms var(--ease-out)}
+.sk{background:var(--soft-2);border-radius:.3rem;height:.7rem;display:inline-block}
+.row-link{display:flex;align-items:center;gap:.65rem;padding:.7rem 1.1rem;border-bottom:1px solid var(--hairline);cursor:pointer}
+.row-link:last-child{border-bottom:0}
+.row-link:hover{background:var(--soft)}
+.row-link .t{flex:1;min-width:0;color:var(--ink)}
+.row-link .t small{display:block;color:var(--body);font-size:.8125rem}
+.empty{padding:1.1rem;color:var(--mute)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(8.5rem,1fr));gap:.5rem}
+.tile{display:flex;flex-direction:column;align-items:center;gap:.5rem;padding:1rem .5rem;border-radius:var(--r-card);cursor:pointer;text-align:center}
+.tile:hover{background:var(--soft)}
+.tile .sq{width:2.9rem;height:2.9rem;border-radius:.8rem;display:grid;place-items:center;color:#fff}
+.tile .sq svg{width:1.3rem;height:1.3rem}
+.tile b{font-weight:500;color:var(--ink)}
+.tile small{color:var(--mute);font-size:.78rem}
+.hint{color:var(--mute);margin-top:1rem}
+.tip{display:flex;gap:.6rem;align-items:flex-start;padding:.8rem 1rem;border-radius:var(--r-card);background:var(--soft);color:var(--body);margin-top:1rem;line-height:1.55}
+.tip svg{color:var(--accent);margin-top:.1rem}
+
+/* ── menus, palette, toasts ────────────────────────────────────────────── */
+.menu{position:fixed;z-index:40;background:var(--canvas);border-radius:var(--r-card);box-shadow:0 0 0 1px var(--hairline),var(--shadow-pop);min-width:15rem;max-width:22rem;max-height:70vh;overflow-y:auto;padding:.35rem;animation:drop 150ms var(--ease-out)}
+@keyframes drop{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+@keyframes fade{from{opacity:0}}
+.menu h5{margin:.5rem .6rem .25rem;font-size:.78rem;font-weight:500;color:var(--mute)}
+.mi{display:flex;align-items:center;gap:.6rem;min-height:2.25rem;padding:.3rem .6rem;border-radius:var(--r-inner);cursor:pointer;width:100%;text-align:left}
+.mi:hover,.mi.hi{background:var(--soft-2)}
+.mi .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink)}
+.mi small{color:var(--mute);white-space:nowrap}
+.mi svg{width:1rem;height:1rem}
+.veil{position:fixed;inset:0;z-index:50;background:var(--scrim);display:flex;justify-content:center;padding-top:12vh;animation:fade 140ms}
+.pal{width:38rem;max-height:64vh;background:var(--canvas);border-radius:var(--r-sheet);box-shadow:0 0 0 1px var(--hairline),var(--shadow-shell);display:flex;flex-direction:column;overflow:hidden;align-self:flex-start}
+.pal input{border:0;outline:none;height:3.3rem;padding:0 1.2rem;font-size:1rem;border-bottom:1px solid var(--hairline)}
+.pal .list{overflow-y:auto;padding:.35rem;flex:1}
+.pal .foot{border-top:1px solid var(--hairline);padding:.55rem 1rem;color:var(--mute);font-size:.8125rem;display:flex;gap:1rem}
+.toasts{position:fixed;right:1.25rem;bottom:5.5rem;z-index:60;display:flex;flex-direction:column;gap:.5rem;align-items:flex-end}
+.toast{background:#191b20;color:#fff;padding:.7rem 1rem;border-radius:.6rem;box-shadow:var(--shadow-pop);display:flex;align-items:center;gap:.6rem;animation:drop 200ms var(--ease-out);max-width:28rem}
+.toast button{color:#93b4ff;font-weight:500;margin-left:.4rem}
+
+/* ── the prototype's own readout, not part of the design ───────────────── */
+.proto{position:fixed;left:50%;bottom:1rem;transform:translateX(-50%);z-index:70;background:#191b20;color:#d6d7da;border-radius:.9rem;padding:.45rem .5rem;display:flex;align-items:center;gap:.4rem;box-shadow:var(--shadow-shell);font-size:.8125rem;white-space:nowrap}
+.proto .m{padding:0 .6rem;display:flex;flex-direction:column;line-height:1.25}
+.proto .m small{color:#8b8e95;font-size:.72rem}
+.proto .m b{color:#fff;font-weight:600;font-variant-numeric:tabular-nums}
+.proto .sep{width:1px;height:1.8rem;background:#34363b}
+.proto .keys{color:#8b8e95;padding:0 .5rem}
+.proto kbd{color:#d6d7da;background:#2a2c31;border-radius:.3rem;padding:.05rem .3rem;font-size:.72rem;font-family:inherit}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="bar" id="bar"></header>
+  <nav class="subbar" id="sub"></nav>
+  <main class="stage" id="stage"></main>
+</div>
+<div id="menuRoot"></div>
+<div id="palRoot"></div>
+<div class="toasts" id="toasts"></div>
+<div class="proto">
+  <div class="m"><small>Lebar halaman</small><b id="mw">–</b></div>
+  <div class="m"><small>Kolom tabel PO</small><b id="mc">–</b></div>
+  <div class="sep"></div>
+  <div class="keys">Seret tab ke kanan untuk split &nbsp;<kbd>⌘K</kbd> cari &nbsp;<kbd>⇧↵</kbd> buka di samping &nbsp;<kbd>⌘\</kbd> split &nbsp;<kbd>Alt 1–9</kbd> tab</div>
+</div>
+
+<script>
+/* ── departments: main screens (p) and the More fold (m) ────────────────── */
+const DEPTS={
+  exec:{l:'Executive',i:'layout-dashboard',c:'#3a3a3c',p:['Ringkasan','Kinerja toko','Kas & laba'],m:[]},
+  buying:{l:'Buying',i:'shopping-cart',c:'#2f6fed',p:['Purchase orders','Suppliers','Import PO','Outstanding'],m:['Sourcing','Return to supplier','Price amendments','Catalogue','Destinations']},
+  merch:{l:'Merchandise',i:'shirt',c:'#e8456b',p:['Allotments','Articles','Divisions'],m:['Tags','Sizes','Colours']},
+  ops:{l:'Ops',i:'truck',c:'#1f9fb4',p:['Receiving','Picking','Packing','Dispatch'],m:['Returns','Printing']},
+  inv:{l:'Inventory',i:'boxes',c:'#b7791f',p:['On hand & shortfall','Stock','Counts','Movements'],m:['Pools','Observations','Reconciliations','Time machine']},
+  mkt:{l:'Marketing',i:'megaphone',c:'#9b51e0',p:['Pricelist','Promotions','Campaigns','Vouchers'],m:[]},
+  sales:{l:'Sales',i:'store',c:'#2ea44f',p:['Sales','Sales by store','Sales by articles','Returns'],m:['Members','Shop floor']},
+  fin:{l:'Finance',i:'landmark',c:'#5856d6',p:['Purchase invoice','Accounts payable','Payments','Dashboard'],m:['AP summary','Loans','Receivables','Bank','Tax','Period close']},
+  hr:{l:'HR',i:'users',c:'#e9604f',p:['Employees','Attendance','Roster','Claims'],m:['Recruitment','Performance','Overtime']},
+  ga:{l:'GA',i:'messages-square',c:'#0f9d8f',p:['Overview','Repairs','Assets','Contracts'],m:['Sites','Letters','Files']},
+};
+const ORDER=['exec','buying','merch','ops','inv','mkt','sales','fin','hr','ga'];
+/* What the role holds: a buyer at HO. The rest exist, one + away. */
+const ROLE=['buying','merch','inv','fin'];
+
+const ART={'KMJ-OXF-SL':['Kemeja Oxford Slim',142000],'KMJ-LNN-RX':['Kemeja Linen Relaxed',156000],'CLN-CHN-TP':['Celana Chino Tapered',168000],'PLO-PQ-BS':['Polo Pique Basic',98000],'KAO-CRW-BS':['Kaos Crew Basic',64000],'JKT-BMB-LT':['Jaket Bomber Light',212000]};
+const POS=[
+  ['PO-2026-0412','PT Sinar Garmen','Gudang Cikarang',1240,'186.400.000','12 Okt','Rina','Draft','mute'],
+  ['PO-2026-0411','CV Benang Mas','Gudang Cikarang',860,'92.150.000','10 Okt','Dimas','Menunggu approval','warn'],
+  ['PO-2026-0409','PT Tekstil Jaya','Toko Kemang',420,'51.600.000','08 Okt','Rina','Dikirim ke supplier','info'],
+  ['PO-2026-0406','Konveksi Anugerah','Gudang Cikarang',2100,'244.800.000','06 Okt','Sari','Diterima sebagian','info'],
+  ['PO-2026-0403','PT Sinar Garmen','Toko PIK',640,'77.200.000','03 Okt','Dimas','Diterima','ok'],
+  ['PO-2026-0398','CV Kain Nusantara','Gudang Cikarang',1500,'168.000.000','30 Sep','Rina','Diterima','ok'],
+  ['PO-2026-0395','UD Rajut Bandung','Toko Senayan',300,'33.900.000','28 Sep','Sari','Dibatalkan','bad'],
+  ['PO-2026-0391','PT Tekstil Jaya','Gudang Cikarang',980,'110.250.000','26 Sep','Dimas','Diterima','ok'],
+  ['PO-2026-0388','Konveksi Anugerah','Toko Kemang',520,'58.500.000','24 Sep','Rina','Diterima','ok'],
+];
+const LINES={'PO-2026-0412':[['KMJ-OXF-SL',320],['KMJ-LNN-RX',280],['CLN-CHN-TP',360],['PLO-PQ-BS',280]],'PO-2026-0411':[['KAO-CRW-BS',500],['PLO-PQ-BS',360]],'PO-2026-0409':[['KMJ-OXF-SL',180],['CLN-CHN-TP',140],['PLO-PQ-BS',100]],'PO-2026-0406':[['JKT-BMB-LT',900],['KAO-CRW-BS',1200]]};
+const lines=no=>LINES[no]||[['KAO-CRW-BS',po(no)[3]]];
+const LOCS=['Toko Kemang','Toko PIK','Toko Senayan','Gudang Cikarang'];
+const ONHAND={'KMJ-OXF-SL':[-4,12,6,140],'KMJ-LNN-RX':[8,5,0,96],'CLN-CHN-TP':[-2,9,4,120],'PLO-PQ-BS':[3,10,14,210],'KAO-CRW-BS':[22,31,18,640],'JKT-BMB-LT':[0,2,1,48]};
+const MINS=[10,10,10,100];
+const INVOICES=[['PI-883','PT Tekstil Jaya','PO-2026-0409','57.790.000','Selisih 12%','warn'],['PI-880','PT Sinar Garmen','PO-2026-0403','77.200.000','Cocok','ok'],['PI-876','CV Kain Nusantara','PO-2026-0398','168.000.000','Cocok','ok'],['PI-871','PT Tekstil Jaya','PO-2026-0391','110.250.000','Dibayar','mute'],['PI-866','Konveksi Anugerah','PO-2026-0388','58.500.000','Dibayar','mute']];
+const po=no=>POS.find(p=>p[0]===no);
+
+/* Views the right pane can take while FOLLOWING the left's selected PO. */
+const FOLLOW={detail:{l:'Detail PO',d:'buying'},stock:{l:'Stok artikel',d:'inv'},supplier:{l:'Supplier',d:'buying'}};
+
+/* ── state ──────────────────────────────────────────────────────────────── */
+const S={
+  active:'buying', filter:'Semua',
+  tabs:[
+    {d:'buying',L:{d:'buying',s:'Purchase orders',sel:'PO-2026-0409'},R:{f:'stock'},ratio:.56,focus:'L'},
+    {d:'merch',L:{d:'merch',s:'Allotments'},R:null,ratio:.5,focus:'L'},
+    {d:'inv',L:{d:'inv',s:'On hand & shortfall'},R:null,ratio:.5,focus:'L'},
+    {d:'fin',L:{d:'fin',s:'Purchase invoice'},R:null,ratio:.5,focus:'L'},
+  ],
+  job:{st:'run',prog:6,reviewed:false},
+  al118:'need', po0411:'need', pi883:'need',
+};
+const tabOf=d=>S.tabs.find(t=>t.d===d);
+const cur=()=>tabOf(S.active);
+const paneDept=p=>p.f?FOLLOW[p.f].d:p.d;
+
+function needs(){
+  const a=[];
+  if(S.po0411==='need')a.push({d:'buying',t:'PO-2026-0411 menunggu approval',s:'CV Benang Mas · Rp 92,15 jt',go:()=>openPO('PO-2026-0411','detail')});
+  if(S.job.st==='need')a.push({d:'buying',t:'Import PO: 3 baris perlu dicek',s:'PO_Sinar_Okt.xlsx',go:()=>go('buying','Import PO')});
+  if(S.al118==='need')a.push({d:'merch',t:'Allotment AL-118 menunggu persetujuan',s:'1.240 pcs ke 6 toko',go:()=>go('merch','Allotments')});
+  if(S.pi883==='need')a.push({d:'fin',t:'PI-883: harga beda 12% dari PO',s:'PT Tekstil Jaya · cek 3 arah',go:()=>{go('fin','Purchase invoice');selectPO('PO-2026-0409')}});
+  return a;
+}
+function running(){
+  const a=[];
+  if(S.job.st==='run')a.push({d:'buying',t:'Import PO',s:Math.round(S.job.prog)+'% · PO_Sinar_Okt.xlsx',go:()=>go('buying','Import PO')});
+  if(S.al118==='run')a.push({d:'merch',t:'Memposting AL-118',s:'ke 6 toko',go:()=>go('merch','Allotments')});
+  return a;
+}
+
+/* ── helpers ────────────────────────────────────────────────────────────── */
+const $=id=>document.getElementById(id);
+const icons=()=>lucide.createIcons({attrs:{'stroke-width':1.7}});
+const q=s=>String(s).replace(/'/g,"\\'");
+function toast(msg,action){
+  const el=document.createElement('div');el.className='toast';
+  el.innerHTML='<span>'+msg+'</span>'+(action?'<button>'+action[0]+'</button>':'');
+  if(action)el.querySelector('button').onclick=()=>{action[1]();el.remove()};
+  $('toasts').appendChild(el);setTimeout(()=>el.remove(),4500);
+}
+function menuAt(anchor,html,alignRight){
+  const r=anchor.getBoundingClientRect();
+  $('menuRoot').innerHTML='<div class="menu" id="menu">'+html+'</div>';
+  const m=$('menu');
+  m.style.top=(r.bottom+6)+'px';
+  m.style.left=Math.max(8,Math.min(alignRight?r.right-m.offsetWidth:r.left,innerWidth-m.offsetWidth-8))+'px';
+  icons();
+}
+function closeMenu(){$('menuRoot').innerHTML=''}
+document.addEventListener('mousedown',e=>{if(!e.target.closest('.menu')&&!e.target.closest('[data-menu]'))closeMenu()});
+
+/* ── top bar ────────────────────────────────────────────────────────────── */
+function renderBar(){
+  const n=needs(), r=running();
+  let h='<button class="home'+(S.active==='home'?' on':'')+'" onclick="goHome()" title="Home  Alt+0"><span class="mark">C</span></button>';
+  h+='<div class="tabs" id="tabs">'+S.tabs.map(t=>{
+    const D=DEPTS[t.d], c=n.filter(x=>x.d===t.d).length, run=r.some(x=>x.d===t.d);
+    let pair='';
+    if(t.R){const rd=paneDept(t.R);pair='<span class="pair"><i data-lucide="columns-2"></i>'+(rd!==t.d?'<span class="d" style="background:'+DEPTS[rd].c+'"></span>'+DEPTS[rd].l:'')+'</span>'}
+    const tip=D.l+(t.R?' — split':'')+(c?' · '+c+' butuh kamu':'')+(run?' · ada yang berjalan':'');
+    return '<div class="dtab'+(S.active===t.d?' on':'')+'" draggable="true" data-d="'+t.d+'" title="'+tip+'">'
+      +'<span class="ic" style="color:'+D.c+'"><i data-lucide="'+D.i+'"></i></span><span class="lbl">'+D.l+'</span>'+pair
+      +(run?'<span class="run"><i data-lucide="loader-circle" class="spin"></i></span>':'')
+      +(c?'<span class="cnt">'+c+'</span>':'')
+      +'<button class="x" aria-label="Tutup tab '+D.l+'"><i data-lucide="x"></i></button></div>';
+  }).join('')+'</div>';
+  h+='<button class="ib" data-menu onclick="addMenu(this)" title="Tambah departemen"><i data-lucide="plus"></i></button>';
+  h+='<div class="tools"><button class="search" onclick="openPal()"><i data-lucide="search"></i><span>Cari layar atau PO…</span><kbd>⌘K</kbd></button>'
+    +'<button class="ib" data-menu onclick="bellMenu(this)" title="Butuh kamu"><i data-lucide="bell"></i>'+(n.length?'<span class="badge">'+n.length+'</span>':'')+'</button>'
+    +'<button class="ib" title="Assistant  ⌘J"><i data-lucide="sparkles"></i></button><span class="av">RA</span></div>';
+  $('bar').innerHTML=h;
+  $('tabs').querySelectorAll('.dtab').forEach(el=>{
+    const d=el.dataset.d;
+    el.onclick=e=>{if(e.target.closest('.x'))closeTab(d);else switchTab(d)};
+    el.onauxclick=e=>{if(e.button===1)closeTab(d)};
+    el.ondragstart=e=>{e.dataTransfer.setData('text/plain',d);e.dataTransfer.effectAllowed='move';el.classList.add('dragging');if(S.active!=='home'&&d!==S.active)$('drop').classList.add('show')};
+    el.ondragend=()=>{el.classList.remove('dragging');$('drop')&&$('drop').classList.remove('show','hot')};
+  });
+}
+function addMenu(btn){
+  const others=ORDER.filter(d=>!tabOf(d));
+  menuAt(btn,'<h5>Tambah sebagai tab</h5>'+others.map(d=>'<button class="mi" onclick="closeMenu();go(\''+d+'\',DEPTS[\''+d+'\'].p[0])"><span style="color:'+DEPTS[d].c+'"><i data-lucide="'+DEPTS[d].i+'"></i></span><span class="t">'+DEPTS[d].l+'</span>'+(ROLE.includes(d)?'':'<small>bukan tab role kamu</small>')+'</button>').join('')||'<div class="empty">Semua departemen sudah jadi tab.</div>');
+}
+function bellMenu(btn){
+  const n=needs(), r=running();
+  let h='';
+  if(n.length)h+='<h5>Butuh kamu · '+n.length+'</h5>'+n.map((x,i)=>'<button class="mi" onclick="closeMenu();needs()['+i+'].go()"><span class="d" style="background:'+DEPTS[x.d].c+'"></span><span class="t">'+x.t+'<br><small>'+DEPTS[x.d].l+' · '+x.s+'</small></span></button>').join('');
+  if(r.length)h+='<h5>Berjalan</h5>'+r.map((x,i)=>'<button class="mi" onclick="closeMenu();running()['+i+'].go()"><i data-lucide="loader-circle" class="spin" style="color:var(--accent)"></i><span class="t">'+x.t+'</span><small>'+x.s+'</small></button>').join('');
+  menuAt(btn,h||'<div class="empty">Tidak ada yang menunggu kamu.</div>',true);
+}
+
+/* ── submenu row ────────────────────────────────────────────────────────── */
+function renderSub(){
+  const t=cur();
+  if(!t){$('sub').style.display='none';return}
+  $('sub').style.display='';
+  const p=t.focus==='R'&&t.R?t.R:t.L, d=paneDept(p), D=DEPTS[d];
+  const on=s=>!p.f&&p.s===s;
+  let h='<span class="dchip"><span class="d" style="background:'+D.c+'"></span>'+D.l+(t.R?'<small style="color:var(--mute);font-weight:400">&nbsp;· panel '+(t.focus==='R'?'kanan':'kiri')+'</small>':'')+'</span>';
+  h+=D.p.map(s=>'<button class="sp'+(on(s)?' on':'')+'" onclick="setScreen(\''+d+'\',\''+q(s)+'\')">'+s+'</button>').join('');
+  if(D.m.length){const inMore=D.m.find(on);h+='<button class="sp'+(inMore?' on':'')+'" data-menu onclick="moreMenu(this,\''+d+'\')">'+(inMore||'More')+'<i data-lucide="chevron-down"></i></button>'}
+  h+='<div class="right">'+(t.R
+    ?'<button class="btn ghost sm" onclick="swapPanes()" title="Tukar panel"><i data-lucide="arrow-left-right"></i>Tukar</button><button class="btn ghost sm" onclick="closeSide()"><i data-lucide="panel-right-close"></i>Tutup samping <kbd class="k">⌘\\</kbd></button>'
+    :'<button class="btn ghost sm" data-menu onclick="splitMenu(this)"><i data-lucide="columns-2"></i>Buka di samping<i data-lucide="chevron-down"></i></button>')+'</div>';
+  $('sub').innerHTML=h;
+}
+function moreMenu(btn,d){
+  menuAt(btn,DEPTS[d].m.map(s=>'<button class="mi" onclick="closeMenu();setScreen(\''+d+'\',\''+q(s)+'\')"><span class="t">'+s+'</span></button>').join(''));
+}
+function splitMenu(btn){
+  const t=cur(), canFollow=!!t.L.sel;
+  let h='';
+  if(canFollow)h+='<h5>Ikuti pilihan di kiri ('+t.L.sel+')</h5>'+Object.entries(FOLLOW).map(([k,f])=>'<button class="mi" onclick="closeMenu();openSide({f:\''+k+'\'})"><i data-lucide="link" style="color:var(--accent)"></i><span class="t">'+f.l+'</span><small>'+DEPTS[f.d].l+'</small></button>').join('');
+  else h+='<div class="empty" style="padding:.6rem">Pilih satu baris dulu untuk panel yang mengikuti pilihan.</div>';
+  h+='<h5>Layar lain</h5>'+S.tabs.map(x=>'<button class="mi" onclick="closeMenu();openSide({d:\''+x.d+'\',s:\''+q(x.L.s)+'\'})"><span class="d" style="background:'+DEPTS[x.d].c+'"></span><span class="t">'+x.L.s+'</span><small>'+DEPTS[x.d].l+'</small></button>').join('');
+  h+='<div class="hint" style="padding:.3rem .6rem .5rem;margin:0;font-size:.8rem">Atau seret tab departemen ke sisi kanan halaman.</div>';
+  menuAt(btn,h,true);
+}
+
+/* ── stage ──────────────────────────────────────────────────────────────── */
+function renderStage(){
+  const st=$('stage'), t=cur();
+  if(!t){st.className='stage';st.innerHTML=paneHtml(null,'L');icons();fit();return}
+  st.className='stage'+(t.R?' split':'');
+  let h=paneHtml(t,'L');
+  if(t.R)h+='<div class="divider" id="divider" title="Seret untuk mengubah lebar · klik dua kali untuk 50/50"><i></i></div>'+paneHtml(t,'R');
+  h+='<div class="drop" id="drop"><div><i data-lucide="columns-2"></i>Lepas untuk membuka di samping</div></div>';
+  st.innerHTML=h;
+  if(t.R){$('pL').style.flex='0 0 calc('+(t.ratio*100)+'% - .275rem)';$('pR').style.flex='1 1 0'}
+  wireStage();icons();fit();
+}
+function paneHtml(t,side){
+  if(!t)return '<section class="pane" id="pL"><div class="pscroll"><div class="content">'+V.home()+'</div></div></section>';
+  const p=t[side], split=!!t.R;
+  let head='';
+  if(split){
+    const d=paneDept(p);
+    head='<div class="pane-h"><span class="d" style="background:'+DEPTS[d].c+'"></span>';
+    if(p.f){
+      head+='<span class="t">'+(t.L.sel||'')+'</span><span class="follow" title="Panel ini mengikuti baris yang kamu pilih di kiri"><i data-lucide="link"></i>ikuti kiri</span><span class="grow"></span>'
+        +'<div class="seg2">'+Object.entries(FOLLOW).map(([k,f])=>'<button class="'+(p.f===k?'on':'')+'" onclick="openSide({f:\''+k+'\'})">'+f.l.replace(' artikel','').replace(' PO','')+'</button>').join('')+'</div>';
+    } else head+='<span class="t">'+DEPTS[d].l+' · '+p.s+'</span><span class="grow"></span>';
+    head+='<button class="ib" onclick="'+(side==='R'?'closeSide()':'closeLeft()')+'" title="Tutup panel ini"><i data-lucide="x"></i></button></div>';
+  }
+  return '<section class="pane'+(split&&t.focus===side?' focus':'')+'" id="p'+side+'" data-side="'+side+'">'+head+'<div class="pscroll" id="s'+side+'"><div class="content">'+viewFor(t,side)+'</div></div></section>';
+}
+function viewFor(t,side){
+  const p=t[side];
+  if(p.f)return t.L.sel?V['f:'+p.f](t.L.sel,side):'<div class="empty">Pilih satu baris di kiri.</div>';
+  return (V[p.d+':'+p.s]||V.generic)(p,t,side);
+}
+function wireStage(){
+  const t=cur();
+  document.querySelectorAll('.pane[data-side]').forEach(el=>{
+    el.addEventListener('mousedown',()=>{if(t&&t.R&&t.focus!==el.dataset.side){t.focus=el.dataset.side;document.querySelectorAll('.pane').forEach(x=>x.classList.toggle('focus',x===el));renderSub();icons()}});
+  });
+  const dv=$('divider');
+  if(dv){
+    dv.onmousedown=e=>{
+      e.preventDefault();const r=$('stage').getBoundingClientRect();document.body.classList.add('resizing');
+      const mv=ev=>{const min=360;let x=Math.min(Math.max(ev.clientX-r.left,min),r.width-min);t.ratio=x/r.width;$('pL').style.flex='0 0 calc('+(t.ratio*100)+'% - .275rem)';fit()};
+      const up=()=>{document.body.classList.remove('resizing');removeEventListener('mousemove',mv);removeEventListener('mouseup',up)};
+      addEventListener('mousemove',mv);addEventListener('mouseup',up);
+    };
+    dv.ondblclick=()=>{t.ratio=.5;renderStage()};
+  }
+  const st=$('stage');
+  st.ondragover=e=>{if(!$('drop').classList.contains('show'))return;e.preventDefault();const r=st.getBoundingClientRect();$('drop').classList.toggle('hot',e.clientX>r.left+r.width*.5)};
+  st.ondrop=e=>{e.preventDefault();const d=e.dataTransfer.getData('text/plain');$('drop').classList.remove('show','hot');if(d&&tabOf(d)&&d!==S.active){openSide({d,s:tabOf(d).L.s});toast(DEPTS[d].l+' dibuka di samping')}};
+}
+
+/* ── actions ────────────────────────────────────────────────────────────── */
+function renderAll(){renderBar();renderSub();renderStage();icons();readout()}
+function switchTab(d){S.active=d;closeMenu();renderAll()}
+function goHome(){S.active='home';renderAll()}
+function go(d,s){
+  let t=tabOf(d);
+  if(!t){t={d,L:{d,s},R:null,ratio:.5,focus:'L'};S.tabs.push(t)}
+  else{t.L={d,s,sel:t.L.d===d&&t.L.s===s?t.L.sel:undefined};t.focus='L';if(t.R&&t.R.f&&!t.L.sel)t.R=null}
+  S.active=d;renderAll();
+}
+function setScreen(d,s){
+  const t=cur();closeMenu();
+  if(t.focus==='R'&&t.R){t.R={d,s}}
+  else{t.L={d,s};if(t.R&&t.R.f)t.R=null}
+  renderAll();
+}
+function openSide(p){const t=cur();if(!t)return;t.R=p;t.focus='R';renderAll()}
+function closeSide(){const t=cur();if(t&&t.R){t.R=null;t.focus='L';renderAll()}}
+function closeLeft(){const t=cur();if(t.R.f){t.R=null}else{t.L=t.R;t.R=null}t.focus='L';renderAll()}
+function swapPanes(){
+  const t=cur();
+  if(t.R.f){toast('Panel yang mengikuti pilihan harus tetap di kanan');return}
+  [t.L,t.R]=[t.R,t.L];t.ratio=1-t.ratio;renderAll();
+}
+function closeTab(d){
+  const i=S.tabs.findIndex(t=>t.d===d);if(i<0)return;
+  S.tabs.splice(i,1);
+  if(S.active===d)S.active=(S.tabs[i]||S.tabs[i-1]||{d:'home'}).d;
+  toast(DEPTS[d].l+' ditutup. Buka lagi dari + atau ⌘K.');
+  renderAll();
+}
+/* Picking a PO on the left: a following right pane updates; with no right
+   pane, the detail opens beside — today's record-beside, as a split. */
+function selectPO(no,side){
+  const t=cur();
+  if(side==='R'&&t.R&&!t.R.f){t.R.sel=no;renderStage();return}
+  t.L.sel=no;
+  if(!t.R)t.R={f:'detail'};
+  if(t.R.f)t.focus='R';
+  renderAll();
+}
+function openPO(no,f){go('buying','Purchase orders');const t=cur();t.L.sel=no;t.R={f:f||'detail'};t.focus='R';renderAll()}
+function approvePO(){S.po0411='done';po('PO-2026-0411')[7]='Disetujui';po('PO-2026-0411')[8]='ok';toast('PO-2026-0411 disetujui');renderAll()}
+function approveAllot(){S.al118='run';renderAll();setTimeout(()=>{S.al118='done';if(S.active!=='merch')toast('Allotment AL-118 sudah diposting',['Lihat',()=>go('merch','Allotments')]);renderAll()},2400)}
+function checkInvoice(){S.pi883='done';INVOICES[0][4]='Disetujui dgn catatan';INVOICES[0][5]='ok';toast('PI-883 ditandai sudah dicek');renderAll()}
+function reviewImport(){S.job.reviewed=true;S.job.st='done';toast('PO-2026-0413 dibuat dari import');renderAll()}
+
+/* ── views ──────────────────────────────────────────────────────────────── */
+function head(d,title,desc,actions,after){
+  return '<div class="eyebrow"><span class="d" style="background:'+DEPTS[d].c+'"></span>'+DEPTS[d].l+'</div><div class="ph"><div><h1>'+title+(after||'')+'</h1>'+(desc?'<p>'+desc+'</p>':'')+'</div>'+(actions?'<div class="act">'+actions+'</div>':'')+'</div>';
+}
+function tbl(id,cols,rows){
+  return '<div class="card"><table data-fit'+(id?' id="'+id+'"':'')+'><thead><tr>'+cols.map(c=>'<th data-p="'+c[1]+'" data-w="'+c[2]+'"'+(c[3]?' class="num"':'')+'>'+c[0]+'</th>').join('')+'</tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+const V={
+  home(){
+    const n=needs(), r=running();
+    const list=(a,empty,ic)=>a.length?a.map((x,i)=>'<div class="row-link" onclick="'+ic+'()['+i+'].go()"><span class="d" style="background:'+DEPTS[x.d].c+'"></span><span class="t">'+x.t+'<small>'+DEPTS[x.d].l+' · '+x.s+'</small></span><i data-lucide="chevron-right" style="color:var(--faint)"></i></div>').join(''):'<div class="empty">'+empty+'</div>';
+    return '<div class="ph"><div><h1>Selamat pagi, Rina</h1><p>Senin, 29 September · Buyer, HO</p></div></div>'
+      +'<div class="grid" style="margin-bottom:1rem"><div class="card"><div class="card-h"><span class="cnt">'+n.length+'</span>Butuh kamu</div>'+list(n,'Tidak ada yang menunggu kamu.','needs')+'</div>'
+      +'<div class="card"><div class="card-h"><i data-lucide="loader-circle" class="spin" style="color:var(--accent)"></i>Berjalan</div>'+list(r,'Tidak ada yang berjalan.','running')+'</div></div>'
+      +'<div class="card"><div class="card-h">Semua departemen</div><div class="card-b"><div class="tiles">'+ORDER.map(d=>'<div class="tile" onclick="go(\''+d+'\',DEPTS[\''+d+'\'].p[0])"><span class="sq" style="background:'+DEPTS[d].c+'"><i data-lucide="'+DEPTS[d].i+'"></i></span><b>'+DEPTS[d].l+'</b><small>'+(tabOf(d)?'sudah jadi tab':'buka sebagai tab')+'</small></div>').join('')+'</div></div></div>';
+  },
+  'buying:Purchase orders'(p,t,side){
+    const fs=['Semua','Draft','Menunggu approval','Dikirim ke supplier','Diterima'];
+    const rows=POS.filter(x=>S.filter==='Semua'||x[7]===S.filter);
+    const cols=[['No. PO',1,130],['Supplier',1,180],['Tujuan',3,150],['Qty',4,70,1],['Nilai (Rp)',2,130,1],['ETA',5,80],['Dibuat oleh',6,110],['Status',1,180]];
+    const sel=side==='L'?t.L.sel:p.sel;
+    return head('buying','Purchase orders','38 PO terbuka · klik baris, detailnya muncul di samping','<button class="btn" onclick="go(\'buying\',\'Import PO\')"><i data-lucide="file-spreadsheet"></i>Import</button><button class="btn pri"><i data-lucide="plus"></i>PO baru</button>')
+      +'<div class="filters">'+fs.map(f=>'<button class="'+(S.filter===f?'on':'')+'" onclick="S.filter=\''+f+'\';renderStage()">'+f+'</button>').join('')+'</div>'
+      +tbl(side==='L'?'poTable':'',cols,rows.map(x=>'<tr class="click'+(sel===x[0]?' sel':'')+'" onclick="selectPO(\''+x[0]+'\',\''+side+'\')"><td class="mono strong">'+x[0]+'</td><td>'+x[1]+'</td><td>'+x[2]+'</td><td class="num">'+x[3].toLocaleString('id')+'</td><td class="num">'+x[4]+'</td><td>'+x[5]+'</td><td>'+x[6]+'</td><td><span class="chip '+x[8]+'">'+x[7]+'</span></td></tr>').join(''));
+  },
+  'buying:Suppliers'(){
+    const sup=[['PT Sinar Garmen','Bandung',12,'92%'],['PT Tekstil Jaya','Solo',9,'81%'],['Konveksi Anugerah','Bekasi',14,'95%'],['CV Benang Mas','Pekalongan',6,'88%'],['CV Kain Nusantara','Bandung',7,'90%']];
+    return head('buying','Suppliers','42 supplier aktif')+tbl('',[['Supplier',1,200],['Kota',3,120],['PO tahun ini',2,110,1],['Tepat waktu',1,110,1]],sup.map(s=>'<tr><td class="strong">'+s[0]+'</td><td>'+s[1]+'</td><td class="num">'+s[2]+'</td><td class="num">'+s[3]+'</td></tr>').join(''));
+  },
+  'buying:Import PO'(){
+    const j=S.job, pct=Math.min(100,Math.round(j.prog)), rows=Math.round(214*pct/100);
+    let b;
+    if(j.st==='run')b='<div class="card-b"><div style="display:flex;justify-content:space-between;margin-bottom:.6rem"><span>Membaca baris <b id="impRows" style="color:var(--ink)">'+rows+'</b> dari 214</span><span id="impPct">'+pct+'%</span></div><div class="prog"><i id="impBar" style="width:'+pct+'%"></i></div><p style="color:var(--body);margin:.9rem 0 0">Kamu bisa pindah tab. Tab Buying menampilkan putaran selama import berjalan, lalu angka saat ada yang perlu dicek.</p></div>';
+    else if(!j.reviewed)b='<div class="card-b"><div class="banner warn" style="margin-bottom:1rem"><i data-lucide="circle-alert"></i><span class="grow"><b>Selesai dengan 3 peringatan.</b> 211 baris siap.</span><button class="btn sm pri" onclick="reviewImport()">Tandai sudah dicek</button></div><table><thead><tr><th>Baris</th><th>Artikel</th><th>Masalah</th></tr></thead><tbody><tr><td class="mono">48</td><td>KMJ-OXF-SL</td><td>Ukuran "XXXL" tidak ada di master</td></tr><tr><td class="mono">112</td><td>CLN-CHN-TP</td><td>Harga beda 12% dari pricelist</td></tr><tr><td class="mono">190</td><td>PLO-PQ-BS</td><td>Tujuan kosong</td></tr></tbody></table></div>';
+    else b='<div class="card-b"><div class="banner ok" style="margin:0"><i data-lucide="check"></i><span class="grow">214 baris masuk sebagai PO-2026-0413.</span></div></div>';
+    return head('buying','Import PO','PO_Sinar_Okt.xlsx · 214 baris · diunggah 09.38')+'<div class="card">'+b+'</div>';
+  },
+  'merch:Allotments'(){
+    const al=[['AL-118','PO-2026-0406','6 toko',1240,S.al118==='need'?'Menunggu persetujuan':S.al118==='run'?'Memposting…':'Diposting',S.al118==='need'?'warn':S.al118==='run'?'info':'ok'],['AL-117','PO-2026-0403','4 toko',640,'Diposting','ok'],['AL-115','PO-2026-0398','8 toko',1500,'Diposting','ok'],['AL-112','PO-2026-0391','5 toko',980,'Diposting','ok']];
+    let b='';
+    if(S.al118==='need')b='<div class="banner warn"><i data-lucide="circle-alert"></i><span class="grow"><b>AL-118 menunggu persetujuan kamu.</b> 1.240 pcs dari PO-2026-0406 ke 6 toko.</span><button class="btn sm" onclick="openPO(\'PO-2026-0406\',\'stock\')">Cek stok dulu</button><button class="btn sm pri" onclick="approveAllot()">Setujui</button></div>';
+    return head('merch','Allotments','Pembagian barang dari PO ke toko')+b
+      +tbl('',[['No.',1,90],['Dari PO',2,130],['Tujuan',3,90],['Qty',1,80,1],['Status',1,170]],al.map(a=>'<tr><td class="mono strong">'+a[0]+'</td><td class="mono">'+a[1]+'</td><td>'+a[2]+'</td><td class="num">'+a[3].toLocaleString('id')+'</td><td><span class="chip '+a[5]+'">'+(a[5]==='info'?'<i data-lucide="loader-circle" class="spin" style="width:.8rem;height:.8rem"></i>':'')+a[4]+'</span></td></tr>').join(''))
+      +(S.al118==='need'?'<div class="tip"><i data-lucide="lightbulb"></i><span>"Cek stok dulu" membuka tab Buying dengan PO-2026-0406 di kiri dan stok artikelnya di kanan. Allotment ini tetap di tab Merchandise, jadi kamu bisa kembali kapan saja.</span></div>':'');
+  },
+  'inv:On hand & shortfall'(p,t,side){
+    const rows=[];Object.keys(ONHAND).forEach(a=>ONHAND[a].forEach((v,i)=>{if(i<3||a==='KMJ-OXF-SL')rows.push([a,LOCS[i],v,Math.max(0,MINS[i]-v)])}));
+    return head('inv','On hand & shortfall','Per toko dan gudang, per 29 Sep 09.00')
+      +tbl('',[['SKU',1,130],['Artikel',2,200],['Lokasi',1,150],['On hand',1,90,1],['Kurang',3,90,1]],rows.map(r=>'<tr><td class="mono strong">'+r[0]+'</td><td>'+ART[r[0]][0]+'</td><td>'+r[1]+'</td><td class="num'+(r[2]<0?' neg':'')+'">'+r[2]+'</td><td class="num">'+r[3]+'</td></tr>').join(''));
+  },
+  'fin:Purchase invoice'(p,t,side){
+    const sel=side==='L'?t.L.sel:p.sel;
+    const b=S.pi883==='need'?'<div class="banner warn"><i data-lucide="circle-alert"></i><span class="grow"><b>PI-883 lebih mahal 12% dari PO-2026-0409.</b> Klik barisnya untuk melihat PO di samping.</span><button class="btn sm pri" onclick="checkInvoice()">Tandai sudah dicek</button></div>':'';
+    return head('fin','Purchase invoice','Tagihan supplier, dicocokkan dengan PO dan penerimaan')+b
+      +tbl('',[['No.',1,90],['Supplier',1,170],['PO',2,130],['Nilai (Rp)',1,120,1],['Cek 3 arah',1,170]],INVOICES.map(v=>'<tr class="click'+(sel===v[2]?' sel':'')+'" onclick="selectPO(\''+v[2]+'\',\''+side+'\')"><td class="mono strong">'+v[0]+'</td><td>'+v[1]+'</td><td class="mono">'+v[2]+'</td><td class="num">'+v[3]+'</td><td><span class="chip '+v[5]+'">'+v[4]+'</span></td></tr>').join(''));
+  },
+  'f:detail'(no){
+    const x=po(no), L=lines(no);
+    const approve=no==='PO-2026-0411'&&S.po0411==='need';
+    return head('buying','<span class="mono" style="font-size:inherit">'+no+'</span>',x[1]+' · '+x[2],null,'<span class="chip '+x[8]+'">'+x[7]+'</span>')
+      +(approve?'<div class="banner warn"><i data-lucide="circle-alert"></i><span class="grow"><b>Menunggu approval kamu.</b></span><button class="btn sm">Tolak</button><button class="btn sm pri" onclick="approvePO()">Setujui</button></div>':'')
+      +(no==='PO-2026-0409'&&S.pi883==='need'?'<div class="banner info"><i data-lucide="receipt"></i><span class="grow">Invoice PI-883 dari supplier: Rp 57.790.000, lebih tinggi 12% dari PO ini.</span></div>':'')
+      +'<div class="card" style="margin-bottom:1rem"><div class="card-b"><dl class="dl"><dt>Supplier</dt><dd>'+x[1]+'</dd><dt>Tujuan</dt><dd>'+x[2]+'</dd><dt>Qty</dt><dd>'+x[3].toLocaleString('id')+' pcs</dd><dt>Nilai</dt><dd>Rp '+x[4]+'</dd><dt>ETA</dt><dd>'+x[5]+' 2026</dd><dt>Dibuat oleh</dt><dd>'+x[6]+'</dd></dl></div></div>'
+      +tbl('',[['Artikel',1,200],['Qty',1,70,1],['Harga',2,100,1]],L.map(l=>'<tr><td class="strong">'+ART[l[0]][0]+'</td><td class="num">'+l[1]+'</td><td class="num">'+ART[l[0]][1].toLocaleString('id')+'</td></tr>').join(''));
+  },
+  'f:stock'(no){
+    const L=lines(no), x=po(no);
+    const rows=[];L.forEach(l=>ONHAND[l[0]].forEach((v,i)=>rows.push([l[0],LOCS[i],v,i===LOCS.indexOf(x[2])?l[1]:0])));
+    return head('inv','Stok artikel di '+no,L.length+' artikel · masuk ke '+x[2])
+      +tbl('',[['Artikel',1,190],['Lokasi',1,140],['On hand',1,80,1],['Masuk dari PO',2,110,1]],rows.map(r=>'<tr><td class="strong">'+ART[r[0]][0]+'</td><td>'+r[1]+'</td><td class="num'+(r[2]<0?' neg':'')+'">'+r[2]+'</td><td class="num">'+(r[3]?'+'+r[3]:'–')+'</td></tr>').join(''));
+  },
+  'f:supplier'(no){
+    const x=po(no), mine=POS.filter(p=>p[1]===x[1]);
+    return head('buying',x[1],'Supplier sejak 2021 · Bandung')
+      +'<div class="grid" style="margin-bottom:1rem;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr))"><div class="card"><div class="card-b stat"><span>Tepat waktu</span><b>88%</b></div></div><div class="card"><div class="card-b stat"><span>Lead time</span><b>21 hari</b></div></div><div class="card"><div class="card-b stat"><span>PO terbuka</span><b>'+mine.filter(p=>p[8]!=='ok').length+'</b></div></div></div>'
+      +tbl('',[['PO',1,130],['Nilai (Rp)',2,120,1],['Status',1,170]],mine.map(p=>'<tr><td class="mono strong">'+p[0]+'</td><td class="num">'+p[4]+'</td><td><span class="chip '+p[8]+'">'+p[7]+'</span></td></tr>').join(''));
+  },
+  generic(p){
+    const d=p.d;
+    return head(d,p.s,'Layar contoh, isinya tidak penting di prototype ini.')
+      +tbl('',[['Nama',1,160],['Keterangan',2,220],['Status',1,100],['Nilai',3,100,1]],[1,2,3,4,5,6].map(i=>'<tr><td><span class="sk" style="width:'+(80+i*13%60)+'px"></span></td><td><span class="sk" style="width:'+(120+i*29%90)+'px"></span></td><td><span class="sk" style="width:60px"></span></td><td class="num"><span class="sk" style="width:50px"></span></td></tr>').join(''));
+  },
+};
+
+/* Tables decide how many columns they can afford from their own box, as
+   <DataTable> does in the hub: priority 1 always stays, the rest in order. */
+function fit(){
+  document.querySelectorAll('table[data-fit]').forEach(tb=>{
+    const avail=tb.parentElement.clientWidth, ths=[...tb.tHead.rows[0].cells];
+    const order=ths.map((th,i)=>({i,p:+th.dataset.p,w:+th.dataset.w})).sort((a,b)=>a.p-b.p||a.i-b.i);
+    let sum=0;const show=new Set();
+    order.forEach(o=>{if(o.p===1||sum+o.w<=avail){sum+=o.w;show.add(o.i)}});
+    [...tb.rows].forEach(r=>[...r.cells].forEach((c,i)=>c.style.display=show.has(i)?'':'none'));
+    tb.dataset.shown=show.size+'/'+ths.length;
+  });
+  readout();
+}
+function readout(){
+  const L=$('pL'),R=$('pR');
+  $('mw').textContent=L?(Math.round(L.getBoundingClientRect().width)+(R?' + '+Math.round(R.getBoundingClientRect().width):'')+'px'):'–';
+  const pt=$('poTable');$('mc').textContent=pt?pt.dataset.shown:'–';
+}
+new ResizeObserver(()=>fit()).observe($('stage'));
+
+/* ── background work ────────────────────────────────────────────────────── */
+setInterval(()=>{
+  const j=S.job;if(j.st!=='run')return;
+  j.prog+=1.5+Math.random()*2.5;
+  if(j.prog>=100){j.prog=100;j.st='need';if(S.active!=='buying'||cur().L.s!=='Import PO')toast('Import PO selesai, 3 baris perlu dicek',['Lihat',()=>go('buying','Import PO')]);renderAll();return}
+  if($('impBar')){const p=Math.round(j.prog);$('impBar').style.width=p+'%';$('impPct').textContent=p+'%';$('impRows').textContent=Math.round(214*p/100)}
+},450);
+
+/* ── palette (⌘K): Enter opens here, Shift+Enter opens beside ───────────── */
+let palSel=0,palItems=[];
+function openPal(){
+  closeMenu();
+  $('palRoot').innerHTML='<div class="veil" onmousedown="if(event.target===this)closePal()"><div class="pal"><input id="palIn" placeholder="Cari layar, departemen, atau nomor PO…" autocomplete="off"><div class="list" id="palList"></div><div class="foot"><span><kbd class="k">↵</kbd> buka</span><span><kbd class="k">⇧ ↵</kbd> buka di samping</span><span><kbd class="k">esc</kbd> tutup</span></div></div></div>';
+  $('palIn').oninput=()=>{palSel=0;palRender()};$('palIn').onkeydown=palKey;palRender();$('palIn').focus();
+}
+function closePal(){$('palRoot').innerHTML=''}
+function palRender(){
+  const qv=$('palIn').value.toLowerCase(), all=[];
+  const depts=[...ROLE,...ORDER.filter(d=>!ROLE.includes(d))];
+  depts.forEach(d=>[...DEPTS[d].p,...DEPTS[d].m].forEach(s=>all.push({k:'s',d,s,label:s,sub:DEPTS[d].l})));
+  POS.forEach(p=>all.push({k:'r',d:'buying',no:p[0],label:p[0],sub:p[1]+' · '+p[7]}));
+  palItems=all.filter(x=>(x.label+' '+x.sub).toLowerCase().includes(qv)).slice(0,12);
+  $('palList').innerHTML=palItems.map((x,i)=>'<button class="mi'+(i===palSel?' hi':'')+'" onmousedown="palGo('+i+',event.shiftKey)"><span style="color:'+DEPTS[x.d].c+'"><i data-lucide="'+(x.k==='r'?'file-text':DEPTS[x.d].i)+'"></i></span><span class="t">'+x.label+'</span><small>'+x.sub+'</small></button>').join('')||'<div class="empty">Tidak ketemu.</div>';
+  icons();
+}
+function palKey(e){
+  if(e.key==='ArrowDown'){palSel=Math.min(palSel+1,palItems.length-1);palRender();e.preventDefault()}
+  if(e.key==='ArrowUp'){palSel=Math.max(palSel-1,0);palRender();e.preventDefault()}
+  if(e.key==='Enter'){e.preventDefault();palGo(palSel,e.shiftKey)}
+  if(e.key==='Escape')closePal();
+}
+function palGo(i,beside){
+  const x=palItems[i];if(!x)return;closePal();
+  if(beside&&cur()){
+    if(x.k==='r'){cur().L.sel=x.no;openSide({f:'detail'})}
+    else openSide({d:x.d,s:x.s});
+    return;
+  }
+  x.k==='r'?openPO(x.no):go(x.d,x.s);
+}
+
+/* ── keys ───────────────────────────────────────────────────────────────── */
+addEventListener('keydown',e=>{
+  if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();$('palRoot').innerHTML?closePal():openPal()}
+  if((e.metaKey||e.ctrlKey)&&e.key==='\\'){e.preventDefault();const t=cur();if(!t)return;t.R?closeSide():openSide(t.L.sel?{f:'detail'}:{d:S.tabs.find(x=>x.d!==t.d)?.d||t.d,s:(S.tabs.find(x=>x.d!==t.d)||t).L.s})}
+  if(e.altKey&&e.code==='Digit0'){e.preventDefault();goHome()}
+  if(e.altKey&&/^Digit[1-9]$/.test(e.code)){e.preventDefault();const t=S.tabs[+e.code.slice(5)-1];if(t)switchTab(t.d)}
+  if(e.key==='Escape')closeMenu();
+});
+
+renderAll();
+</script>
+</body>
+</html>

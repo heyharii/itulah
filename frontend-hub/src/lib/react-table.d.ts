@@ -51,5 +51,11 @@ declare module "@tanstack/react-table" {
     /// somebody has to have is a 1, a column that helps is a 2, a column that
     /// is context is a 3.
     readonly priority?: 1 | 2 | 3
+    /// The one column that takes whatever width the others leave, in a
+    /// `<DataTable pageScroll>`, never narrower than this many pixels: every
+    /// other column is held at its `size`, so loading the next page never
+    /// shifts them. Its cell is expected to wrap rather than run under its
+    /// neighbour.
+    readonly grow?: number
   }
 }

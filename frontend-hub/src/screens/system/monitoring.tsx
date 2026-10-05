@@ -142,113 +142,108 @@ export function Monitoring() {
     render: () =>
       nodes.length === 0 ? (
         <Card>
-          <EmptyState>
-            No store servers yet. Install one below.
-          </EmptyState>
+          <EmptyState>No store servers yet. Install one below.</EmptyState>
         </Card>
       ) : (
-            <div className="flex flex-col gap-4">
-              <Card className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-3.5">
-                  <StatusDot tone={summary.tone} large />
-                  <div>
-                    <h2 className="text-[1.375rem] leading-tight font-semibold text-ink">
-                      {summary.headline}
-                    </h2>
-                    <p className="mt-1 text-meta text-body">
-                      {latest
-                        ? `Last incident ${since(latest.start)} ago · ${latest.cause}`
-                        : "No incidents recorded yet."}
-                    </p>
-                  </div>
-                </div>
-                <dl className="grid grid-cols-4 gap-5 text-center">
-                  {(
-                    [
-                      ["Total", nodes.length, "text-ink"],
-                      ["Up", count("UP"), "text-ok-fg"],
-                      ["Down", count("DOWN"), "text-bad-fg"],
-                      ["Maint.", count("MAINTENANCE"), "text-info-fg"],
-                    ] as const
-                  ).map(([label, value, colour]) => (
-                    <div key={label}>
-                      <dt className="text-meta text-mute">{label}</dt>
-                      <dd
-                        className={cn(
-                          "text-[1.375rem] font-semibold tabular-nums",
-                          colour
-                        )}
-                      >
-                        {value}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-              </Card>
-
-              <Card className="divide-y divide-hairline overflow-hidden">
-                <div className="hidden grid-cols-[minmax(0,14rem)_5rem_minmax(0,1fr)_9rem] gap-4 bg-soft px-5 py-2.5 text-meta text-body md:grid">
-                  <span>Store server</span>
-                  <span className="text-right">30 days</span>
-                  <span>Uptime, last 90 days</span>
-                  <span className="text-right">Status</span>
-                </div>
-                {nodes.map((node) => {
-                  const tone = stateTone(node.state)
-                  const month = node.windows.find((w) => w.days === 30)
-                  return (
-                    <button
-                      key={node.origin_id}
-                      type="button"
-                      onClick={() => monitor.open(node.origin_id)}
-                      className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2.5 px-5 py-3.5 text-left transition-colors hover:bg-soft md:grid-cols-[minmax(0,14rem)_5rem_minmax(0,1fr)_9rem]"
-                    >
-                      <span className="flex min-w-0 items-center gap-2.5">
-                        <StatusDot tone={tone} />
-                        <span className="min-w-0">
-                          <span className="block truncate font-medium text-ink">
-                            {name(node, byOrigin.get(node.origin_id))}
-                          </span>
-                          <span className="block font-mono text-meta text-mute">
-                            {node.origin_id}
-                          </span>
-                        </span>
-                      </span>
-                      <span className="text-right font-mono text-[0.875rem] text-ink tabular-nums md:order-none">
-                        {percent(month?.percent ?? null)}
-                      </span>
-                      <DayBars
-                        days={node.days}
-                        className="col-span-2 md:col-span-1"
-                      />
-                      <span className="col-span-2 text-meta md:col-span-1 md:text-right">
-                        <span
-                          className={cn(
-                            "font-medium",
-                            tone === "ok" && "text-ok-fg",
-                            tone === "bad" && "text-bad-fg",
-                            tone === "info" && "text-info-fg"
-                          )}
-                        >
-                          {stateWord(node.state)}
-                        </span>
-                        {node.since && (
-                          <span className="text-body">
-                            {" "}
-                            · {since(node.since)}
-                          </span>
-                        )}
-                      </span>
-                    </button>
-                  )
-                })}
-              </Card>
-              <p className="text-meta text-mute">
-                Checked from a heartbeat every minute. A restart somebody asked
-                for counts as maintenance, not downtime.
-              </p>
+        <div className="flex flex-col gap-4">
+          <Card className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3.5">
+              <StatusDot tone={summary.tone} large />
+              <div>
+                <h2 className="text-[1.375rem] leading-tight font-semibold text-ink">
+                  {summary.headline}
+                </h2>
+                <p className="mt-1 text-meta text-body">
+                  {latest
+                    ? `Last incident ${since(latest.start)} ago · ${latest.cause}`
+                    : "No incidents recorded yet."}
+                </p>
+              </div>
             </div>
-          ),
+            <dl className="grid grid-cols-4 gap-5 text-center">
+              {(
+                [
+                  ["Total", nodes.length, "text-ink"],
+                  ["Up", count("UP"), "text-ok-fg"],
+                  ["Down", count("DOWN"), "text-bad-fg"],
+                  ["Maint.", count("MAINTENANCE"), "text-info-fg"],
+                ] as const
+              ).map(([label, value, colour]) => (
+                <div key={label}>
+                  <dt className="text-meta text-mute">{label}</dt>
+                  <dd
+                    className={cn(
+                      "text-[1.375rem] font-semibold tabular-nums",
+                      colour
+                    )}
+                  >
+                    {value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </Card>
+
+          <Card className="divide-y divide-hairline overflow-hidden">
+            <div className="hidden grid-cols-[minmax(0,14rem)_5rem_minmax(0,1fr)_9rem] gap-4 bg-soft px-5 py-2.5 text-meta text-body md:grid">
+              <span>Store server</span>
+              <span className="text-right">30 days</span>
+              <span>Uptime, last 90 days</span>
+              <span className="text-right">Status</span>
+            </div>
+            {nodes.map((node) => {
+              const tone = stateTone(node.state)
+              const month = node.windows.find((w) => w.days === 30)
+              return (
+                <button
+                  key={node.origin_id}
+                  type="button"
+                  onClick={() => monitor.open(node.origin_id)}
+                  className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2.5 px-5 py-3.5 text-left transition-colors hover:bg-soft md:grid-cols-[minmax(0,14rem)_5rem_minmax(0,1fr)_9rem]"
+                >
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    <StatusDot tone={tone} />
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium text-ink">
+                        {name(node, byOrigin.get(node.origin_id))}
+                      </span>
+                      <span className="block font-mono text-meta text-mute">
+                        {node.origin_id}
+                      </span>
+                    </span>
+                  </span>
+                  <span className="text-right font-mono text-[0.875rem] text-ink tabular-nums md:order-none">
+                    {percent(month?.percent ?? null)}
+                  </span>
+                  <DayBars
+                    days={node.days}
+                    className="col-span-2 md:col-span-1"
+                  />
+                  <span className="col-span-2 text-meta md:col-span-1 md:text-right">
+                    <span
+                      className={cn(
+                        "font-medium",
+                        tone === "ok" && "text-ok-fg",
+                        tone === "bad" && "text-bad-fg",
+                        tone === "info" && "text-info-fg"
+                      )}
+                    >
+                      {stateWord(node.state)}
+                    </span>
+                    {node.since && (
+                      <span className="text-body"> · {since(node.since)}</span>
+                    )}
+                  </span>
+                </button>
+              )
+            })}
+          </Card>
+          <p className="text-meta text-mute">
+            Checked from a heartbeat every minute. A restart somebody asked for
+            counts as maintenance, not downtime.
+          </p>
+        </div>
+      ),
   })
 
   return (
@@ -560,7 +555,6 @@ function RemoteActions({ originId }: { originId: string }) {
       <Input
         value={reason}
         onChange={(event) => setReason(event.target.value)}
-        placeholder="Reason (required), e.g. a cashier says the server is slow"
         aria-label="Reason"
       />
       <div className="flex flex-wrap gap-2">
@@ -669,7 +663,6 @@ function UpdateForm({ originId }: { originId: string }) {
           value={text}
           onChange={(event) => setText(event.target.value)}
           rows={4}
-          placeholder='Paste the JSON from sign-release.sh, e.g. {"version":"1.4.0","url":"https://…","sha256":"…","signature":"…"}'
           className="w-full rounded-inner border border-hairline-2 bg-canvas p-2.5 font-mono text-meta text-ink"
           aria-label="Release JSON"
         />
@@ -677,7 +670,6 @@ function UpdateForm({ originId }: { originId: string }) {
           value={slot}
           onChange={(event) => setSlot(event.target.value)}
           aria-label="Install window"
-          placeholder="23:00-05:00"
         />
         <Button
           variant="primary"

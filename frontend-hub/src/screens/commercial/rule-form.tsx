@@ -2,11 +2,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Banknote,
   Barcode,
+  CalendarClock,
+  ClipboardList,
   Coins,
   Hash,
   Layers,
   LayoutGrid,
+  ListChecks,
   Percent,
+  Shapes,
   Shirt,
   ShoppingBasket,
   Tag,
@@ -27,7 +31,7 @@ import { Day } from "@/components/ui/day"
 import { PickMany, PickOne, type Choice } from "@/components/ui/pick"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, ErrorState } from "@/components/ui/states"
-import { count, money } from "@/lib/format"
+import { count, day, money } from "@/lib/format"
 import { articleKeys, searchArticles } from "@/lib/queries/articles"
 import {
   BookWrittenNotPublished,
@@ -43,21 +47,13 @@ import {
 import { listTerms, vocabularyKeys } from "@/lib/queries/vocabulary"
 import { endOfDay, isoOf, shift, startOfDay, today } from "@/lib/calendar"
 import { FindMany, type Found } from "@/components/ui/find"
-import {
-  Choices,
-  Dial,
-  Section,
-  Stepper,
-  type Tile,
-} from "@/components/ui/form"
+import { Choices, Section, Stepper, type Tile } from "@/components/ui/form"
 import { More, Question, Terms } from "@/screens/commercial/controls"
 import {
   capsOf,
   conditionsOf,
   describeEffect,
-  percent,
   scopeOf,
-  termsOf,
   useActor,
 } from "@/screens/commercial/shared"
 import { cn } from "@/lib/utils"
@@ -270,6 +266,65 @@ function startingPoint(seed: RuleSeed) {
     pointsCombination: (rule.points_combination ??
       "HIGHEST") as PointsCombination,
   }
+}
+
+/// Tiles that wrap evenly: every tile at least 44px tall and 168px wide, 12px
+/// apart, and a short last row stretches to fill rather than leaving a lone
+/// tile in a third column.
+const TILES =
+  "grid grid-cols-2 gap-3 @lg:grid-cols-3 [&>*]:min-h-11 [&>*]:px-3.5"
+
+/// What a form field's gap is: 8px from label to box.
+const FIELD = "gap-2"
+
+/// A percentage: one typed figure in the form's own 47px box, and the usual
+/// figures one press away. The value stays the text the form already held.
+function Percentage({
+  value,
+  onChange,
+  marks,
+  label,
+}: {
+  value: string
+  onChange: (value: string) => void
+  marks: readonly number[]
+  label: string
+}) {
+  const typed = value.trim() === "" ? null : Number(value)
+  return (
+    <div className="flex flex-col gap-4">
+      <span className="relative flex items-center">
+        <Input
+          value={value}
+          inputMode="decimal"
+          aria-label={label}
+          className="pr-11 tabular-nums"
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <span className="pointer-events-none absolute right-3.5 text-[0.9375rem] text-mute">
+          %
+        </span>
+      </span>
+      <div className="flex flex-wrap gap-2">
+        {marks.map((one) => (
+          <button
+            key={one}
+            type="button"
+            aria-pressed={typed === one}
+            className={cn(
+              "h-9 min-w-14 rounded-inner border px-3.5 text-[0.9375rem] font-medium tabular-nums transition-colors",
+              typed === one
+                ? "border-accent bg-accent-bg text-accent"
+                : "border-hairline-2 bg-canvas text-text hover:border-hairline-strong hover:bg-soft-2"
+            )}
+            onClick={() => onChange(String(one))}
+          >
+            {one}%
+          </button>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 export function RuleForm({
@@ -564,7 +619,8 @@ export function RuleForm({
             budget: budgetMinor === null ? null : { minor: budgetMinor },
             // A change is the same promotion, so what it has spent so far
             // goes with it; a copy starts from nothing.
-            spent: changing && base !== null ? capsOf(base).spent : { minor: 0 },
+            spent:
+              changing && base !== null ? capsOf(base).spent : { minor: 0 },
             max_uses: maxUses.trim() === "" ? null : Number(maxUses),
             used: changing && base !== null ? capsOf(base).used : 0,
           },
@@ -588,18 +644,6 @@ export function RuleForm({
           points_combination: pointsCombination,
           max_points: base?.max_points ?? null,
         }
-
-  /// A code as the person who picked it reads it. Built from the two lists in
-  /// step: `chosen` holds the codes the rule matches on, `chosenNames` the
-  /// words beside them, and both are derived from the same source in the same
-  /// order.
-  ///
-  /// Not memoised. Both lists are rebuilt every render anyway, so a memo keyed
-  /// on them would never hit — and this is a Map of the handful of things
-  /// somebody has picked, rebuilt while they are typing into a form.
-  const words = new Map(chosen.map((code, index) => [code, chosenNames[index]]))
-  const reading =
-    draft === null ? null : termsOf(draft, (code) => words.get(code) ?? code)
 
   const publish = useMutation({
     mutationFn: () => {
@@ -700,11 +744,8 @@ export function RuleForm({
     publish.error instanceof BookWrittenNotPublished ? publish.error : null
 
   /// How many of the folded settings are off their defaults, so a closed
-  /// "More options" still says that something inside it is set.
+  /// "Limits" still says that something inside it is set.
   const tuned = [
-    members,
-    markdownPolicy !== "EXCLUDE",
-    exclusiveScope !== "BASKET",
     code !== "",
     Number(minQuantity) > 0,
     (minorOf(minAmount) ?? 0) > 0,
@@ -726,26 +767,32 @@ export function RuleForm({
             : "New promotion"
       }
       id={changing ? base?.rule_id : undefined}
-      width="wide"
-      // Two thirds of the glass rather than the `wide` default's 46rem cap:
-      // the form and the terms it reads back sit side by side.
-      className="md:w-[clamp(32rem,66vw,58rem)]"
+      width="workspace"
+      // The form and the terms it reads back sit side by side, each with room
+      // (owner, 2 Oct 2026: "perbesar sheetnya").
+      className="md:w-[clamp(32rem,92vw,80rem)]"
       footer={
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-4">
           {/* What is stopping the button, said BESIDE the button — once
               somebody has pressed it. Before that, the offer in one line.
               Wraps rather than truncates: a refusal cut off is not read. */}
           <span
             className={cn(
-              "min-w-0 text-[0.875rem] leading-snug",
+              "min-w-0 text-[0.9375rem] leading-snug",
               tried && problem !== undefined ? "text-bad" : "text-text"
             )}
           >
             {tried && problem !== undefined
               ? problem
-              : reads(effect, scopeKind, chosen, members)}
+              : problem === undefined
+                ? reads(effect, scopeKind, chosen, members)
+                : null}
+            {changing && base?.status === "PAUSED" && !(tried && problem) && (
+              <span className="text-mute"> · Stays paused</span>
+            )}
           </span>
           <Button
+            className="ml-auto"
             variant="primary"
             pending={publish.isPending}
             disabled={actor === ""}
@@ -758,22 +805,12 @@ export function RuleForm({
         </div>
       }
     >
-      {/* Nothing published is edited in place: this goes to every shop as
-          the promotion's next version, and theirs stops applying. */}
-      {changing && base !== null && (
-        <Banner tone="info" className="mb-4">
-          Publishing sends this to every shop as the new version of “
-          {base.name}”; the one they hold now stops applying.
-          {base.status === "PAUSED" && " It stays paused until you resume it."}
-        </Banner>
-      )}
-
       {halted !== null ? (
-        <Banner tone="bad" className="mb-4">
+        <Banner tone="bad" className="mb-5">
           {halted.message}
         </Banner>
       ) : publish.isError ? (
-        <div className="mb-4">
+        <div className="mb-5">
           <ErrorState error={publish.error} />
         </div>
       ) : null}
@@ -782,11 +819,12 @@ export function RuleForm({
           on the window: this panel is 66vw on a desk and the whole glass on a
           phone, so a `lg:` breakpoint would be reading the wrong box. */}
       <div className="@container">
-        <div className="grid gap-6 @3xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] @3xl:gap-x-8">
-          <div className="flex flex-col gap-6">
-            <Section title="Promotion">
-              <div className="grid gap-3 @lg:grid-cols-2">
+        <div className="grid gap-8 @3xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] @3xl:gap-x-10">
+          <div className="flex flex-col gap-10">
+            <Section title="Promotion" icon={Tag}>
+              <div className="grid gap-5 @lg:grid-cols-2">
                 <Field
+                  className={FIELD}
                   label="Name"
                   required
                   problem={tried || nameLeft ? nameProblem : undefined}
@@ -794,12 +832,11 @@ export function RuleForm({
                   <Input
                     value={name}
                     autoFocus
-                    placeholder="20% off outerwear"
                     onBlur={() => setNameLeft(true)}
                     onChange={(event) => setName(event.target.value)}
                   />
                 </Field>
-                <Field label="Campaign">
+                <Field className={FIELD} label="Campaign">
                   <PickOne
                     choices={campaigns.map((one) => ({
                       value: one.campaign.campaign_id,
@@ -807,44 +844,41 @@ export function RuleForm({
                     }))}
                     value={campaignId}
                     onChange={setCampaignId}
-                    placeholder="None"
                     label="The campaign this offer belongs to"
                   />
                 </Field>
               </div>
             </Section>
 
-            <Section title="Discount">
+            <Section title="Discount" icon={Percent}>
               <Choices
                 options={EFFECTS}
                 value={effectKind}
                 onChange={setEffectKind}
                 columns={3}
-                className="grid-cols-2"
+                className={TILES}
                 label="What this promotion does"
               />
 
               {effectKind === "PERCENT" ? (
                 <Field
+                  className="mt-4 gap-2 [&>span:first-child>span]:text-[0.9375rem]"
                   label="Percent off"
                   required
                   problem={tried ? effectProblem : undefined}
                 >
-                  <Dial
+                  <Percentage
                     value={percentOff}
                     onChange={setPercentOff}
-                    max={100}
-                    tick={10}
-                    suffix="%"
                     marks={[10, 20, 30, 50, 70]}
-                    placeholder="20"
                     label="Per cent off"
                   />
                 </Field>
               ) : effectKind === "BUY_X_GET_Y" ? (
                 <>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-5">
                     <Field
+                      className={FIELD}
                       label="Buy"
                       required
                       problem={
@@ -855,11 +889,11 @@ export function RuleForm({
                         value={buyQuantity}
                         onChange={setBuyQuantity}
                         suffix="items"
-                        placeholder="2"
                         label="Units to buy in each bundle"
                       />
                     </Field>
                     <Field
+                      className={FIELD}
                       label="Get"
                       required
                       problem={
@@ -870,7 +904,6 @@ export function RuleForm({
                         value={getQuantity}
                         onChange={setGetQuantity}
                         suffix="items"
-                        placeholder="1"
                         label="Rewarded units in each bundle"
                       />
                     </Field>
@@ -878,8 +911,8 @@ export function RuleForm({
                   {/* "Buy two, get one free" is this at 100% — there is no
                       separate free-item offer (see the top of this file). */}
                   <Field
+                    className={FIELD}
                     label="Discount on the items you get"
-                    aside="100% makes them free"
                     required
                     problem={
                       tried &&
@@ -890,20 +923,17 @@ export function RuleForm({
                         : undefined
                     }
                   >
-                    <Dial
+                    <Percentage
                       value={rewardPercentOff}
                       onChange={setRewardPercentOff}
-                      max={100}
-                      tick={10}
-                      suffix="%"
                       marks={[25, 50, 75, 100]}
-                      placeholder="100"
                       label="Discount on rewarded units"
                     />
                   </Field>
                 </>
               ) : (
                 <Field
+                  className={FIELD}
                   label={
                     effectKind === "AMOUNT"
                       ? "Amount off the basket"
@@ -918,7 +948,6 @@ export function RuleForm({
                     value={amount}
                     onChange={setAmount}
                     prefix="Rp"
-                    placeholder="50.000"
                     label="The figure this promotion applies"
                   />
                 </Field>
@@ -933,30 +962,32 @@ export function RuleForm({
                     value={pointsCombination}
                     onChange={setPointsCombination}
                     columns={3}
-                    className="grid-cols-3"
+                    className={TILES}
                     label="What this rate is worth on an item a better rate already reached"
                   />
                 </Question>
               )}
             </Section>
 
-            <Section title="Applies to">
+            <Section title="Applies to" icon={Shapes}>
               <Choices
                 options={SCOPES}
                 value={scopeKind}
                 onChange={setScopeKind}
                 columns={3}
-                className="grid-cols-2"
+                className={TILES}
                 label="What this promotion matches"
               />
 
               {scopeKind === "ARTICLE" && (
                 <Field
+                  className={FIELD}
                   label="Articles"
                   required
                   problem={tried ? scopeProblem : undefined}
                 >
                   <FindMany
+                    className="min-h-[2.9375rem] rounded-inner px-3.5 py-2 text-[0.9375rem]"
                     chosen={articles}
                     onChange={setArticles}
                     queryKey={(needle) =>
@@ -973,20 +1004,21 @@ export function RuleForm({
                           }))
                       )
                     }
-                    placeholder="Search an article by name or code"
                     label="The articles this promotion applies to"
-                    offline="The catalogue is not answering. `GET /api/v1/articles` is not on the node this app is talking to."
+                    offline="Catalogue unavailable."
                   />
                 </Field>
               )}
 
               {scopeKind === "SKU" && (
                 <Field
+                  className={FIELD}
                   label="SKUs"
                   required
                   problem={tried ? scopeProblem : undefined}
                 >
                   <FindMany
+                    className="min-h-[2.9375rem] rounded-inner px-3.5 py-2 text-[0.9375rem]"
                     chosen={products}
                     onChange={setProducts}
                     queryKey={(needle) => commercialKeys.products(needle, 20)}
@@ -996,8 +1028,13 @@ export function RuleForm({
                         // first SKU picked at its own price.
                         setSkuPrices((known) => {
                           const next = new Map(known)
+                          // A row with no price is not entered at all: the
+                          // preview below reads `?? null` for an absent key,
+                          // which is what "no price known" means, and a
+                          // nullable price cannot be a value in this map.
                           for (const row of rows)
-                            next.set(row.sku_code, row.unit_price_minor)
+                            if (row.unit_price_minor !== null)
+                              next.set(row.sku_code, row.unit_price_minor)
                           return next
                         })
                         return rows.map((row) => ({
@@ -1010,20 +1047,20 @@ export function RuleForm({
                         }))
                       })
                     }
-                    placeholder="Search a SKU code, an article name or a colour"
                     label="The SKUs this promotion applies to"
-                    offline="The product search is not answering. `GET /api/v1/commercial/products` is not on the node this app is talking to."
+                    offline="SKU search unavailable."
                   />
                 </Field>
               )}
 
               {scopeKind === "DIVISION" && (
                 <Field
+                  className={FIELD}
                   label="Divisions"
                   required
                   problem={
                     divisionList.failed
-                      ? "The division list is not answering."
+                      ? "Divisions unavailable."
                       : tried
                         ? scopeProblem
                         : undefined
@@ -1033,7 +1070,6 @@ export function RuleForm({
                     choices={divisionList.choices}
                     values={divisions}
                     onChange={setDivisions}
-                    placeholder="Choose the divisions"
                     label="The divisions this promotion applies to"
                   />
                 </Field>
@@ -1041,11 +1077,12 @@ export function RuleForm({
 
               {scopeKind === "TAG" && (
                 <Field
+                  className={FIELD}
                   label="Tags"
                   required
                   problem={
                     tagList.failed
-                      ? "The tag list is not answering."
+                      ? "Tags unavailable."
                       : tried
                         ? scopeProblem
                         : undefined
@@ -1055,7 +1092,6 @@ export function RuleForm({
                     choices={tagList.choices}
                     values={tags}
                     onChange={setTags}
-                    placeholder="Choose the tags"
                     label="The tags this promotion applies to"
                   />
                 </Field>
@@ -1065,13 +1101,12 @@ export function RuleForm({
             {/* A day, not a minute, at each end: it starts at the first minute
                 of the day it runs from and stops after the last minute of the
                 day it runs until. */}
-            <Section title="Schedule">
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Starts">
+            <Section title="Schedule" icon={CalendarClock}>
+              <div className="grid grid-cols-2 gap-5">
+                <Field className={FIELD} label="Starts">
                   <Day
                     value={from}
                     onChange={setFrom}
-                    placeholder="Straight away"
                     label="The day this promotion starts"
                     presets={[
                       { label: "Today", value: today() },
@@ -1080,11 +1115,10 @@ export function RuleForm({
                     ]}
                   />
                 </Field>
-                <Field label="Ends" problem={dateProblem}>
+                <Field className={FIELD} label="Ends" problem={dateProblem}>
                   <Day
                     value={to}
                     onChange={setTo}
-                    placeholder="No end date"
                     label="The last day this promotion runs"
                     notBefore={from}
                     presets={[
@@ -1099,16 +1133,14 @@ export function RuleForm({
               </div>
             </Section>
 
-            {/* Everything below is optional and most offers leave it alone,
-                so it is folded away rather than asked on every promotion. */}
-            <More count={tuned}>
-              <Question label="Who can use it">
+            <Section title="Rules" icon={ListChecks}>
+              <Question label="Shoppers">
                 <Choices
                   options={AUDIENCE}
                   value={members ? "MEMBERS" : "EVERYONE"}
                   onChange={(next) => setMembers(next === "MEMBERS")}
-                  columns={2}
-                  className="grid-cols-2"
+                  columns={3}
+                  className={TILES}
                   label="Who this promotion is for"
                 />
               </Question>
@@ -1118,8 +1150,8 @@ export function RuleForm({
                   options={MARKDOWNS}
                   value={markdownPolicy}
                   onChange={setMarkdownPolicy}
-                  columns={2}
-                  className="grid-cols-2"
+                  columns={3}
+                  className={TILES}
                   label="Whether this promotion applies to marked-down goods"
                 />
               </Question>
@@ -1132,16 +1164,19 @@ export function RuleForm({
                   options={EXCLUSIVES}
                   value={exclusiveScope}
                   onChange={setExclusiveScope}
-                  columns={2}
-                  className="grid-cols-2"
+                  columns={3}
+                  className={TILES}
                   label="How much of the basket this promotion shuts other offers out of"
                 />
               </Question>
+            </Section>
 
-              <Field label="Coupon code">
+            {/* Everything below is optional and most offers leave it alone,
+                so it is folded away rather than asked on every promotion. */}
+            <More label="Limits" count={tuned}>
+              <Field className={FIELD} label="Coupon code">
                 <Input
                   value={couponCode}
-                  placeholder="None needed"
                   className="font-mono uppercase placeholder:font-sans placeholder:normal-case"
                   onChange={(event) => setCouponCode(event.target.value)}
                 />
@@ -1151,8 +1186,9 @@ export function RuleForm({
                   `check_conditions` in `engine.rs` sums the matched lines
                   alone, so the labels say "matching" on every scope but the
                   whole cart. */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-5">
                 <Field
+                  className={FIELD}
                   label={
                     scopeKind === "WHOLE_CART"
                       ? "Min. items in basket"
@@ -1162,11 +1198,11 @@ export function RuleForm({
                   <Stepper
                     value={minQuantity}
                     onChange={setMinQuantity}
-                    placeholder="Any"
                     label="Least matching units"
                   />
                 </Field>
                 <Field
+                  className={FIELD}
                   label={
                     scopeKind === "WHOLE_CART"
                       ? "Min. basket value"
@@ -1177,42 +1213,34 @@ export function RuleForm({
                     value={minAmount}
                     onChange={setMinAmount}
                     prefix="Rp"
-                    placeholder="Any"
                     label="Least value of the matching lines"
                   />
                 </Field>
               </div>
 
-              <div className="grid gap-3 @lg:grid-cols-3">
-                <Field label="Budget">
+              <div className="grid gap-5 @lg:grid-cols-3">
+                <Field className={FIELD} label="Budget">
                   <Money
                     value={budget}
                     onChange={setBudget}
                     prefix="Rp"
-                    placeholder="Unlimited"
                     label="Budget"
                   />
                 </Field>
-                <Field
-                  label="Max. baskets"
-                  // One number, two limits: the coupon is published with it.
-                  aside={code !== "" ? "Also the code's limit" : undefined}
-                >
+                <Field className={FIELD} label="Max. transactions">
                   <Stepper
                     value={maxUses}
                     onChange={setMaxUses}
                     min={1}
-                    placeholder="Unlimited"
-                    label="Most baskets"
+                    label="Most transactions"
                   />
                 </Field>
-                <Field label="Max. per shopper">
+                <Field className={FIELD} label="Max. per shopper">
                   <Stepper
                     value={maxPerCustomer}
                     onChange={setMaxPerCustomer}
                     min={1}
-                    placeholder="Unlimited"
-                    label="Most baskets for one shopper"
+                    label="Most transactions for one shopper"
                   />
                 </Field>
               </div>
@@ -1220,12 +1248,11 @@ export function RuleForm({
               {/* Ascending since D03: the lower number is reached first, and
                   with offers that combine each one works on what the previous
                   one left. */}
-              <Field label="Priority" className="max-w-[13rem]">
+              <Field label="Priority" className="max-w-[13rem] gap-2">
                 <Stepper
                   value={priority}
                   onChange={setPriority}
                   max={99}
-                  placeholder="0"
                   label="Priority"
                 />
               </Field>
@@ -1237,50 +1264,115 @@ export function RuleForm({
               it is where a promotion that would never have fired gets caught.
               Pinned while the form scrolls, so it is read beside the answers
               that change it. */}
-          <div className="flex flex-col gap-6 @3xl:sticky @3xl:top-0 @3xl:self-start">
-            <Section title="Summary">
-              <Terms
-                headline={
-                  effect === null ? "Not complete" : describeEffect(effect)
-                }
-                name={name}
-                empty="Choose a discount and what it applies to."
-                clauses={reading?.clauses ?? []}
-                hidden={[
-                  ...(reading?.hidden ?? []),
-                  // Said here rather than under the field: a till keeps no
-                  // shopper history, so until the count reaches the shops
-                  // the engine refuses this offer at the counter instead of
-                  // handing it out unlimited — and it needs the shopper
-                  // identified, so it is a members' offer whatever is chosen.
-                  maxPerCustomer.trim() !== "" &&
-                    `each shopper gets it at most ${count(Number(maxPerCustomer))} times, so the till must identify them`,
-                ]}
-              />
-            </Section>
-
-            {/* The same offer as the cashier's receipt shows it: one line,
-                rung up. The terms above say when; this says how much. */}
-            <Section title="At the till">
-              <TillPreview
-                effect={effect}
-                item={
-                  scopeKind === "SKU" && products.length > 0
-                    ? products[0].note || products[0].label
-                    : scopeKind === "ARTICLE" && articles.length > 0
-                      ? articles[0].label
-                      : "Sample item"
-                }
-                price={
-                  scopeKind === "SKU" && products.length > 0
-                    ? (skuPrices.get(products[0].value) ?? null)
-                    : null
-                }
-                code={code}
-                members={members}
-                least={Number(minQuantity) || 0}
-                spend={minorOf(minAmount) ?? 0}
-              />
+          <div className="flex flex-col gap-10 rounded-card border border-hairline bg-soft p-6 @3xl:sticky @3xl:top-0 @3xl:self-start">
+            <Section title="Summary" icon={ClipboardList}>
+              {effect === null && name.trim() === "" ? (
+                <p className="text-[0.9375rem] text-mute">
+                  Fill in the discount to see the summary.
+                </p>
+              ) : (
+                <>
+                  <Terms
+                    variant="rows"
+                    headline=""
+                    name={name}
+                    empty="Nothing to show yet."
+                    clauses={[]}
+                    rows={[
+                      [
+                        {
+                          label: "Discount",
+                          value:
+                            effect === null
+                              ? "Not complete"
+                              : describeEffect(effect),
+                        },
+                        scopeKind === "WHOLE_CART"
+                          ? { label: "Applies to", value: "Whole basket" }
+                          : chosenNames.length > 0 && {
+                              label: "Applies to",
+                              value: chosenNames.join(", "),
+                            },
+                        {
+                          label: "Period",
+                          value:
+                            from !== "" && to !== ""
+                              ? `${day(from)} – ${day(to)}`
+                              : from !== ""
+                                ? `From ${day(from)}`
+                                : to !== ""
+                                  ? `Until ${day(to)}`
+                                  : "Always on",
+                        },
+                        {
+                          label: "Shoppers",
+                          value: members ? "Members" : "Everyone",
+                        },
+                        {
+                          label: "On sale items",
+                          value:
+                            markdownPolicy === "ALLOW"
+                              ? "Sale items too"
+                              : "Not on sale items",
+                        },
+                        {
+                          label: "Other offers",
+                          value:
+                            exclusiveScope === "LINE"
+                              ? "Blocks offers on its items"
+                              : "Blocks every other offer",
+                        },
+                        Number(minQuantity) > 0 && {
+                          label: "Minimum items",
+                          value: count(Number(minQuantity)),
+                        },
+                        (minorOf(minAmount) ?? 0) > 0 && {
+                          label: "Minimum basket",
+                          value: money(minorOf(minAmount) ?? 0),
+                        },
+                        code !== "" && { label: "Code", value: code },
+                      ].filter((row) => row !== false),
+                      [
+                        budgetMinor !== null && {
+                          label: "Budget",
+                          value: money(budgetMinor),
+                        },
+                        maxUses.trim() !== "" && {
+                          label: "Transactions",
+                          value: count(Number(maxUses)),
+                        },
+                        maxPerCustomer.trim() !== "" && {
+                          label: "Per shopper",
+                          value: count(Number(maxPerCustomer)),
+                        },
+                        (Number(priority) || 0) > 0 && {
+                          label: "Priority",
+                          value: count(Number(priority)),
+                        },
+                      ].filter((row) => row !== false),
+                    ]}
+                  />
+                  {effect !== null && (
+                    <TillPreview
+                      effect={effect}
+                      item={
+                        scopeKind === "SKU" && products.length > 0
+                          ? products[0].note || products[0].label
+                          : scopeKind === "ARTICLE" && articles.length > 0
+                            ? articles[0].label
+                            : "Sample item"
+                      }
+                      price={
+                        scopeKind === "SKU" && products.length > 0
+                          ? (skuPrices.get(products[0].value) ?? null)
+                          : null
+                      }
+                      least={Number(minQuantity) || 0}
+                      spend={minorOf(minAmount) ?? 0}
+                    />
+                  )}
+                </>
+              )}
             </Section>
           </div>
         </div>
@@ -1301,8 +1393,6 @@ function TillPreview({
   effect,
   item,
   price: known,
-  code,
-  members,
   least,
   spend,
 }: {
@@ -1310,15 +1400,13 @@ function TillPreview({
   item: string
   /// The chosen SKU's own price, or `null` for the sample.
   price: number | null
-  code: string
-  members: boolean
   least: number
   spend: number
 }) {
   if (effect === null)
     return (
       <p className="text-[0.875rem] leading-relaxed text-mute">
-        Set the discount to see it rung up.
+        No discount set.
       </p>
     )
 
@@ -1353,52 +1441,36 @@ function TillPreview({
       : null
 
   return (
-    <div className="rounded-card border border-hairline bg-canvas px-4 py-3.5 font-mono text-[0.875rem] text-text tabular-nums">
-      {(code !== "" || members) && (
-        <div className="mb-2.5 border-b border-dashed border-hairline pb-2.5 text-mute">
-          {members && <p>Scan the member card</p>}
-          {code !== "" && (
-            <p>
-              Ask for code <span className="text-ink">{code}</span>
-            </p>
-          )}
-        </div>
-      )}
+    <div className="rounded-inner border border-hairline p-4 font-mono text-[0.875rem] text-text tabular-nums">
       <div className="flex justify-between gap-3">
         <span className="min-w-0 truncate">
           {count(quantity)} × {item}
         </span>
         <span className="shrink-0">{money(gross)}</span>
       </div>
-      <p className="pl-4 text-mute">
-        @ {money(price)}
-        {known === null && " · sample price"}
-      </p>
       {discount > 0 && (
-        <div className="flex justify-between gap-3 text-ok-fg">
+        <div className="mt-1 flex justify-between gap-3 text-ok-fg">
           <span className="min-w-0 truncate">{describeEffect(effect)}</span>
           <span className="shrink-0">−{money(discount)}</span>
         </div>
       )}
       {short && (
-        <p className="text-warn-fg">
-          Under the {money(spend)} minimum — no discount here.
-        </p>
+        <p className="mt-1 text-warn-fg">Under the {money(spend)} minimum.</p>
       )}
       <div className="mt-2 flex justify-between gap-3 border-t border-dashed border-hairline pt-2 font-semibold text-ink">
-        <span>Total</span>
+        <span>
+          Total
+          {known === null && (
+            <span className="font-normal text-mute"> · sample</span>
+          )}
+        </span>
         <span>{money(total)}</span>
       </div>
       {points !== null && (
-        <div className="flex justify-between gap-3 text-mute">
+        <div className="mt-1 flex justify-between gap-3 text-mute">
           <span>Points earned</span>
           <span>{count(points)}</span>
         </div>
-      )}
-      {discount > 0 && (
-        <p className="mt-1 text-mute">
-          Saved {percent(Math.round((discount / gross) * 10_000))}
-        </p>
       )}
     </div>
   )

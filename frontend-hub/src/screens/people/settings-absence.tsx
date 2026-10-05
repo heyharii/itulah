@@ -142,7 +142,7 @@ function NewRuleSheet({
         <SheetFooter
           onCancel={onClose}
           onSave={() => save.mutate()}
-          saveLabel="Save rule"
+          saveLabel="Submit"
           pending={save.isPending}
           disabled={from === "" || reason.trim() === ""}
         />
@@ -175,7 +175,6 @@ function NewRuleSheet({
             onChange={(event) =>
               setDivisor(event.target.value.replace(/\D/g, ""))
             }
-            placeholder="25"
           />
         </Field>
         <Field label="Why" required>

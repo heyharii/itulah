@@ -1,0 +1,673 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Stock tree models</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Five ways to draw the same tree of numbers: stock per place, summing
+   upwards, with what the readers saw and when each place was last counted.
+   A is ERPNext as it ships (Warehouse Wise Stock Balance); B–E are ours.
+   Hub tokens ("airy charcoal"): charcoal sidebar, white canvas, neutral
+   greys, Inter 14, hairlines, status as a dot and a word. Nothing below 14px.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f9fb; --soft-2:#f0f2f5; --soft-3:#f5f6f8; --sel:#eef1f5;
+  --hairline:#e7eaf0; --hairline-2:#dce1e8; --rule:#f0f2f5; --guide:#e3e6eb;
+  --accent:#2563eb; --accent-ink:#1d4ed8; --accent-bg:#eff5ff;
+  --warn:#d99a2b; --warn-fg:#b45309; --bad:#e25555; --bad-fg:#c0263b;
+  --rail:#242526; --rail-2:#303234; --rail-3:#393b3d; --rail-ink:#fff; --rail-text:#c3c4c7; --rail-mute:#a1a3a8; --rail-hair:#343638;
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1);
+  --shadow-pop:0 4px 8px rgb(24 39 60/4%),0 16px 40px rgb(24 39 60/12%);
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --ink:#f1f3f6; --text:#d3d7de; --body:#a4aab4; --mute:#8b919b; --faint:#5b616b; --line-ico:#8b919b;
+  --canvas:#17181a; --soft:#1e2023; --soft-2:#26282c; --soft-3:#1c1e21; --sel:#2a2d32;
+  --hairline:#2c2f34; --hairline-2:#363a40; --rule:#232528; --guide:#33363c;
+  --accent:#4f83f5; --accent-ink:#8cb0ff; --accent-bg:#1c2a44; --warn-fg:#f0b44f; --bad-fg:#ff8a8a;
+  --rail:#101112; --rail-2:#1c1d1f; --rail-3:#26272a; --rail-hair:#222325; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --ink:#f1f3f6; --text:#d3d7de; --body:#a4aab4; --mute:#8b919b; --faint:#5b616b; --line-ico:#8b919b;
+  --canvas:#17181a; --soft:#1e2023; --soft-2:#26282c; --soft-3:#1c1e21; --sel:#2a2d32;
+  --hairline:#2c2f34; --hairline-2:#363a40; --rule:#232528; --guide:#33363c;
+  --accent:#4f83f5; --accent-ink:#8cb0ff; --accent-bg:#1c2a44; --warn-fg:#f0b44f; --bad-fg:#ff8a8a;
+  --rail:#101112; --rail-2:#1c1d1f; --rail-3:#26272a; --rail-hair:#222325; color-scheme:dark}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--canvas)}
+body{font:400 14px/20px Inter,system-ui,sans-serif;color:var(--text);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer;text-align:left}
+svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.num,.n{font-variant-numeric:tabular-nums}
+.k{color:var(--mute)} .w{color:var(--warn-fg)} .b{color:var(--bad-fg)}
+
+/* prototype bar */
+.proto{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:8px 20px;background:var(--soft);border-bottom:1px solid var(--hairline);color:var(--body)}
+.proto b{color:var(--ink);font-weight:600}
+.tg{display:flex;align-items:center;gap:8px}
+.seg{display:flex;gap:2px;padding:3px;border-radius:9px;background:var(--canvas);box-shadow:inset 0 0 0 1px var(--hairline);overflow-x:auto;scrollbar-width:none}
+.seg button{height:28px;padding:0 10px;border-radius:7px;color:var(--body);font-weight:500;white-space:nowrap}
+.seg button[aria-pressed=true]{background:var(--soft-2);color:var(--ink)}
+.proto .sp{flex:1}
+.proto .th{height:30px;width:34px;border-radius:8px;box-shadow:inset 0 0 0 1px var(--hairline);text-align:center}
+
+/* shell */
+.app{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:calc(100vh - 45px)}
+.side{background:var(--rail);color:var(--rail-text);padding:14px 10px;display:flex;flex-direction:column;gap:1px;position:sticky;top:45px;height:calc(100vh - 45px);overflow:auto}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 8px 16px;color:var(--rail-ink);font-weight:600;font-size:15px}
+.mark{width:26px;height:26px;border-radius:7px;background:#000;box-shadow:inset 0 0 0 1px #3a3b3d;display:grid;place-items:center;font-weight:600;color:#fff;position:relative}
+.mark::after{content:"";position:absolute;right:4px;bottom:5px;width:5px;height:5px;border-radius:50%;background:#2563eb}
+.row{display:flex;align-items:center;gap:10px;height:34px;padding:0 8px;border-radius:8px;color:var(--rail-text);white-space:nowrap;width:100%}
+.row:hover{background:var(--rail-2);color:var(--rail-ink)}
+.row .i{color:var(--rail-mute)}
+.row.on{color:var(--rail-ink);font-weight:500}
+.row.on .i{color:var(--rail-ink)}
+.row .ct{margin-left:auto;color:var(--rail-mute)}
+.subs{margin:2px 0 8px 16px;padding-left:12px;border-left:1px solid var(--rail-hair);display:flex;flex-direction:column;gap:1px}
+.sub{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:7px;color:var(--rail-text);width:100%}
+.sub:hover{background:var(--rail-2);color:var(--rail-ink)}
+.sub[aria-current]{background:var(--rail-3);color:var(--rail-ink);font-weight:500}
+.sub .ct{margin-left:auto;color:var(--rail-mute)}
+
+main{min-width:0;padding:22px 32px 96px}
+.wrap{max-width:1180px;margin:0 auto}
+.page{animation:page-in .3s var(--ease-out)}
+@keyframes page-in{from{opacity:0;transform:translateY(6px)}}
+.note{display:block;margin-bottom:18px;padding:10px 14px;border:1px dashed var(--hairline-2);border-radius:10px;color:var(--body);background:var(--soft)}
+.note b{color:var(--ink);font-weight:600;margin-right:6px}
+.hd{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.hd h1{font-size:17px;line-height:24px;font-weight:600;color:var(--ink);letter-spacing:-.02em}
+.hd .pcs{color:var(--body);margin-bottom:1px}
+.hd .act{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-radius:8px;font-weight:500;white-space:nowrap;transition:background-color .15s,transform .16s var(--ease-out)}
+.btn:active{transform:scale(.98)}
+.btn-g{box-shadow:inset 0 0 0 1px var(--hairline-2);color:var(--text);background:var(--canvas)}
+.btn-g:hover{background:var(--soft)}
+.btn-g .i{color:var(--line-ico)}
+.tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.find{position:relative;flex:1;min-width:220px;max-width:440px}
+.find label{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border:1px solid var(--hairline-2);border-radius:8px;background:var(--canvas)}
+.find label:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.find .i{color:var(--line-ico)}
+.find input{flex:1;min-width:0;border:0;outline:0;background:none;color:var(--ink)}
+.find input::placeholder{color:var(--mute)}
+.scope{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 4px 0 10px;border-radius:6px;background:var(--accent-bg);color:var(--accent-ink);font-weight:500;white-space:nowrap}
+.scope button{color:var(--accent-ink);border-radius:4px;width:22px;height:22px;display:grid;place-items:center}
+.sugg{position:absolute;top:40px;left:0;right:0;z-index:30;background:var(--canvas);border:1px solid var(--hairline);border-radius:10px;box-shadow:var(--shadow-pop);padding:6px;display:none}
+.find.open .sugg{display:block}
+.sugg button{display:flex;width:100%;gap:10px;padding:8px 10px;border-radius:7px}
+.sugg button:hover,.sugg button.hl{background:var(--soft-2)}
+.sugg .c{margin-left:auto;color:var(--mute)}
+.tools .sum{color:var(--mute)}
+.tools .sum .w{color:var(--warn-fg)}
+.chk{display:inline-flex;align-items:center;gap:8px;color:var(--text)}
+.chk input{width:16px;height:16px;accent-color:var(--ink)}
+.selbox{height:34px;padding:0 10px;border:1px solid var(--hairline-2);border-radius:8px;background:var(--canvas);color:var(--ink)}
+.tw{width:20px;height:20px;display:inline-grid;place-items:center;border-radius:5px;color:var(--mute);flex:none;transition:transform .22s var(--ease-out),background-color .15s}
+.tw:hover{background:var(--soft-2);color:var(--ink)}
+.tw.shut{transform:rotate(-90deg)}
+.sp20{width:20px;flex:none;display:inline-block}
+.art .v-stock{color:var(--accent-ink)!important}
+
+/* ── A · ERPNext report ───────────────────────────────────────────── */
+.erp{border:1px solid var(--hairline-2);border-radius:8px;overflow:hidden}
+.erp table{width:100%;border-collapse:collapse}
+.erp th,.erp td{height:36px;padding:0 10px;border-right:1px solid var(--hairline);border-bottom:1px solid var(--hairline);white-space:nowrap}
+.erp th{background:var(--soft);font-weight:500;color:var(--body);text-align:left}
+.erp th:last-child,.erp td:last-child{border-right:0}
+.erp td.ix,.erp th.ix{width:44px;text-align:right;color:var(--mute);background:var(--soft)}
+.erp td.r,.erp th.r{text-align:right;font-variant-numeric:tabular-nums;width:220px}
+.erp .nm{display:flex;align-items:center;gap:4px}
+.erp .grp .nm span:last-child{font-weight:600;color:var(--ink)}
+.erp .grp td.r{font-weight:600;color:var(--ink)}
+.erp a{color:var(--text);text-decoration:none}
+.erp tr:hover td:not(.ix){background:var(--sel)}
+
+/* ── B · Outline with three facts ─────────────────────────────────── */
+.ol{border-top:1px solid var(--hairline)}
+.ol .h,.ol .r{display:grid;grid-template-columns:minmax(0,1.5fr) 96px 170px 150px minmax(0,1fr);column-gap:16px;align-items:center;padding:0 12px}
+.ol .h{height:40px;color:var(--mute);font-weight:500;border-bottom:1px solid var(--hairline)}
+.ol .h .n,.ol .r .n{text-align:right}
+.ol.per .h,.ol.per .r{grid-template-columns:minmax(0,1.6fr) 100px 100px 100px 110px}
+.seg.per-seg{margin-right:4px}
+.ol .r{min-height:48px;border-bottom:1px solid var(--rule);cursor:pointer;transition:background-color .15s}
+.ol .r:hover{background:var(--soft)}
+.ol .r[aria-current]{background:var(--sel)}
+.ol .nm{position:relative;display:flex;align-items:center;gap:6px;min-width:0}
+.ol .nm .l{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ol .nm .s2{color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ol .r[data-d="0"]{min-height:56px}
+.ol .r[data-d="0"] .l,.ol .r[data-d="1"] .l{font-weight:600;color:var(--ink)}
+.ol .r[data-d="0"] .v-stock{font-size:17px;font-weight:600;color:var(--ink)}
+.ol .r[data-d="1"] .v-stock{font-weight:600;color:var(--ink)}
+.ol .r .v-stock{color:var(--text)}
+.ol .seen{display:flex;gap:6px;white-space:nowrap;overflow:hidden}
+.ol .seen .t{color:var(--mute);overflow:hidden;text-overflow:ellipsis}
+.ol .ck{white-space:nowrap}
+.ol .pb{display:flex;align-items:center;gap:8px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--warn);flex:none}
+.dot.b{background:var(--bad)}
+.pb.b{color:var(--bad-fg)} .pb.w{color:var(--warn-fg)} .pb.k{color:var(--mute)}
+.ol .guide{position:absolute;top:-16px;bottom:-16px;border-left:1px solid var(--guide)}
+
+/* ── C · Statement: groups, then their total ──────────────────────── */
+.st table{width:100%;border-collapse:collapse}
+.st th{height:40px;padding:0 12px;text-align:right;font-weight:500;color:var(--mute);border-bottom:1px solid var(--hairline-2);white-space:nowrap}
+.st th:first-child{text-align:left}
+.st td{height:40px;padding:0 12px;white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums;color:var(--text)}
+.st td:first-child{text-align:left;font-variant-numeric:normal}
+.st tr.leaf{cursor:pointer}
+.st tr.leaf:hover td{background:var(--soft)}
+.st tr[aria-current] td{background:var(--sel)}
+.st tr.gh td{height:44px;padding-top:10px;font-weight:600;color:var(--ink)}
+.st tr.tot td{font-weight:600;color:var(--ink);border-top:1px solid var(--hairline-2)}
+.st tr.tot + tr td{padding-top:4px}
+.st tr.grand td{height:48px;font-weight:600;color:var(--ink);border-top:3px double var(--hairline-2);font-size:15px}
+.st .pbt{margin-left:10px;font-weight:400}
+.st .s2{color:var(--mute);margin-left:8px}
+.st .ind1{padding-left:28px} .st .ind2{padding-left:48px} .st .ind3{padding-left:68px}
+
+/* ── D · Tree + the chosen place ──────────────────────────────────── */
+.duo{display:grid;grid-template-columns:340px minmax(0,1fr);border:1px solid var(--hairline);border-radius:12px;overflow:hidden;min-height:600px}
+.tree{border-right:1px solid var(--hairline);padding:8px;background:var(--soft-3);overflow:auto}
+.tn{display:flex;align-items:center;gap:6px;width:100%;height:34px;padding:0 8px;border-radius:7px;color:var(--text);cursor:pointer}
+.tn:hover{background:var(--soft-2)}
+.tn[aria-current]{background:var(--canvas);box-shadow:0 0 0 1px var(--hairline-2);color:var(--ink);font-weight:500}
+.tn .l{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tn .v-stock{color:var(--body)}
+.tn.g .l,.tn.g .v-stock{font-weight:600;color:var(--ink)}
+.tn .dot{margin-left:2px}
+.det{padding:22px 26px;min-width:0;animation:page-in .25s var(--ease-out)}
+
+/* ── E · Columns ──────────────────────────────────────────────────── */
+.cols{display:flex;border:1px solid var(--hairline);border-radius:12px;overflow-x:auto;min-height:600px}
+.col{flex:none;width:240px;border-right:1px solid var(--hairline);padding:8px;animation:col-in .25s var(--ease-out)}
+@keyframes col-in{from{opacity:0;transform:translateX(-8px)}}
+.col .ch{padding:6px 8px 8px;color:var(--mute)}
+.col .tn .chev{color:var(--faint);transform:rotate(-90deg)}
+.col .tn .chev svg{width:14px;height:14px}
+.cols .det{flex:1;min-width:360px}
+
+/* detail (D, E and the sheet) */
+.dk{color:var(--mute)}
+.dh{font-size:17px;line-height:24px;font-weight:600;color:var(--ink)}
+.dv{margin-top:4px;font-size:30px;line-height:36px;font-weight:600;color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.dv small{font-size:14px;font-weight:400;color:var(--mute);letter-spacing:0;margin-left:6px}
+.h2{margin:20px 0 6px;font-weight:600;color:var(--ink)}
+.h2 span{font-weight:400;color:var(--mute)}
+.ln{display:flex;align-items:center;gap:10px;min-height:40px;border-bottom:1px solid var(--hairline)}
+.ln .l{flex:1;min-width:0}
+.ln .r2{font-variant-numeric:tabular-nums;color:var(--text);white-space:nowrap}
+.ln .r2.w{color:var(--warn-fg)} .ln .r2.k{color:var(--mute)}
+.ln.tot{font-weight:600;color:var(--ink);border-bottom:0;border-top:1px solid var(--hairline-2)}
+.ln.link{cursor:pointer}
+.ln.link:hover{background:var(--soft)}
+.kid{display:grid;grid-template-columns:minmax(0,1fr) 80px 90px 90px;gap:12px}
+.kid .r2{text-align:right}
+.none{color:var(--mute);padding:10px 0}
+.go{color:var(--accent-ink);font-weight:500;white-space:nowrap}
+
+/* sheet (B, C) */
+.scrim{position:fixed;inset:0;z-index:60;background:rgb(255 255 255/.5);opacity:0;pointer-events:none;transition:opacity .25s var(--ease-out)}
+:root[data-theme=dark] .scrim{background:rgb(0 0 0/.45)}
+.sheet{position:fixed;top:12px;right:12px;bottom:12px;width:min(460px,calc(100vw - 24px));z-index:61;background:var(--canvas);border:1px solid var(--hairline);border-radius:16px;box-shadow:var(--shadow-pop);transform:translateX(calc(100% + 24px));transition:transform .38s var(--ease-drawer);display:flex;flex-direction:column;overflow:hidden}
+.open .scrim{opacity:1;pointer-events:auto}
+.open .sheet{transform:none}
+.sheet .top{display:flex;justify-content:flex-end;padding:10px 10px 0}
+.sheet .body{flex:1;overflow:auto;padding:0 22px 22px}
+.x{width:34px;height:34px;border-radius:8px;display:grid;place-items:center;color:var(--body)}
+.x:hover{background:var(--soft-2)}
+
+@media (max-width:980px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .side{position:static;height:auto;flex-direction:row;flex-wrap:wrap;gap:4px;padding:10px 16px}
+  .side .brand,.side .row:not(.on){display:none}
+  .side .subs{flex-direction:row;margin:0;border:0;padding:0}
+  main{padding:18px 16px 80px}
+  .proto{padding:8px 16px;gap:10px}
+  .duo{grid-template-columns:minmax(0,1fr)}
+  .tree{border-right:0;border-bottom:1px solid var(--hairline);max-height:340px}
+  .ol .h{display:none}
+  .ol .r{grid-template-columns:minmax(0,1fr) auto;row-gap:2px;padding:8px 12px}
+  .ol .seen,.ol .ck,.ol .pb{grid-column:1/-1;padding-left:26px}
+  .ol .pb:empty{display:none}
+  .ol.per .h{display:grid}
+  .ol.per .h,.ol.per .r{grid-template-columns:minmax(0,1fr) repeat(4,64px);column-gap:8px}
+  .erp,.st{overflow-x:auto}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="proto">
+  <b>Stock tree</b>
+  <div class="tg">Model <div class="seg" data-tg="m"><button data-v="a">A · ERPNext</button><button data-v="b">B · Outline</button><button data-v="c">C · Statement</button><button data-v="d">D · Tree + place</button><button data-v="e">E · Columns</button></div></div>
+  <div class="tg">Stores <div class="seg" data-tg="city"><button data-v="city">by city</button><button data-v="flat">flat</button></div></div>
+  <div class="sp"></div>
+  <button class="th" id="theme" title="Light / dark">◐</button>
+</div>
+<div class="app">
+  <nav class="side" id="side" aria-label="Sidebar"></nav>
+  <main><div class="wrap" id="main"></div></main>
+</div>
+<div id="pw"><div class="scrim" data-close></div><aside class="sheet" aria-label="Place"><div class="top"><button class="x" data-close aria-label="Close"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div class="body" id="sheet"></div></aside></div>
+
+<script>
+const I = {
+  home:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
+  cart:'<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.2a1.5 1.5 0 0 0 1.5 1.3h8.6a1.5 1.5 0 0 0 1.5-1.2L21 8H6"/>',
+  shirt:'<path d="M8 3 3 6l2 5 2-1v11h10V10l2 1 2-5-5-3a4 4 0 0 1-8 0z"/>',
+  forklift:'<path d="M4 17V7h6l3 5v5M13 12h4V4M17 17h4"/><circle cx="6" cy="18" r="2"/><circle cx="12" cy="18" r="2"/>',
+  box:'<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  tag:'<path d="M3 3h8l10 10-8 8L3 11z"/><circle cx="7.5" cy="7.5" r="1.3"/>',
+  receipt:'<path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
+  wallet:'<path d="M3 7a2 2 0 0 1 2-2h13v4"/><path d="M3 7v11a2 2 0 0 0 2 2h15V9H5a2 2 0 0 1-2-2z"/>',
+  person:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  building:'<path d="M4 21V4h10v17M14 9h6v12M8 8h2M8 12h2M8 16h2"/>',
+  cog:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+  chev:'<path d="m6 9 6 6 6-6"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  x:'<path d="M18 6 6 18M6 6l12 12"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  count:'<path d="M9 4h6v3H9z"/><path d="M8 5H5v16h14V5h-3"/><path d="m9 14 2 2 4-4"/>',
+  down:'<path d="M12 4v12M6 10l6 6 6-6M4 20h16"/>',
+  ruler:'<path d="M3 17 17 3l4 4L7 21z"/><path d="m7 13 2 2M10 10l2 2M13 7l2 2"/>',
+  flow:'<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M9 6h5a3 3 0 0 1 3 3v6"/>',
+  pin:'<path d="M12 21s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/>',
+  radio:'<circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4"/>',
+  pulse:'<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+}
+const ic = (k) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${I[k] || ""}</svg>`
+const nf = new Intl.NumberFormat("id-ID"), n = (v) => nf.format(v)
+const rp = (v) => "Rp " + nf.format(v)
+const sg = (v) => (v > 0 ? "+" : v < 0 ? "−" : "") + nf.format(Math.abs(v))
+
+/* ── the places (same as the cards prototype) ─────────────────────
+   v stock · sn seen (readers' last pass) · ck last counted · pb problem
+   cost: average cost per piece, only for ERPNext's money column.      */
+const TODAY = new Date(2026, 8, 28), STALE = 21
+const days = (d) => d ? Math.round((TODAY - new Date(2026, d[0] - 1, d[1])) / 864e5) : null
+const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+const dateOf = (d) => `${d[1]} ${MON[d[0] - 1]}`
+const GUDANG = [
+  {id:"g-setup", name:"Not set up yet", v:88, sn:null, why:"no tags yet", tr:true, cost:132000},
+  {id:"g-wh", name:"Warehouse", v:4180, sn:{v:4166, at:"1 h ago"}, ck:[9,19], pb:{t:"4 short in the last count", c:"w", art:"21070031"}, cost:148000},
+  {id:"g-pick", name:"Being picked", v:752, sn:{v:752, at:"20 min ago"}, ck:[9,26], cost:151000},
+  {id:"g-pack", name:"Packed", v:212, sn:{v:210, at:"35 min ago"}, tr:true, pb:{t:"2 missing since 09:10", c:"w", art:"11020341"}, cost:156000},
+  {id:"g-ret", name:"Returns to inspect", v:74, sn:{v:74, at:"3 h ago"}, tr:true, cost:139000},
+  {id:"g-rej", name:"Reject", v:31, sn:null, why:"no reader", tr:true, cost:120000},
+]
+const ROAD = [
+  {id:"sj-004", name:"SJ-280926-004", sub:"to Kemang", v:180, sn:{v:180, at:"at the gate"}, left:"today 09:40", cost:150000},
+  {id:"sj-002", name:"SJ-280926-002", sub:"to PIK Avenue", v:240, sn:{v:240, at:"at the gate"}, left:"today 08:15", cost:147000},
+  {id:"sj-011", name:"SJ-270926-011", sub:"to Bandung Dago", v:120, sn:{v:118, at:"by the store"}, left:"27 Sep", pb:{t:"Store got 2 fewer", c:"w"}, cost:152000},
+  {id:"sj-009", name:"SJ-270926-009", sub:"Senopati to Gudang", v:46, sn:{v:46, at:"at the gate"}, left:"27 Sep", cost:141000},
+  {id:"sj-014", name:"SJ-260926-014", sub:"to Surabaya Galaxy", v:88, sn:{v:89, at:"by the store"}, left:"26 Sep", pb:{t:"Store got 1 we didn't send", c:"b"}, cost:149000},
+]
+const STORES = [
+  {id:"s-kemang", name:"Kemang", city:"Jakarta", v:3120, sn:{v:3104, at:"2 h ago"}, ck:[9,21], cost:153000},
+  {id:"s-senopati", name:"Senopati", city:"Jakarta", v:2480, sn:{v:2468, at:"5 h ago"}, ck:[9,14], pb:{t:"3 missing for 16 days", c:"b", art:"11020377"}, cost:158000},
+  {id:"s-pik", name:"PIK Avenue", city:"Jakarta", v:2915, sn:{v:2908, at:"today 10:12"}, ck:[9,28], pb:{t:"7 read somewhere else", c:"w", art:"21030044"}, cost:150000},
+  {id:"s-bintaro", name:"Bintaro Xchange", city:"Jakarta", v:1870, sn:{v:1802, at:"3 h ago", stale:true}, ck:[9,2], pb:{t:"Server silent for 3 h", c:"w"}, cost:147000},
+  {id:"s-dago", name:"Bandung Dago", city:"Bandung", v:2060, sn:{v:2051, at:"1 h ago"}, ck:[9,19], cost:146000},
+  {id:"s-galaxy", name:"Surabaya Galaxy", city:"Surabaya", v:1857, sn:{v:1850, at:"40 min ago"}, ck:[9,7], cost:149000},
+  {id:"s-medan", name:"Medan Sun Plaza", city:"Medan", v:1644, sn:{v:1583, at:"4 days ago", stale:true}, ck:[8,20], cost:144000},
+  {id:"s-bali", name:"Bali Beachwalk", city:"Bali", v:1392, sn:{v:1390, at:"2 h ago"}, ck:[9,24], cost:161000},
+]
+const ART = [
+  {c:"11020341", a:"Sneaker Arka Low", s:.058}, {c:"11020377", a:"Loafer Senja", s:.036},
+  {c:"11040112", a:"Sandal Rinjani", s:.14}, {c:"21010208", a:"Kemeja Linen Bara", s:.061},
+  {c:"21030044", a:"Kaos Oversize Nara", s:.21}, {c:"21050019", a:"Celana Chino Laras", s:.026},
+  {c:"21070031", a:"Jaket Denim Kala", s:.028}, {c:"31010007", a:"Tote Kanvas Rupa", s:.082},
+]
+
+const state = {m:"b", city:"city", page:"stock", art:null, shut:{}, sel:"all", path:["all"], per:"now"}
+const hash = (s) => { let h = 2166136261; for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return ((h >>> 0) % 1000) / 1000 }
+const scale = (l) => state.art ? state.art.s * (0.4 + 1.2 * hash(l.id + state.art.c)) : 1
+const vOf = (l) => Math.round(l.v * scale(l))
+const snOf = (l) => !l.sn ? null : {...l.sn, v: state.art ? Math.min(Math.round(l.sn.v * scale(l)), l.sn.v > l.v ? vOf(l) + 1 : vOf(l)) : l.sn.v}
+const pbOf = (l) => !l.pb ? null : !state.art ? l.pb : (l.pb.art === state.art.c ? l.pb : null)
+
+/* ── the tree ──────────────────────────────────────────────────── */
+function build() {
+  const leaf = (l) => ({...l, leaf:true})
+  const stores = state.city === "city"
+    ? [...new Set(STORES.map(s => s.city))].map(c => { const ks = STORES.filter(s => s.city === c); return ks.length > 1 ? {id:"c-" + c, name:c, kids:ks.map(leaf)} : leaf(ks[0]) })
+    : STORES.map(leaf)
+  return {id:"all", name:"All stock", kids:[
+    {id:"gudang", name:"Gudang", kids:GUDANG.map(leaf)},
+    {id:"road", name:"On the road", sub:`${ROAD.length} surat jalan`, kids:ROAD.map(leaf)},
+    {id:"stores", name:"Stores", sub:`${STORES.length} stores`, kids:stores},
+  ]}
+}
+const leaves = (x) => x.flat ? x.flat : x.kids ? x.kids.flatMap(leaves) : [x]
+const find = (id, x = build()) => x.id === id ? x : (x.kids || []).map(k => find(id, k)).find(Boolean)
+const parentOf = (id, x = build()) => (x.kids || []).some(k => k.id === id) ? x : (x.kids || []).map(k => parentOf(id, k)).find(Boolean)
+
+/* The three facts for any node; a group's are its children's, summed. */
+function facts(x) {
+  const ls = leaves(x), read = ls.filter(l => l.sn)
+  const v = ls.reduce((a, l) => a + vOf(l), 0)
+  const seen = read.length ? read.reduce((a, l) => a + snOf(l).v, 0) : null
+  const vRead = read.reduce((a, l) => a + vOf(l), 0)
+  const diff = seen == null ? null : seen - vRead
+  const diffWarn = diff != null && Math.abs(diff) > Math.max(2, vRead * .015)
+  const stale = read.some(l => l.sn.stale)
+  const counted = ls.filter(l => l.ck)
+  const oldest = counted.length ? counted.reduce((a, l) => days(l.ck) > days(a.ck) ? l : a) : null
+  const probs = ls.map(pbOf).filter(Boolean)
+  const road = x.leaf && x.id.startsWith("sj")
+  let ck, ckOld = false
+  if (x.leaf) {
+    if (road) ck = `Left ${x.left}`
+    else if (x.ck) { ck = dateOf(x.ck); ckOld = days(x.ck) > STALE }
+    else ck = x.tr ? "—" : "Never"
+  } else if (oldest) { ck = `oldest ${dateOf(oldest.ck)}`; ckOld = days(oldest.ck) > STALE }
+  else ck = x.id === "road" ? "—" : ""
+  const seenAt = x.leaf ? (x.sn ? x.sn.at : x.why) : ""
+  const value = ls.reduce((a, l) => a + vOf(l) * l.cost, 0)
+  return {v, seen, seenAt, diff, diffWarn, stale, ck, ckOld, probs, value, days: x.ck ? days(x.ck) : null}
+}
+const probText = (f, leaf) => !f.probs.length ? "" : leaf || f.probs.length === 1 ? f.probs[0].t : `${f.probs.length} problems`
+const probCls = (f) => f.probs.some(p => p.c === "b") ? "b" : "w"
+const diffText = (d) => d == null ? "—" : d === 0 ? "0" : sg(d)
+
+/* ── a period: Opening + In − Out = Closing ─────────────────────
+   Built from movements, each one piece-count going from one place to
+   another. A node's In is what came in from outside it, its Out what left
+   for outside it — so a move between two places inside the Gudang shows at
+   those two places and cancels out at the Gudang. Outside the estate:
+   supplier, customer, count (a count's correction), lost.               */
+const PERIODS = {
+  now:{label:"Now"},
+  week:{label:"This week", range:"22–28 Sep", f:1, cur:true},
+  sep:{label:"September", range:"1–28 Sep", f:4, cur:true, sep:true},
+  aug:{label:"August", range:"1–31 Aug", f:4.4},
+}
+const SOLD = {"s-kemang":412, "s-senopati":388, "s-pik":451, "s-bintaro":233, "s-dago":301, "s-galaxy":276, "s-medan":240, "s-bali":198}
+const flowCache = {}
+function flows(per) {
+  const key = per + (state.art?.c || ""); if (flowCache[key]) return flowCache[key]
+  const P = PERIODS[per], f = P.f, ps = state.art ? state.art.s : 1, out = []
+  const add = (from, to, q, outL, inL) => { q = Math.round(q * ps); if (q > 0) out.push({from, to, q, outL, inL}) }
+  add("supplier", "g-setup", 2980 * f, "", "Received from suppliers")
+  add("g-setup", "g-wh", 2980 * f, "Set up, into the warehouse", "Set up at the bay")
+  add("g-ret", "g-wh", 50 * f, "Inspected, back to stock", "Store returns, inspected")
+  add("g-wh", "g-pick", 2900 * f, "Picked", "Picked from the warehouse")
+  add("g-pick", "g-pack", 2880 * f, "Packed", "Packed")
+  const road = P.cur ? ROAD.filter(r => r.id !== "sj-009").reduce((a, r) => a + r.v, 0) + 2 : 0
+  const toStores = 2880 * f - road, sold = Object.values(SOLD).reduce((a, v) => a + v, 0)
+  for (const st of STORES) {
+    add("g-pack", st.id, toStores * SOLD[st.id] / sold, "Sent to stores", "From the Gudang")
+    add(st.id, "customer", SOLD[st.id] * f, "Sold", "")
+    add("customer", st.id, SOLD[st.id] * .03 * f, "", "Customer returns")
+    if (st.id !== "s-senopati") add(st.id, "g-ret", 8 * f, "Back to the Gudang", "Store returns")
+  }
+  add("s-kemang", "s-pik", 12 * f, "To other stores", "From other stores")
+  add("g-ret", "g-rej", 6 * f, "Inspected, rejected", "Rejected on inspection")
+  add("g-rej", "supplier", 5 * f, "Returned to suppliers", "")
+  if (P.cur) {
+    for (const r of ROAD) r.id === "sj-009" ? add("s-senopati", r.id, r.v, "Back to the Gudang", "Left the store") : add("g-pack", r.id, r.v, "Loaded on a surat jalan", "Left the Gudang")
+    add("g-pack", "lost", 2, "Missing", "")
+    add("g-wh", "count", 4, "Count found fewer", "")
+  }
+  if (P.sep) { add("s-senopati", "lost", 3, "Missing", ""); add("count", "s-kemang", 12, "", "Count found more") }
+  return flowCache[key] = out
+}
+const closingOf = (l, per) => per === "aug" ? mut(l, "sep").open : Math.round(l.v * (state.art ? state.art.s : 1))
+function mut(x, per = state.per) {
+  const ls = leaves(x), ids = new Set(ls.map(l => l.id)), fl = flows(per)
+  const ins = fl.filter(m => ids.has(m.to) && !ids.has(m.from)), outs = fl.filter(m => ids.has(m.from) && !ids.has(m.to))
+  const by = (ms, k) => Object.entries(ms.reduce((a, m) => (a[m[k]] = (a[m[k]] || 0) + m.q, a), {})).sort((a, b) => b[1] - a[1])
+  const close = ls.reduce((a, l) => a + closingOf(l, per), 0)
+  const inQ = ins.reduce((a, m) => a + m.q, 0), outQ = outs.reduce((a, m) => a + m.q, 0)
+  return {open: close - inQ + outQ, in: inQ, out: outQ, close, insBy: by(ins, "inL"), outsBy: by(outs, "outL")}
+}
+const isPer = () => state.per !== "now" && state.m !== "a"
+const numOf = (x) => isPer() ? mut(x).close : facts(x).v
+const inCell = (v) => v ? "+" + n(v) : "—", outCell = (v) => v ? "−" + n(v) : "—"
+
+/* ── A · ERPNext, as it ships ─────────────────────────────────── */
+function modelA() {
+  const rows = []
+  const walk = (x, d) => {
+    if (x.id === "road") x = {...x, name:"Goods In Transit", kids:undefined, flat:leaves(x)}
+    const shut = state.shut["a:" + x.id] ?? d >= 3
+    rows.push({x, d, shut})
+    if (x.kids && !shut) x.kids.forEach(k => walk(k, d + 1))
+  }
+  walk(build(), 0)
+  const erpName = (x) => (x.id === "all" ? "All Warehouses" : x.name) + " - C"
+  return `<div class="hd"><h1>Warehouse Wise Stock Balance</h1><div class="act"><button class="btn btn-g" data-a="collapse">Collapse all</button><button class="btn btn-g" data-a="expand">Expand all</button><button class="btn btn-g">Actions</button></div></div>
+    <div class="tools"><select class="selbox" aria-label="Company"><option>Central Retail</option></select><label class="chk"><input type="checkbox" /> Show Disabled Warehouses</label></div>
+    <div class="erp"><table><thead><tr><th class="ix"></th><th>Warehouse</th><th class="r">Stock Balance</th></tr></thead><tbody>
+    ${rows.map(({x, d, shut}, i) => `<tr class="${x.kids ? "grp" : ""}"><td class="ix">${i + 1}</td><td><span class="nm" style="padding-left:${d * 20}px">${x.kids ? `<button class="tw${shut ? " shut" : ""}" data-t="a:${x.id}" data-open="${shut}">${ic("chev")}</button>` : `<span class="sp20"></span>`}<span>${erpName(x)}</span></span></td><td class="r">${rp(facts(x).value)}</td></tr>`).join("")}
+    </tbody></table></div>`
+}
+
+/* ── B · Outline with the three facts ─────────────────────────── */
+function modelB() {
+  const rows = []
+  const walk = (x, d) => { const shut = !!state.shut["b:" + x.id]; rows.push(rowB(x, d, shut)); if (x.kids && !shut) x.kids.forEach(k => walk(k, d + 1)) }
+  walk(build(), 0)
+  if (isPer()) return head() + `<div class="ol per${state.art ? " art" : ""}"><div class="h"><span>Place</span><span class="n">Opening</span><span class="n">In</span><span class="n">Out</span><span class="n">Closing</span></div>${rows.join("")}</div>`
+  return head() + `<div class="ol${state.art ? " art" : ""}"><div class="h"><span>Place</span><span class="n">Stock</span><span>Seen</span><span>Counted</span><span></span></div>${rows.join("")}</div>`
+}
+function rowB(x, d, shut) {
+  const f = facts(x)
+  const guides = Array.from({length: Math.max(0, d - 1)}, (_, i) => `<span class="guide" style="left:${9 + i * 22}px"></span>`).join("")
+  const tw = x.kids ? (d ? `<button class="tw${shut ? " shut" : ""}" data-t="b:${x.id}">${ic("chev")}</button>` : "") : `<span class="sp20"></span>`
+  const seen = f.seen == null ? `<span class="k">${f.seenAt || "—"}</span>` : `<span class="${f.diffWarn || f.stale ? "w" : ""}">${n(f.seen)}</span><span class="t ${f.stale ? "w" : ""}">${f.seenAt ? "· " + f.seenAt : ""}</span>`
+  const pt = probText(f, x.leaf)
+  if (isPer()) { const m = mut(x); return `<div class="r" data-d="${d}" data-id="${x.id}">
+    <span class="nm" style="padding-left:${Math.max(0, d - 1) * 22}px">${guides}${tw}<span class="l">${x.name}</span>${x.sub ? `<span class="s2">${x.sub}</span>` : ""}</span>
+    <span class="n k">${n(m.open)}</span><span class="n">${inCell(m.in)}</span><span class="n">${outCell(m.out)}</span><span class="n v-stock">${n(m.close)}</span></div>` }
+  return `<div class="r" data-d="${d}" data-id="${x.id}"${x.leaf ? ' data-leaf="1"' : ""}${state.sel === x.id && x.leaf && document.getElementById("pw")?.classList.contains("open") ? " aria-current=true" : ""}>
+    <span class="nm" style="padding-left:${Math.max(0, d - 1) * 22}px">${guides}${tw}<span class="l">${x.name}</span>${x.sub ? `<span class="s2">${x.sub}</span>` : ""}</span>
+    <span class="n v-stock">${n(f.v)}</span><span class="seen">${seen}</span><span class="ck ${f.ckOld ? "w" : "k"}">${f.ck}</span>
+    <span class="pb ${pt ? (x.leaf ? probCls(f) : "k") : ""}">${pt ? (x.leaf ? `<span class="dot ${probCls(f)}"></span>` : "") + pt : ""}</span></div>`
+}
+
+/* ── C · Statement: children, then the group's total ─────────── */
+function modelC() {
+  const rows = []
+  const per = isPer()
+  const cells = (f, x) => per ? (m => `<td class="k">${n(m.open)}</td><td>${inCell(m.in)}</td><td>${outCell(m.out)}</td><td class="v-stock">${n(m.close)}</td>`)(mut(x)) : `<td class="v-stock">${n(f.v)}</td><td class="${f.stale ? "w" : ""}">${f.seen == null ? "—" : n(f.seen)}</td><td class="${f.diffWarn ? "w" : ""}">${diffText(f.diff)}</td><td class="${f.ckOld ? "w" : "k"}">${f.ck}</td>`
+  const walk = (x, d) => {
+    if (x.leaf) {
+      const f = facts(x), p = f.probs[0]
+      rows.push(`<tr class="leaf" data-id="${x.id}"><td class="ind${d}">${x.name}${x.sub ? `<span class="s2">${x.sub}</span>` : ""}${p && !per ? `<span class="pbt ${p.c}">· ${p.t}</span>` : ""}</td>${cells(f, x)}</tr>`)
+      return
+    }
+    if (x.id !== "all") rows.push(`<tr class="gh"><td class="ind${d - 1}" colspan="${per ? 5 : 5}">${x.name}</td></tr>`)
+    x.kids.forEach(k => walk(k, d + (x.id === "all" ? 0 : 1)))
+    if (x.id !== "all") rows.push(`<tr class="tot"><td class="ind${d - 1}">Total ${x.name}</td>${cells(facts(x), x)}</tr>`)
+  }
+  walk(build(), 1)
+  return head() + `<div class="st${state.art ? " art" : ""}"><table><thead><tr><th>Place</th>${per ? "<th>Opening</th><th>In</th><th>Out</th><th>Closing</th>" : "<th>Stock</th><th>Seen</th><th>Difference</th><th>Counted</th>"}</tr></thead><tbody>${rows.join("")}
+    <tr class="grand"><td>All stock</td>${cells(facts(build()), build())}</tr></tbody></table></div>`
+}
+
+/* ── D · Tree on the left, the chosen place on the right ──────── */
+function modelD() {
+  const out = []
+  const walk = (x, d) => {
+    const shut = !!state.shut["d:" + x.id], f = facts(x)
+    out.push(`<div class="tn${x.kids ? " g" : ""}" data-pick="${x.id}" style="padding-left:${8 + d * 18}px"${state.sel === x.id ? " aria-current=true" : ""}>${x.kids ? `<button class="tw${shut ? " shut" : ""}" data-t="d:${x.id}">${ic("chev")}</button>` : `<span class="sp20"></span>`}<span class="l">${x.name}</span>${f.probs.length && x.leaf && !isPer() ? `<span class="dot ${probCls(f)}"></span>` : ""}<span class="v-stock n">${n(numOf(x))}</span></div>`)
+    if (x.kids && !shut) x.kids.forEach(k => walk(k, d + 1))
+  }
+  walk(build(), 0)
+  const node = find(state.sel) || build()
+  return head() + `<div class="duo${state.art ? " art" : ""}"><div class="tree">${out.join("")}</div><div class="det" id="det">${detail(node, true)}</div></div>`
+}
+
+/* ── E · Finder columns ───────────────────────────────────────── */
+function modelE() {
+  const root = build()
+  let path = state.path.filter(Boolean), cols = [], x = root
+  cols.push(root)
+  for (const id of path.slice(1)) { const k = (x.kids || []).find(c => c.id === id); if (!k) break; x = k; if (k.kids) cols.push(k) }
+  const sel = find(path[path.length - 1]) || root
+  return head() + `<div class="cols${state.art ? " art" : ""}">${cols.map(c => `<div class="col"><div class="ch">${c.name} · ${n(numOf(c))}</div>${c.kids.map(k => {
+    const f = facts(k), on = path.includes(k.id)
+    return `<div class="tn${k.kids ? " g" : ""}" data-col="${c.id}" data-pickc="${k.id}"${on ? " aria-current=true" : ""}><span class="l">${k.name}</span>${f.probs.length && !isPer() ? `<span class="dot ${probCls(f)}"></span>` : ""}<span class="v-stock n">${n(numOf(k))}</span>${k.kids ? `<span class="chev">${ic("chev")}</span>` : ""}</div>`
+  }).join("")}</div>`).join("")}<div class="det">${detail(sel, true)}</div></div>`
+}
+
+/* ── the detail of one node (D, E, and the sheet in B and C) ──── */
+function detailPeriod(x) {
+  const m = mut(x), P = PERIODS[state.per], up = parentOf(x.id)
+  let h = `<div class="dk">${state.art ? state.art.a + " · " : ""}${up ? up.name : "Inventory"}</div><div class="dh">${x.name}${x.sub ? ` <span class="k" style="font-weight:400">${x.sub}</span>` : ""}</div><div class="dv">${n(m.close)}<small>pieces at the end of ${P.range}</small></div>`
+  h += `<div class="h2">${P.label} <span>· ${P.range}</span></div>
+    <div class="ln"><span class="l">Opening</span><span class="r2">${n(m.open)}</span></div>
+    ${m.insBy.map(([k, v]) => `<div class="ln"><span class="l"><span class="k">+</span> ${k}</span><span class="r2">${n(v)}</span></div>`).join("")}
+    ${m.outsBy.map(([k, v]) => `<div class="ln"><span class="l"><span class="k">−</span> ${k}</span><span class="r2">${n(v)}</span></div>`).join("")}
+    <div class="ln tot"><span class="l">= Closing</span><span class="r2">${n(m.close)}</span></div>`
+  if (x.kids) {
+    h += `<div class="none" style="padding-top:8px">Moves between two places inside ${x.name} are not counted here; they show at those places.</div>`
+    h += `<div class="h2">Inside <span>· ${x.kids.length}</span></div><div class="ln kid k"><span>Place</span><span class="r2 k">Opening</span><span class="r2 k">In / Out</span><span class="r2 k">Closing</span></div>`
+    h += x.kids.map(k => { const g = mut(k); return `<div class="ln kid link" data-pick="${k.id}"><span class="l">${k.name}</span><span class="r2 k">${n(g.open)}</span><span class="r2">+${n(g.in)} / −${n(g.out)}</span><span class="r2 v-stock">${n(g.close)}</span></div>` }).join("")
+  }
+  h += `<div style="margin-top:16px"><button class="btn btn-g">${ic("down")}Export per article</button></div>`
+  return h
+}
+function detail(x, inline) {
+  if (isPer()) return detailPeriod(x)
+  const f = facts(x)
+  const up = parentOf(x.id)
+  let h = `<div class="dk">${state.art ? state.art.a + " · " : ""}${up ? up.name : "Inventory"}</div><div class="dh">${x.name}${x.sub ? ` <span class="k" style="font-weight:400">${x.sub}</span>` : ""}</div><div class="dv">${n(f.v)}<small>pieces</small></div>`
+  h += `<div class="h2">The books and the readers</div>
+    <div class="ln"><span class="l">Stock</span><span class="r2">${n(f.v)}</span></div>
+    <div class="ln"><span class="l">Seen <span class="k">${f.seenAt ? "· " + f.seenAt : ""}</span></span><span class="r2 ${f.stale ? "w" : ""}">${f.seen == null ? "—" : n(f.seen)}</span></div>
+    ${f.diff != null ? `<div class="ln"><span class="l">Difference</span><span class="r2 ${f.diffWarn ? "w" : ""}">${diffText(f.diff)}</span></div>` : ""}
+    <div class="ln"><span class="l">${x.leaf && x.id.startsWith("sj") ? "Left" : x.leaf ? "Last counted" : "Oldest count inside"}</span><span class="r2 ${f.ckOld ? "w" : ""}">${f.ck.replace(/^Left |^oldest /, "")}</span>${x.leaf && !x.id.startsWith("sj") ? `<button class="btn btn-g" style="margin-left:8px">${ic("count")}Count now</button>` : ""}</div>`
+  if (x.kids) {
+    h += `<div class="h2">Inside <span>· ${x.kids.length}</span></div><div class="ln kid k"><span>Place</span><span class="r2 k">Stock</span><span class="r2 k">Seen</span><span class="r2 k">Counted</span></div>`
+    h += x.kids.map(k => { const g = facts(k); return `<div class="ln kid link" data-pick="${k.id}"><span class="l">${k.name}${g.probs.length ? ` <span class="dot ${probCls(g)}" style="display:inline-block;vertical-align:middle;margin-left:4px"></span>` : ""}</span><span class="r2 v-stock">${n(g.v)}</span><span class="r2 ${g.stale ? "w" : ""}">${g.seen == null ? "—" : n(g.seen)}</span><span class="r2 ${g.ckOld ? "w" : "k"}">${g.ck.replace(/^oldest |^Left /, "")}</span></div>` }).join("")
+  } else {
+    const hh = hash(x.id + (state.art?.c || "")), sc = Math.max(1, f.v / 20), store = x.id.startsWith("s-")
+    const lines = store ? [["+ Went in", Math.round(sc * (2 + 2 * hh))], ["+ Customer returns", Math.round(sc * .08 * (1 + hh))], ["− Sold", Math.round(sc * (2.5 + hh))], ["− Sent back to HO", Math.round(sc * .3 * hh)]]
+      : [["+ Went in", Math.round(sc * (1.2 + hh))], ["− Went out", Math.round(sc * (1 + hh))]]
+    const start = f.v - lines.reduce((a, [k, v]) => a + (k[0] === "+" ? v : -v), 0)
+    h += `<div class="h2">This week <span>· since Monday 22 Sep</span></div><div class="ln"><span class="l k">On Monday</span><span class="r2">${n(start)}</span></div>${lines.map(([k, v]) => `<div class="ln"><span class="l">${k}</span><span class="r2">${n(v)}</span></div>`).join("")}<div class="ln tot"><span class="l">= Now</span><span class="r2">${n(f.v)}</span></div>`
+  }
+  h += `<div class="h2">Problems <span>· ${f.probs.length || "none"}</span></div>` + (f.probs.length ? f.probs.map(p => `<div class="ln"><span class="dot ${p.c}"></span><span class="l ${p.c}">${p.t}</span><button class="go">${/silent/.test(p.t) ? "Open the store" : /somewhere/.test(p.t) ? "Put them right" : /Store got/.test(p.t) ? "Check the SJ" : /count/.test(p.t) ? "Approve" : "Found or write off"}</button></div>`).join("") : `<div class="none">Nothing.</div>`)
+  return h
+}
+
+/* ── shared page head for B–E ─────────────────────────────────── */
+function head() {
+  const f = facts(build()), probs = f.probs.length, stale = STORES.filter(s => days(s.ck) > STALE).length
+  const per = isPer(), m = per ? mut(build()) : null, P = PERIODS[state.per]
+  const seg = `<div class="seg" role="group" aria-label="Period">${Object.entries(PERIODS).map(([k, v]) => `<button data-per="${k}" aria-pressed="${state.per === k}">${v.label}</button>`).join("")}</div>`
+  return `<div class="hd"><h1>Stock</h1><span class="pcs num">${state.art ? state.art.a + " · " : ""}${per ? `${P.range} · ${n(m.open)} → ${n(m.close)} pieces` : `${n(f.v)} pieces · ${n(f.seen)} seen`}</span><div class="act">${seg}${per ? `<button class="btn btn-g">${ic("down")}Export</button>` : ""}<button class="btn btn-g">PCS</button></div></div>
+    <div class="tools"><div class="find" id="find"><label>${ic("search")}${state.art ? `<span class="scope">${state.art.a}<button data-clear aria-label="Clear">${ic("x")}</button></span>` : ""}<input id="q" placeholder="${state.art ? "" : "One article? Name or code"}" autocomplete="off" /></label><div class="sugg" id="sugg"></div></div>
+    <span class="sum">${per ? `In +${n(m.in)} · Out −${n(m.out)} · click a place for what they were` : `${probs ? `<span class="w">${probs} places have a problem</span>` : "Nothing needs anyone"}${!state.art && stale ? ` · <span class="w">${stale} stores not counted for 3 weeks</span>` : ""}`}</span></div>`
+}
+
+const NOTES = {
+  a: `<b>ERPNext, as it ships.</b> Stock › Warehouse Wise Stock Balance (v14+). A tree of warehouses; each group is the sum of the ones under it; opens three levels deep. One column only: the stock <i>value</i> in money. (In v13 the Warehouse tree itself showed this value beside each node; v15 dropped it.)`,
+  b: `<b>Outline.</b> The same tree with the three facts: Stock, Seen, Counted. A group's Seen is its children's, summed; its Counted is the oldest inside. Problems written on the row.`,
+  c: `<b>Statement.</b> Read like a balance sheet: a group's places, then a Total line, and All stock at the bottom. Adds a Difference column (Seen minus Stock). The way ERPNext's own financial reports read.`,
+  d: `<b>Tree + place.</b> The tree carries only names and stock, so it stays narrow and calm. The evidence (Seen, Counted, the week, problems) sits on the right for whatever is chosen, group or place.`,
+  e: `<b>Columns.</b> Finder-style: Stores, then Jakarta, then Kemang. One level per column, the place itself at the end. Good for drilling in; weaker for comparing every store at once.`,
+}
+
+const PER_NOTE = `<b>Period (mutasi).</b> The same tree as a movement report: Opening + In − Out = Closing, like ERPNext's Stock Balance, but per place and in pieces only (value stays in Finance). In and Out are split by kind, because our ledger knows each movement's action. A move between two places inside a group cancels out at that group. Seen and Counted are not columns here: an observation never moves stock, and a count shows up as its correction.`
+function stockPage() {
+  const m = state.m
+  return `<div class="page"><div class="note">${isPer() ? PER_NOTE : NOTES[m]}</div>${m === "a" ? modelA() : m === "b" ? modelB() : m === "c" ? modelC() : m === "d" ? modelD() : modelE()}</div>`
+}
+function countsPage() {
+  const g = (label, rows) => `<div class="h2" style="color:var(--mute);font-weight:500">${label}</div>${rows.map(([t, s, r, c]) => `<div class="ln" style="min-height:52px">${ic("count")}<span class="l"><span style="color:var(--ink);font-weight:500">${t}</span><br><span class="k">${s}</span></span><span class="r2 ${c || ""}">${r}</span></div>`).join("")}`
+  return `<div class="page"><div class="hd"><h1>Counts</h1><span class="pcs">1 to approve · 2 stores due</span></div>`
+    + g("Waiting for approval", [["Gudang · Warehouse", "Count · closed yesterday by Rina", "4 short", "b"]])
+    + g("Counting now", [["PIK Avenue", "RFID sweep · started 10:12", "2.140 of 2.915 read"]])
+    + g("Due", [["Medan Sun Plaza", "Last counted 20 Aug", "39 days", "b"], ["Bintaro Xchange", "Last counted 2 Sep", "26 days", "b"]]) + `</div>`
+}
+function setupPage() {
+  const it = [["ruler", "Units & conversions", "PCS, LUSIN, KODI and how many pieces each is"], ["flow", "Goods flows", "The stages each route of goods runs"], ["pin", "Places", "The places stock can stand in, and which hold which"], ["radio", "Readers", "Handhelds and arches, and what they read"], ["pulse", "Ledger health", "Replay, repost and the time machine"]]
+  return `<div class="page"><div class="hd"><h1>Setup</h1><span class="pcs">Set once, changed rarely</span></div>${it.map(([i, t, s]) => `<div class="ln" style="min-height:52px">${ic(i)}<span class="l"><span style="color:var(--ink);font-weight:500">${t}</span><br><span class="k">${s}</span></span></div>`).join("")}</div>`
+}
+
+/* ── shell ────────────────────────────────────────────────────── */
+const MODS = [["home","Home"],["cart","Buying"],["shirt","Merchandise"],["forklift","Operations",12],["box","Inventory"],["tag","Marketing"],["receipt","Sales"],["wallet","Finance",3],["person","HR"],["building","GA"],["cog","System"]]
+function side() {
+  const subs = [["stock","Stock"],["counts","Counts",1],["setup","Setup"]]
+  return `<div class="brand"><span class="mark">C</span>Central</div>` + MODS.map(([i, l, c]) => l === "Inventory"
+    ? `<button class="row on">${ic(i)}<span>Inventory</span></button><div class="subs">${subs.map(([id, t, ct]) => `<button class="sub" data-page="${id}"${state.page === id ? " aria-current=page" : ""}>${t}${ct ? `<span class="ct">${ct}</span>` : ""}</button>`).join("")}</div>`
+    : `<button class="row">${ic(i)}<span>${l}</span>${c ? `<span class="ct">${c}</span>` : ""}</button>`).join("")
+}
+function render() {
+  document.querySelectorAll(".seg").forEach(s => s.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", state[s.dataset.tg] === b.dataset.v)))
+  document.querySelectorAll(".proto .tg").forEach(t => t.style.visibility = state.page === "stock" ? "" : "hidden")
+  document.getElementById("side").innerHTML = side()
+  document.getElementById("main").innerHTML = state.page === "counts" ? countsPage() : state.page === "setup" ? setupPage() : stockPage()
+}
+function openSheet(id) {
+  const x = find(id); if (!x) return
+  state.sel = id
+  document.getElementById("sheet").innerHTML = detail(x)
+  document.getElementById("pw").classList.add("open")
+  document.querySelectorAll("[aria-current=true]").forEach(e => { if (e.dataset.id) e.removeAttribute("aria-current") })
+  document.querySelector(`[data-id="${id}"]`)?.setAttribute("aria-current", "true")
+}
+function closeSheet() { document.getElementById("pw").classList.remove("open"); document.querySelectorAll("[data-id][aria-current]").forEach(e => e.removeAttribute("aria-current")) }
+
+/* ── search ───────────────────────────────────────────────────── */
+let hl = 0
+function suggest(q) {
+  const m = ART.filter(a => !q || a.a.toLowerCase().includes(q.toLowerCase()) || a.c.includes(q)); hl = 0
+  document.getElementById("sugg").innerHTML = m.map((a, i) => `<button data-art="${a.c}" class="${i ? "" : "hl"}"><span>${a.a}</span><span class="c">${a.c}</span></button>`).join("") || `<div class="none" style="padding:8px">No article like that</div>`
+  document.getElementById("find").classList.add("open")
+}
+document.addEventListener("focusin", (e) => { if (e.target.id === "q" && !state.art) suggest(e.target.value) })
+document.addEventListener("input", (e) => { if (e.target.id === "q") suggest(e.target.value) })
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { closeSheet(); document.getElementById("find")?.classList.remove("open"); return }
+  if (e.target.id === "q") {
+    const bs = [...document.querySelectorAll("#sugg button")]
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); hl = (hl + (e.key === "ArrowDown" ? 1 : -1) + bs.length) % bs.length; bs.forEach((b, i) => b.classList.toggle("hl", i === hl)) }
+    if (e.key === "Enter" && bs[hl]) bs[hl].click()
+    if (e.key === "Backspace" && !e.target.value && state.art) { state.art = null; render(); document.getElementById("q").focus() }
+  }
+})
+document.addEventListener("click", (e) => {
+  const t = e.target
+  if (!t.closest("#find")) document.getElementById("find")?.classList.remove("open")
+  const pe = t.closest("[data-per]"); if (pe) { state.per = pe.dataset.per; closeSheet(); render(); return }
+  const seg = t.closest(".seg button"); if (seg) { state[seg.parentElement.dataset.tg] = seg.dataset.v; closeSheet(); render(); return }
+  const pg = t.closest("[data-page]"); if (pg) { state.page = pg.dataset.page; closeSheet(); render(); return }
+  const art = t.closest("[data-art]"); if (art) { state.art = ART.find(a => a.c === art.dataset.art); render(); return }
+  if (t.closest("[data-clear]")) { state.art = null; render(); return }
+  const a = t.closest("[data-a]"); if (a) { const open = a.dataset.a === "expand"; const walk = (x, d) => { if (x.kids) { state.shut["a:" + x.id] = !open; x.kids.forEach(k => walk(k, d + 1)) } }; walk(build(), 0); state.shut["a:all"] = false; render(); return }
+  const tw = t.closest("[data-t]"); if (tw) { e.stopPropagation(); const k = tw.dataset.t; state.shut[k] = tw.dataset.open !== undefined ? tw.dataset.open !== "true" : !state.shut[k]; render(); return }
+  if (t.closest("[data-close]")) { closeSheet(); return }
+  const pk = t.closest("[data-pick]"); if (pk) {
+    const id = pk.dataset.pick
+    if (state.m === "e") { const p = []; let cur = find(id); while (cur) { p.unshift(cur.id); cur = parentOf(cur.id) } state.path = p }
+    else if (state.m === "d") { state.sel = id; let cur = parentOf(id); while (cur) { state.shut["d:" + cur.id] = false; cur = parentOf(cur.id) } }
+    else { openSheet(id); return }
+    render(); return
+  }
+  const pc = t.closest("[data-pickc]"); if (pc) { const col = pc.dataset.col, i = state.path.indexOf(col); state.path = [...state.path.slice(0, i + 1), pc.dataset.pickc]; render(); return }
+  const r = t.closest("[data-id]"); if (r && (state.m === "b" || state.m === "c")) {
+    const x = find(r.dataset.id)
+    if (x && x.kids && state.m === "b" && x.id !== "all") { state.shut["b:" + x.id] = !state.shut["b:" + x.id]; render(); return }
+    if (x) openSheet(x.id)
+  }
+})
+document.getElementById("theme").addEventListener("click", () => {
+  const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches
+  r.dataset.theme = dark ? "light" : "dark"
+})
+render()
+</script>
+</body>
+</html>

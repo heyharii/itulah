@@ -36,10 +36,9 @@ use super::ledger::{assert_category_for_account, assert_postable, resolve_accoun
 use super::poster::{post, reverse, LineAccount, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
-    accounting_month, cash_direction, cash_document_number, holds_money, rupiah_in_words,
-    CashDirection, MONEY_MEANINGS,
+    cash_direction, holds_money, rupiah_in_words, CashDirection, MONEY_MEANINGS,
 };
-use chrono::{DateTime, Datelike, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
@@ -159,6 +158,21 @@ pub struct CashDocumentRow {
     pub approved_at: Option<DateTime<Utc>>,
     pub posted_by: Option<String>,
     pub posted_at: Option<DateTime<Utc>>,
+
+    /// `CASH`, `TRANSFER` or `GIRO` (0711).
+    pub method: String,
+    pub reference: Option<String>,
+    pub giro_number: Option<String>,
+    pub giro_due_date: Option<NaiveDate>,
+    /// The bank a giro we received is drawn on.
+    pub giro_bank: Option<String>,
+    /// A BKK / BKM voucher keyed with lines: the side that is not the money
+    /// account is carried by `lines`.
+    pub has_lines: bool,
+    /// The payment written when the voucher settled bills.
+    pub supplier_payment_id: Option<Uuid>,
+    /// The voucher's lines. Filled when one document is read; empty in a list.
+    pub lines: Vec<super::voucher::CashDocumentLineRow>,
 }
 
 const DOCUMENT_COLUMNS: &str = "d.document_id, d.kind, d.number, d.doc_date,
@@ -169,6 +183,8 @@ const DOCUMENT_COLUMNS: &str = "d.document_id, d.kind, d.number, d.doc_date,
      d.status, d.journal_entry_id, d.reversal_entry_id,
      d.created_by, d.created_at, d.approved_by, d.approved_at,
      d.posted_by, d.posted_at,
+     d.method, d.reference, d.giro_number, d.giro_due_date, d.giro_bank, d.has_lines,
+     d.supplier_payment_id,
      (SELECT e.entry_number FROM journal_entry e WHERE e.entry_id = d.journal_entry_id)
          AS entry_number";
 
@@ -207,6 +223,14 @@ fn to_document(row: &sqlx::postgres::PgRow) -> Result<CashDocumentRow, AppError>
         approved_at: row.try_get("approved_at")?,
         posted_by: row.try_get("posted_by")?,
         posted_at: row.try_get("posted_at")?,
+        method: row.try_get("method")?,
+        reference: row.try_get("reference")?,
+        giro_number: row.try_get("giro_number")?,
+        giro_due_date: row.try_get("giro_due_date")?,
+        giro_bank: row.try_get("giro_bank")?,
+        has_lines: row.try_get("has_lines")?,
+        supplier_payment_id: row.try_get("supplier_payment_id")?,
+        lines: Vec::new(),
     })
 }
 
@@ -245,7 +269,11 @@ pub async fn cash_document_read(
         .fetch_optional(pool)
         .await?
         .ok_or_else(|| AppError::NotFound("cash document".into()))?;
-    to_document(&row)
+    let mut document = to_document(&row)?;
+    if document.has_lines {
+        document.lines = super::voucher::voucher_lines(pool, document_id).await?;
+    }
+    Ok(document)
 }
 
 // ---------------------------------------------------------------------------
@@ -280,7 +308,7 @@ async fn money_meaning_of(
     }
 }
 
-async fn resolve_side(
+pub(super) async fn resolve_side(
     pool: &PgPool,
     side: &CashSide,
     which: &str,
@@ -637,36 +665,21 @@ pub async fn cash_document_record(
 // Approval, which is where the number comes from
 // ---------------------------------------------------------------------------
 
-/// Take the next number for one kind in one month.
-///
-/// `INSERT ... ON CONFLICT DO UPDATE` rather than a read then a write: the row
-/// is locked by the update itself, so two approvals in the same second cannot
-/// both read 41. A Postgres sequence would be simpler and wrong — it is global,
-/// and the client's number carries the month.
+/// Take the next number for one kind of cash document, from its series
+/// (0701): `KK` out of a pot, `KM` into one, `TF` between two of our own, in
+/// the books of the unit the money left (or, for `KM`, arrived in).
 async fn next_number(
     tx: &mut Transaction<'_, Postgres>,
     direction: CashDirection,
     doc_date: NaiveDate,
+    unit_id: &str,
 ) -> Result<String, AppError> {
-    let month = accounting_month(doc_date.year(), doc_date.month());
-    let row = sqlx::query(
-        "INSERT INTO cash_document_sequence (kind, yyyymm, last_no)
-         VALUES ($1,$2,1)
-         ON CONFLICT (kind, yyyymm)
-         DO UPDATE SET last_no = cash_document_sequence.last_no + 1
-         RETURNING last_no",
-    )
-    .bind(direction.kind())
-    .bind(month)
-    .fetch_one(&mut **tx)
-    .await?;
-    let sequence: i32 = row.try_get("last_no")?;
-    Ok(cash_document_number(
-        direction,
-        doc_date.year(),
-        doc_date.month(),
-        i64::from(sequence),
-    ))
+    let kind = match direction {
+        CashDirection::Out => super::number_series::CASH_OUT,
+        CashDirection::In => super::number_series::CASH_IN,
+        CashDirection::Between => super::number_series::CASH_TRANSFER,
+    };
+    super::number_series::next_number(&mut **tx, kind, doc_date, Some(unit_id)).await
 }
 
 pub(super) async fn cash_document_approve_in(
@@ -675,7 +688,7 @@ pub(super) async fn cash_document_approve_in(
     actor: &str,
 ) -> Result<String, AppError> {
     let row = sqlx::query(
-        "SELECT kind, doc_date, status, number FROM cash_document
+        "SELECT kind, doc_date, status, number, from_unit, to_unit FROM cash_document
           WHERE document_id = $1 FOR UPDATE",
     )
     .bind(document_id)
@@ -696,7 +709,13 @@ pub(super) async fn cash_document_approve_in(
     let direction = CashDirection::from_kind(&kind)
         .ok_or_else(|| AppError::Validation(format!("'{kind}' is not a cash document kind")))?;
 
-    let number = next_number(tx, direction, doc_date).await?;
+    // The unit whose books the slip is filed in: the one the money left, or
+    // for money coming in, the one it arrived at.
+    let unit: String = match direction {
+        CashDirection::In => row.try_get("to_unit")?,
+        CashDirection::Out | CashDirection::Between => row.try_get("from_unit")?,
+    };
+    let number = next_number(tx, direction, doc_date, &unit).await?;
     sqlx::query(
         "UPDATE cash_document
             SET status='APPROVED', number=$2, approved_by=$3, approved_at=now()
@@ -726,7 +745,7 @@ pub async fn cash_document_approve(
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
-fn side_line(
+pub(super) fn side_line(
     key: Option<&str>,
     qualifier: &str,
     account_code: Option<&str>,
@@ -789,7 +808,7 @@ pub(super) async fn cash_document_post_in(
 ) -> Result<super::poster::Posted, AppError> {
     let row = sqlx::query(
         "SELECT kind, number, status, doc_date, amount_minor, currency, memo,
-                party_name, party_type, supplier_id,
+                party_name, party_type, supplier_id, has_lines,
                 from_key, from_qualifier, from_account_code, from_category_code, from_unit,
                 to_key, to_qualifier, to_account_code, to_category_code, to_unit
            FROM cash_document WHERE document_id = $1 FOR UPDATE",
@@ -811,6 +830,10 @@ pub(super) async fn cash_document_post_in(
             "POSTED" => format!("cash document {label} is already in the ledger"),
             _ => format!("cash document {label} is {}", status.to_lowercase()),
         }));
+    }
+    // A BKK / BKM keyed with lines posts its own entry (0711).
+    if row.try_get::<bool, _>("has_lines")? {
+        return super::voucher::voucher_post_in(tx, document_id, posting_date, actor).await;
     }
 
     let amount: i64 = row.try_get("amount_minor")?;
@@ -1030,20 +1053,35 @@ pub async fn cash_document_reverse(
     }
     let entry_id: Uuid = row.try_get("journal_entry_id")?;
     let doc_date: NaiveDate = row.try_get("doc_date")?;
-    let mirror = reverse(
+    let on = posting_date.unwrap_or(doc_date);
+    // Paid by giro: the leaf comes off the board with the document, or the
+    // reversal is refused if the bank has already taken it (0712).
+    super::giro::giro_void_for(
         &mut tx,
-        entry_id,
-        posting_date.unwrap_or(doc_date),
-        reason,
+        None,
+        Some(document_id),
+        on,
+        &format!("cash document {label} was reversed: {reason}"),
         actor,
     )
     .await?;
+    let mirror = reverse(&mut tx, entry_id, on, reason, actor).await?;
     sqlx::query(
         "UPDATE cash_document SET status='REVERSED', reversal_entry_id=$2 WHERE document_id=$1",
     )
     .bind(document_id)
     .bind(mirror.entry_id)
     .execute(&mut *tx)
+    .await?;
+    // A voucher that settled bills wrote a payment and may have netted off
+    // advances; the mirror undoes the entry, and this undoes those.
+    super::voucher::voucher_undo_settlement(
+        &mut tx,
+        document_id,
+        mirror.entry_id,
+        &format!("cash document {label} was reversed: {reason}"),
+        actor,
+    )
     .await?;
     // The mirror credits back whatever this document debited, so a payable it
     // had answered is open again. Nothing happens for the four documents in
@@ -1122,6 +1160,28 @@ pub struct CashDocumentSlip {
     pub checked_by: Option<String>,
     /// Disetujui oleh.
     pub approved_by: Option<String>,
+
+    /// `CASH`, `TRANSFER` or `GIRO`, and the giro when it was one (0711).
+    pub method: String,
+    pub reference: Option<String>,
+    pub giro_number: Option<String>,
+    pub giro_due_date: Option<NaiveDate>,
+    /// A voucher's lines, as they print: what each one is and how much.
+    pub lines: Vec<SlipLine>,
+}
+
+/// One printed line of a BKK / BKM voucher.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SlipLine {
+    /// `SETTLE`, `OTHER` or `OFFSET`.
+    pub kind: String,
+    /// The bill number, the advance number, or the account.
+    pub description: String,
+    pub account: Option<SlipAccount>,
+    pub amount_minor: i64,
+    pub discount_minor: i64,
+    pub note: Option<String>,
 }
 
 async fn account_name_of(pool: &PgPool, code: &str) -> Result<String, AppError> {
@@ -1228,6 +1288,49 @@ pub async fn cash_document_slip(
     )
     .await?;
 
+    let mut lines = Vec::with_capacity(document.lines.len());
+    for line in &document.lines {
+        let (description, account) = match line.kind.as_str() {
+            "SETTLE" => (
+                format!(
+                    "Pelunasan {}",
+                    line.invoice_number.clone().unwrap_or_default()
+                ),
+                None,
+            ),
+            "OFFSET" => (
+                format!(
+                    "Uang muka {}",
+                    line.advance_number.clone().unwrap_or_default()
+                ),
+                None,
+            ),
+            _ => {
+                let account = slip_side(
+                    pool,
+                    line.semantic_key.as_deref(),
+                    &line.qualifier,
+                    line.account_code.as_deref(),
+                    line.category_code.as_deref(),
+                    line.unit_id.as_deref().unwrap_or(&document.from_unit),
+                )
+                .await?;
+                (
+                    format!("{} {}", account.account_code, account.account_name),
+                    Some(account),
+                )
+            }
+        };
+        lines.push(SlipLine {
+            kind: line.kind.clone(),
+            description,
+            account,
+            amount_minor: line.amount_minor,
+            discount_minor: line.discount_minor,
+            note: line.note.clone(),
+        });
+    }
+
     Ok(CashDocumentSlip {
         company_name,
         company_address,
@@ -1245,5 +1348,10 @@ pub async fn cash_document_slip(
         prepared_by: document.created_by,
         checked_by: None,
         approved_by: document.approved_by,
+        method: document.method,
+        reference: document.reference,
+        giro_number: document.giro_number,
+        giro_due_date: document.giro_due_date,
+        lines,
     })
 }

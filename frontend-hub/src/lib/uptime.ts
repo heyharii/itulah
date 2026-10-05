@@ -92,5 +92,15 @@ export function overall(nodes: readonly NodeUptime[]): {
     }
   if (nodes.length === 0)
     return { tone: "neutral", headline: "No store servers yet" }
+  // A server that has never reported is not "up" — saying so over nine grey
+  // rows was the headline lying.
+  const unseen = nodes.filter((node) => node.state === "UNKNOWN").length
+  if (unseen === nodes.length)
+    return { tone: "neutral", headline: "No store server has reported in yet" }
+  if (unseen)
+    return {
+      tone: "neutral",
+      headline: `${nodes.length - unseen} up · ${unseen} not seen yet`,
+    }
   return { tone: "ok", headline: "All store servers are up" }
 }

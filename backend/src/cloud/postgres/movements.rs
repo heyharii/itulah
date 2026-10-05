@@ -211,7 +211,8 @@ async fn create_movement_with_cause(
     Ok(response)
 }
 
-pub(super) async fn insert_group(
+// pub(crate): the cloud-run Gudang (cloud::dc) books its stock through these.
+pub(crate) async fn insert_group(
     tx: &mut Transaction<'_, Postgres>,
     command: &MovementCommand,
     idempotency_key: &str,
@@ -229,7 +230,8 @@ pub(super) async fn insert_group(
     Ok(())
 }
 
-pub(super) async fn apply_lines(
+// pub(crate): the cloud-run Gudang (cloud::dc) books its stock through these.
+pub(crate) async fn apply_lines(
     tx: &mut Transaction<'_, Postgres>,
     command: &MovementCommand,
     idempotency_key: &str,
@@ -670,6 +672,8 @@ pub struct MovementRow {
     pub subject_id: Uuid,
     pub epc: Option<String>,
     pub sku_code: Option<String>,
+    /// The article's name — a ledger is read by people as well as by SKU.
+    pub article_name: Option<String>,
     pub quantity: i64,
     /// Place ids, not pool ids: `dc.warehouse:on_hand`. The state is part of
     /// the place, which is how a move into `:missing` is a posting rather than
@@ -808,7 +812,7 @@ fn movement_rows() -> String {
     let matched = movement_match();
     format!(
         r#"
-SELECT m.movement_id,m.movement_group_id,m.subject_id,s.epc,sk.sku_code,m.quantity,
+SELECT m.movement_id,m.movement_group_id,m.subject_id,s.epc,sk.sku_code,art.name article_name,m.quantity,
        m.from_place_id,m.to_place_id,m.cause,m.reference_type,m.reference_id,
        line.id allotment_line_id,COALESCE(line.allotment_id,legacy.id) allotment_id,
        line.destination_type,line.destination_id,m.actor_id,m.occurred_at,m.recorded_at,
@@ -816,6 +820,7 @@ SELECT m.movement_id,m.movement_group_id,m.subject_id,s.epc,sk.sku_code,m.quanti
 FROM (SELECT * {matched}) m
 JOIN inventory_subject s ON s.id=m.subject_id
 LEFT JOIN sku sk ON sk.id=s.sku_id
+LEFT JOIN article art ON art.id=sk.article_id
 LEFT JOIN allotment_line line ON m.reference_type='ALLOTMENT_LINE' AND m.reference_id=line.id::text
 LEFT JOIN allotment legacy ON m.reference_type='ALLOTMENT' AND m.reference_id=legacy.id::text
 "#
@@ -835,6 +840,7 @@ fn movement_row_from(row: &sqlx::postgres::PgRow) -> Result<MovementRow, AppErro
         subject_id: row.try_get("subject_id")?,
         epc: row.try_get("epc")?,
         sku_code: row.try_get("sku_code")?,
+        article_name: row.try_get("article_name")?,
         quantity: row.try_get("quantity")?,
         from: row.try_get("from_place_id")?,
         to: row.try_get("to_place_id")?,

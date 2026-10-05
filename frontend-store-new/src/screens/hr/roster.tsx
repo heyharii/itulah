@@ -54,7 +54,7 @@ import type {
 /// seven chances for one of them to fail.
 export function HrRoster() {
   return (
-    <HrWorkspace sub="The shop builds the rota from head office's shift patterns. Tap a day to plan it; the rows at the foot count cover.">
+    <HrWorkspace>
       {(scope) => <Roster scope={scope} />}
     </HrWorkspace>
   )
@@ -91,8 +91,8 @@ function Roster({ scope }: { scope: StoreScope }) {
   const thisWeek = isoDay(mondayOf(new Date()))
 
   const roster = useQuery({
-    queryKey: hrKeys.roster(scope.id, from, to),
-    queryFn: ({ signal }) => rosterAt(scope.id, from, to, signal),
+    queryKey: hrKeys.roster(scope.unit_id, from, to),
+    queryFn: ({ signal }) => rosterAt(scope.unit_id, from, to, signal),
   })
   const team = useTeam(scope)
   const catalogue = useQuery({
@@ -158,7 +158,7 @@ function Roster({ scope }: { scope: StoreScope }) {
       </Heading>
 
       {centreState(roster, {
-        loading: "Reading the week head office holds…",
+        loading: "Loading…",
         what: "this shop's rota",
         render: (rows) => (
           <Grid
@@ -171,10 +171,7 @@ function Roster({ scope }: { scope: StoreScope }) {
         ),
       })}
 
-      <p className="mt-3 text-meta text-mute">
-        A day with no plan is shown as —: nobody has planned it, which is not
-        the same as a day off. A cell marked ↻ has been re-planned.
-      </p>
+      <p className="mt-3 text-meta text-mute">— not planned · ↻ re-planned</p>
 
       {target !== null && (
         <PlanSheet
@@ -241,8 +238,7 @@ function Grid({
   if (people.length === 0) {
     return (
       <Banner tone="info">
-        Nobody is posted here and nobody is rostered this week. That is a week
-        nobody has planned, not a shop that is shut.
+        Nobody rostered this week.
       </Banner>
     )
   }
@@ -493,8 +489,8 @@ function PlanSheet({
               label="Shift"
               hint={
                 catalogue.length === 0
-                  ? "Head office has defined no shift patterns yet."
-                  : "Head office's patterns; a shop cannot invent one."
+                  ? "No shift patterns yet."
+                  : undefined
               }
             >
               <Select value={shiftId} onChange={setShiftId}>
@@ -509,8 +505,7 @@ function PlanSheet({
             </Field>
           )}
           <Field
-            label="Why"
-            hint="Head office refuses a plan with no reason on it."
+            label="Reason"
           >
             <Input
               value={reason}

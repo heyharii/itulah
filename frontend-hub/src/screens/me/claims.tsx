@@ -210,7 +210,6 @@ function ClaimForm({ onDone }: { onDone: () => void }) {
             value={spentOn}
             onChange={setSpentOn}
             label="Spent on"
-            placeholder="Choose a day"
             notAfter={isoDate(new Date())}
             clearable={false}
             className={TAP}

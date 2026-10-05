@@ -17,7 +17,7 @@ import {
   saveTaxType,
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
-import { Code, Grid, Td, Th } from "@/screens/finance-final/parts"
+import { Grid, Td, Th } from "@/screens/finance-final/parts"
 import { useLocations } from "@/screens/finance/hooks"
 import { useTaxTemplates } from "@/screens/finance/master-data"
 import {
@@ -56,9 +56,8 @@ export function TaxWithholding() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance · Taxes"
-        title="Tax withholding categories"
-        sub="What a supplier payment keeps back and at what rate. The payable it lands on is an account link with the category as its source."
+        crumb="Finance · Tax Masters"
+        title="Tax Withholding Category"
         actions={
           <Button variant="primary" onClick={() => setEditing("new")}>
             New category
@@ -80,8 +79,8 @@ export function TaxWithholding() {
                   <Grid>
                     <thead>
                       <tr>
-                        <Th>Code</Th>
                         <Th>Name</Th>
+                        <Th>Code</Th>
                         <Th align="right">Rate</Th>
                         <Th align="center">Final</Th>
                         <Th />
@@ -95,9 +94,6 @@ export function TaxWithholding() {
                           className="cursor-pointer hover:bg-soft"
                         >
                           <Td>
-                            <Code>{row.code}</Code>
-                          </Td>
-                          <Td>
                             <span className="text-ink">{row.name}</span>
                             {!row.is_active && (
                               <Pill tone="neutral" className="ml-2">
@@ -107,6 +103,9 @@ export function TaxWithholding() {
                             {row.note && (
                               <div className="text-mute">{row.note}</div>
                             )}
+                          </Td>
+                          <Td className="font-mono text-[0.875rem] text-mute">
+                            {row.code}
                           </Td>
                           <Td align="right">{rateOf(row.rate_bps)}</Td>
                           <Td align="center">
@@ -193,7 +192,6 @@ function TemplateForm({
           value={code}
           disabled={template !== null}
           onChange={(event) => setCode(event.target.value)}
-          placeholder="PPH23_JASA"
         />
       </Field>
       <Field label="Name" required>
@@ -213,7 +211,6 @@ function TemplateForm({
           value={rate}
           inputMode="decimal"
           onChange={(event) => setRate(event.target.value)}
-          placeholder="2"
         />
       </Field>
       <Checkbox
@@ -240,7 +237,7 @@ function TemplateForm({
           disabled={code.trim() === "" || name.trim() === "" || bps === null}
           onClick={() => save.mutate()}
         >
-          {save.isPending ? "Saving…" : "Save category"}
+          {save.isPending ? "Submitting…" : "Submit"}
         </Button>
       </div>
     </EditorCard>
@@ -264,9 +261,8 @@ export function TaxTypes() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance · Taxes"
-        title="Tax types"
-        sub="The taxes owed or claimed per period, and the role each one's account answers to on Account links."
+        crumb="Finance · Tax Masters"
+        title="Tax Types"
         actions={
           <Button variant="primary" onClick={() => setEditing("new")}>
             New tax type
@@ -285,8 +281,8 @@ export function TaxTypes() {
                   <Grid>
                     <thead>
                       <tr>
-                        <Th>Code</Th>
                         <Th>Name</Th>
+                        <Th>Code</Th>
                         <Th>Nature</Th>
                         <Th>Role</Th>
                         <Th>Authority</Th>
@@ -301,15 +297,15 @@ export function TaxTypes() {
                           className="cursor-pointer hover:bg-soft"
                         >
                           <Td>
-                            <Code>{row.code}</Code>
-                          </Td>
-                          <Td>
                             <span className="text-ink">{row.name}</span>
                             {!row.active && (
                               <Pill tone="neutral" className="ml-2">
                                 Inactive
                               </Pill>
                             )}
+                          </Td>
+                          <Td className="font-mono text-[0.875rem] text-mute">
+                            {row.code}
                           </Td>
                           <Td>{label(row.nature)}</Td>
                           <Td>
@@ -394,7 +390,6 @@ function TaxTypeForm({
           value={code}
           disabled={tax !== null}
           onChange={(event) => setCode(event.target.value)}
-          placeholder="PPH4_2"
         />
       </Field>
       <Field label="Name" required>
@@ -415,7 +410,6 @@ function TaxTypeForm({
           value={role}
           onChange={(event) => setRole(event.target.value)}
           list="tax-type-roles"
-          placeholder="pph23_payable"
         />
         <datalist id="tax-type-roles">
           {(roles.data?.roles ?? []).map((one) => (
@@ -451,7 +445,7 @@ function TaxTypeForm({
           }
           onClick={() => save.mutate()}
         >
-          {save.isPending ? "Saving…" : "Save tax type"}
+          {save.isPending ? "Submitting…" : "Submit"}
         </Button>
       </div>
     </EditorCard>

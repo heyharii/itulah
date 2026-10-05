@@ -1,0 +1,110 @@
+# E2E report A — Procurement (Suppliers → PO → Receiving → Review)
+
+Rig: pos-e2e, hub :5480 (cloud :8480). Buyer = rina, Gudang = nina, finance = yusuf. Run 01 Oct 23:25 – 02 Oct 01:10, so the POs are numbered PO-**02**1026-NNN. Viewport emulated at 1280x860.
+
+Test data: supplier **QA Testing, CV (0002)**; POs PO-021026-001 … -009 (003 cancelled clean, 009 cancelled with a count waiting); returns RS-00000001/2.
+
+**Headline:** suppliers, PO create/edit/cancel and every receiving branch (match, short-keep, short-close, over, recount) work end to end. Found 2 critical bugs: (1) a cancelled PO can still be received; (2) one GRN and one invoice are shared across several POs. Also high: a PO counted by its own buyer is stuck forever, and PO Activity misses create/edit/cancel.
+
+## Steps
+
+| # | Step | Result | Notes |
+|---|------|--------|-------|
+| 1.1 | Create supplier "QA Testing" CV + address/phone/email | PASS | Saved; list shows "QA Testing, CV", code **0002**, Active, 0/0/0, Last purchased "—". The "Supplier saved" panel auto-closes on a timer, so I only confirmed the number via the list/sheet header. |
+| 1.2 | 4-digit supplier number | PASS (with note) | New supplier gets `0002`; but 8 of 10 seeded suppliers show `SUP-0xx` codes and one `0001` — two code formats side by side in the Code column. |
+| 1.3 | Sheet Details + Activity at foot | PASS | Company facts, Contact person, Notes, Activity ("Rina Kusuma created this supplier"). |
+| 1.4 | Add contact person (via Edit) | PASS | Contact saved, shows in table; Activity "added a contact person". |
+| 1.5 | Edit: only Address/contacts editable | FAIL (minor) | Name, Legal form, Email, Phone, NPWP disabled as expected, but **PKP switch and Notes are still editable**. |
+| 1.6 | Orders tab | PASS | Active/Completed/Cancelled order sections, "None." each. |
+| 1.7 | Catalogue tab: Add item x3 with divisions/tags/colours+sizes | FAIL | Supplier-sheet "Add item" only asks Supplier's code, Name, Unit price. No division, tags, colours or sizes. Added 3 items (QA-KAOS-01 Rp 45.000, QA-SPT-02 Rp 150.000, QA-TAS-03 Rp 85.000); DIVISION/TAGS columns show "—". Item sheet is read-only ("Nobody has said what colours or sizes…") with no Edit. The full Add item form (item-form.tsx) only lives in Procurement › Catalogue / PO composer. |
+| 1.8 | Active switch off → confirm with red Continue | PASS | Dialog "Make this supplier non-active?" with red (destructive) Continue; status → Non-active, Activity "deactivated". |
+| 1.9 | Non-active supplier not offered in PO composer | PASS | Supplier picker list did not include QA Testing. |
+| 1.10 | Turn back on | PASS (minor) | Activated (POST /activate 200). Activity on the open sheet did not refresh to show "activated" until the sheet was reopened. |
+| 1.11 | List columns | PASS | No, Supplier, Code, Status, Active order, Completed order, Cancelled order, Last purchased; footer totals. |
+| 1.12 | Expand chevron | PASS | Shows active POs (Order, Date issued, Delivery date, Qty, Value) + "View all 10". Qty column has no unit (e.g. "24"). |
+| 1.13 | Print (A5) | BLOCKED | Print calls `window.open("")`; the popup does not surface in the Browser pane, so the A5 content could not be inspected. |
+| 2.1 | Composer: supplier, typed delivery date, Net 30 | PASS (with notes) | Supplier picker; typed "20/10" read back as "Tuesday, 20 October 2026 — Enter to take it" → 20 Oct 2026; Payment terms list None / 40% advance… / 50% advance… / Net 30 / Cash on delivery. Date-typing placeholder is Indonesian ("Type: besok, jumat, 15/10, akhir bulan"). The calendar popover is clipped at the bottom inside the sheet (last week rows hidden). |
+| 2.2 | Browse catalogue → Add item (division/tags/unit) | PASS | Picked Kaos QA Polos + Sepatu QA Kanvas → "1 of 2" Add item sheet with Division, Tags, Purchase price, Markup, Base price, Qty + Unit (Piece/Gross/Kodi/Lusin). 10 Kodi → "200 pcs · Rp 9.000.000", line shows "10 kodi / 200 pcs, Rp 900.000 / kodi". |
+| 2.3 | Second line of the same item in pcs ("10 kodi + 2 pcs") | FAIL | Browse catalogue marks the item "On the order" and it cannot be picked again; I found no other way in the composer to add a second unit line for the same item. |
+| 2.4 | New item with colours + sizes | PARTIAL / FAIL | Kemeja QA Flanel, Pria, tag Kemeja, colours Navy+White, sizes M+L, Rp 120.000, qty 3/3/2/2. Bugs: (a) the Colours list said "Nothing matches." while /api/v1/colours was still loading (16 s), not "Loading…"; (b) the SKU grid's SIZE column shows the codes **03 / 04** instead of M / L; (c) the grid footer says **Rp 0** for 10 pcs at Rp 120.000 when the per-SKU price is left as "Base price". After "Add to order" the composer line correctly reads 10 pcs, Rp 1.200.000. |
+| 2.5 | Composer totals | PASS | 216 pcs, Rp 11.100.000 (9.000.000 + 900.000 + 1.200.000). |
+| 2.6 | Review step | PASS (with notes) | Supplier, Delivery date, Payment terms "Net 30", lines table, Total 216 pcs / Rp 11.100.000, "The supplier will invoice Rp 11.100.000". The review does not list the 4 SKUs (colour/size) of the Kemeja line. |
+| 2.7 | Create order → PO number | PASS (2nd attempt) | First attempt hung in "Creating…" and was then lost to a Vite reload and the cloud going down (see blockers). After the cloud came back at 00:30 (date now **02 Oct**): "Purchase order issued · PO number **PO-021026-001** · QA Testing, CV · 216 pcs · Rp 11.100.000 · Moves on in a moment · Done". Format PO-DDMMYY-NNN is correct for 02 Oct. |
+| 2.8 | List row | PASS | "QA Testing / PO-021026-001 · 20 Oct 2026 · **10 kodi + 16 pcs** · Rp 11.100.000 · 0 pcs · Rp 0 · Active". Supplier is shown without ", CV". |
+| 2.9 | PO sheet | PARTIAL | Header: PO number, Active, "Created by rina · 02 Oct 2026", Edit / Print / Cancel order; facts Supplier, Date created, Delivery date, Payment terms "Net 30"; lines with RECEIVED column. Problems: **Activity is empty ("Nothing has been done to this record since the log began.") after create, edit and cancel**. `/api/v1/records/purchase_order/<id>/info` returns `activity: []`. Supplier shows as "QA Testing" (no legal form). Division reads "Sandal sepatu" on the sheet vs "Sandal dan Sepatu" in the composer. SKU line reads "NAVY/03 ×3 · NAVY/04 ×3 · WHITE/03 ×2 · WHITE/04 ×2", which is codes, not "Navy / M". |
+| 2.10 | Edit PO: change quantity + delivery date | PASS (with note) | Quantities cannot be edited on a line: the only options are remove (trash) and re-adding via Browse catalogue, and Division/Tags must be re-entered. Removed Sepatu (6) and re-added it as 8 pcs; date 20 → 22 Oct; "Review the changes" → Save changes. Sheet then shows 22 Oct, Sepatu 8 pcs, 218 pcs / Rp 11.400.000. The review screen does not mark what changed (no 6 → 8, 20 → 22). |
+| 2.11 | PO-B, PO-C | PASS | PO-B = **PO-021026-002** (Kaos 2 pcs + Tas 5 pcs, 21 Oct, no payment terms; optional terms accepted). PO-C = **PO-021026-003** (Tas 3 pcs, 23 Oct, Rp 255.000). |
+| 3.1 | Cancel PO-C with a reason | PASS | Dialog "Cancel PO-021026-003?", reason textarea, buttons "Cancel" / "Cancel the order". Status → Cancelled. |
+| 3.2 | Cancelled PO tab | PASS (minor) | PO-021026-003 listed under Cancelled PO. The search text "021026" stayed in the box/URL, but the Cancelled tab still listed all 70 cancelled orders (search not applied after the tab switch). |
+| 3.3 | Cannot be edited | PASS (minor) | Edit is disabled, with tooltip text "a cancelled order cannot be edited" (lower-case start). Edit is still drawn, Cancel order is gone. The cancel reason is not shown anywhere on the sheet, and Activity is empty. |
+| 3.4 | Supplier counts | PASS | Suppliers list: QA Testing, CV · Active order 2 · Completed 0 · Cancelled 1 · Last purchased 02 Oct. |
+| 4.0 | Ops → Receiving as rina (ADMIN) | FAIL (process) | Ops → Receiving never asked for a warehouse sign-in. rina opened PO-021026-001 / -002 and submitted blind counts herself (blind count is correct: no ordered qty shown; "Count sent · 3 lines"). In Buying → Review count, the counts show "counted at the Gudang by rina", but **Receive reads "Receive 0 pcs" and is disabled, Recount is disabled, and "Received value: Rp 0 · 0 pcs at the PO price"** with no explanation. Cause (count-review.tsx `locked = mine \|\| notMine`): the counter may not review, and only the raiser may review, so a PO raised **and** counted by the same person can never be verified or sent back. PO-021026-001 and -002 are now stuck. Receiving should refuse a count by the PO's raiser, or the review should say why it is locked. |
+| 4.0b | Set-up for the branches | — | Because -001/-002 were stuck, I raised six more POs as rina: **-004** (Kaos 2 kodi + Sepatu 4), **-005** (Sepatu 6 + Tas 3), **-006** (Tas 4), **-007** (Sepatu 2), **-008** (Kaos 5), **-009** (Tas 2). nina (Gudang) counted them on a separate host alias. After a reload, Ops → Receiving listed them all. The Receiving list does not refresh by itself: new POs and new counts only appeared after a reload, on both the Receiving list and the PO list. |
+| 4a | All match → Receive → Fully received | PASS | PO-004: "The count matches the order.", 2 kodi/40 pcs + 4 pcs, "Receive 44 pcs" → "2 lines accepted" + invoice box. List → **Fully received** (grey rgb(98,107,120), 14px) and it moved to Completed PO. Sheet: "Receiving 100% · Rp 2.400.000", Edit disabled ("this order has been fully received"), Activity has 5 entries (counted ×2, verified ×2, invoice filed). |
+| 4b-1 | Short, keep on order → Partially received | PASS | PO-005 counted Sepatu 3/6, Tas 4/3: "3 pcs short on 1 line and 1 pcs over on 1 line", radios Keep them on order / Close short, "Return the extra" ticked, button "Receive 6 pcs · keep 3 open · return 1". PO → **Partially received**, 6 pcs / Rp 705.000. |
+| 4b-2 | Second count for the remainder → Fully received | PASS | Gudang sheet shows "QA-SPT-02 · 3 already in"; nina counted 3; review "matches" (owed 3); Receive 3 pcs → PO-005 in Completed. |
+| 4b-3 | Short → Close short → Short received | PASS / FAIL | PO-006: Tas 3/4 → "Receive 3 pcs and close short" → **Short received** in Completed, 3 pcs / Rp 255.000. **But PO-006 is still listed in Ops → Receiving as "Count receive"** for nina after the close (checked after reload, several minutes later). |
+| 4c | Over count → return to supplier | PASS | PO-007: Sepatu 3/2 → "1 pcs over on 1 line", "Returned to the supplier / Return the extra", "Receive 2 pcs · return 1" → Fully received 2 pcs / Rp 300.000. PO sheet "Beyond the order · RS-00000001 · 1 pcs · Waiting at the Gudang" (PO-005). Return to supplier lists RS-00000001 (PO-005) and RS-00000002 (PO-007), Over-delivery, 1 pc, "To hand over". |
+| 4d | Recount | PASS (with notes) | PO-008: Recount → "Tick every line", checkbox per line, reason textarea, "Send 1 line back to count" (disabled until a reason is entered) → toast "1 line sent back to count"; PO row **Recounting**. The Gudang list shows the reason "“QA test: please count Kaos again” · Count again"; nina recounted 5 → buyer reviewed again → Received → Fully received. The second review does not say it is a recount. The PO Activity only shows the second count + verify; the first count and the send-back are not logged. |
+| 4e-1 | Cancel a PO with a count waiting | **FAIL (critical)** | PO-009 (nina's count waiting): Cancel order is allowed with no warning about the waiting count → Cancelled. The cancelled sheet still shows "Counted at the Gudang · nina · **Review count**". Review count opens and **"Receive 2 pcs" works on the cancelled PO**: the list now shows PO-021026-009 **Cancelled with Received 2 pcs / Rp 170.000**. |
+| 4e-2 | Cancel a partially received PO | PASS (UX note) | PO-005 while Partially received: the sheet hides "Cancel order" (buttons: Edit, Print). The sheet does not explain why it cannot be cancelled or how to close the remainder. |
+| 4f-1 | Invoice step | PARTIAL / FAIL | After Receive the buyer's review shows a "Supplier invoice" box (GRN number, upload, Invoice number*, total, date (native date input)) → "Record the invoice" → "Invoice INV-QA-004 · Billed Rp 2.400.000 · Price for what was counted Rp 2.400.000 · The invoice agrees". **But the GRN is shared across POs**: every PO accepted from nina's 00:54 batch (004, 005, 006, 007, 009) showed **GRN-HO-GUDANG-000037** and PO-004's invoice INV-QA-004, with "Rp 1.610.000 / 2.145.000 / 1.950.000 / 2.230.000 over the agreed price". PO-005's Activity even reads "Rina Kusuma filed supplier invoice INV-QA-004 for Rp 2.400.000". The 01:03 batch (005 remainder, 008) shared GRN-…-000038. As yusuf (finance), the PO sheet has no invoice action; I did not find a separate invoice screen in the time left. |
+| 4f-2 | Fully received cannot be edited | PASS | Edit disabled with "this order has been fully received". |
+| 5 | Console / network / text size | see notes | Console: repeated `screens["/finance/payroll/{runs,payables,payments,posting}"] has no entry in lib/navigation.ts` (someone else's in-flight work) and several 404s. Network: duplicated GETs ending `ERR_ABORTED` (dev StrictMode double-fetch). Text under 14px on the PO list page: only the sidebar "Profile" caption (12px). |
+
+### Test environment notes
+- PO-021026-005 came out as Sepatu 6 + Tas 3 instead of the intended Tas 6 + Sepatu 3, and one PO-B line came out in pcs instead of lusin. Both were my own input-sequencing slips, not app bugs (the composer totals matched what was entered).
+- The Browser pane is 624 px wide; the hub falls back to its phone layout there, so I emulated 1280x860. Under emulation, coordinate clicks land in the wrong place (a click at frame (400,300) arrived at page (1313,985)), so buttons were pressed by dispatching pointer/mouse events on the real elements, and text was typed with real keystrokes or the form-fill tool. Every action still went through the hub UI.
+- Another agent was editing `frontend-hub/src/screens/me/pay.tsx` (imports `qrcode`, not installed). Vite showed its error overlay repeatedly and **full-reloaded the page twice mid-flow**, which wiped one PO draft and killed one in-flight "Create order".
+- Several other agents keep tabs open on `localhost:5480`. Each tab holds `/api/v1/notifications/stream` (SSE) open, and the Vite dev proxy speaks HTTP/1.1 (Chrome allows 6 connections per host). From about 23:40, API calls from my tab sat pending for 40 s to more than 2 min while `curl` through the same proxy answered in 0.3 s. Most of the "slow cloud" in this rig is probably connection-pool starvation in the browser, not the backend.
+
+- **BLOCKER from about 23:57 to 00:30: the cloud would not start.** At about 23:57 the rig's cloud, dc and store processes stopped (binaries rebuilt 23:57/00:03). `scripts/rig.sh up pos-e2e` fails: `Error: Migration(VersionMismatch(816))`. `backend/migrations/postgres` has **two 0816 files** (`0816_global_search_finds_a_supplier.sql` 20:52 and `0816_an_employee_asks_for_their_details_to_be_changed.sql` 23:37) and **two 0817 files** (`0817_a_purchase_order_can_carry_payment_terms.sql`, `0817_overtime_lands_on_the_overtime_expense.sql`). The rig DB had applied the supplier-search 0816, so sqlx refused to boot. Someone renumbered them to 0820/0821 and the cloud was back at 00:30. I then moved to my own host alias `qaa.localhost:5480` (own cookie jar and connection pool, signed in as rina) and from then on calls answered in seconds.
+
+## Bugs
+
+**Critical**
+1. **Goods can be received against a cancelled PO.** Repro: raise a PO (rina) → Gudang (nina) counts it in Ops → Receiving → before reviewing, rina opens the PO sheet → Cancel order → enter a reason → Cancel the order → the sheet still shows "Counted at the Gudang · Review count" → Review count → Receive. Expected: cancelling refuses (or voids the waiting count), and Review/Receive is impossible on a cancelled PO. Actual: PO-021026-009 is "Cancelled" with Received 2 pcs / Rp 170.000. Where: Buying › Purchase orders sheet + Review count.
+2. **One GRN (and one supplier invoice) spans several POs.** Repro: nina counts several POs of the same supplier in one sitting → rina reviews PO-A, receives it and records the invoice → reviews PO-B and receives it. Expected: each PO's receipt has its own GRN and invoice box. Actual: PO-004/005/006/007/009 all show GRN-HO-GUDANG-000037 with PO-004's invoice INV-QA-004 (Rp 2.400.000) compared against each other PO's value ("Rp 2.145.000 over the agreed price" etc.), and PO-005's Activity says the invoice was filed on it. Where: Review count › after Receive (Supplier invoice box), PO Activity.
+
+**High**
+3. **A PO raised and counted by the same person is stuck forever.** Repro: as rina (ADMIN, raiser) open Ops › Receiving → Count receive on your own PO → Submit → Buying › Review count. Expected: Receiving refuses a count by the PO's raiser, or the review explains that someone else must count. Actual: the review says "matches" but shows "Received value: Rp 0 · 0 pcs" with Receive 0 pcs **and** Recount both disabled and no reason given. Nobody can ever verify or send back PO-021026-001 / -002. (count-review.tsx `locked = mine || notMine`.)
+4. **PO Activity misses create, edit and cancel.** Repro: create a PO, edit it, cancel it → sheet Activity says "Nothing has been done to this record since the log began." `/api/v1/records/purchase_order/<id>/info` returns `activity: []`. Only count, verify and invoice events appear. Recount send-back is not logged either.
+5. **A closed-short PO is still offered for counting at the Gudang.** PO-021026-006 is "Short received" (closed) in Buying but still listed in Ops › Receiving as "Count receive" for nina.
+6. **Duplicate migration numbers took the rig down** (0816 ×2, 0817 ×2 at 23:37). The cloud would not boot (`VersionMismatch(816)`) for about 30 minutes until someone renumbered them (now 0820/0821). The rig DB had already applied the old 0816; check that the renumbered pair did not run twice or skip on other DBs.
+
+**Medium**
+7. Supplier-sheet Catalogue › Add item asks only code, name and price. There is no division, tags, colours or sizes, and the item sheet has no Edit. The DIVISION/TAGS columns stay "—". (The full Add item form exists only in the PO composer / Procurement › Catalogue.)
+8. New item colours+sizes grid: the SIZE column shows size **codes "03"/"04"** instead of M/L. The same codes show on the PO sheet ("NAVY/03 ×3 …").
+9. New item grid footer shows **Rp 0** for 10 pcs when per-SKU prices are left on "Base price" (Rp 120.000). The composer line afterwards is right (Rp 1.200.000).
+10. Same item cannot be on a PO twice ("10 kodi + 2 pcs" spec): Browse catalogue marks it "On the order". Edit PO cannot change a line's quantity either; the only route is remove + re-add, re-entering Division/Tags.
+11. Pressing Escape inside the delivery-date popover (and once in the Add item sheet) closed the **whole New PO composer** with no "discard changes?" prompt, losing the draft.
+12. Colours picker says "Nothing matches." while `/api/v1/colours` is still loading (16 s on this rig), instead of a loading state.
+13. "Price for what was counted" on the invoice box includes over-delivered pieces (PO-007: Rp 450.000 for 3 pcs, though only 2 were accepted at Rp 300.000).
+14. Gudang count sheet keeps the previous PO's "Count sent · 1 line" banner when the next PO is opened, so it looks as if the new count was already sent.
+
+**Low**
+15. Supplier Edit: PKP switch and Notes are editable (spec: only Address and contacts).
+16. Supplier sheet Activity did not refresh after re-activation until reopened.
+17. Cancelled PO tab ignores the search box text (shows all 70 cancelled).
+18. Purchase orders list at 1280 px: the Status column is pushed off the right edge of the card (horizontal scroll).
+19. Lists don't live-update: new POs in Ops › Receiving, and counts arriving in Buying › Purchase orders, needed a manual reload.
+
+## Polish
+- Supplier name drops the legal form on PO list, PO sheet, catalogue item sheet ("QA Testing" vs "QA Testing, CV"); seeded demo POs use prefix form ("CV Kaos & Kemeja Prima"). Pick one.
+- Supplier code formats mixed in one column: `0002`, `0001`, `SUP-023`. PO numbers mixed too: `PO-021026-001`, seeded `PO-024-OPE1`, `PO-DEMO-017`, and one `011026-001` without the PO- prefix.
+- Division label differs: "Sandal dan Sepatu" (composer) vs "Sandal sepatu" (sheet).
+- Indonesian copy in an English UI: date-typing placeholder "Type: besok, jumat, 15/10, akhir bulan"; "Pengusaha Kena Pajak (PKP)" label.
+- Grammar: "1 pcs short/over", "1 lines accepted", "1 of 1 lines ticked", "verified … 1 pcs over the order".
+- Tooltips start lower-case: "a cancelled order cannot be edited", "this order has been fully received".
+- Filler copy (against the no-filler rule): "Who we buy from, what each of them offers…", "What has been ordered, what has arrived…", "The PO number is given when the order is issued.", "Moves on in a moment", "The warehouse is sent the order as it now reads.", "Kept on the cancelled order."
+- Cancel dialog buttons "Cancel" / "Cancel the order" read alike; use "Keep order" / "Cancel order".
+- Cancel reason is not shown on the cancelled PO sheet.
+- Review step / Review the changes: show SKU breakdown for variant lines and mark what changed (6 → 8 pcs, 20 → 22 Oct).
+- Disabled NPWP field in supplier Edit shows the grey example "0012.3456.7890.1000", which reads like data.
+- Delivery-date calendar popover is clipped at the bottom inside the composer sheet and stays open after Enter.
+- Invoice date is a native date input, unlike the typed date picker elsewhere.
+- Supplier list chevron: active-PO Qty column has no unit ("24").
+- PO composer supplier picker offers GA/utility suppliers (PLN, PDAM, Telkom, JNE…) while Suppliers lists only the 10 merchandise ones.
+- Activity order on the PO sheet: "verified" is listed before the matching "counted", and the counted time shows the sync time (00:56) rather than the count time (00:54).
+- Sidebar "Profile" caption is 12px (below the 14px floor).
+- Gudang count sheet shows "3 already in" on a second count (a small hint in a blind count; maybe intended).

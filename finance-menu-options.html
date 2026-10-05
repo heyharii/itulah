@@ -1,0 +1,841 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Finance menu options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Finance menu: five ways to cut today's 90 rows (17 headings) down.
+   Hari (28 Sep): "menu sekarang too much … cukup seperti ERPNext?"
+   Look: hub v2 · E Quiet — Inter 14, 36px controls, 52px rows, one white
+   surface with hairlines, no chips, colour only where something needs
+   someone. Nothing on the page is smaller than 14px.
+   Every option keeps the one-sidebar shape; only what sits under Finance
+   changes. Each old screen has a home in every option ("Where did it go?").
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --font:"Inter",system-ui,sans-serif;
+  --ink-900:#20242c;--ink-800:#2b313c;--ink-700:#394150;--ink-600:#4a5261;--ink-500:#626b78;--ink-400:#737c89;--ink-300:#aab1bb;--ink-200:#d5dae1;
+  --canvas:#fff;--side:#f8f9fb;--well:#f7f8fa;--sel:#f0f2f5;--sel-subtle:#f8f9fb;
+  --hairline:#e7eaf0;--rule:#eef0f4;--line:#d3d8e0;
+  --primary:#2563eb;--primary-ink:#1d4ed8;--primary-soft:#eef4ff;
+  --ok:#22a55a;--warn:#d99a2b;--warn-fg:#b45309;--bad:#e25555;--bad-fg:#be123c;
+  --fin:#5856d6;
+  --ease:cubic-bezier(.23,1,.32,1);--ease-spring:cubic-bezier(.34,1.56,.64,1);
+  --h-ctl:36px;--h-row:52px;--h-nav:34px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font:400 14px/20px var(--font);color:var(--ink-900);background:var(--canvas);-webkit-font-smoothing:antialiased;font-feature-settings:"cv11"}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0;text-align:left}
+.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.ic.s{width:16px;height:16px}
+.num{font-variant-numeric:tabular-nums}
+
+/* ── Prototype bar (not part of the hub) ── */
+.proto{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:16px;min-height:56px;padding:10px 16px;border-bottom:1px solid var(--hairline);background:#fff;flex-wrap:wrap}
+.proto .t{font-weight:600;white-space:nowrap}
+.proto .t span{color:var(--ink-400);font-weight:500;margin-left:6px}
+.seg{display:flex;gap:2px;padding:3px;border-radius:10px;background:var(--well);box-shadow:inset 0 0 0 1px var(--hairline);overflow-x:auto;max-width:100%}
+.seg button{height:30px;padding:0 12px;border-radius:8px;color:var(--ink-500);font-weight:500;white-space:nowrap;transition:background-color .2s var(--ease),color .2s}
+.seg button:hover{color:var(--ink-900)}
+.seg button[aria-pressed=true]{background:#fff;color:var(--ink-900);box-shadow:0 1px 2px rgb(24 39 60/.08),0 0 0 1px var(--hairline)}
+.seg .star{color:var(--primary)}
+.proto .sp{flex:1}
+
+/* ── Layout ── */
+.app{display:grid;grid-template-columns:264px minmax(0,1fr) 340px;height:calc(100vh - 57px)}
+.app > *{min-height:0}
+.side{background:var(--side);border-right:1px solid var(--hairline);overflow:auto;padding:16px 12px 24px}
+main{overflow:auto;padding:28px 40px 80px}
+.notes{border-left:1px solid var(--hairline);overflow:auto;padding:24px 24px 60px}
+.app.compare{grid-template-columns:minmax(0,1fr)}
+.app.compare .side,.app.compare .notes{display:none}
+@media (max-width:1240px){
+  .app{grid-template-columns:248px minmax(0,1fr);height:auto}
+  .app > *{overflow:visible}
+  .notes{grid-column:1/-1;border-left:0;border-top:1px solid var(--hairline)}
+}
+@media (max-width:760px){
+  .app{grid-template-columns:1fr}
+  .side{border-right:0;border-bottom:1px solid var(--hairline)}
+  main{padding:24px 16px 48px}
+  .notes{padding:24px 16px}
+}
+
+/* ── Sidebar (one sidebar, hub v2) ── */
+.brand{display:flex;align-items:center;gap:10px;padding:0 6px 14px}
+.mark{position:relative;width:32px;height:32px;border-radius:9px;background:#111114;display:grid;place-items:center;color:#fff;font:700 17px/1 var(--font)}
+.mark::after{content:"";position:absolute;right:6px;bottom:6px;width:6px;height:6px;border-radius:50%;background:var(--primary)}
+.wm{font:600 20px/24px var(--font);letter-spacing:-.02em}
+.qa{display:flex;align-items:center;gap:10px;height:var(--h-ctl);padding:0 10px 0 12px;margin:0 0 12px;border-radius:10px;background:#fff;box-shadow:inset 0 0 0 1px var(--hairline);color:var(--ink-400);white-space:nowrap}
+.qa kbd{margin-left:auto;font:500 14px/20px var(--font);color:var(--ink-400);border-radius:6px;padding:0 6px;box-shadow:inset 0 0 0 1px var(--hairline)}
+.dep{display:flex;align-items:center;gap:10px;width:100%;height:var(--h-nav);padding:0 8px;border-radius:10px;color:var(--ink-600);font-weight:500;transition:background-color .2s var(--ease)}
+.dep:hover{background:var(--sel);color:var(--ink-900)}
+.dep .ic{color:var(--ink-400)}
+.dep.on{color:var(--ink-900);font-weight:600}
+.dep.on .ic{color:var(--fin)}
+.dep .chev{margin-left:auto;color:var(--ink-300);transition:transform .25s var(--ease)}
+.dep.on .chev{transform:rotate(90deg);color:var(--ink-500)}
+.sub{display:flex;flex-direction:column;gap:1px;margin:2px 0 8px 17px;padding-left:10px;border-left:2px solid var(--hairline)}
+.sub.opening{animation:sub-open .34s var(--ease)}
+@keyframes sub-open{from{opacity:0;transform:translateY(-4px)}}
+.si{display:flex;align-items:center;gap:8px;width:100%;min-height:32px;padding:0 10px;border-radius:9px;color:var(--ink-600);font-weight:500;transition:background-color .2s var(--ease),color .2s}
+.si:hover{background:var(--sel);color:var(--ink-900)}
+.si[aria-current]{background:var(--sel);color:var(--ink-900);font-weight:600}
+.si .lab{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.n{margin-left:auto;color:var(--ink-400);font-weight:500;white-space:nowrap}
+.n.warn{color:var(--warn-fg)}
+.n.bad{color:var(--bad-fg);display:inline-flex;align-items:center;gap:6px}
+.n.bad::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--bad)}
+.sg{padding:12px 10px 2px;color:var(--ink-400);font-weight:500}
+.sg:first-child{padding-top:2px}
+.side-count{margin:10px 8px 0;padding-top:12px;border-top:1px solid var(--hairline);color:var(--ink-400)}
+.side-count b{color:var(--ink-900);font-weight:600}
+
+/* ── Page ── */
+.page{animation:page-in .3s var(--ease)}
+@keyframes page-in{from{opacity:0;transform:translateY(6px)}}
+.ph{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:24px;flex-wrap:wrap}
+.eyebrow{color:var(--ink-400);font-weight:500}
+.h1{margin:4px 0 0;font:600 28px/34px var(--font);letter-spacing:-.025em}
+.desc{margin:8px 0 0;color:var(--ink-500);max-width:640px;line-height:22px}
+.acts{display:flex;gap:8px;flex-wrap:wrap}
+.btn{position:relative;display:inline-flex;align-items:center;gap:8px;height:var(--h-ctl);padding:0 14px;border-radius:10px;font-weight:500;white-space:nowrap;background:#fff;box-shadow:inset 0 0 0 1px var(--line);transition:background-color .2s var(--ease),transform .12s var(--ease)}
+.btn:hover{background:var(--well)}
+.btn:active{transform:scale(.97)}
+.btn .ic{color:var(--ink-400)}
+.btn-p{background:var(--primary);color:#fff;box-shadow:none;font-weight:600}
+.btn-p .ic{color:#fff}
+.btn-p:hover{background:var(--primary-ink)}
+.btn.sm{height:32px;padding:0 12px}
+.btn .cnt{color:var(--ink-400);font-weight:500}
+.toolbar{display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+.inp{display:flex;align-items:center;gap:8px;height:var(--h-ctl);padding:0 12px;border-radius:10px;box-shadow:inset 0 0 0 1px var(--line);color:var(--ink-400);min-width:240px;background:#fff}
+.inp input{border:0;outline:0;font:inherit;color:var(--ink-900);flex:1;min-width:0;background:none}
+.inp:focus-within{box-shadow:inset 0 0 0 1.5px var(--primary)}
+.dd{position:relative}
+.menu{position:absolute;z-index:30;top:calc(100% + 6px);left:0;min-width:260px;max-height:360px;overflow:auto;padding:6px;border-radius:12px;background:#fff;box-shadow:0 14px 36px -10px rgb(24 39 60/.22),0 0 0 1px var(--hairline);transform-origin:top left;animation:pop .18s var(--ease)}
+@keyframes pop{from{opacity:0;transform:scale(.97) translateY(-2px)}}
+.menu .mi{display:flex;width:100%;align-items:center;gap:8px;min-height:34px;padding:0 10px;border-radius:8px;color:var(--ink-700)}
+.menu .mi:hover{background:var(--sel)}
+.menu .mi.on{font-weight:600;color:var(--ink-900)}
+.menu .mi.on::after{content:"";margin-left:auto;width:6px;height:6px;border-radius:50%;background:var(--primary)}
+.menu .mh{padding:8px 10px 4px;color:var(--ink-400);font-weight:500}
+.menu .sep{height:1px;background:var(--rule);margin:6px 4px}
+
+.panel{border-radius:12px;box-shadow:0 0 0 1px var(--hairline);background:#fff;overflow:hidden}
+.panel + .panel{margin-top:20px}
+.panel-h{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:16px 20px 12px;flex-wrap:wrap}
+.h2{margin:0;font:600 15px/22px var(--font)}
+.pd{color:var(--ink-500)}
+.tbl-wrap{overflow-x:auto}
+table.tbl{width:100%;border-collapse:collapse}
+.tbl th{height:40px;text-align:left;padding:0 20px;font-weight:500;color:var(--ink-400);border-bottom:1px solid var(--hairline);white-space:nowrap}
+.tbl td{height:var(--h-row);padding:0 20px;border-bottom:1px solid var(--rule);color:var(--ink-700)}
+.tbl td.r,.tbl td:first-child{white-space:nowrap}
+.tbl tr:last-child td{border-bottom:0}
+.tbl .r{text-align:right}
+.tbl td.strong{color:var(--ink-900);font-weight:500}
+.tbl .g{color:var(--ink-400);margin-left:8px}
+.tbl tr.hl td{background:var(--primary-soft);transition:background-color 1.2s var(--ease)}
+.how{display:inline-flex;align-items:center;gap:8px;color:var(--ink-600)}
+.how::before{content:"";width:6px;height:6px;border-radius:2px;background:var(--c,var(--ink-300))}
+
+/* ERPNext-style workspace: number cards, shortcuts, cards of links */
+.lbl{margin:0 0 10px;color:var(--ink-500);font-weight:500}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:28px}
+@media (max-width:1000px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.stat{padding:16px 18px;border-radius:12px;box-shadow:0 0 0 1px var(--hairline)}
+.stat b{display:block;font-weight:500;color:var(--ink-500)}
+.stat .fig{margin-top:8px;font:600 30px/36px var(--font);letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.stat .fig small{font-size:15px;color:var(--ink-400);font-weight:500;margin:0 4px 0 0}
+.stat .fig small.u{margin:0 0 0 3px}
+.stat .hint{margin-top:4px;color:var(--ink-400)}
+.shortcuts{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-bottom:32px}
+.sc{display:flex;align-items:center;gap:10px;height:48px;padding:0 14px;border-radius:12px;box-shadow:0 0 0 1px var(--hairline);font-weight:500;transition:box-shadow .2s var(--ease),transform .2s var(--ease)}
+.sc:hover{box-shadow:0 0 0 1px var(--hairline),0 10px 24px -16px rgb(24 39 60/.3);transform:translateY(-1px)}
+.sc .ic{color:var(--ink-400)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:28px 32px}
+.card h3{margin:0 0 6px;padding-bottom:8px;border-bottom:1px solid var(--rule);font:600 14px/20px var(--font)}
+.card .lk{display:flex;align-items:center;gap:8px;width:100%;min-height:32px;padding:0 8px;margin-left:-8px;border-radius:8px;color:var(--ink-600)}
+.card .lk:hover{background:var(--sel);color:var(--ink-900)}
+.card .lk .n{font-weight:500}
+.lk.hl,.task.hl,.rep.hl{background:var(--primary-soft)!important}
+
+/* Month-end checklist */
+.me-h{padding:14px 20px 4px;font-weight:600;color:var(--ink-500)}
+.task{display:flex;align-items:center;gap:12px;min-height:var(--h-row);padding:6px 20px;border-bottom:1px solid var(--rule);transition:background-color .2s}
+.task:last-child{border-bottom:0}
+.tick{width:20px;height:20px;border-radius:6px;box-shadow:inset 0 0 0 1.5px var(--ink-300);display:grid;place-items:center;flex:none;transition:background-color .2s var(--ease),box-shadow .2s}
+.tick svg{width:14px;height:14px;stroke:#fff;stroke-width:2.5;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:24;stroke-dashoffset:24;transition:stroke-dashoffset .3s var(--ease)}
+.task.done .tick{background:var(--ink-900);box-shadow:none}
+.task.done .tick svg{stroke-dashoffset:0}
+.task .tx{flex:1;min-width:0;display:flex;flex-direction:column}
+.task .t1{font-weight:500;color:var(--ink-900)}
+.task.done .t1{color:var(--ink-500)}
+.task .t2{color:var(--ink-400)}
+.bar{height:4px;border-radius:4px;background:var(--rule);overflow:hidden;width:160px}
+.bar i{display:block;height:100%;width:var(--w);background:var(--ink-800);border-radius:4px;transition:width .4s var(--ease)}
+.prog{display:flex;align-items:center;gap:12px;color:var(--ink-500)}
+
+/* To-do inbox */
+.todo .dot{width:8px;height:8px;border-radius:50%;background:var(--ink-300);flex:none}
+.todo .dot.bad{background:var(--bad)}
+.todo .dot.warn{background:var(--warn)}
+
+/* Page tabs (Odoo-like option) */
+.tabs{display:flex;gap:24px;border-bottom:1px solid var(--hairline);margin:-4px 0 20px;overflow-x:auto}
+.tabs button{height:42px;color:var(--ink-500);font-weight:500;white-space:nowrap;box-shadow:inset 0 -2px 0 transparent;transition:color .2s,box-shadow .2s var(--ease)}
+.tabs button:hover{color:var(--ink-900)}
+.tabs button[aria-selected=true]{color:var(--ink-900);box-shadow:inset 0 -2px 0 var(--ink-900)}
+
+/* Report picker */
+.rep{display:flex;align-items:center;gap:16px;width:100%;min-height:var(--h-row);padding:6px 20px;border-bottom:1px solid var(--rule)}
+.rep:hover{background:var(--sel-subtle)}
+.rep b{font-weight:500;min-width:190px}
+.rep span{color:var(--ink-500)}
+.rep .ic{margin-left:auto;color:var(--ink-300)}
+
+/* ── Notes column ── */
+.notes .kick{color:var(--ink-400);font-weight:500}
+.notes .on{margin:4px 0 0;font:600 20px/28px var(--font);letter-spacing:-.02em}
+.rec{display:inline-flex;align-items:center;gap:6px;margin-top:8px;color:var(--primary-ink);font-weight:600}
+.rec::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--primary)}
+.metric{display:flex;gap:28px;margin:18px 0 4px}
+.metric b{display:block;font:600 30px/36px var(--font);letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.metric span{color:var(--ink-400)}
+.notes h4{margin:22px 0 6px;font:600 14px/20px var(--font)}
+.notes p{margin:0;color:var(--ink-600);line-height:22px}
+.notes ul{margin:0;padding-left:18px;color:var(--ink-600);line-height:22px}
+.notes li + li{margin-top:4px}
+.where{margin-top:26px;padding-top:20px;border-top:1px solid var(--hairline)}
+.where .inp{min-width:0;width:100%}
+.try{margin-top:8px;color:var(--ink-400)}
+.try button{color:var(--ink-600);text-decoration:underline;text-decoration-color:var(--ink-200);text-underline-offset:3px}
+.try button:hover{color:var(--ink-900)}
+.wl{margin-top:10px;display:flex;flex-direction:column;gap:2px}
+.w{display:block;width:100%;padding:8px 10px;border-radius:8px}
+.w:hover{background:var(--sel)}
+.w b{font-weight:500;color:var(--ink-900)}
+.w b small{font:inherit;color:var(--ink-400);font-weight:400;margin-left:6px}
+.w span{display:block;color:var(--ink-500)}
+.cov{margin-top:14px;color:var(--ink-400)}
+.cov.bad{color:var(--bad-fg)}
+
+/* Compare */
+.cmp td,.cmp th{white-space:normal;min-width:150px;vertical-align:top}
+.cmp td{padding-top:15px;padding-bottom:15px;height:auto;line-height:22px}
+.cmp td:first-child{min-width:170px;color:var(--ink-900);font-weight:500}
+.cmp th.star{color:var(--primary-ink)}
+.cmp .big{font:600 22px/28px var(--font);letter-spacing:-.02em;color:var(--ink-900)}
+
+/* ERPNext AP page */
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:40px;align-items:start}
+@media (max-width:1100px){.two{grid-template-columns:1fr}}
+.blk{margin-bottom:44px}
+.blk > .h2{margin-bottom:4px}
+.blk > .pd{margin:0 0 18px}
+.ws{padding:24px;border-radius:12px;box-shadow:0 0 0 1px var(--hairline)}
+.ws .shortcuts{grid-template-columns:repeat(2,minmax(0,1fr));margin-bottom:24px}
+.ws .cards{grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:24px}
+.ws .new{color:var(--primary-ink)}
+.why{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}
+@media (max-width:1000px){.why{grid-template-columns:1fr}}
+.why div{padding-top:14px;border-top:2px solid var(--ink-900)}
+.why b{display:block;font:600 15px/22px var(--font);margin-bottom:6px}
+.why p{margin:0;color:var(--ink-600);line-height:22px}
+.buckets{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.buckets .stat .fig{font-size:22px;line-height:30px}
+.buckets .stat.late .fig{color:var(--bad-fg)}
+.tbl td.late{color:var(--bad-fg);font-weight:500}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24"><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><circle cx="7.5" cy="7.5" r="1.5"/></symbol>
+  <symbol id="i-cart" viewBox="0 0 24 24"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2 2h2.2l2.6 12.4a2 2 0 0 0 2 1.6h9.8a2 2 0 0 0 1.9-1.6L22 7H5.1"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></symbol>
+  <symbol id="i-store" viewBox="0 0 24 24"><path d="M3 9 4.5 4h15L21 9"/><path d="M4 10v10h16V10"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/></symbol>
+  <symbol id="i-bank" viewBox="0 0 24 24"><path d="M3 21h18M6 17v-6M10 17v-6M14 17v-6M18 17v-6M12 3l9 5H3z"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-chev-d" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M3 5h18M6 12h12M10 19h4"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></symbol>
+</svg>
+
+<header class="proto">
+  <div class="t">Finance menu<span>prototype · today 90 rows</span></div>
+  <div class="seg" id="seg" role="group" aria-label="Option"></div>
+  <div class="sp"></div>
+</header>
+
+<div class="app" id="app">
+  <aside class="side" id="side"></aside>
+  <main id="main"></main>
+  <aside class="notes" id="notes"></aside>
+</div>
+
+<script>
+/* ── Today's 90 rows, from frontend-hub/src/screens/finance/nav.ts ── */
+const OLD_GROUPS = [
+  ['', 'ov:Overview'],
+  ['Cash & Bank', 'bank:Bank Accounts|cashtx:Cash Transactions|bpay:Payments|xfer:Transfers|petty:Petty Cash|giro:Giro|dep:Deposits|brec:Bank Reconciliation'],
+  ['Receivables', 'card:Card & EDC Settlement|empr:Employee Receivables|othr:Other Receivables|arage:Aging|salesp:Sales Postings'],
+  ['Payables', 'bill:Supplier Bills|adv:Supplier Advances|appay:Payments|apage:Aging'],
+  ['Payroll', 'prun:Payroll Runs|ppay:Payroll Payables|epay:Employee Payments|ppost:Payroll Posting'],
+  ['Inventory Valuation', 'invv:Inventory Value|git:Goods in Transit|cogs:COGS|stkm:Stock Movements|invrec:Reconciliation'],
+  ['Assets', 'cap:Capitalization|cip:CIP|depr:Depreciation|amort:Amortisation|repl:Replacement Accounting|disp:Disposal'],
+  ['Interunit', 'iufin:Financing|iugood:Goods|iuoth:Other|iurec:Reconciliation'],
+  ['Financing', 'loan:Loans|princ:Principal / Owner Funding|inst:Installments|int:Interest|sched:Schedules'],
+  ['Tax', 'taxp:Tax Payables|taxc:Tax Prepaids / Credits|pph:PPh|ppn:PPN|taxo:Other Tax'],
+  ['Accounting', 'je:Journal Entries|gl:General Ledger|tb:Trial Balance|accr:Accruals|prep:Prepaids|recur:Recurring Entries|adj:Adjustments'],
+  ['', 'close:Period Close'],
+  ['Reports', 'r_bs:Balance Sheet|r_pl:Profit & Loss|r_cf:Cash Flow|r_tb:Trial Balance|r_gl:General Ledger|r_ap:AP Aging|r_ar:AR Aging|r_cb:Cash & Bank|r_pay:Payroll Cost|r_inv:Inventory Valuation|r_nbv:Asset / NBV|r_tax:Tax|r_iu:Interunit|r_site:Store / Site P&L|r_dim:Dimension Results'],
+  ['Setup', 'coa:Chart of Accounts|dim:Accounting Dimensions|pm:Payment Methods|spm:Shop Payment Methods|jet:Journal Entry Templates|expc:Expense Categories|payc:Pay Components|assc:Asset Classes|links:Account Links|ready:Posting Readiness|linec:Line Categories|edc:EDC & MDR|girot:Giro Templates'],
+  ['Opening & Closing', 'fp:Fiscal Periods|pcv:Period Closing Voucher'],
+  ['Tax Setup', 'twc:Tax Withholding Category|taxt:Tax Types'],
+  ['Settings', 'accs:Accounts Settings|ppol:Posting Policies|perm:Rung Permissions'],
+];
+const OLD = [];
+OLD_GROUPS.forEach(([g, s]) => s.split('|').forEach(p => { const [id, label] = p.split(':'); OLD.push({ id, label, group: g }); }));
+const O = Object.fromEntries(OLD.map(o => [o.id, o]));
+const KIND_LABEL = { cip: 'Contractor advances (was CIP)', ppay: 'Payroll', epay: 'Employee payments', inst: 'Loan instalments', bpay: 'Payment runs', appay: 'Payments' };
+const kl = id => KIND_LABEL[id] || O[id].label;
+const TODAY_BADGE = { brec: ['warn', '12'], bill: ['warn', '2'], ready: ['bad', '3'], fp: ['warn', '1'] };
+
+const REPORT_DESC = {
+  r_pl: 'Did we make money, by month', r_bs: 'What we own and owe on a date', r_cf: 'Where cash came from and went',
+  r_site: 'Profit per store', r_dim: 'Profit per division, cost centre or project',
+  r_gl: 'Every posting on an account', r_tb: 'Every account’s balance', r_cb: 'Bank and cash movements',
+  r_ap: 'What we owe, by age', r_ar: 'What is owed to us, by age',
+  r_pay: 'Payroll cost per store', r_inv: 'Stock value per store', r_nbv: 'Book value of assets',
+  r_tax: 'PPN, PPh by period', r_iu: 'Head office ↔ store balances',
+};
+const REPORT_SECS = [
+  { how: 'report', title: 'Statements', items: 'r_pl r_bs r_cf r_site r_dim' },
+  { how: 'report', title: 'Ledgers', items: 'r_gl r_tb r_cb' },
+  { how: 'report', title: 'Owed', items: 'r_ap r_ar' },
+  { how: 'report', title: 'Operations', items: 'r_pay r_inv r_nbv r_tax r_iu' },
+];
+
+const SAMPLES = {
+  cash: [['Date', 'Account', 'Description', 'Kind', 'Amount'], [
+    ['28 Sep', 'BCA 0123', 'To Mandiri for payroll', 'Transfer', 'Rp 320.000.000'],
+    ['28 Sep', 'Petty cash · Kota Kasablanka', 'Parking and courier', 'Petty cash', 'Rp 185.000'],
+    ['27 Sep', 'BCA 0123', 'EDC settlement BCA · 26 Sep', 'Card settlement', 'Rp 42.810.500'],
+    ['27 Sep', 'Mandiri 1188', 'Giro GR-0411 cleared', 'Giro', 'Rp 30.000.000']]],
+  ap: [['Due', 'To', 'Document', 'Kind', 'Amount'], [
+    ['29 Sep', 'CV Sinar Tekstil', 'Giro GR-0419', 'Giro', 'Rp 48.600.000'],
+    ['30 Sep', 'PLN · Grand Indonesia', 'INV/PLN/0926', 'Bill', 'Rp 12.450.000'],
+    ['30 Sep', 'Payroll September', '186 people', 'Payroll', 'Rp 318.200.000'],
+    ['1 Okt', 'PT Mode Prima Indonesia', 'BILL/MP/0912', 'Bill', 'Rp 95.400.000']]],
+  ar: [['Date', 'From', 'Document', 'Kind', 'Amount'], [
+    ['27 Sep', 'BCA EDC', 'Settlement 26 Sep · 24 stores', 'Card', 'Rp 42.810.500'],
+    ['27 Sep', 'Mandiri EDC', 'Settlement 26 Sep', 'Card', 'Rp 18.204.000'],
+    ['25 Sep', 'Rina Kusuma', 'Salary advance', 'Employee', 'Rp 1.500.000'],
+    ['20 Sep', 'PT Mall Properti', 'Deposit refund', 'Other', 'Rp 25.000.000']]],
+  je: [['Date', 'Entry', 'Memo', 'Kind', 'Amount'], [
+    ['28 Sep', 'JE-2609-0141', 'Rent Kota Kasablanka · Sep', 'Prepaid', 'Rp 85.000.000'],
+    ['27 Sep', 'JE-2609-0138', 'Electricity accrual · 24 stores', 'Accrual', 'Rp 61.300.000'],
+    ['26 Sep', 'JE-2609-0131', 'Marketing to store costs', 'Adjustment', 'Rp 4.200.000'],
+    ['25 Sep', 'JE-2609-0127', 'Insurance · monthly', 'Recurring', 'Rp 7.750.000']]],
+  money: [['Date', 'Who', 'Document', 'Kind', 'In', 'Out'], [
+    ['29 Sep', 'CV Sinar Tekstil', 'Giro GR-0419', 'Giro', '', 'Rp 48.600.000'],
+    ['28 Sep', 'Kota Kasablanka', 'Petty cash · parking', 'Petty cash', '', 'Rp 185.000'],
+    ['27 Sep', 'BCA EDC', 'Settlement 26 Sep', 'Card settlement', 'Rp 42.810.500', ''],
+    ['26 Sep', 'PT Rajut Jaya', 'INV/RJ/0901', 'Payment', '', 'Rp 57.600.000']]],
+};
+
+const TODO = [
+  ['bad', '3 postings are stopped', 'Card fees have no account yet', 'Fix', 'ready'],
+  ['warn', '12 bank lines to match', 'BCA 8 · Mandiri 4', 'Match', 'brec'],
+  ['warn', '2 supplier bills are late', 'UD Batik Pekalongan · CV Denim Bandung', 'Pay', 'bill'],
+  ['', 'Giro GR-0419 is due tomorrow', 'CV Sinar Tekstil · Rp 48.600.000', 'Open', 'giro'],
+  ['', 'EDC money for 27 Sep has not arrived', 'BCA · Rp 38.400.000 expected', 'Check', 'card'],
+  ['', 'October is not open yet', 'Stores cannot post from 1 Okt', 'Open month', 'fp'],
+];
+
+/* ── The options ──
+   how: default (the page itself) · kind (Kind dropdown) · view (View dropdown)
+        button · tab · step (month-end checklist) · card (link card)
+        shortcut · report · todo · stat */
+const OPTIONS = [
+  {
+    id: 'A', short: 'A · ERPNext', name: 'ERPNext workspaces',
+    follows: 'ERPNext v15: the Accounting workspace (number cards, shortcuts, cards of links), with Payables, Receivables and Financial Reports beside it. ERPNext itself folded Payables and Receivables back into Accounting in 2025',
+    principle: 'The sidebar holds a handful of workspaces. Each workspace is a page of number cards, shortcuts and cards of links, and every screen we have today stays one link away. It is ERPNext copied as it is.',
+    good: ['The fewest decisions: every screen keeps its place, only its door moves.', 'Very cheap to build: a workspace is a page of links, and the 90 screens stay as they are.', 'Finance staff who know ERPNext recognise it at once.'],
+    watch: ['The crowd moves from the sidebar into the page: the Accounting workspace alone has over 50 links.', 'Every task is one click deeper than today, and the page you land on is a menu, not work.', 'We still build and maintain 90 separate screens.'],
+    rows: [
+      { id: 'acc', label: 'Accounting', ic: 'bank', kind: 'space', desc: 'ERPNext’s home for the books: number cards, shortcuts, then every master and entry as a card of links.', secs: [
+        { how: 'stat', items: 'ov' },
+        { how: 'shortcut', items: 'je coa gl tb close' },
+        { how: 'card', title: 'Journal', items: 'accr prep recur adj jet' },
+        { how: 'card', title: 'Stock value', items: 'invv git cogs stkm invrec' },
+        { how: 'card', title: 'Assets', items: 'cap cip depr amort repl disp assc' },
+        { how: 'card', title: 'Interunit', items: 'iufin iugood iuoth iurec' },
+        { how: 'card', title: 'Loans & funding', items: 'loan princ inst int sched' },
+        { how: 'card', title: 'Taxes', items: 'taxp taxc pph ppn taxo twc taxt' },
+        { how: 'card', title: 'Opening & Closing', items: 'fp pcv' },
+        { how: 'card', title: 'Masters', items: 'links ready dim linec expc payc pm spm edc girot' },
+        { how: 'card', title: 'Settings', items: 'accs ppol perm' } ] },
+      { id: 'bnk', label: 'Banking', ic: 'bank', kind: 'space', n: ['warn', '12'], desc: 'Bank and cash: the accounts, what moved, and matching the statement.', secs: [
+        { how: 'shortcut', items: 'cashtx xfer brec' },
+        { how: 'card', title: 'Accounts', items: 'bank dep' },
+        { how: 'card', title: 'Money moving', items: 'bpay petty' },
+        { how: 'card', title: 'Giro', items: 'giro' } ] },
+      { id: 'pay', label: 'Payables', ic: 'bank', kind: 'space', n: ['warn', '2'], desc: 'What we owe suppliers and staff.', secs: [
+        { how: 'shortcut', items: 'bill appay' },
+        { how: 'card', title: 'Suppliers', items: 'adv apage' },
+        { how: 'card', title: 'Payroll', items: 'prun ppay epay ppost' } ] },
+      { id: 'rec', label: 'Receivables', ic: 'bank', kind: 'space', desc: 'What is owed to us: mostly card money on its way from the acquirers.', secs: [
+        { how: 'shortcut', items: 'card' },
+        { how: 'card', title: 'Other receivables', items: 'empr othr' },
+        { how: 'card', title: 'Sales', items: 'salesp arage' } ] },
+      { id: 'rep', label: 'Financial Reports', ic: 'bank', kind: 'space', desc: 'Every report, as cards of links.', secs: REPORT_SECS.map(s => ({ ...s, how: 'card' })) },
+    ],
+  },
+  {
+    id: 'B', short: 'B · Work areas', name: 'Eight work areas', rec: true,
+    follows: 'ERPNext, Accurate and Business Central: Cash & Bank, Payables, Receivables and the ledger as parallel areas. Odoo and Zoho for one Reports hub and Setup last',
+    principle: 'A row is a place Finance opens at least weekly. Kinds of one list go in a dropdown, not in the sidebar. Monthly work is Month end’s checklist, and what is set once lives in Setup, laid out like an ERPNext workspace.',
+    good: ['Eight rows, and each opens straight onto the work: the bills board, the bank lines, the journal.', 'Month end becomes one checklist instead of 30 rows spread over 7 headings.', 'ERPNext’s strength kept where it fits: Setup and Reports are pages of links, and ⌘K reaches any screen by name.'],
+    watch: ['People used to 7Soft look for “Giro” or “PPN” in the sidebar; the dropdown and the checklist have to be obvious.', 'Month end as a row of its own is our choice, not the market’s: Odoo, Xero and ERPNext hide the close in lock dates and a voucher. It earns its row because the close is where 30 of today’s rows actually get used.', 'Asset capitalisation and disposal move to GA’s asset register as buttons.'],
+    elsewhere: [{ where: 'GA › Asset register', how: 'Buttons on an asset', items: 'cap disp repl' }, { where: 'People › Payroll', how: 'HR’s own screen', items: 'prun' }],
+    rows: [
+      { id: 'ov', label: 'Overview', ic: 'gauge', kind: 'dash', desc: 'Money in the banks, what falls due, and what the month still waits on.', secs: [{ how: 'stat', items: 'ov sched' }] },
+      { id: 'cash', label: 'Cash & Bank', ic: 'bank', kind: 'work', n: ['warn', '12'], sample: 'cash', primary: 'Record cash', desc: 'Every bank and cash account, and what moved on it. Match the statement from here.', secs: [
+        { how: 'default', items: 'bank' }, { how: 'kind', items: 'cashtx xfer petty dep bpay' }, { how: 'view', base: 'List', items: 'giro' }, { how: 'button', items: 'brec', label: { brec: 'Match' } } ] },
+      { id: 'ar', label: 'Receivables', ic: 'bank', kind: 'work', sample: 'ar', primary: 'New receivable', desc: 'Card and EDC money on its way by default; staff and other receivables in the dropdown.', secs: [
+        { how: 'default', items: 'card' }, { how: 'kind', items: 'empr othr' }, { how: 'view', base: 'List', items: 'arage salesp' } ] },
+      { id: 'ap', label: 'Payables', ic: 'bank', kind: 'work', n: ['warn', '2'], sample: 'ap', primary: 'New bill', desc: 'Bills, advances, payroll and instalments on one board: not yet due → due this week → overdue → paid.', secs: [
+        { how: 'default', items: 'bill' }, { how: 'kind', items: 'adv ppay epay inst cip' }, { how: 'view', base: 'Board', items: 'apage' }, { how: 'button', items: 'appay', label: { appay: 'Pay' } } ] },
+      { id: 'jr', label: 'Journal', ic: 'bank', kind: 'work', sample: 'je', primary: 'New entry', desc: 'Manual entries, and the ledger and trial balance they land in.', secs: [
+        { how: 'default', items: 'je' }, { how: 'kind', items: 'adj accr prep recur' }, { how: 'view', base: 'Entries', items: 'gl tb' } ] },
+      { id: 'me', label: 'Month end', ic: 'bank', kind: 'check', n: ['', '3 left'], desc: 'Every check the month waits on, in order. Closing only locks the month.', secs: [
+        { how: 'step', title: 'Match', items: 'invrec iurec' },
+        { how: 'step', title: 'Post', items: 'ppost depr amort invv cogs git stkm iufin iugood iuoth int' },
+        { how: 'step', title: 'Tax', items: 'taxp pph ppn taxo taxc' },
+        { how: 'step', title: 'Close', items: 'close fp pcv' } ] },
+      { id: 'rp', label: 'Reports', ic: 'bank', kind: 'reports', desc: 'All 15 reports in one picker.', secs: REPORT_SECS },
+      { id: 'set', label: 'Setup', ic: 'bank', kind: 'space', n: ['bad', '3'], desc: 'Set once, then left alone, until it is wrong. Laid out like ERPNext’s workspace.', secs: [
+        { how: 'shortcut', items: 'coa links ready' },
+        { how: 'card', title: 'Accounts', items: 'dim linec expc' },
+        { how: 'card', title: 'Payments', items: 'pm spm edc girot' },
+        { how: 'card', title: 'Templates', items: 'jet payc assc' },
+        { how: 'card', title: 'Tax', items: 'twc taxt' },
+        { how: 'card', title: 'Loans & funding', items: 'loan princ' },
+        { how: 'card', title: 'Settings', items: 'accs ppol perm' } ] },
+    ],
+  },
+  {
+    id: 'C', short: 'C · Money in / out', name: 'Money in, money out',
+    follows: 'Odoo (Customers, Vendors), Zoho Books (Sales, Purchases), Accurate (Penjualan, Pembelian, Kas & Bank), Xero (Business, Accounting)',
+    principle: 'Split by the other party, the way small-business software does: what comes in, what goes out, the bank in between, then the books. Accounting is a page of links, like Xero’s Accounting menu.',
+    good: ['The words owners already think in: money in, money out.', 'Familiar to anyone who has used Jurnal.id, Accurate or Xero.'],
+    watch: ['For a retailer “money in” is thin: tills settle at once, so the row is mostly card settlements.', 'Accounting becomes a crowded menu page again, holding assets, stock value, interunit, tax and the close.'],
+    rows: [
+      { id: 'db', label: 'Dashboard', ic: 'gauge', kind: 'dash', desc: 'Cash, what falls due, and the month.', secs: [{ how: 'stat', items: 'ov' }] },
+      { id: 'cash', label: 'Bank & Cash', ic: 'bank', kind: 'work', n: ['warn', '12'], sample: 'cash', primary: 'Record cash', desc: 'Accounts and what moved on them.', secs: [
+        { how: 'default', items: 'bank' }, { how: 'kind', items: 'cashtx xfer petty dep bpay' }, { how: 'view', base: 'List', items: 'giro' }, { how: 'button', items: 'brec', label: { brec: 'Reconcile' } } ] },
+      { id: 'in', label: 'Money in', ic: 'bank', kind: 'work', sample: 'ar', primary: 'New receipt', desc: 'Sales postings, card settlements, and anything owed to us.', secs: [
+        { how: 'default', items: 'card' }, { how: 'kind', items: 'salesp empr othr' }, { how: 'view', base: 'List', items: 'arage' } ] },
+      { id: 'out', label: 'Money out', ic: 'bank', kind: 'work', n: ['warn', '2'], sample: 'ap', primary: 'New bill', desc: 'Bills, payments, payroll and instalments.', secs: [
+        { how: 'default', items: 'bill' }, { how: 'kind', items: 'adv appay ppay epay prun inst int' }, { how: 'view', base: 'List', items: 'apage' } ] },
+      { id: 'acc', label: 'Accounting', ic: 'bank', kind: 'space', desc: 'The books, as Xero’s Accounting menu: a page of links.', secs: [
+        { how: 'shortcut', items: 'je gl tb close' },
+        { how: 'card', title: 'Journal', items: 'accr prep recur adj' },
+        { how: 'card', title: 'Fixed assets', items: 'cap cip depr amort repl disp' },
+        { how: 'card', title: 'Stock value', items: 'invv git cogs stkm invrec' },
+        { how: 'card', title: 'Interunit', items: 'iufin iugood iuoth iurec' },
+        { how: 'card', title: 'Loans', items: 'loan princ sched' },
+        { how: 'card', title: 'Tax', items: 'taxp taxc pph ppn taxo' },
+        { how: 'card', title: 'Period', items: 'fp pcv ppost' } ] },
+      { id: 'rp', label: 'Reports', ic: 'bank', kind: 'reports', desc: 'All 15 reports in one picker.', secs: REPORT_SECS },
+      { id: 'set', label: 'Settings', ic: 'bank', kind: 'space', n: ['bad', '3'], desc: 'Chart, links, payment methods, tax and policies.', secs: [
+        { how: 'shortcut', items: 'coa links ready' },
+        { how: 'card', title: 'Accounts', items: 'dim linec expc jet' },
+        { how: 'card', title: 'Payments', items: 'pm spm edc girot' },
+        { how: 'card', title: 'People & assets', items: 'payc assc' },
+        { how: 'card', title: 'Tax', items: 'twc taxt' },
+        { how: 'card', title: 'Policies', items: 'accs ppol perm' } ] },
+    ],
+  },
+  {
+    id: 'D', short: 'D · To do first', name: 'To do, money, month, books',
+    follows: 'QuickBooks’ “Get things done” hub and NetSuite’s role centres: an inbox of what needs someone, over one list of money',
+    principle: 'Organised by when work happens. To do is today’s inbox. Money is one list of every money document. Month end is the monthly checklist, Books holds the ledger and reports, and Setup is set once.',
+    good: ['Five rows. A finance person opens To do and works down it.', 'Nothing waits unseen: stopped postings, late bills and unmatched lines surface by themselves.'],
+    watch: ['A new idea for a team trained on 7Soft; “where is Payables?” is answered by a filter, not a row.', 'The To do list only works if every exception is really detected, which is backend work before it is UI.'],
+    elsewhere: [{ where: 'GA › Asset register', how: 'Buttons on an asset', items: 'cap disp repl' }, { where: 'People › Payroll', how: 'HR’s own screen', items: 'prun' }],
+    rows: [
+      { id: 'todo', label: 'To do', ic: 'gauge', kind: 'todo', n: ['bad', '6'], desc: 'What needs someone, most urgent first. Each item opens the tool it needs.', secs: [{ how: 'todo', items: 'ov brec ready' }] },
+      { id: 'money', label: 'Money', ic: 'bank', kind: 'work', sample: 'money', primary: 'New', desc: 'Every document that moves money, in or out, on one list. Filter by kind, or look by account, by age, or as the giro board.', secs: [
+        { how: 'kind', items: 'bill appay adv bpay cashtx xfer petty dep card salesp empr othr ppay epay inst cip' }, { how: 'view', base: 'List', items: 'bank giro apage arage' } ] },
+      { id: 'me', label: 'Month end', ic: 'bank', kind: 'check', n: ['', '3 left'], desc: 'The monthly checklist, from accruals to the close.', secs: [
+        { how: 'step', title: 'Post', items: 'ppost accr prep recur depr amort invv cogs git stkm iufin iugood iuoth int' },
+        { how: 'step', title: 'Match', items: 'invrec iurec' },
+        { how: 'step', title: 'Tax', items: 'taxp pph ppn taxo taxc' },
+        { how: 'step', title: 'Close', items: 'close fp pcv' } ] },
+      { id: 'books', label: 'Books', ic: 'bank', kind: 'work', sample: 'je', primary: 'New entry', desc: 'Journal, ledger, and every report.', secs: [
+        { how: 'default', items: 'je' }, { how: 'kind', items: 'adj' }, { how: 'view', base: 'Entries', items: 'gl tb' },
+        { how: 'report', items: 'r_pl r_bs r_cf r_site r_dim r_gl r_tb r_cb r_ap r_ar r_pay r_inv r_nbv r_tax r_iu' } ] },
+      { id: 'set', label: 'Setup', ic: 'bank', kind: 'space', desc: 'Set once, then left alone.', secs: [
+        { how: 'shortcut', items: 'coa links' },
+        { how: 'card', title: 'Accounts', items: 'dim linec expc jet' },
+        { how: 'card', title: 'Payments', items: 'pm spm edc girot' },
+        { how: 'card', title: 'Templates', items: 'payc assc' },
+        { how: 'card', title: 'Loans & funding', items: 'loan princ sched' },
+        { how: 'card', title: 'Tax', items: 'twc taxt' },
+        { how: 'card', title: 'Settings', items: 'accs ppol perm' } ] },
+    ],
+  },
+  {
+    id: 'E', short: 'E · Menus + tabs', name: 'Five menus with tabs',
+    follows: 'Odoo Accounting: five top menus (Customers, Vendors, Accounting, Reporting, Configuration), each opening a second level',
+    principle: 'Five rows in the sidebar, and the second level becomes tabs across the top of the page. Nothing disappears; it moves one level down, where Odoo keeps it.',
+    good: ['Very short sidebar, and every old screen is still a named tab: nothing to hunt for in a dropdown.', 'Close to how the code is organised today, so it is the cheapest cut after A.'],
+    watch: ['Accounting carries 7 tabs and Money 5; tabs past six start to scroll.', 'Two levels of navigation (sidebar and tabs) to learn instead of one.'],
+    rows: [
+      { id: 'db', label: 'Dashboard', ic: 'gauge', kind: 'dash', desc: 'Cash, what falls due, and the month.', secs: [{ how: 'stat', items: 'ov sched' }] },
+      { id: 'money', label: 'Money', ic: 'bank', kind: 'tabs', n: ['warn', '14'], desc: 'Bank, what we owe, what is owed to us, payroll and loans.', secs: [
+        { how: 'tab', title: 'Bank & Cash', sample: 'cash', items: 'bank cashtx xfer petty dep bpay giro brec' },
+        { how: 'tab', title: 'Payables', sample: 'ap', items: 'bill adv appay apage cip' },
+        { how: 'tab', title: 'Receivables', sample: 'ar', items: 'card salesp empr othr arage' },
+        { how: 'tab', title: 'Payroll', items: 'prun ppay epay ppost' },
+        { how: 'tab', title: 'Loans', items: 'loan princ inst int' } ] },
+      { id: 'acc', label: 'Accounting', ic: 'bank', kind: 'tabs', desc: 'The books: journal, ledger, assets, stock value, interunit, tax and the close.', secs: [
+        { how: 'tab', title: 'Journal', sample: 'je', items: 'je adj accr prep recur' },
+        { how: 'tab', title: 'Ledger', items: 'gl tb' },
+        { how: 'tab', title: 'Assets', items: 'cap depr amort repl disp' },
+        { how: 'tab', title: 'Stock value', items: 'invv git cogs stkm invrec' },
+        { how: 'tab', title: 'Interunit', items: 'iufin iugood iuoth iurec' },
+        { how: 'tab', title: 'Tax', items: 'taxp taxc pph ppn taxo' },
+        { how: 'tab', title: 'Period close', items: 'close fp pcv' } ] },
+      { id: 'rp', label: 'Reporting', ic: 'bank', kind: 'reports', desc: 'All 15 reports in one picker.', secs: REPORT_SECS },
+      { id: 'cfg', label: 'Configuration', ic: 'bank', kind: 'tabs', n: ['bad', '3'], desc: 'Set once, then left alone.', secs: [
+        { how: 'tab', title: 'Accounts', items: 'coa links ready dim linec expc' },
+        { how: 'tab', title: 'Payments', items: 'pm spm edc girot' },
+        { how: 'tab', title: 'Templates', items: 'jet payc assc' },
+        { how: 'tab', title: 'Tax', items: 'twc taxt' },
+        { how: 'tab', title: 'Settings', items: 'accs ppol perm' } ] },
+    ],
+  },
+];
+const TODAY = { id: 'T', short: 'Today', name: 'Today’s tree', follows: 'The frozen tree of 26 Sep, plus ERPNext’s setup groups added on 27 Sep',
+  principle: 'Every screen is its own row, grouped under 17 headings. Nothing is more than one click away, but finding the one click means reading a column of 90.',
+  good: ['One click to anything, once you know where it is.'], watch: ['90 rows under 17 headings; the sidebar scrolls four screens deep.', 'Trial Balance and General Ledger each appear twice; there are two rows called Payments and three called Aging or Reconciliation.'] };
+
+const HOW_C = { default: '#20242c', kind: '#2563eb', view: '#5856d6', button: '#0f9d8f', tab: '#b45309', step: '#e9604f', card: '#737c89', shortcut: '#737c89', report: '#2ea44f', todo: '#be123c', stat: '#aab1bb' };
+
+/* ── Where each old screen lives in an option ── */
+function howText(sec, id) {
+  switch (sec.how) {
+    case 'default': return 'the page itself';
+    case 'kind': return 'Kind dropdown';
+    case 'view': return 'View dropdown';
+    case 'button': return `“${(sec.label && sec.label[id]) || O[id].label}” button`;
+    case 'tab': return `tab “${sec.title}”`;
+    case 'step': return `month-end step, ${sec.title}`;
+    case 'card': return `link in “${sec.title}”`;
+    case 'shortcut': return 'shortcut at the top';
+    case 'report': return 'report picker';
+    case 'todo': return 'the to-do list';
+    case 'stat': return 'on the page';
+  }
+}
+function homeOf(opt, id) {
+  if (opt.id === 'T') return { text: `${O[id].group ? O[id].group + ' › ' : ''}${O[id].label}` };
+  for (const row of opt.rows) for (const sec of row.secs) if (sec.items.split(' ').includes(id)) return { row, sec, text: `${row.label} › ${howText(sec, id)}` };
+  for (const e of opt.elsewhere || []) if (e.items.split(' ').includes(id)) return { text: `${e.where} · ${e.how}`, out: true };
+  return null;
+}
+
+/* ── State ── */
+const ALL = [TODAY, ...OPTIONS];
+const st = { opt: 'B', row: null, tab: 0, hl: null, q: '' };
+try { const s = JSON.parse(localStorage.getItem('fin-menu') || '{}'); if (s.opt) st.opt = s.opt; } catch (e) {}
+const opt = () => ALL.find(o => o.id === st.opt);
+const ic = (n, cls = '') => `<svg class="ic ${cls}"><use href="#i-${n}"/></svg>`;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const badge = n => n ? `<span class="n ${n[0]}">${esc(n[1])}</span>` : '';
+
+/* ── Prototype bar ── */
+function renderSeg() {
+  $('#seg').innerHTML = ALL.map(o => `<button type="button" data-opt="${o.id}" aria-pressed="${st.opt === o.id}">${esc(o.short)}${o.rec ? ' <span class="star">★</span>' : ''}</button>`).join('')
+    + `<button type="button" data-opt="CMP" aria-pressed="${st.opt === 'CMP'}">Compare</button><button type="button" data-opt="ERP" aria-pressed="${st.opt === 'ERP'}">ERPNext AP</button>`;
+}
+
+/* ── Sidebar ── */
+const DEPTS = [['Today', 'home'], ['Merchandise', 'tag'], ['Buying', 'cart'], ['Inventory', 'box'], ['Selling', 'store'], ['Marketing', 'spark'], ['Finance', 'bank', 1], ['People', 'users'], ['General affairs', 'layers'], ['Operations', 'gauge']];
+function renderSide(animate) {
+  const o = opt();
+  let sub = '';
+  if (o.id === 'T') {
+    let g = null;
+    sub = OLD.map(x => {
+      let h = '';
+      if (x.group !== g) { g = x.group; if (g) h = `<div class="sg">${esc(g)}</div>`; }
+      return h + `<button class="si" type="button" data-row="${x.id}" ${st.row === x.id ? 'aria-current="page"' : ''}><span class="lab">${esc(x.label)}</span>${badge(TODAY_BADGE[x.id])}</button>`;
+    }).join('');
+  } else {
+    sub = o.rows.map(r => `<button class="si" type="button" data-row="${r.id}" ${st.row === r.id ? 'aria-current="page"' : ''}><span class="lab">${esc(r.label)}</span>${badge(r.n)}</button>`).join('');
+  }
+  const rows = o.id === 'T' ? OLD.length : o.rows.length;
+  $('#side').innerHTML = `
+    <div class="brand"><div class="mark">C</div><div class="wm">Central</div></div>
+    <div class="qa">${ic('search', 's')}Search or jump<kbd>⌘K</kbd></div>
+    ${DEPTS.map(([l, i, on]) => on
+      ? `<button class="dep on" type="button">${ic(i)}<span>${l}</span>${ic('chev', 's chev')}</button><div class="sub${animate ? ' opening' : ''}">${sub}</div>`
+      : `<button class="dep" type="button">${ic(i)}<span>${l}</span></button>`).join('')}
+    <div class="side-count"><b>${rows}</b> rows under Finance${o.id === 'T' ? ', 17 headings' : ''}</div>`;
+}
+
+/* ── Pages ── */
+function head(o, r, acts = '') {
+  return `<div class="ph"><div><div class="eyebrow">Finance · ${esc(o.short)}</div><h1 class="h1">${esc(r.label)}</h1><p class="desc">${esc(r.desc)}</p></div>${acts ? `<div class="acts">${acts}</div>` : ''}</div>`;
+}
+function dd(id, label, items, base) {
+  return `<div class="dd"><button class="btn" type="button" data-dd="${id}">${esc(label)}${ic('chev-d', 's')}</button><div class="menu" data-menu="${id}" hidden>
+    ${base ? `<button class="mi on" type="button">${esc(base)}</button>` : ''}${items.map(x => `<button class="mi" type="button">${esc(x)}</button>`).join('')}</div></div>`;
+}
+function sampleTable(key) {
+  const s = SAMPLES[key]; if (!s) return '';
+  const [h, rows] = s; const isAmt = i => h[i] === 'Amount' || h[i] === 'In' || h[i] === 'Out';
+  return `<section class="panel"><div class="tbl-wrap"><table class="tbl"><thead><tr>${h.map((x, i) => `<th class="${isAmt(i) ? 'r' : ''}">${x}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(r => `<tr>${r.map((c, i) => `<td class="${isAmt(i) ? 'r num strong' : i === 1 ? 'strong' : ''}">${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div></section>`;
+}
+function insideTable(o, r, secs) {
+  const list = [];
+  secs.forEach(sec => sec.items.split(' ').forEach(id => list.push([id, sec])));
+  return `<section class="panel"><div class="panel-h"><h2 class="h2">What lives here</h2><span class="pd">${list.length} of today’s rows</span></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Row today</th><th>Reached here by</th></tr></thead><tbody>
+    ${list.map(([id, sec]) => `<tr data-id="${id}" class="${st.hl === id ? 'hl' : ''}"><td class="strong">${esc(O[id].label)}<span class="g">${esc(O[id].group || 'Finance')}</span></td><td><span class="how" style="--c:${HOW_C[sec.how]}">${esc(howText(sec, id))}</span></td></tr>`).join('')}
+    </tbody></table></div></section>`;
+}
+function workBody(o, r, secs, sampleKey) {
+  const kinds = secs.filter(s => s.how === 'kind').flatMap(s => s.items.split(' ').map(kl));
+  const def = secs.find(s => s.how === 'default');
+  const view = secs.find(s => s.how === 'view');
+  const reps = secs.find(s => s.how === 'report');
+  return `<div class="toolbar"><label class="inp">${ic('search', 's')}<input placeholder="Search ${esc(r.label.toLowerCase())}" /></label>
+    ${kinds.length ? dd('kind', 'All kinds', kinds, def ? O[def.items.split(' ')[0]].label : null) : ''}
+    ${view ? dd('view', view.base, view.items.split(' ').map(id => O[id].label), view.base) : ''}
+    ${reps ? dd('rep', 'Reports', reps.items.split(' ').map(id => O[id].label)) : ''}
+    <button class="btn" type="button">${ic('filter', 's')}Filter</button></div>
+    ${sampleTable(sampleKey)}<div style="height:20px"></div>${insideTable(o, r, secs)}`;
+}
+function statsRow() {
+  return `<div class="stats">
+    <div class="stat"><b>Cash in banks</b><div class="fig"><small>Rp</small>1,24<small class="u">M</small></div><div class="hint">4 accounts · 10.45</div></div>
+    <div class="stat"><b>Due in 7 days</b><div class="fig"><small>Rp</small>186,5<small class="u">jt</small></div><div class="hint">9 bills and 2 giro</div></div>
+    <div class="stat"><b>Card money on its way</b><div class="fig"><small>Rp</small>42,8<small class="u">jt</small></div><div class="hint">EDC settles tomorrow</div></div>
+    <div class="stat"><b>Bank lines to match</b><div class="fig">12</div><div class="hint">BCA 8 · Mandiri 4</div></div></div>`;
+}
+function pageOf(o, r) {
+  const btns = r.secs.filter(s => s.how === 'button').flatMap(s => s.items.split(' ').map(id => `<button class="btn" type="button">${esc((s.label && s.label[id]) || O[id].label)}</button>`)).join('');
+  const prim = r.primary ? `<button class="btn btn-p" type="button">${ic('plus', 's')}${esc(r.primary)}</button>` : '';
+  switch (r.kind) {
+    case 'work': return head(o, r, btns + prim) + workBody(o, r, r.secs, r.sample);
+    case 'dash': return head(o, r, `<button class="btn btn-p" type="button">${ic('plus', 's')}New payment</button>`) + statsRow() + insideTable(o, r, r.secs);
+    case 'space': {
+      const stat = r.secs.find(s => s.how === 'stat');
+      const sc = r.secs.find(s => s.how === 'shortcut');
+      return head(o, r) + (stat ? statsRow() : '')
+        + (sc ? `<p class="lbl">Shortcuts</p><div class="shortcuts">${sc.items.split(' ').map(id => `<button class="sc${st.hl === id ? ' lk hl' : ''}" type="button">${ic('file', 's')}${esc(O[id].label)}${badge(TODAY_BADGE[id])}</button>`).join('')}</div>` : '')
+        + `<div class="cards">${r.secs.filter(s => s.how === 'card').map(s => `<div class="card"><h3>${esc(s.title)}</h3>${s.items.split(' ').map(id => `<button class="lk${st.hl === id ? ' hl' : ''}" type="button">${esc(O[id].label)}${badge(TODAY_BADGE[id])}</button>`).join('')}</div>`).join('')}</div>`;
+    }
+    case 'check': {
+      let k = 0; const total = r.secs.reduce((a, s) => a + s.items.split(' ').length, 0); const doneN = total - 3;
+      const body = r.secs.map(s => `<div class="me-h">${esc(s.title)}</div>${s.items.split(' ').map(id => { const d = k++ < doneN && id !== 'close' && id !== 'pcv'; return `<div class="task${d ? ' done' : ''}${st.hl === id ? ' hl' : ''}" data-task><button class="tick" type="button" aria-label="Done"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button><span class="tx"><span class="t1">${esc(O[id].label)}</span><span class="t2">was ${esc(O[id].group || 'Finance')} › ${esc(O[id].label)}</span></span>${d ? '' : `<button class="btn sm" type="button">Open</button>`}</div>`; }).join('')}`).join('');
+      return head(o, r, `<button class="btn btn-p" type="button">${ic('lock', 's')}Close September</button>`)
+        + `<section class="panel" id="checks"><div class="panel-h"><h2 class="h2">Checks</h2><div class="prog"><span class="pc"></span><div class="bar"><i></i></div></div></div>${body}</section>`;
+    }
+    case 'reports': return head(o, r) + `<div class="toolbar"><label class="inp">${ic('search', 's')}<input placeholder="Find a report" data-rq /></label></div>`
+      + r.secs.map(s => `<section class="panel" data-rsec><div class="panel-h"><h2 class="h2">${esc(s.title)}</h2></div>${s.items.split(' ').map(id => `<button class="rep${st.hl === id ? ' hl' : ''}" type="button" data-rep="${esc(O[id].label.toLowerCase())}"><b>${esc(O[id].label)}</b><span>${esc(REPORT_DESC[id] || '')}</span>${ic('arrow', 's')}</button>`).join('')}</section>`).join('');
+    case 'todo': return head(o, r) + `<section class="panel todo">${TODO.map(([c, t1, t2, b, id]) => `<div class="task"><span class="dot ${c}"></span><span class="tx"><span class="t1">${esc(t1)}</span><span class="t2">${esc(t2)}</span></span><button class="btn sm" type="button" data-jump="${id}">${esc(b)}</button></div>`).join('')}</section>`
+      + `<div style="height:20px"></div>` + statsRow() + insideTable(o, r, r.secs);
+    case 'tabs': {
+      const tabs = r.secs; const t = tabs[Math.min(st.tab, tabs.length - 1)];
+      const tbtns = btns;
+      return head(o, r, prim) + `<div class="tabs" role="tablist">${tabs.map((s, i) => `<button role="tab" type="button" data-tab="${i}" aria-selected="${s === t}">${esc(s.title)}</button>`).join('')}</div>`
+        + `<div class="page" style="animation-duration:.22s">${workBody(o, r, [{ how: 'default', items: t.items.split(' ')[0] }, ...(t.items.split(' ').length > 1 ? [{ how: 'kind', items: t.items.split(' ').slice(1).join(' ') }] : [])], t.sample).replace('What lives here', `What lives in ${esc(t.title)}`)}</div>`;
+    }
+  }
+}
+function todayPage(id) {
+  const x = O[id];
+  const r = { label: x.label, desc: `One of 90 rows. It sits under ${x.group || 'Finance'} today.` };
+  const others = OLD.filter(y => y.group === x.group && y.id !== id);
+  return head(TODAY, r) + `<section class="panel"><div class="panel-h"><h2 class="h2">Next to it in the sidebar</h2><span class="pd">${others.length} more rows under ${esc(x.group || 'Finance')}</span></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Row</th><th>In option B it becomes</th></tr></thead><tbody>
+    ${[x, ...others].map(y => `<tr><td class="strong">${esc(y.label)}</td><td><span class="how">${esc(homeOf(OPTIONS[1], y.id).text)}</span></td></tr>`).join('')}</tbody></table></div></section>`;
+}
+
+/* ── Compare ── */
+const TASKS = [['Pay a supplier bill', 'appay'], ['Match bank lines', 'brec'], ['Giro', 'giro'], ['Petty cash', 'petty'], ['Card & EDC settlement', 'card'], ['Accruals', 'accr'], ['Payroll posting', 'ppost'], ['Depreciation', 'depr'], ['PPN', 'ppn'], ['Interunit', 'iufin'], ['Profit & Loss', 'r_pl'], ['Fix a stopped posting', 'links'], ['Close the month', 'close'], ['Chart of accounts', 'coa']];
+function comparePage() {
+  const cols = ALL;
+  return `<div class="page"><div class="ph"><div><div class="eyebrow">Finance menu</div><h1 class="h1">Compare</h1><p class="desc">The same jobs, and where each option keeps them.</p></div></div>
+  <section class="panel"><div class="tbl-wrap"><table class="tbl cmp"><thead><tr><th></th>${cols.map(o => `<th class="${o.rec ? 'star' : ''}">${esc(o.short)}${o.rec ? ' ★' : ''}</th>`).join('')}</tr></thead><tbody>
+  <tr><td>Rows under Finance</td>${cols.map(o => `<td><span class="big num">${o.id === 'T' ? 90 : o.rows.length}</span>${o.id === 'T' ? '<br><span style="color:var(--ink-400)">+17 headings</span>' : ''}</td>`).join('')}</tr>
+  <tr><td>Follows</td>${cols.map(o => `<td>${esc(o.follows)}</td>`).join('')}</tr>
+  ${TASKS.map(([t, id]) => `<tr><td>${esc(t)}</td>${cols.map(o => `<td>${esc(homeOf(o, id).text)}</td>`).join('')}</tr>`).join('')}
+  </tbody></table></div></section></div>`;
+}
+
+/* ── ERPNext's Payables, and ours done the same way ──
+   Source: erpnext/accounts/workspace/payables/payables.json (version-15):
+   no number cards, no charts; 4 shortcuts; cards Invoicing, Payments, Reports. */
+function wsBlock(shortcuts, cards) {
+  return `<div class="ws"><p class="lbl">Shortcuts</p><div class="shortcuts">${shortcuts.map(x => `<button class="sc" type="button">${ic('file', 's')}${esc(x)}</button>`).join('')}</div>
+    <p class="lbl">Reports &amp; masters</p><div class="cards">${cards.map(([t, links]) => `<div class="card"><h3>${esc(t)}</h3>${links.map(l => { const n = l.startsWith('+'); return `<button class="lk${n ? ' new' : ''}" type="button">${esc(n ? l.slice(1) : l)}</button>`; }).join('')}</div>`).join('')}</div></div>`;
+}
+function erpPage() {
+  const erp = wsBlock(['Purchase Invoice', 'Payment Entry', 'Journal Entry', 'Accounts Payable'], [
+    ['Invoicing', ['Purchase Invoice', 'Supplier']],
+    ['Payments', ['Payment Entry', 'Journal Entry', 'Payment Reconciliation']],
+    ['Reports', ['Accounts Payable', 'Accounts Payable Summary', 'Purchase Register', 'Item-wise Purchase Register', 'Purchase Order Analysis', 'Received Items To Be Billed', 'Supplier Ledger Summary']]]);
+  const ours = wsBlock(['Supplier bill', 'Payment', 'Journal entry', 'Accounts payable'], [
+    ['Bills', ['Supplier bill', '+Debit note', 'Supplier']],
+    ['Payments', ['Payment', 'Giro', '+Match payments to bills']],
+    ['Reports', ['Accounts payable', '+Payables by supplier', '+Purchase register', '+Received, not billed', '+Supplier ledger']]]);
+  const MAP = [
+    ['Supplier Bills', 'Payables', 'Purchase Invoice', 'Supplier bill'],
+    ['Supplier Advances', 'Payables', 'Payment Entry with no invoice yet', 'Payment, matched to the bill later'],
+    ['Payments', 'Payables', 'Payment Entry', 'Payment'],
+    ['Payments', 'Cash & Bank', 'Payment Entry, sent as a Payment Order', 'Payment, sent as a batch'],
+    ['Giro', 'Cash & Bank', 'Payment Entry with a cheque number and date', 'Payment paid by giro, on the giro board'],
+    ['Aging', 'Payables', 'Accounts Payable report', 'Accounts payable, with age columns'],
+    ['Payroll Payables', 'Payroll', 'Journal Entry from the payroll run', 'Posted by HR’s run, no screen of its own'],
+    ['Employee Payments', 'Payroll', 'Payment Entry, party type Employee', 'Payment to a staff member'],
+    ['Installments', 'Financing', 'Payment Entry or Journal Entry to the lender', 'Payment to a bank'],
+  ];
+  const AP = [
+    ['UD Batik Pekalongan', 'INV/BP/0907', '25 Sep', '3 days late', 'Rp 19.500.000', 1],
+    ['CV Denim Bandung', 'INV/DB/0904', '27 Sep', '1 day late', 'Rp 22.400.000', 1],
+    ['CV Sinar Tekstil', 'Giro GR-0419', '29 Sep', 'tomorrow', 'Rp 48.600.000'],
+    ['PLN · Grand Indonesia', 'INV/PLN/0926', '30 Sep', 'in 2 days', 'Rp 12.450.000'],
+    ['PT Mode Prima Indonesia', 'BILL/MP/0912', '1 Okt', 'in 3 days', 'Rp 95.400.000'],
+    ['PT Garmen Nusantara', 'INV/GN/0915', '9 Okt', 'in 11 days', 'Rp 118.000.000'],
+  ];
+  return `<div class="page"><div class="ph"><div><div class="eyebrow">Finance · research</div><h1 class="h1">ERPNext’s Payables</h1>
+    <p class="desc">Why it looks tidy, and what our Payables would look like done the same way. ERPNext’s page is copied from its own workspace file (version 15): no number cards, no charts, 4 shortcuts and 12 links.</p></div></div>
+  <div class="blk"><div class="why">
+    <div><b>Two documents do everything</b><p>A bill is a Purchase Invoice and every payment is a Payment Entry. An advance is a payment with no bill yet, a staff payment is a payment to an employee, a return is a bill marked as a return. There is no screen per kind.</p></div>
+    <div><b>The work list is a report</b><p>You work AP from the Accounts Payable report: every open bill with its age, and a click from there to pay. Aging is not a separate screen; it is how that list is read.</p></div>
+    <div><b>Matching comes later</b><p>Payment Reconciliation ties payments and advances to bills after the fact. So paying never has to wait for the paperwork to be perfect.</p></div>
+  </div></div>
+  <div class="two blk">
+    <div><h2 class="h2">ERPNext, as it ships</h2><p class="pd">Payables workspace, v15</p>${erp}</div>
+    <div><h2 class="h2">Ours, the same way</h2><p class="pd">Same three cards. Blue links have no screen today.</p>${ours}</div>
+  </div>
+  <div class="blk"><h2 class="h2">Or, as option B’s working page</h2><p class="pd">The sidebar row opens straight onto Accounts payable instead of a page of links. Same model: bills and payments only.</p>
+    <div class="ph" style="margin:0 0 16px"><div class="toolbar" style="margin:0"><label class="inp">${ic('search', 's')}<input placeholder="Search suppliers or bills" /></label>
+      ${dd('party', 'All parties', ['Suppliers', 'Staff', 'Banks and lenders'], null)}${dd('apview', 'By bill', ['By supplier', 'Received, not billed'], 'By bill')}</div>
+      <div class="acts"><button class="btn" type="button">Match payments</button><button class="btn btn-p" type="button">${ic('plus', 's')}New bill</button></div></div>
+    <div class="buckets">
+      <div class="stat late"><b>Late</b><div class="fig"><small>Rp</small>41,9<small class="u">jt</small></div><div class="hint">2 bills</div></div>
+      <div class="stat"><b>Due in 7 days</b><div class="fig"><small>Rp</small>156,5<small class="u">jt</small></div><div class="hint">2 bills · 1 giro</div></div>
+      <div class="stat"><b>8–30 days</b><div class="fig"><small>Rp</small>118,0<small class="u">jt</small></div><div class="hint">1 bill</div></div>
+      <div class="stat"><b>Advances not matched</b><div class="fig"><small>Rp</small>25,9<small class="u">jt</small></div><div class="hint">1 payment</div></div></div>
+    <section class="panel"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Supplier</th><th>Bill</th><th>Due</th><th></th><th class="r">Outstanding</th><th></th></tr></thead><tbody>
+      ${AP.map(r => `<tr><td class="strong">${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td><td class="${r[5] ? 'late' : ''}">${esc(r[3])}</td><td class="r num strong">${esc(r[4])}</td><td class="r"><button class="btn sm" type="button">Pay</button></td></tr>`).join('')}
+    </tbody></table></div></section></div>
+  <div class="blk"><h2 class="h2">Today’s rows, ERPNext’s way</h2><p class="pd">Nine rows today across four headings become two documents and one report.</p>
+    <section class="panel"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Row today</th><th>In ERPNext</th><th>In ours</th></tr></thead><tbody>
+      ${MAP.map(m => `<tr><td class="strong">${esc(m[0])}<span class="g">${esc(m[1])}</span></td><td>${esc(m[2])}</td><td>${esc(m[3])}</td></tr>`).join('')}
+    </tbody></table></div></section></div>
+  </div>`;
+}
+
+/* ── Notes ── */
+function renderNotes() {
+  const o = opt();
+  const rows = o.id === 'T' ? 90 : o.rows.length;
+  const missing = o.id === 'T' ? [] : OLD.filter(x => !homeOf(o, x.id));
+  const q = st.q.trim().toLowerCase();
+  const hits = q ? OLD.filter(x => (x.label + ' ' + x.group).toLowerCase().includes(q)) : [];
+  $('#notes').innerHTML = `
+    <div class="kick">Option ${o.id === 'T' ? '· reference' : o.id}</div>
+    <div class="on">${esc(o.name)}</div>
+    ${o.rec ? '<div class="rec">Recommended</div>' : ''}
+    <div class="metric"><div><b>${rows}</b><span>rows</span></div>${o.id === 'T' ? '<div><b>17</b><span>headings</span></div>' : `<div><b>−${90 - rows}</b><span>from today</span></div>`}</div>
+    <h4>Follows</h4><p>${esc(o.follows)}</p>
+    <h4>The rule</h4><p>${esc(o.principle)}</p>
+    <h4>Good</h4><ul>${o.good.map(g => `<li>${esc(g)}</li>`).join('')}</ul>
+    <h4>Watch out</h4><ul>${o.watch.map(g => `<li>${esc(g)}</li>`).join('')}</ul>
+    ${o.elsewhere ? `<h4>Leaves Finance</h4><ul>${o.elsewhere.map(e => `<li>${e.items.split(' ').map(id => esc(O[id].label)).join(', ')} → ${esc(e.where)}</li>`).join('')}</ul>` : ''}
+    <div class="where"><h4 style="margin-top:0">Where did it go?</h4>
+      <label class="inp">${ic('search', 's')}<input id="wq" placeholder="A row from today, e.g. giro" value="${esc(st.q)}" /></label>
+      ${q ? '' : `<div class="try">Try ${['giro', 'PPN', 'depreciation', 'account links', 'aging'].map(t => `<button type="button" data-try="${t}">${t}</button>`).join(', ')}</div>`}
+      <div class="wl">${hits.map(x => { const h = homeOf(o, x.id); return `<button class="w" type="button" data-go="${x.id}"><b>${esc(x.label)}<small>${esc(x.group || 'Finance')}</small></b><span>${h ? '→ ' + esc(h.text) : 'no home'}</span></button>`; }).join('')}${q && !hits.length ? '<p style="color:var(--ink-400);margin-top:8px">No row today by that name.</p>' : ''}</div>
+      ${o.id === 'T' ? '' : `<div class="cov ${missing.length ? 'bad' : ''}">${missing.length ? 'No home yet: ' + missing.map(m => m.label).join(', ') : 'All 90 of today’s rows have a home.'}</div>`}
+    </div>`;
+}
+
+/* ── Render ── */
+function render(animateSide) {
+  renderSeg();
+  const app = $('#app');
+  if (st.opt === 'CMP' || st.opt === 'ERP') { app.classList.add('compare'); $('#main').innerHTML = st.opt === 'CMP' ? comparePage() : erpPage(); return; }
+  app.classList.remove('compare');
+  const o = opt();
+  if (!st.row) st.row = o.id === 'T' ? 'ov' : o.rows[0].id;
+  renderSide(animateSide);
+  $('#main').innerHTML = `<div class="page">${o.id === 'T' ? todayPage(st.row) : pageOf(o, o.rows.find(r => r.id === st.row))}</div>`;
+  renderNotes();
+  updateChecks();
+  const hl = document.querySelector('#main .hl'); if (hl) hl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+function updateChecks() {
+  const box = document.getElementById('checks'); if (!box) return;
+  const all = box.querySelectorAll('[data-task]'), done = box.querySelectorAll('[data-task].done');
+  box.querySelector('.pc').textContent = `${done.length} of ${all.length} done`;
+  box.querySelector('.bar i').style.setProperty('--w', (done.length / all.length * 100) + '%');
+}
+function $(s) { return document.querySelector(s); }
+
+document.addEventListener('click', e => {
+  const t = e.target.closest('button');
+  document.querySelectorAll('.menu').forEach(m => { if (!t || t.dataset.dd !== m.dataset.menu) m.hidden = true; });
+  if (!t) return;
+  if (t.dataset.opt) { st.opt = t.dataset.opt; st.row = null; st.tab = 0; st.hl = null; try { localStorage.setItem('fin-menu', JSON.stringify({ opt: st.opt })); } catch (e) {} render(true); return; }
+  if (t.dataset.row) { st.row = t.dataset.row; st.tab = 0; st.hl = null; render(); return; }
+  if (t.dataset.tab) { st.tab = +t.dataset.tab; st.hl = null; render(); return; }
+  if (t.dataset.dd) { const m = document.querySelector(`[data-menu="${t.dataset.dd}"]`); m.hidden = !m.hidden; return; }
+  if (t.dataset.try) { st.q = t.dataset.try; renderNotes(); const i = $('#wq'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); return; }
+  if (t.dataset.go || t.dataset.jump) { goTo(t.dataset.go || t.dataset.jump); return; }
+  if (t.classList.contains('tick')) { t.closest('.task').classList.toggle('done'); updateChecks(); return; }
+});
+function goTo(id) {
+  const o = opt();
+  if (o.id === 'T') { st.row = id; st.hl = null; render(); return; }
+  const h = homeOf(o, id); if (!h || !h.row) return;
+  st.row = h.row.id; st.hl = id;
+  st.tab = h.sec.how === 'tab' ? h.row.secs.indexOf(h.sec) : 0;
+  render();
+}
+document.addEventListener('input', e => {
+  if (e.target.id === 'wq') { st.q = e.target.value; const pos = e.target.selectionStart; renderNotes(); const i = $('#wq'); i.focus(); i.setSelectionRange(pos, pos); }
+  if (e.target.matches('[data-rq]')) { const q = e.target.value.toLowerCase(); document.querySelectorAll('[data-rep]').forEach(b => b.hidden = !b.dataset.rep.includes(q)); document.querySelectorAll('[data-rsec]').forEach(s => s.hidden = !s.querySelector('[data-rep]:not([hidden])')); }
+});
+render(true);
+</script>
+</body>
+</html>

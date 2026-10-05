@@ -77,10 +77,10 @@ export function Movements() {
   const { bySku } = useRange()
 
   return (
-    <Screen sub="Every movement this shop's ledger holds, newest first. Nothing here is edited — a mistake is corrected by another movement.">
+    <Screen className="[&>div:first-child]:md:mb-6">
       <StockStrip />
       {queryState(ledger, {
-        loading: "Reading this shop's ledger…",
+        loading: "Loading…",
         render: (rows) =>
           rows.length === 0 ? (
             <Card>
@@ -92,8 +92,7 @@ export function Movements() {
                   </Button>
                 }
               >
-                Nothing has moved in this shop yet. Receiving a garment or
-                selling one writes the first line here.
+                No movements yet.
               </EmptyState>
             </Card>
           ) : (
@@ -186,12 +185,12 @@ function Ledger({
           )}
           empty={
             needle !== ""
-              ? `No movement in the newest ${count(rows.length)} matches “${typed.trim()}”.`
+              ? `No match for “${typed.trim()}”.`
               : way === "in"
-                ? "Nothing came into the shop in these movements."
+                ? "Nothing in."
                 : way === "out"
-                  ? "Nothing left the shop in these movements."
-                  : "Nothing moved between the shop's own places in these movements."
+                  ? "Nothing out."
+                  : "Nothing moved inside."
           }
         />
       </Card>
@@ -199,15 +198,12 @@ function Ledger({
       <div className="mt-3 flex flex-col gap-2 text-meta text-mute md:flex-row md:items-center md:justify-between">
         <span className="tabular-nums">
           {rows.length < limit
-            ? `The whole ledger — ${count(rows.length)} movements.`
-            : `The newest ${count(rows.length)} movements.`}
-          {
-            " In: arrived in the shop. Out: left it. Inside: moved between its own places."
-          }
+            ? `${count(rows.length)} movements`
+            : `Newest ${count(rows.length)} movements`}
         </span>
         {rows.length >= limit && limit < LEDGER_MAX && (
           <Button onClick={onMore} disabled={fetching} className="md:self-auto">
-            {fetching ? "Reading…" : `Read the last ${count(LEDGER_MAX)}`}
+            {fetching ? "Loading…" : `Show last ${count(LEDGER_MAX)}`}
           </Button>
         )}
       </div>
@@ -310,7 +306,7 @@ function columnsFor(
     },
     {
       id: "product",
-      header: "Product",
+      header: "Article",
       card: "meta",
       className: "max-w-[18rem]",
       cell: (row) => <Product epc={row.epc} bySku={bySku} />,
@@ -377,7 +373,7 @@ function MovementDetail({
 
   return (
     <Facts className="pt-2 lg:grid-cols-4">
-      <Fact term="Product">
+      <Fact term="Article">
         {product?.name ??
           (sku === null
             ? "Not a tag this codec reads"

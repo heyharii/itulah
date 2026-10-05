@@ -93,6 +93,10 @@ const KERNELS: &[&str] = &[
     // would put a SQL round trip inside the decision that stops a shop's day
     // of sales from being discarded.
     "src/cloud/domain/sync_generation.rs",
+    // How a document number is spelled (0701). Pure because a number is quoted
+    // back by suppliers and auditors for years: a pattern that read the clock
+    // would number a slip dated the 30th in whichever month it was approved.
+    "src/cloud/domain/number_series.rs",
     // Order against delivery against bill. A tolerance that could read the
     // clock would accept a price on Tuesday and refuse the same one on
     // Wednesday, with nothing failing and nobody able to say why.

@@ -87,14 +87,13 @@ export function Locations() {
     <PageContent>
       <PageHeader
         crumb="GA"
-        title="Locations"
+        title="Sites"
         sub="View assets, contracts, service schedules, supply requests and bills for each place."
         actions={
           <>
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Name or location code"
               className="h-8 w-56"
             />
             <Button variant="primary" onClick={() => opening.open(true)}>
@@ -132,7 +131,7 @@ export function Locations() {
             <Card>
               <EmptyState>
                 {kind === null
-                  ? "No locations yet. Offices and warehouses are created during setup; stores are opened with Open store."
+                  ? "No sites yet. Offices and the Gudang are created during setup; stores are opened with Open store."
                   : "No places of that type."}
               </EmptyState>
             </Card>
@@ -145,7 +144,7 @@ export function Locations() {
               <div className="overflow-x-auto">
                 <div className="md:min-w-[74rem]">
                   <div className="grid h-10 items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body max-md:hidden md:grid-cols-[minmax(14rem,1.4fr)_8.5rem_minmax(13rem,1fr)_11rem_5.5rem_5.5rem_7.5rem_9rem]">
-                    <span>Location</span>
+                    <span>Site</span>
                     <span>Type</span>
                     <span>Address</span>
                     <span>Contact</span>

@@ -48,6 +48,9 @@ export interface SalesSeries {
   readonly buckets: readonly string[]
   /// Every shop that could have traded, including the ones that did not.
   readonly sites: readonly SalesSeriesSite[]
+  /// Head office's site id, resolved by the server from its kind (0603), so a
+  /// screen recognises head office without spelling the id.
+  readonly head_office_site_id: string
   readonly cells: readonly SalesSeriesCell[]
 }
 

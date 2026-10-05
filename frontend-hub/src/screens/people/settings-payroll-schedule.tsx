@@ -67,8 +67,8 @@ export function PayrollScheduleSettings() {
               <MiniTable
                 head={[
                   "From",
-                  "Attendance month",
-                  "Pay day",
+                  "Attendance Month",
+                  "Pay Day",
                   "Prorated by",
                   "By",
                   "Why",

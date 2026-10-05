@@ -46,7 +46,7 @@ export function ChartOfAccounts() {
     <AppShell nav={<Nav />} section={<FinanceNav />}>
       <ScreenHeader
         title="Chart of Accounts"
-        subtitle="CENTRAL FASHION STORE · 14 locations"
+        subtitle="CENTRAL FASHION STORE · 14 sites"
       >
         <div className="relative">
           <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
@@ -396,7 +396,7 @@ function AccountPanel({ code }: { code: string | null }) {
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[12px]">
         <Fact label="Kind" value={account.is_group ? "Heading" : "Postable"} />
         <Fact label="Status" value={account.is_active ? "Active" : "Inactive"} />
-        {account.site_id !== null && <Fact label="Location" value={account.site_id} />}
+        {account.site_id !== null && <Fact label="Site" value={account.site_id} />}
         {account.counterparty_site_id !== null && (
           <Fact label="From" value={account.counterparty_site_id} />
         )}

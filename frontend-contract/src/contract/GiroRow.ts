@@ -32,4 +32,24 @@ days_overdue: number, supplier_payment_id: string | null, payment_number: string
 /**
  * Who it is for. Read through whichever source it has.
  */
-party_name: string | null, issue_entry_id: string | null, clearing_entry_id: string | null, cleared_line_id: string | null, cleared_on: string | null, rejected_reason: string | null, rejected_on: string | null, recorded_by: string, recorded_at: string, settled_by: string | null, };
+party_name: string | null, issue_entry_id: string | null, clearing_entry_id: string | null, cleared_line_id: string | null, cleared_on: string | null, rejected_reason: string | null, rejected_on: string | null, 
+/**
+ * Set when the payment that wrote it was reversed before it cleared
+ * (0712).
+ */
+voided_reason: string | null, voided_on: string | null, recorded_by: string, recorded_at: string, settled_by: string | null, 
+/**
+ * How many times a clearing of this giro was taken back — Batal Cair, or
+ * a bounce after clearing (0705). Zero for almost every giro.
+ */
+times_uncleared: number, 
+/**
+ * For a bounced giro: the payment or cash document that settled what it
+ * did not (0705). Both empty while the bounce is still waiting for one.
+ */
+replaced_by_payment_id: string | null, replaced_by_document_id: string | null, replaced_by: string | null, 
+/**
+ * The number of the payment or cash document that replaced it — what a
+ * person looks for on the board, where `replaced_by` is who did it.
+ */
+replacement_number: string | null, };

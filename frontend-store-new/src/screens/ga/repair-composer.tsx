@@ -199,7 +199,7 @@ export function RepairComposer({
     title: title.trim() === "" ? "Say what is wrong." : null,
     objek:
       !noting && askObject && objek === null
-        ? "Choose what kind of thing it is."
+        ? "Choose a kind."
         : null,
     vendor:
       !noting && who === null
@@ -232,7 +232,7 @@ export function RepairComposer({
       caption={
         chosen !== undefined
           ? `${chosen.name} · ${chosen.asset_number}`
-          : "Goes to head office's repair book, for this shop."
+          : undefined
       }
       footer={
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
@@ -279,7 +279,7 @@ export function RepairComposer({
                 hint={
                   chosen !== undefined
                     ? `${classOf(chosen.build).label} · ${chosen.class_name}${chosen.sub_location !== null ? ` · ${chosen.sub_location}` : ""}`
-                    : "Leave empty for the building itself — a leak, a door, the paint."
+                    : "Empty for the building itself"
                 }
               >
                 <Select
@@ -304,11 +304,11 @@ export function RepairComposer({
               <div className="flex flex-col gap-1.5">
                 <span className="text-meta font-medium text-text">
                   {withAsset
-                    ? "Its class does not say what kind of repair this is"
+                    ? "Kind of repair"
                     : "What kind of thing"}
                 </span>
                 {objects.isPending ? (
-                  <p className="text-meta text-mute">Reading the list…</p>
+                  <p className="text-meta text-mute">Loading…</p>
                 ) : objects.isError ? (
                   <p className="text-meta text-bad">
                     {describeGa(objects.error)}
@@ -355,7 +355,7 @@ export function RepairComposer({
             </Field>
             <Field
               label="More detail"
-              hint="Optional. What happened, what you tried."
+              hint="Optional"
             >
               <TextArea
                 value={details}
@@ -384,33 +384,31 @@ export function RepairComposer({
           <SheetBlock title="Who should fix it">
             {blocked ? (
               <Banner tone="warn">
-                Head office has no vendor on record for this shop yet — none of
-                its contracts names one, and nothing has been repaired here
-                before — so a repair cannot be filed from the till.{" "}
+                No supplier on record for this shop.{" "}
                 {withAsset
-                  ? "Add it as a note on the asset instead: GA reads it on the asset's history."
-                  : "Choose the asset it concerns to leave a note on it instead, or call GA."}
+                  ? "Add a note on the asset instead."
+                  : "Pick an asset to leave a note, or call GA."}
               </Banner>
             ) : (
               <div className="flex flex-col gap-3">
                 <Field
-                  label="Vendor"
+                  label="Supplier"
                   hint={
                     covering !== undefined && covering.supplier_id === who
-                      ? `Under ${covering.contract_number ?? "the maintenance contract"} for this. Head office can change it.`
-                      : "Vendors this shop already works with. Head office can change it."
+                      ? `Under ${covering.contract_number ?? "the maintenance contract"}`
+                      : undefined
                   }
                   problem={tried ? problems.vendor : null}
                 >
                   <Select
                     value={who ?? ""}
                     onChange={(next) => setVendor(next === "" ? null : next)}
-                    aria-label="Vendor"
+                    aria-label="Supplier"
                     disabled={place.isPending || repairs.isPending}
                   >
                     <option value="">
                       {place.isPending || repairs.isPending
-                        ? "Reading this shop's vendors…"
+                        ? "Loading…"
                         : "Choose…"}
                     </option>
                     {vendors.map((one) => (

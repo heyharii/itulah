@@ -1,0 +1,961 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inventory control · options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.453.0/dist/umd/lucide.min.js"></script>
+<style>
+:root{
+  --ink:#20242c;--text:#394150;--mute:#737c89;--faint:#b9c0c9;
+  --canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--line:#e6e6e9;--line-2:#c6c6cc;
+  --accent:#2563eb;--accent-bg:#eff5ff;
+  --ok:#36b827;--ok-fg:#15803d;--warn:#c9892e;--warn-bg:#faeacd;--warn-fg:#b45309;--bad:#d05151;--bad-bg:#fbeaea;--bad-fg:#be123c;
+  --side:#242526;--inv:#b7791f;
+  --r-card:10px;--r-inner:7px;--ease:cubic-bezier(.23,1,.32,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font:14px/1.45 Inter,system-ui,sans-serif;color:var(--text);background:var(--soft);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer}
+svg.lucide{width:16px;height:16px;stroke-width:1.7;flex-shrink:0}
+.num,td.n,.fig b{font-variant-numeric:tabular-nums}
+
+/* prototype bar — not part of the app */
+.proto{height:44px;background:#101012;color:#d9dbe0;display:flex;align-items:center;gap:14px;padding:0 16px;position:sticky;top:0;z-index:20}
+.proto b{color:#fff;font-weight:600;white-space:nowrap}
+.proto .opts{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}
+.proto .opts button{height:30px;padding:0 12px;border-radius:7px;color:#a9adb6;white-space:nowrap}
+.proto .opts button:hover{color:#fff}
+.proto .opts button[aria-pressed=true]{background:#2c2d31;color:#fff;font-weight:500}
+
+.app{display:flex;min-height:calc(100vh - 44px)}
+.side{width:232px;flex-shrink:0;background:var(--side);color:#c9cbd0;padding:14px 10px;display:flex;flex-direction:column;gap:2px;position:sticky;top:44px;height:calc(100vh - 44px)}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 10px 16px;color:#fff;font-weight:600}
+.mark{width:26px;height:26px;border-radius:7px;background:#000;color:#fff;display:grid;place-items:center;font-weight:700;position:relative;font-size:14px;box-shadow:0 0 0 1px #3a3b3f}
+.mark::after{content:"";position:absolute;right:4px;bottom:4px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.dept{display:flex;align-items:center;gap:10px;height:36px;padding:0 10px;color:#fff;font-weight:500}
+.dept i{width:8px;height:8px;border-radius:50%;background:var(--inv)}
+.sub{margin-left:14px;border-left:1px solid #3a3b3f;padding-left:8px;display:flex;flex-direction:column;gap:2px}
+.sub a{height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-radius:7px;color:#b4b7be;text-decoration:none;cursor:pointer}
+.sub a:hover{background:#2e2f33;color:#fff}
+.sub a.on{background:#34353a;color:#fff}
+.sub a .c{color:#e6b45c;font-variant-numeric:tabular-nums}
+.side .other{margin-top:18px;display:flex;flex-direction:column;gap:2px}
+.side .other div{height:34px;display:flex;align-items:center;gap:10px;padding:0 10px;color:#8e9198}
+.side .other i{width:8px;height:8px;border-radius:50%;background:#5b5d63}
+
+.main{flex:1;min-width:0;padding:26px 32px 40px}
+.ph{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+.ph h1{font-size:22px;line-height:30px;font-weight:600;color:var(--ink);letter-spacing:-.02em}
+.tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.search{height:36px;display:flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--line);border-radius:var(--r-inner);background:#fff;min-width:260px;color:var(--mute)}
+.search input{border:0;outline:0;flex:1;min-width:0;color:var(--ink);background:none}
+.search:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.sel{height:36px;border:1px solid var(--line);border-radius:var(--r-inner);background:#fff;padding:0 10px;color:var(--text)}
+.btn{height:36px;display:inline-flex;align-items:center;gap:7px;padding:0 14px;border-radius:var(--r-inner);border:1px solid var(--line);background:#fff;color:var(--ink);font-weight:500;white-space:nowrap;transition:transform var(--ease) .12s,background .12s}
+.btn:hover{background:var(--soft)}
+.btn:active{transform:scale(.97)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.18)}
+.btn.pri:hover{background:#1f57d6}
+.btn.bad{color:var(--bad-fg)}
+.view{display:none;animation:in .18s var(--ease)}
+.view.on{display:block}
+@keyframes in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+.dot{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.dot::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--faint)}
+.d-missing::before{background:var(--bad)}
+.d-extra::before{background:var(--accent)}
+.d-elsewhere::before{background:#8b6cf0}
+.d-notseen::before{background:var(--warn)}
+.d-counting::before{background:var(--accent)}
+.d-resolved::before{background:var(--ok)}
+.warn{color:var(--warn-fg)}
+.bad{color:var(--bad-fg)}
+.mute{color:var(--mute)}
+.faint{color:var(--faint)}
+
+/* ---------- A · Bento ---------- */
+.bento{display:grid;gap:12px;grid-template-columns:repeat(12,minmax(0,1fr));grid-template-rows:226px 226px 196px;
+  grid-template-areas:
+  "stock stock stock stock exc exc exc exc exc cnt cnt cnt"
+  "pl pl pl pl exc exc exc exc exc mis mis mis"
+  "pl pl pl pl mv mv mv mv mv wo wo wo"}
+.tile{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
+a.tile,.tile.go{cursor:pointer;transition:border-color .15s,box-shadow .2s var(--ease)}
+.tile.go:hover{border-color:var(--line-2);box-shadow:0 6px 18px rgba(20,24,32,.06)}
+.tile .lbl{display:flex;justify-content:space-between;align-items:center;color:var(--text);font-weight:500}
+.tile .lbl span{color:var(--mute);font-weight:400}
+.big{font-size:34px;line-height:1;font-weight:600;color:var(--ink);letter-spacing:-.03em;margin-top:14px;font-variant-numeric:tabular-nums}
+.big small{font-size:15px;font-weight:500;color:var(--mute);letter-spacing:0;margin-left:6px}
+.split{margin-top:auto;display:flex;flex-direction:column;gap:6px}
+.split div{display:flex;justify-content:space-between}
+.split b{font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums}
+.meter{height:6px;border-radius:3px;background:var(--soft-2);overflow:hidden;margin-top:12px}
+.meter i{display:block;height:100%;background:var(--ink);border-radius:3px}
+.t-stock{grid-area:stock}.t-exc{grid-area:exc}.t-cnt{grid-area:cnt}.t-pl{grid-area:pl}.t-mis{grid-area:mis}.t-mv{grid-area:mv}.t-wo{grid-area:wo}
+.elist{margin-top:10px;display:flex;flex-direction:column;overflow:hidden}
+.elist div{display:grid;grid-template-columns:118px 1fr auto 48px;gap:10px;align-items:center;height:44px;border-top:1px solid var(--line);cursor:pointer}
+.elist div:hover{background:var(--soft);margin:0 -20px;padding:0 20px}
+.elist .q{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink);font-weight:500}
+.elist .age{text-align:right;color:var(--mute)}
+.ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.plist{margin-top:8px;display:flex;flex-direction:column}
+.plist div{display:grid;grid-template-columns:1fr 70px 56px;gap:10px;align-items:center;height:26px;cursor:pointer;border-radius:5px}
+.plist div:hover{background:var(--soft)}
+.plist .m{height:5px;border-radius:3px;background:var(--soft-2);overflow:hidden}
+.plist .m i{display:block;height:100%;background:var(--line-2)}
+.plist .g{text-align:right;font-variant-numeric:tabular-nums}
+.figs4{margin-top:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.figs4 b{display:block;font-size:22px;font-weight:600;color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.clist{margin-top:auto;display:flex;flex-direction:column;gap:6px}
+.clist div{display:flex;justify-content:space-between}
+
+/* ---------- B · Board + panel ---------- */
+.board{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:16px;align-items:start}
+.card{background:#fff;border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden}
+table{width:100%;border-collapse:collapse}
+th{height:40px;text-align:left;font-weight:500;color:var(--mute);padding:0 14px;border-bottom:1px solid var(--line);white-space:nowrap;background:#fff}
+th.n,td.n{text-align:right}
+td{height:52px;padding:0 14px;border-bottom:1px solid var(--line);white-space:nowrap}
+tbody tr.pl{cursor:pointer}
+tbody tr.pl:hover td{background:var(--soft)}
+tbody tr.sel td{background:var(--accent-bg)!important}
+tbody tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+tr.grp td{height:38px;color:var(--mute);background:#fff;font-weight:500;border-bottom:1px solid var(--line)}
+tr.tot td{background:var(--soft-2);font-weight:600;color:var(--ink)}
+td.n{font-variant-numeric:tabular-nums;color:var(--ink)}
+td .pn{color:var(--ink);font-weight:500}
+td.name{padding-left:26px}
+.panel{background:#fff;border:1px solid var(--line);border-radius:var(--r-card);position:sticky;top:70px;max-height:calc(100vh - 90px);overflow:auto}
+.panel .hd{padding:18px 20px 16px;border-bottom:1px solid var(--line)}
+.panel .hd .k{color:var(--mute)}
+.panel .hd h2{font-size:17px;font-weight:600;color:var(--ink);margin-top:2px}
+.panel .bigline{display:flex;align-items:baseline;gap:8px;margin-top:12px}
+.panel .sec{padding:16px 20px;border-bottom:1px solid var(--line)}
+.panel .sec:last-child{border-bottom:0}
+.panel .sec h3{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+.panel .sec h3 span{font-weight:400;color:var(--mute)}
+.fig3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.fig b{display:block;font-size:18px;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+.fig span{color:var(--mute)}
+.kv{display:flex;flex-direction:column}
+.kv div{display:flex;justify-content:space-between;height:32px;align-items:center}
+.kv div b{font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums}
+.kv div.eq{border-top:1px solid var(--line);margin-top:4px;padding-top:4px}
+.kv div.eq b{font-weight:600}
+.pex{display:flex;flex-direction:column}
+.pex div{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:9px 0;border-top:1px solid var(--line);cursor:pointer}
+.pex div:first-child{border-top:0}
+.pex div:hover .a{color:var(--accent)}
+.pex .a{color:var(--ink)}
+.pex .q{text-align:right;color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums}
+.pex .s{grid-column:1/-1;color:var(--mute)}
+.skuon{display:none;align-items:center;gap:8px;margin-bottom:12px;padding:10px 14px;background:var(--accent-bg);border-radius:var(--r-inner);color:var(--ink)}
+.skuon.on{display:flex}
+.skuon button{margin-left:auto;color:var(--accent);font-weight:500}
+
+/* ---------- C · Inbox ---------- */
+.inbox{display:grid;grid-template-columns:400px minmax(0,1fr);gap:16px;align-items:start}
+.qlist .hd{display:flex;gap:8px;padding:12px;border-bottom:1px solid var(--line)}
+.qlist .hd .sel{flex:1}
+.qitem{padding:12px 16px;border-bottom:1px solid var(--line);cursor:pointer;display:grid;grid-template-columns:1fr auto;gap:3px 10px}
+.qitem:hover{background:var(--soft)}
+.qitem.on{background:var(--accent-bg);box-shadow:inset 3px 0 0 var(--accent)}
+.qitem .t{color:var(--ink);font-weight:500}
+.qitem .q{text-align:right;color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums}
+.qitem .s{color:var(--mute);display:flex;gap:8px;align-items:center}
+.qitem .s .dot{color:var(--text)}
+.qitem .age{text-align:right;color:var(--mute)}
+.qscroll{max-height:calc(100vh - 210px);overflow:auto}
+.case .hd{padding:20px 24px 18px;border-bottom:1px solid var(--line)}
+.case .hd .k{color:var(--mute)}
+.case .hd h2{font-size:22px;font-weight:600;color:var(--ink);letter-spacing:-.02em;margin-top:4px}
+.case .body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0}
+.case .col{padding:18px 24px}
+.case .col+.col{border-left:1px solid var(--line)}
+.case h3{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:10px}
+.facts{display:grid;grid-template-columns:110px 1fr;row-gap:0}
+.facts dt,.facts dd{height:34px;display:flex;align-items:center;border-bottom:1px solid var(--line)}
+.facts dt{color:var(--mute)}
+.facts dd{color:var(--ink)}
+.cfig{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0 4px}
+.cfig b{display:block;font-size:28px;font-weight:600;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums}
+.cfig span{color:var(--mute)}
+.tl{display:flex;flex-direction:column;position:relative}
+.tl div{display:grid;grid-template-columns:96px 14px 1fr auto;gap:10px;align-items:start;padding:7px 0}
+.tl .w{color:var(--mute);font-variant-numeric:tabular-nums}
+.tl i{width:9px;height:9px;border-radius:50%;background:var(--line-2);margin-top:5px;position:relative}
+.tl div:not(:last-child) i::after{content:"";position:absolute;left:4px;top:11px;width:1px;height:30px;background:var(--line)}
+.tl .x{color:var(--ink)}
+.tl .x span{display:block;color:var(--mute)}
+.tl .q{font-variant-numeric:tabular-nums;color:var(--ink);text-align:right}
+.tl .seen i{background:#fff;box-shadow:inset 0 0 0 1.5px var(--line-2)}
+.tl .seen .x{color:var(--mute)}
+.tl .bad i{background:var(--bad)}
+.tl .last i{background:var(--accent);box-shadow:0 0 0 4px var(--accent-bg)}
+.act{display:flex;gap:8px;justify-content:flex-end;padding:14px 24px;border-top:1px solid var(--line);background:#fff;flex-wrap:wrap}
+
+/* ---------- D · SKU lens ---------- */
+.lens-q{display:flex;gap:10px;margin-bottom:16px}
+.lens-q .search{height:47px;flex:1;max-width:620px;font-size:15px}
+.lens{display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:16px;align-items:start}
+.art{display:flex;gap:16px;align-items:center;padding:18px 20px;border-bottom:1px solid var(--line)}
+.art .ph2{width:56px;height:56px;border-radius:9px;background:var(--soft-2);display:grid;place-items:center;color:var(--mute)}
+.art .ph2 svg{width:28px;height:28px;stroke-width:1.3}
+.art h2{font-size:17px;font-weight:600;color:var(--ink)}
+.art .tot{margin-left:auto;display:flex;gap:28px;text-align:right}
+.art .tot b{display:block;font-size:22px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.lastseen{display:flex;align-items:center;gap:10px;padding:14px 20px;border-bottom:1px solid var(--line);background:var(--soft)}
+.lastseen b{color:var(--ink);font-weight:600}
+.empty{padding:40px 20px;text-align:center;color:var(--mute)}
+
+/* ---------- E · Store cards ---------- */
+.proto select{height:30px;background:#2c2d31;color:#e4e6ea;border:0;border-radius:7px;padding:0 8px}
+.proto .pset{margin-left:auto;display:none;gap:8px;align-items:center;color:#8e9198;white-space:nowrap}
+.proto .pset.on{display:flex}
+.ghead{display:flex;justify-content:space-between;align-items:baseline;margin:24px 0 10px;color:var(--mute);font-weight:500}
+.ghead:first-child{margin-top:0}
+.ghead b{color:var(--ink);font-weight:600}
+.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:14px}
+.scard{text-align:left;background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 18px 0;display:flex;flex-direction:column;gap:14px;position:relative;overflow:hidden;transition:transform .2s var(--ease),box-shadow .2s var(--ease),border-color .15s,background .2s}
+.scard:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(20,24,32,.07);border-color:var(--line-2)}
+.scard:active{transform:translateY(0) scale(.99)}
+.sc-top{display:flex;gap:12px;align-items:center}
+.sc-ico{width:38px;height:38px;border-radius:9px;background:var(--soft-2);display:grid;place-items:center;color:var(--text);flex-shrink:0;transition:background .2s,color .2s}
+.sc-ico svg{width:19px;height:19px}
+.sc-name{flex:1;min-width:0}
+.sc-name b{display:block;color:var(--ink);font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sc-name span{color:var(--mute)}
+.ringw{position:relative;width:62px;height:62px;flex-shrink:0}
+.ringw svg{display:block;width:100%;height:100%;transform:rotate(-90deg)}
+.ringw span{position:absolute;inset:0;display:grid;place-items:center;font-size:14px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.ringw circle.v{transition:stroke-dashoffset .8s var(--ease)}
+.ringw.none svg{opacity:.6}
+.sc-figs{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.sc-figs b{display:block;font-size:24px;font-weight:600;color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.25}
+.sc-figs span{color:var(--mute)}
+.sc-foot{margin:0 -18px;padding:0 18px;height:46px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:8px;white-space:nowrap}
+.sc-foot .cnt{display:flex;align-items:center;gap:6px;color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis}
+.sc-foot .cnt svg{width:15px;height:15px;color:var(--mute)}
+.sc-foot .cnt.over,.sc-foot .cnt.over svg{color:var(--bad-fg)}
+.sc-foot .cnt.asked,.sc-foot .cnt.asked svg{color:var(--accent)}
+.exn{color:var(--faint)}
+.exn.s1{color:var(--warn-fg);font-weight:500}
+.exn.s2{color:var(--bad-fg);font-weight:500}
+/* exception style: tint */
+.style-tint .scard.s1{background:#fffaf1;border-color:#f0dcb2}
+.style-tint .scard.s1 .sc-ico{background:var(--warn-bg);color:var(--warn-fg)}
+.style-tint .scard.s1 .sc-foot{border-color:#f3e4c6}
+.style-tint .scard.s2{background:#fff7f7;border-color:#f0c9c9}
+.style-tint .scard.s2 .sc-ico{background:var(--bad-bg);color:var(--bad-fg)}
+.style-tint .scard.s2 .sc-foot{border-color:#f5dada}
+/* exception style: edge */
+.style-edge .scard.s1::before,.style-edge .scard.s2::before{content:"";position:absolute;left:0;right:0;top:0;height:4px;background:var(--warn)}
+.style-edge .scard.s2::before{background:var(--bad)}
+/* cues */
+.proto details{position:relative}
+.proto summary{list-style:none;height:30px;display:flex;align-items:center;gap:6px;padding:0 10px;border-radius:7px;background:#2c2d31;color:#e4e6ea;cursor:pointer}
+.proto summary::-webkit-details-marker{display:none}
+.proto .cues{position:absolute;right:0;top:36px;background:#1c1d20;border:1px solid #333438;border-radius:9px;padding:6px;display:flex;flex-direction:column;min-width:200px;box-shadow:0 12px 30px rgba(0,0,0,.35)}
+.proto .cues label{height:34px;display:flex;align-items:center;gap:10px;padding:0 8px;border-radius:6px;color:#e4e6ea;cursor:pointer}
+.proto .cues label:hover{background:#2c2d31}
+.cbar{position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--soft-2)}
+.cbar i{display:block;height:100%;background:var(--faint);border-radius:0 2px 2px 0}
+.cbar i.w{background:var(--warn)}
+.cbar i.b{background:var(--bad)}
+.tdots{display:flex;gap:10px;align-items:center}
+.tdots .dot{color:var(--ink);font-weight:500;gap:5px}
+.coming{display:flex;align-items:center;gap:7px;color:var(--mute);margin-top:-4px}
+.coming svg{width:15px;height:15px}
+.coming b{color:var(--ink);font-weight:500}
+.scard.silent .sc-figs,.scard.silent .ringw{opacity:.45}
+.scard.silent .ringw circle.v{stroke:var(--faint)}
+.sc-name .warn svg{width:14px;height:14px;vertical-align:-2px;margin-right:3px}
+/* not stock: dashed, no fill */
+.scard.ghost{background:transparent;border:1px dashed var(--line-2)}
+.scard.ghost:hover{background:#fff}
+.scard.ghost .sc-ico{background:transparent;border:1px dashed var(--line-2);color:var(--mute)}
+.scard.ghost .sc-figs b{color:var(--text)}
+.scard.ghost .sc-foot{border-top-style:dashed;border-color:var(--line-2)}
+/* sheet */
+.scrim{position:fixed;inset:0;background:rgba(16,16,18,.28);opacity:0;pointer-events:none;transition:opacity .22s;z-index:30}
+.scrim.on{opacity:1;pointer-events:auto}
+.sheet{position:fixed;top:0;right:0;bottom:0;width:min(520px,100%);background:#fff;z-index:31;transform:translateX(100%);transition:transform .28s var(--ease);display:flex;flex-direction:column;box-shadow:-12px 0 40px rgba(16,16,18,.12)}
+.sheet.on{transform:none}
+.sh-hd{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
+.sh-hd h2{font-size:17px;font-weight:600;color:var(--ink);flex:1;min-width:0}
+.sh-hd h2 span{display:block;font-size:14px;font-weight:400;color:var(--mute)}
+.xbtn{width:36px;height:36px;border-radius:7px;display:grid;place-items:center;color:var(--mute)}
+.xbtn:hover{background:var(--soft);color:var(--ink)}
+.sh-body{flex:1;overflow:auto}
+.sh-hero{display:flex;gap:20px;align-items:center;padding:20px;border-bottom:1px solid var(--line)}
+.sh-hero .ringw{width:96px;height:96px}
+.sh-hero .ringw span{font-size:18px}
+.sh-figs{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;flex:1}
+.sh-figs b{display:block;font-size:24px;font-weight:600;color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.sh-figs span{color:var(--mute)}
+.sh-sec{padding:16px 20px;border-bottom:1px solid var(--line)}
+.sh-sec:last-child{border-bottom:0}
+.sh-sec h3{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.sh-sec h3 span{font-weight:400;color:var(--mute)}
+.sh-sec h3 button{color:var(--accent);font-weight:500}
+.cline{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.cline b{color:var(--ink);font-weight:600}
+.cline .over{color:var(--bad-fg)}
+.xrow{display:grid;grid-template-columns:1fr auto;gap:3px 12px;padding:12px 0;border-top:1px solid var(--line);transition:opacity .2s}
+.xrow:first-of-type{border-top:0}
+.xrow .a{color:var(--ink);font-weight:500;min-width:0}
+.xrow .q{text-align:right;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.xrow .s{grid-column:1/-1;color:var(--mute);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.xrow .acts{grid-column:1/-1;display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap}
+.btn.sm{height:32px;padding:0 12px}
+.xrow.done .a,.xrow.done .q,.xrow.done .s{opacity:.5}
+.xrow .st{color:var(--text)}
+.none-ex{color:var(--mute);padding:6px 0}
+
+@media (max-width:1280px){
+  .board,.lens{grid-template-columns:minmax(0,1fr) 360px}
+  .inbox{grid-template-columns:340px minmax(0,1fr)}
+  .case .body{grid-template-columns:1fr}.case .col+.col{border-left:0;border-top:1px solid var(--line)}
+}
+@media (max-width:1100px){
+  .side{display:none}
+  .bento{grid-template-columns:1fr 1fr;grid-template-rows:none;grid-template-areas:"stock cnt" "exc exc" "pl pl" "mis wo" "mv mv"}
+  .bento .tile{min-height:200px}
+  .board,.lens,.inbox{grid-template-columns:1fr}
+  .panel{position:static;max-height:none}
+}
+@media (max-width:640px){
+  .main{padding:18px 16px 32px}
+  .bento{grid-template-columns:1fr;grid-template-areas:"stock" "exc" "cnt" "pl" "mis" "wo" "mv"}
+  .search{min-width:0;flex:1}
+  .tools{width:100%}
+  .hide-s{display:none}
+  .figs4{grid-template-columns:1fr 1fr}
+  .cfig{grid-template-columns:1fr 1fr}
+  .art{flex-wrap:wrap}.art .tot{margin-left:0;width:100%;justify-content:space-between}
+  .elist div{grid-template-columns:96px 1fr auto}
+  .elist .age{display:none}
+}
+</style>
+</head>
+<body>
+<div class="proto">
+  <b>Inventory control</b>
+  <div class="opts" id="opts">
+    <button data-v="E">E · Store cards ★</button>
+    <button data-v="A">A · Bento</button>
+    <button data-v="B">B · Places + panel</button>
+    <button data-v="C">C · Exceptions inbox</button>
+    <button data-v="D">D · SKU lens</button>
+  </div>
+  <div class="pset" id="pset">
+    Colour
+    <select id="estyle"><option value="tint">Tint card</option><option value="edge">Top edge</option><option value="count">Count only</option></select>
+    when
+    <select id="erule"><option value="any">Any exception</option><option value="7">Older than 7 d</option><option value="14">Older than 14 d</option></select>
+    <details><summary>Cues</summary><div class="cues" id="cues">
+      <label><input type="checkbox" value="bar" checked>Count age bar</label>
+      <label><input type="checkbox" value="dots" checked>Exception type dots</label>
+      <label><input type="checkbox" value="silent" checked>Fade when silent</label>
+      <label><input type="checkbox" value="coming">On the road here</label>
+    </div></details>
+  </div>
+</div>
+
+<div class="app">
+  <nav class="side">
+    <div class="brand"><span class="mark">C</span>Central</div>
+    <div class="dept"><i></i>Inventory</div>
+    <div class="sub" id="nav">
+      <a data-v="A">Overview</a>
+      <a data-v="E">Stock</a>
+      <a data-v="C">Exceptions <span class="c" id="navc"></span></a>
+      <a>Counts</a>
+      <a>Adjustments</a>
+    </div>
+    <div class="other">
+      <div><i></i>Buying</div><div><i></i>Merchandise</div><div><i></i>Operations</div><div><i></i>Finance</div>
+    </div>
+  </nav>
+
+  <main class="main">
+    <!-- E -->
+    <section class="view" id="vE">
+      <div class="ph"><h1>Stock</h1>
+        <div class="tools">
+          <label class="search"><i data-lucide="search"></i><input id="eq" placeholder="SKU or article" list="skus"></label>
+          <select class="sel hide-s" id="esort"><option value="att">Needs attention first</option><option value="az">A–Z</option></select>
+        </div>
+      </div>
+      <div class="skuon" id="esku"></div>
+      <div id="egrid"></div>
+    </section>
+
+    <!-- A -->
+    <section class="view" id="vA">
+      <div class="ph"><h1>Overview</h1><div class="tools"><select class="sel"><option>All places</option><option>HO</option><option>Stores</option></select></div></div>
+      <div class="bento" id="bento"></div>
+    </section>
+
+    <!-- B -->
+    <section class="view" id="vB">
+      <div class="ph"><h1>Stock</h1>
+        <div class="tools">
+          <label class="search"><i data-lucide="search"></i><input id="bq" placeholder="SKU or article" list="skus"></label>
+          <select class="sel hide-s" id="bscope"><option value="all">All places</option><option value="ho">HO</option><option value="st">Stores</option></select>
+        </div>
+      </div>
+      <div class="skuon" id="bsku"></div>
+      <div class="board">
+        <div class="card"><table><thead><tr><th>Place</th><th class="n">Book</th><th class="n">Seen</th><th class="n">Gap</th><th class="hide-s">Last count</th><th class="n">Exceptions</th></tr></thead><tbody id="btable"></tbody></table></div>
+        <aside class="panel" id="bpanel"></aside>
+      </div>
+    </section>
+
+    <!-- C -->
+    <section class="view" id="vC">
+      <div class="ph"><h1>Exceptions</h1></div>
+      <div class="inbox">
+        <div class="card qlist">
+          <div class="hd">
+            <select class="sel" id="cstatus"><option value="open">Open</option><option value="Counting">Counting</option><option value="Resolved">Resolved</option></select>
+            <select class="sel" id="ctype"><option value="">All types</option><option>Missing</option><option>Extra</option><option>Seen elsewhere</option><option>Not seen</option></select>
+          </div>
+          <div class="qscroll" id="clist"></div>
+        </div>
+        <div class="card case" id="ccase"></div>
+      </div>
+    </section>
+
+    <!-- D -->
+    <section class="view" id="vD">
+      <div class="ph"><h1>Find a SKU</h1></div>
+      <div class="lens-q"><label class="search"><i data-lucide="search"></i><input id="dq" placeholder="SKU or article" list="skus" value="21034517203"></label></div>
+      <div id="dout"></div>
+    </section>
+  </main>
+</div>
+<datalist id="skus"></datalist>
+<div class="scrim" id="scrim"></div>
+<aside class="sheet" id="sheet" aria-hidden="true"></aside>
+
+<script>
+const fmt = n => n.toLocaleString('en-US');
+const sgn = n => (n > 0 ? '+' : n < 0 ? '−' : '') + fmt(Math.abs(n));
+
+// ---- places: HO Gudang, the road, 13 stores ----
+const STORES = [
+  ['kg','Kelapa Gading',1860,1838,'30 Sep',4],
+  ['pik','PIK',2140,2131,'27 Sep',7],
+  ['sny','Senayan',2410,2352,'12 Sep',22],
+  ['kmg','Kemang',1520,1511,'1 Oct',3],
+  ['bks','Bekasi',1690,1664,'25 Sep',9],
+  ['tgr','Tangerang',1745,1740,'29 Sep',5],
+  ['dpk','Depok',1380,1302,'31 Aug',34,'3 h'],
+  ['bgr','Bogor',1210,1203,'26 Sep',8],
+  ['pvj','Bandung PVJ',1980,1969,'24 Sep',10],
+  ['dgo','Bandung Dago',1105,1101,'30 Sep',4],
+  ['tjn','Surabaya Tunjungan',2260,2238,'23 Sep',11],
+  ['glx','Surabaya Galaxy',1640,1637,'28 Sep',6],
+  ['bali','Bali Beachwalk',1490,1471,'2 Sep',32],
+].map(([id,name,book,seen,cd,days,silent]) => ({id,name,kind:'store',book,seen,cd,days,silent}));
+const HO = {id:'ho',name:'HO Gudang',kind:'ho',book:18420,seen:18206,cd:'28 Sep',days:6,
+  pools:[['Receiving',320],['Stockroom',12940],['To pick',2610],['Picked',1180],['Packed',960],['Return',290],['Reject',120]],
+  week:{mon:18842,ins:[['From suppliers',1420],['Back from stores',90]],outs:[['To stores',1860],['Back to suppliers',60]]}};
+const ROAD = {id:'road',name:'On the road',kind:'road',book:1240,sj:8,to:1180,back:60,
+  trips:[['SJ-0944','Senayan',212,'today 08:10'],['SJ-0945','Kemang',188,'today 08:10'],['SJ-0946','PIK',160,'today 08:40'],['SJ-0947','Bekasi',150,'today 09:05'],['SJ-0948','Depok',140,'today 09:05'],['SJ-0949','Bogor',130,'today 09:30'],['SJ-0950','Tangerang',110,'today 09:30'],['SJ-0951','Kelapa Gading',90,'today 10:00']],
+  rets:[['RET-0115','Bandung PVJ',60,'yesterday 16:20']]};
+// Not stock yet: ordered from suppliers, not received at HO. Kept out of every total.
+const ORDER = {id:'order',name:'On order',kind:'order',awaited:3420,week:1140,
+  pos:[['PO-2026-0461','CV Sinar Garmen',640,'6 Oct',''],['PO-2026-0458','PT Indo Denim',500,'5 Oct','Partly received'],['PO-2026-0452','CV Linen Prima',360,'1 Oct','late'],['PO-2026-0449','PT Kain Nusantara',300,'2 Oct','late'],['PO-2026-0455','Rajut Bandung',420,'14 Oct',''],['PO-2026-0463','CV Sinar Garmen',280,'15 Oct',''],['PO-2026-0464','PT Indo Denim',240,'17 Oct',''],['PO-2026-0466','Konveksi Abadi',200,'18 Oct',''],['PO-2026-0467','Rajut Bandung',180,'21 Oct',''],['PO-2026-0469','CV Linen Prima',120,'24 Oct',''],['PO-2026-0470','Konveksi Abadi',100,'25 Oct',''],['PO-2026-0471','PT Kain Nusantara',80,'28 Oct','']]};
+const PLACES = [HO, ROAD, ...STORES];
+const byId = Object.fromEntries(PLACES.map(p => [p.id,p]));
+byId.order = ORDER;
+
+// ---- exceptions ----
+const EX = [
+  ['EX-1061','Missing','Store receive','dpk','Stockroom','21034517203','Denim jacket','Indigo / M',-2,1,'Open','SJ-0931'],
+  ['EX-1060','Not seen','Readers','dpk','Floor','21017722105','Linen shirt','White / L',-1,16,'Open'],
+  ['EX-1059','Missing','Count','sny','Floor','21040211302','Pleated skirt','Black / S',-3,3,'Counting'],
+  ['EX-1058','Seen elsewhere','Readers','sny','Floor','21022908104','Knit cardigan','Oat / M',1,2,'Open',null,'kmg'],
+  ['EX-1057','Missing','Pick','ho','Stockroom','21051133201','Cargo trousers','Olive / 30',-4,2,'Open','ALT-0221'],
+  ['EX-1056','Extra','Count','bks','Stockroom','21012045103','Basic tee','Navy / M',2,4,'Open'],
+  ['EX-1055','Missing','Pack','ho','Picked','21034517204','Denim jacket','Indigo / L',-1,5,'Open','ALT-0218'],
+  ['EX-1054','Missing','Store receive','bali','Stockroom','21060312102','Resort dress','Sand / S',-2,6,'Open','SJ-0918'],
+  ['EX-1053','Not seen','Readers','bali','Floor','21018801203','Polo shirt','Green / M',-1,18,'Counting'],
+  ['EX-1052','Missing','Count','dpk','Floor','21045520101','Wide jeans','Light / 27',-2,9,'Open'],
+  ['EX-1051','Seen elsewhere','Readers','kg','Floor','21029930102','Overshirt','Brown / S',1,3,'Open',null,'pik'],
+  ['EX-1050','Missing','Store receive','pvj','Stockroom','21051133203','Cargo trousers','Olive / 32',-1,11,'Open','SJ-0897'],
+  ['EX-1049','Missing','Count','ho','Stockroom','21070044101','Puffer vest','Black / M',-6,34,'Open'],
+  ['EX-1048','Extra','Count','kmg','Floor','21017722104','Linen shirt','White / M',1,12,'Open'],
+  ['EX-1047','Missing','Store receive','tjn','Stockroom','21040211303','Pleated skirt','Black / M',-2,13,'Open','SJ-0889'],
+  ['EX-1046','Not seen','Readers','sny','Stockroom','21060312104','Resort dress','Sand / L',-1,21,'Open'],
+  ['EX-1045','Missing','Count','dpk','Stockroom','21012045105','Basic tee','Navy / XL',-3,15,'Open'],
+  ['EX-1044','Missing','Return to HO','ho','Return','21022908103','Knit cardigan','Oat / S',-1,8,'Open','RET-0112'],
+  ['EX-1043','Missing','Store receive','bks','Stockroom','21045520102','Wide jeans','Light / 28',-1,16,'Counting','SJ-0874'],
+  ['EX-1040','Missing','Count','kmg','Floor','21029930103','Overshirt','Brown / M',-1,19,'Resolved',null,null,'Moved · found in Stockroom'],
+  ['EX-1038','Missing','Store receive','bgr','Stockroom','21018801204','Polo shirt','Green / L',-2,27,'Resolved','SJ-0851',null,'Written off'],
+].map(([id,type,from,place,pool,sku,art,variant,qty,age,status,doc,at,outcome]) => ({id,type,from,place,pool,sku,art,variant,qty,age,status,doc,at,outcome}));
+let OPEN = EX.filter(e => e.status !== 'Resolved');
+const refreshOpen = () => { OPEN = EX.filter(e => e.status !== 'Resolved'); document.getElementById('navc').textContent = OPEN.length; };
+const exOf = id => OPEN.filter(e => e.place === id);
+const tcls = t => ({'Missing':'d-missing','Extra':'d-extra','Seen elsewhere':'d-elsewhere','Not seen':'d-notseen'})[t];
+const ageTxt = d => d === 0 ? 'today' : d + ' d';
+const ageCls = d => d > 30 ? 'bad' : '';
+
+// ---- SKUs for the lens ----
+const SKUS = {
+  '21034517203': {art:'Denim jacket',variant:'Indigo / M',
+    per:{ho:[18,18,'today 07:40'],road:[6,null,null],dpk:[4,4,'3 Oct 18:00'],sny:[3,3,'today 09:12'],kmg:[2,2,'today 08:55'],pik:[2,2,'yesterday 21:30'],bks:[1,1,'2 Oct 20:10'],tjn:[2,2,'today 09:02']},
+    tl:[['24 Sep 10:12','Received at HO','PO-2026-0412','+40'],['26 Sep 09:30','Allotted','ALT-0218 · Depok 6',''],['29 Sep 14:05','Picked','HO Gudang','6'],['29 Sep 15:40','Packed','KOLI-3','6'],['30 Sep 08:10','Dispatched','SJ-0931 → Depok','6'],['3 Oct 10:22','Store received','Depok · blind count','4'],['3 Oct 10:22','Missing','Store receive · Depok','−2','bad'],['3 Oct 18:00','Seen','Depok floor readers','4','seen'],['today 07:40','Seen','HO Gudang · Stockroom','18','seen last']]},
+  '21070044101': {art:'Puffer vest',variant:'Black / M',
+    per:{ho:[22,16,'today 07:40'],pvj:[3,3,'today 08:40'],tjn:[4,4,'today 09:02'],bali:[2,2,'yesterday 20:15']},
+    tl:[['12 Aug 11:02','Received at HO','PO-2026-0377','+40'],['18 Aug 09:10','Allotted','ALT-0174 · 3 stores','9'],['21 Aug 15:30','Dispatched','SJ-0702 · SJ-0703 · SJ-0705','9'],['31 Aug 16:40','Count','HO Gudang · Stockroom','25 of 31'],['31 Aug 16:40','Missing','Count · HO Gudang','−6','bad'],['today 07:40','Seen','HO Gudang · Stockroom','16','seen last']]},
+  '21022908104': {art:'Knit cardigan',variant:'Oat / M',
+    per:{ho:[9,9,'today 07:40'],sny:[3,2,'today 09:12'],kmg:[2,3,'today 08:55'],kg:[2,2,'today 09:20']},
+    tl:[['15 Sep 10:40','Received at HO','PO-2026-0430','+24'],['19 Sep 08:50','Dispatched','SJ-0870 → Senayan','3'],['20 Sep 13:15','Store received','Senayan','3'],['2 Oct 14:22','Seen','Kemang floor readers · tag on Senayan\'s book','1','seen'],['today 09:12','Seen','Senayan floor readers','2','seen last']]},
+};
+document.getElementById('skus').innerHTML = Object.entries(SKUS).map(([k,s]) => `<option value="${k}">${s.art} · ${s.variant}</option>`).join('');
+
+// ---- totals ----
+const stTotal = STORES.reduce((a,p) => a + p.book, 0);
+const all = HO.book + ROAD.book + stTotal;
+const seenAll = HO.seen + STORES.reduce((a,p) => a + p.seen, 0);
+const bookSeeable = HO.book + stTotal;
+let missingPcs = OPEN.filter(e => e.type === 'Missing').reduce((a,e) => a - e.qty, 0);
+document.getElementById('navc').textContent = OPEN.length;
+
+const gapOf = p => p.seen == null ? null : p.seen - p.book;
+const gapPct = p => p.book ? Math.abs(gapOf(p)) / p.book * 100 : 0;
+const gapCell = p => {
+  if (p.seen == null) return '<span class="faint">—</span>';
+  const g = gapOf(p), pct = gapPct(p);
+  return `<span class="${pct > 1.5 ? 'warn' : ''}">${sgn(g)}<span class="mute"> · ${pct.toFixed(1)}%</span></span>`;
+};
+const countCell = p => p.cd ? `<span class="${p.days > 21 ? 'warn' : ''}">${p.cd}</span> <span class="mute">· ${p.days} d</span>` : '<span class="faint">—</span>';
+
+// ================= A · Bento =================
+function renderA() {
+  const worst = [...OPEN].sort((a,b) => b.age - a.age).slice(0,8);
+  const overdue = STORES.concat([HO]).filter(p => p.days > 21).sort((a,b) => b.days - a.days);
+  const oldest = Math.max(...OPEN.filter(e => e.type === 'Missing').map(e => e.age));
+  const places = [HO, ...STORES];
+  document.getElementById('bento').innerHTML = `
+  <div class="tile t-stock go" data-go="B">
+    <div class="lbl">Stock <span>pcs</span></div>
+    <div class="big num">${fmt(all)}</div>
+    <div class="meter"><i style="width:${(seenAll/bookSeeable*100).toFixed(1)}%"></i></div>
+    <div class="mute" style="margin-top:6px">Seen ${(seenAll/bookSeeable*100).toFixed(1)}%</div>
+    <div class="split">
+      <div><span>HO Gudang</span><b>${fmt(HO.book)}</b></div>
+      <div><span>On the road</span><b>${fmt(ROAD.book)}</b></div>
+      <div><span>Stores · 13</span><b>${fmt(stTotal)}</b></div>
+    </div>
+  </div>
+  <div class="tile t-exc">
+    <div class="lbl">Exceptions <span>${OPEN.length} open</span></div>
+    <div class="elist">${worst.map(e => `<div data-ex="${e.id}"><span class="dot ${tcls(e.type)}">${e.type}</span><span class="ell"><span style="color:var(--ink)">${e.art}</span> <span class="mute">· ${byId[e.place].name}</span></span><span class="q">${sgn(e.qty)}</span><span class="age ${ageCls(e.age)}">${ageTxt(e.age)}</span></div>`).join('')}</div>
+  </div>
+  <div class="tile t-cnt go" data-go="B">
+    <div class="lbl">Not counted in 21 days</div>
+    <div class="big num">${overdue.length}</div>
+    <div class="clist">${overdue.map(p => `<div><span>${p.name}</span><span class="warn">${p.days} d</span></div>`).join('')}<div><span>To review</span><span style="color:var(--ink)">1</span></div></div>
+  </div>
+  <div class="tile t-pl">
+    <div class="lbl">Seen vs book <span>gap</span></div>
+    <div class="plist">${places.map(p => `<div data-place="${p.id}"><span class="ell" style="color:var(--ink)">${p.name}${p.silent ? ` <span class="warn">· silent ${p.silent}</span>` : ''}</span><span class="m"><i style="width:${Math.min(100,p.seen/p.book*100)}%;${gapPct(p) > 1.5 ? 'background:var(--warn)' : ''}"></i></span><span class="g ${gapPct(p) > 1.5 ? 'warn' : 'mute'}">${gapPct(p).toFixed(1)}%</span></div>`).join('')}</div>
+  </div>
+  <div class="tile t-mis go" data-go="C">
+    <div class="lbl">Missing <span>pcs</span></div>
+    <div class="big num">${missingPcs}</div>
+    <div class="split"><div><span>Oldest</span><b class="bad">${oldest} d</b></div><div><span>Cases</span><b>${OPEN.filter(e => e.type === 'Missing').length}</b></div></div>
+  </div>
+  <div class="tile t-mv">
+    <div class="lbl">Today</div>
+    <div class="figs4">
+      <div><b>420</b><span class="mute">Received at HO</span></div>
+      <div><b>380</b><span class="mute">Sent to stores</span></div>
+      <div><b>356</b><span class="mute">Received by stores</span></div>
+      <div><b>1,124</b><span class="mute">Sold</span></div>
+    </div>
+  </div>
+  <div class="tile t-wo">
+    <div class="lbl">Written off <span>October</span></div>
+    <div class="big num">2 <small>pcs</small></div>
+    <div class="split"><div><span>Found</span><b>1</b></div></div>
+  </div>`;
+}
+
+// ================= B · Places + panel =================
+let bSel = 'dpk', bSku = null;
+function bFigures(p) {
+  if (!bSku) return p;
+  const r = SKUS[bSku].per[p.id];
+  return {...p, book: r ? r[0] : 0, seen: p.kind === 'road' ? null : (r ? r[1] ?? 0 : 0)};
+}
+function renderB() {
+  const scope = document.getElementById('bscope').value;
+  const sku = document.getElementById('bsku');
+  sku.classList.toggle('on', !!bSku);
+  if (bSku) sku.innerHTML = `<i data-lucide="tag"></i><span><b>${SKUS[bSku].art}</b> · ${SKUS[bSku].variant} · ${bSku}</span><button id="bclear">Clear</button>`;
+  const row = (p, cls = 'pl') => {
+    const f = bFigures(p), ex = exOf(p.id);
+    const exCell = ex.length ? `<span class="dot ${ex.some(e => e.age > 30) ? 'd-missing' : 'd-notseen'}">${ex.length}</span>` : '<span class="faint">0</span>';
+    const name = `<span class="pn">${p.name}</span>${p.silent ? ` <span class="warn">· silent ${p.silent}</span>` : ''}${p.kind === 'road' ? ` <span class="mute">· ${p.sj} SJ</span>` : ''}`;
+    return `<tr class="${cls}${p.id === bSel ? ' sel' : ''}" data-place="${p.id}"><td class="${p.kind === 'store' ? 'name' : ''}">${name}</td><td class="n">${fmt(f.book)}</td><td class="n">${f.seen == null ? '<span class="faint">—</span>' : fmt(f.seen)}</td><td class="n">${gapCell(f)}</td><td class="hide-s">${p.kind === 'road' ? '<span class="faint">—</span>' : countCell(p)}</td><td class="n">${exCell}</td></tr>`;
+  };
+  const list = PLACES.map(bFigures);
+  const tb = list.reduce((a,p) => a + p.book, 0), ts = list.reduce((a,p) => a + (p.seen ?? 0), 0);
+  let h = `<tr class="tot"><td>All stock</td><td class="n">${fmt(tb)}</td><td class="n">${fmt(ts)}</td><td></td><td class="hide-s"></td><td class="n">${OPEN.length}</td></tr>`;
+  if (scope !== 'st') h += row(HO) + row(ROAD);
+  if (scope !== 'ho') h += `<tr class="grp"><td colspan="6">Stores · 13</td></tr>` + STORES.map(p => row(p)).join('');
+  document.getElementById('btable').innerHTML = h;
+  renderPanel();
+  lucide.createIcons();
+}
+function renderPanel() {
+  const p = byId[bSel], f = bFigures(p), ex = exOf(p.id);
+  let where = '', week = '';
+  if (p.kind === 'ho') {
+    where = HO.pools.map(([n,v]) => `<div><span>${n}</span><b>${fmt(v)}</b></div>`).join('');
+    const w = HO.week;
+    week = `<div><span>Monday</span><b>${fmt(w.mon)}</b></div>` + w.ins.map(([n,v]) => `<div><span>${n}</span><b>+${fmt(v)}</b></div>`).join('') + w.outs.map(([n,v]) => `<div><span>${n}</span><b>−${fmt(v)}</b></div>`).join('') + `<div><span>Missing</span><b>−12</b></div><div class="eq"><span>Now</span><b>${fmt(HO.book)}</b></div>`;
+  } else if (p.kind === 'store') {
+    const fl = Math.round(f.book * .62);
+    where = `<div><span>Floor</span><b>${fmt(fl)}</b></div><div><span>Stockroom</span><b>${fmt(f.book - fl)}</b></div>`;
+    const ins = Math.round(p.book * .08), sold = Math.round(p.book * .1), back = Math.round(p.book * .01), mis = -ex.filter(e => e.type === 'Missing').reduce((a,e) => a + e.qty, 0);
+    week = `<div><span>Monday</span><b>${fmt(p.book - ins + sold + back + mis)}</b></div><div><span>Received</span><b>+${fmt(ins)}</b></div><div><span>Sold</span><b>−${fmt(sold)}</b></div><div><span>Back to HO</span><b>−${fmt(back)}</b></div>${mis ? `<div><span>Missing</span><b>−${mis}</b></div>` : ''}<div class="eq"><span>Now</span><b>${fmt(p.book)}</b></div>`;
+  } else {
+    where = `<div><span>To stores</span><b>${fmt(1180)}</b></div><div><span>Back to HO</span><b>60</b></div>`;
+  }
+  const skuTl = bSku ? SKUS[bSku].tl.slice(-4).reverse() : null;
+  document.getElementById('bpanel').innerHTML = `
+    <div class="hd"><div class="k">${p.kind === 'store' ? 'Store' : p.kind === 'ho' ? 'HO' : 'Between places'}</div><h2>${p.name}</h2>
+      <div class="bigline"><span class="big num" style="margin:0">${fmt(f.book)}</span><span class="mute">pcs on the book</span></div></div>
+    ${p.kind !== 'road' ? `<div class="sec"><div class="fig3">
+      <div class="fig"><b class="${gapPct(f) > 1.5 ? 'warn' : ''}">${fmt(f.seen)}</b><span>Seen</span></div>
+      <div class="fig"><b class="${p.days > 21 ? 'warn' : ''}">${p.cd}</b><span>Last count</span></div>
+      <div class="fig"><b>${p.silent ? `<span class="warn">${p.silent}</span>` : 'Live'}</b><span>Sync</span></div></div></div>` : ''}
+    <div class="sec"><h3>${p.kind === 'road' ? 'Going' : 'Where'}</h3><div class="kv">${where}</div></div>
+    ${ex.length ? `<div class="sec"><h3>Exceptions <span>${ex.length}</span></h3><div class="pex">${ex.map(e => `<div data-ex="${e.id}"><span class="a">${e.art} <span class="mute">· ${e.variant}</span></span><span class="q">${sgn(e.qty)}</span><span class="s"><span class="dot ${tcls(e.type)}">${e.type}</span> · ${e.pool} · <span class="${ageCls(e.age)}">${ageTxt(e.age)}</span></span></div>`).join('')}</div></div>` : ''}
+    ${skuTl ? `<div class="sec"><h3>Movement</h3><div class="tl">${skuTl.map(tlRow).join('')}</div></div>` : week ? `<div class="sec"><h3>This week</h3><div class="kv">${week}</div></div>` : ''}
+    ${p.kind !== 'road' ? `<div class="sec" style="display:flex;gap:8px"><button class="btn pri">Ask for a count</button><button class="btn">Movement</button></div>` : ''}`;
+}
+
+// ================= C · Exceptions inbox =================
+let cSel = 'EX-1061';
+function renderC() {
+  const st = document.getElementById('cstatus').value, ty = document.getElementById('ctype').value;
+  const rows = EX.filter(e => (st === 'open' ? e.status !== 'Resolved' : e.status === st) && (!ty || e.type === ty));
+  if (!rows.find(e => e.id === cSel) && rows.length) cSel = rows[0].id;
+  document.getElementById('clist').innerHTML = rows.length ? rows.map(e => `
+    <div class="qitem${e.id === cSel ? ' on' : ''}" data-ex="${e.id}">
+      <span class="t ell">${e.art} <span class="mute" style="font-weight:400">· ${e.variant}</span></span><span class="q">${sgn(e.qty)}</span>
+      <span class="s"><span class="dot ${tcls(e.type)}">${e.type}</span><span class="ell">${byId[e.place].name}</span></span><span class="age ${ageCls(e.age)}">${ageTxt(e.age)}</span>
+    </div>`).join('') : '<div class="empty">Nothing here</div>';
+  renderCase();
+}
+function caseTimeline(e) {
+  if (e.sku === '21034517203') return SKUS[e.sku].tl.slice(3, 8);
+  if (e.sku === '21070044101') return SKUS[e.sku].tl.slice(2);
+  if (e.sku === '21022908104') return SKUS[e.sku].tl.slice(1);
+  const P = byId[e.place].name, t = [];
+  if (e.from === 'Store receive') t.push(['−' + (e.age + 2) + ' d','Dispatched', `${e.doc} → ${P}`, '']);
+  if (e.from === 'Pick' || e.from === 'Pack') t.push(['−' + (e.age + 1) + ' d','Allotted', e.doc, '']);
+  if (e.from === 'Count') t.push(['−' + e.age + ' d','Count', `${P} · ${e.pool}`, '']);
+  if (e.type === 'Not seen') t.push(['−' + e.age + ' d','Seen', `${P} ${e.pool.toLowerCase()} readers`, '1', 'seen']);
+  t.push(['−' + e.age + ' d', e.type, `${e.from} · ${P}`, sgn(e.qty), e.type === 'Missing' ? 'bad' : '']);
+  if (e.status === 'Counting') t.push(['today','Count asked', `${P} · ${e.pool}`, '']);
+  if (e.outcome) t.push(['−1 d', e.outcome.split(' · ')[0], e.outcome.split(' · ')[1] || 'Stock adjustment', '', 'last']);
+  return t;
+}
+const tlRow = ([w,x,s,q,c = '']) => `<div class="${c}"><span class="w">${w}</span><i></i><span class="x">${x}<span>${s}</span></span><span class="q">${q || ''}</span></div>`;
+function renderCase() {
+  const e = EX.find(x => x.id === cSel);
+  const box = document.getElementById('ccase');
+  if (!e) { box.innerHTML = '<div class="empty">Nothing here</div>'; return; }
+  const P = byId[e.place];
+  const sku = SKUS[e.sku], bookHere = sku?.per[e.place]?.[0] ?? (e.type === 'Extra' ? 6 : 8);
+  const figs = {
+    'Missing': [['Book', bookHere - e.qty], [e.from === 'Store receive' ? 'Received' : 'Counted', bookHere], ['Seen', sku?.per[e.place]?.[1] ?? bookHere], ['Variance', sgn(e.qty), 'bad']],
+    'Extra': [['Book', bookHere - e.qty], ['Counted', bookHere], ['Seen', bookHere], ['Variance', sgn(e.qty)]],
+    'Not seen': [['Book', bookHere], ['Seen', bookHere - 1], ['Not seen for', e.age + ' d', 'warn'], ['Last count', P.cd]],
+    'Seen elsewhere': [['Book here', bookHere], ['Seen here', bookHere - 1], ['Seen at', e.at ? byId[e.at].name : '—'], ['Pieces', 1]],
+  }[e.type];
+  const acts = e.status === 'Resolved' ? `<span class="mute" style="margin-right:auto;align-self:center">${e.outcome}</span><button class="btn">Reopen</button>` : {
+    'Missing': `<button class="btn">Ask for a count</button><button class="btn">Move…</button><button class="btn bad">Write off</button>`,
+    'Extra': `<button class="btn">Ask for a count</button><button class="btn pri">Add to stock</button>`,
+    'Not seen': `<button class="btn">Close, still here</button><button class="btn pri">Ask for a count</button>`,
+    'Seen elsewhere': `<button class="btn">Ask for a count</button><button class="btn pri">Move to ${e.at ? byId[e.at].name : ''}</button>`,
+  }[e.type];
+  box.innerHTML = `
+    <div class="hd"><div class="k">${e.id} · <span class="dot ${e.status === 'Resolved' ? 'd-resolved' : e.status === 'Counting' ? 'd-counting' : tcls(e.type)}">${e.status === 'Open' ? e.type : e.status}</span></div>
+      <h2>${e.art} <span class="mute" style="font-weight:500">· ${e.variant}</span></h2>
+      <div class="cfig">${figs.map(([k,v,c]) => `<div><b class="${c || ''}">${typeof v === 'number' ? fmt(v) : v}</b><span>${k}</span></div>`).join('')}</div>
+    </div>
+    <div class="body">
+      <div class="col"><h3>Case</h3><dl class="facts">
+        <dt>Type</dt><dd><span class="dot ${tcls(e.type)}">${e.type}</span></dd>
+        <dt>Place</dt><dd>${P.name}</dd>
+        <dt>Pool</dt><dd>${e.pool}</dd>
+        <dt>From</dt><dd>${e.from}${e.doc ? ` · ${e.doc}` : ''}</dd>
+        <dt>SKU</dt><dd>${e.sku}</dd>
+        <dt>Age</dt><dd class="${ageCls(e.age)}">${e.age} days</dd>
+      </dl></div>
+      <div class="col"><h3>Movement</h3><div class="tl">${caseTimeline(e).map(tlRow).join('')}</div></div>
+    </div>
+    <div class="act">${acts}</div>`;
+}
+
+// ================= D · SKU lens =================
+function renderD() {
+  const q = document.getElementById('dq').value.trim().toLowerCase();
+  const key = Object.keys(SKUS).find(k => k === q || k.startsWith(q) && q.length > 4 || SKUS[k].art.toLowerCase().includes(q) && q.length > 2);
+  const out = document.getElementById('dout');
+  if (!key) { out.innerHTML = '<div class="card empty">No SKU</div>'; return; }
+  const s = SKUS[key];
+  const rows = PLACES.filter(p => s.per[p.id]);
+  const tb = rows.reduce((a,p) => a + s.per[p.id][0], 0), ts = rows.reduce((a,p) => a + (s.per[p.id][1] ?? 0), 0);
+  const mis = -OPEN.filter(e => e.sku === key && e.type === 'Missing').reduce((a,e) => a + e.qty, 0);
+  const last = s.tl.filter(t => t[4] && t[4].includes('seen')).slice(-1)[0];
+  const exs = EX.filter(e => e.sku === key && e.status !== 'Resolved');
+  out.innerHTML = `<div class="lens">
+    <div class="card">
+      <div class="art"><span class="ph2"><i data-lucide="shirt"></i></span><div><h2>${s.art}</h2><div class="mute">${s.variant} · ${key}</div></div>
+        <div class="tot"><div><b>${fmt(tb)}</b><span class="mute">Book</span></div><div><b>${fmt(ts)}</b><span class="mute">Seen</span></div><div><b class="${mis ? 'bad' : ''}">${mis}</b><span class="mute">Missing</span></div></div></div>
+      ${last ? `<div class="lastseen"><i data-lucide="radio"></i><span>Last seen <b>${last[2]}</b> · ${last[0]}</span></div>` : ''}
+      <table><thead><tr><th>Place</th><th class="n">Book</th><th class="n">Seen</th><th class="hide-s">Last seen</th><th class="n">Exceptions</th></tr></thead><tbody>
+      ${rows.map(p => { const [b,se,ls] = s.per[p.id]; const ex = exs.filter(e => e.place === p.id);
+        return `<tr><td><span class="pn">${p.name}</span>${p.kind === 'road' ? ' <span class="mute">· SJ-0944 → Senayan</span>' : ''}</td><td class="n">${b}</td><td class="n">${se == null ? '<span class="faint">—</span>' : `<span class="${se !== b ? 'warn' : ''}">${se}</span>`}</td><td class="hide-s mute">${ls || '—'}</td><td class="n">${ex.length ? ex.map(e => `<span class="dot ${tcls(e.type)}" data-ex="${e.id}" style="cursor:pointer">${e.type}</span>`).join(' ') : '<span class="faint">0</span>'}</td></tr>`; }).join('')}
+      </tbody></table>
+    </div>
+    <aside class="panel"><div class="sec"><h3>Where it's been</h3><div class="tl">${[...s.tl].reverse().map(tlRow).join('')}</div></div></aside>
+  </div>`;
+  lucide.createIcons();
+}
+
+// ================= E · Store cards =================
+let eSku = null, sheetId = null, ringAnim = true;
+const ICON = {ho:'warehouse', road:'truck', store:'store', order:'clipboard-list'};
+function eFig(p) {
+  if (!eSku) return p;
+  const r = SKUS[eSku].per[p.id];
+  return {...p, book: r ? r[0] : 0, seen: p.kind === 'road' ? null : (r ? r[1] ?? 0 : 0)};
+}
+function sev(p) {
+  const rule = document.getElementById('erule').value;
+  const ex = exOf(p.id).filter(e => rule === 'any' || e.age > +rule);
+  if (!ex.length) return 0;
+  return ex.some(e => e.age > 30) ? 2 : 1;
+}
+function ring(f, size) {
+  if (f.seen == null) return `<div class="ringw none"><svg viewBox="0 0 ${size} ${size}"><circle cx="${size/2}" cy="${size/2}" r="${size/2 - 4}" fill="none" stroke="var(--soft-2)" stroke-width="5" stroke-dasharray="3 5"/></svg><span class="faint">—</span></div>`;
+  const pct = f.book ? Math.min(100, f.seen / f.book * 100) : 0;
+  const r = size / 2 - 4, c = 2 * Math.PI * r, warn = gapPct(f) > 1.5;
+  return `<div class="ringw"><svg viewBox="0 0 ${size} ${size}"><circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="var(--soft-2)" stroke-width="5"/><circle class="v" cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${warn ? 'var(--warn)' : 'var(--ink)'}" stroke-width="5" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${ringAnim ? c : c * (1 - pct / 100)}" data-off="${c * (1 - pct / 100)}"/></svg><span class="${warn ? 'warn' : ''}">${f.book ? Math.floor(pct) + '%' : '—'}</span></div>`;
+}
+function countLine(p) {
+  if (p.kind === 'road') return `<span class="cnt"><i data-lucide="file-text"></i>${p.sj} surat jalan</span>`;
+  if (p.countAsked) return `<span class="cnt asked"><i data-lucide="scan-line"></i>Count asked</span>`;
+  return `<span class="cnt ${p.days > 30 ? 'over' : ''}"><i data-lucide="calendar-check"></i>Last count ${p.cd} · ${p.days} d</span>`;
+}
+const cue = k => document.querySelector(`#cues input[value="${k}"]`).checked;
+function exCue(p, s) {
+  const ex = exOf(p.id);
+  if (!ex.length) return '<span class="exn">No exceptions</span>';
+  if (!cue('dots')) return `<span class="exn s${Math.max(s, 1)}">${ex.length} ${ex.length > 1 ? 'exceptions' : 'exception'}</span>`;
+  const types = ['Missing','Not seen','Seen elsewhere','Extra'].map(t => [t, ex.filter(e => e.type === t).length]).filter(x => x[1]);
+  return `<span class="tdots">${types.map(([t,n]) => `<span class="dot ${tcls(t)}" title="${t}">${n}</span>`).join('')}</span>`;
+}
+function card(p) {
+  if (p.kind === 'order') {
+    const late = p.pos.filter(x => x[4] === 'late');
+    return `<button class="scard ghost" data-card="order">
+      <div class="sc-top"><span class="sc-ico"><i data-lucide="${ICON.order}"></i></span><div class="sc-name"><b>On order</b><span>Not in inventory</span></div></div>
+      <div class="sc-figs"><div><b>${fmt(p.awaited)}</b><span>Awaited</span></div><div><b>${fmt(p.week)}</b><span>Due this week</span></div></div>
+      <div class="sc-foot"><span class="cnt"><i data-lucide="file-text"></i>${p.pos.length} PO</span><span class="exn ${late.length ? 's1' : ''}">${late.length ? late.length + ' late' : 'None late'}</span></div>
+    </button>`;
+  }
+  if (p.kind === 'road' && !eSku) {
+    const n = exOf(p.id).length;
+    return `<button class="scard" data-card="road">
+      <div class="sc-top"><span class="sc-ico"><i data-lucide="${ICON.road}"></i></span><div class="sc-name"><b>On the road</b><span>In inventory</span></div></div>
+      <div class="sc-figs"><div><b>${fmt(p.to)}</b><span>To stores</span></div><div><b>${fmt(p.back)}</b><span>Back to HO</span></div></div>
+      <div class="sc-foot"><span class="cnt"><i data-lucide="file-text"></i>${p.trips.length} SJ · ${p.rets.length} return</span><span class="exn">${n ? n + ' exceptions' : 'No exceptions'}</span></div>
+    </button>`;
+  }
+  const f = eFig(p), s = sev(p);
+  const trip = ROAD.trips.find(t => t[1] === p.name);
+  const days = p.days || 0, bar = cue('bar') && p.kind !== 'road' && !p.countAsked
+    ? `<span class="cbar"><i class="${days > 30 ? 'b' : days > 21 ? 'w' : ''}" style="width:${Math.min(100, days / 30 * 100)}%"></i></span>` : '';
+  return `<button class="scard s${s}${p.silent && cue('silent') ? ' silent' : ''}" data-card="${p.id}">
+    <div class="sc-top"><span class="sc-ico"><i data-lucide="${ICON[p.kind]}"></i></span>
+      <div class="sc-name"><b>${p.name}</b>${p.silent ? `<span class="warn">${cue('silent') ? '<i data-lucide="wifi-off"></i>' : ''}Silent ${p.silent}</span>` : `<span>${p.kind === 'store' ? 'Store' : p.kind === 'ho' ? 'HO' : 'Between places'}</span>`}</div>${ring(f, 62)}</div>
+    <div class="sc-figs"><div><b>${fmt(f.book)}</b><span>Inventory</span></div><div><b class="${f.seen != null && gapPct(f) > 1.5 ? 'warn' : ''}">${f.seen == null ? '—' : fmt(f.seen)}</b><span>Observed</span></div></div>
+    ${cue('coming') && trip && !eSku ? `<div class="coming"><i data-lucide="truck"></i><b>+${fmt(trip[2])}</b> on the road here · ${trip[0]}</div>` : ''}
+    <div class="sc-foot">${countLine(p)}${exCue(p, s)}</div>${bar}
+  </button>`;
+}
+function renderE() {
+  const sku = document.getElementById('esku');
+  sku.classList.toggle('on', !!eSku);
+  if (eSku) sku.innerHTML = `<i data-lucide="tag"></i><span><b>${SKUS[eSku].art}</b> · ${SKUS[eSku].variant} · ${eSku}</span><button id="eclear">Clear</button>`;
+  const sort = document.getElementById('esort').value;
+  const stores = [...STORES];
+  if (sort === 'att') stores.sort((a,b) => sev(b) - sev(a) || (b.days > 30) - (a.days > 30) || exOf(b.id).length - exOf(a.id).length || a.name.localeCompare(b.name));
+  else stores.sort((a,b) => a.name.localeCompare(b.name));
+  const stBook = stores.reduce((a,p) => a + eFig(p).book, 0), stSeen = stores.reduce((a,p) => a + eFig(p).seen, 0);
+  const g = document.getElementById('egrid');
+  g.className = 'style-' + document.getElementById('estyle').value;
+  g.innerHTML = `
+    <div class="ghead"><span>HO</span><span><b>${fmt(eFig(HO).book + eFig(ROAD).book)}</b> inventory</span></div>
+    <div class="cgrid">${card(HO)}${card(ROAD)}${eSku ? '' : card(ORDER)}</div>
+    <div class="ghead"><span>Stores · 13</span><span><b>${fmt(stBook)}</b> inventory · <b>${fmt(stSeen)}</b> observed</span></div>
+    <div class="cgrid">${stores.map(card).join('')}</div>`;
+  lucide.createIcons();
+  requestAnimationFrame(() => requestAnimationFrame(() => g.querySelectorAll('circle.v').forEach(c => c.style.strokeDashoffset = c.dataset.off)));
+}
+const adjLabel = e => ({'Missing': `Write off ${-e.qty}`, 'Extra': `Add ${e.qty}`, 'Seen elsewhere': `Move to ${e.at ? byId[e.at].name : ''}`, 'Not seen': 'Write off 1'})[e.type];
+const adjDone = e => ({'Missing': `Written off ${-e.qty}`, 'Extra': `Added ${e.qty}`, 'Seen elsewhere': `Moved to ${e.at ? byId[e.at].name : ''}`, 'Not seen': 'Written off 1'})[e.type];
+function renderSheet() {
+  const p = byId[sheetId], f = eFig(p);
+  const head = sub => `<div class="sh-hd"><span class="sc-ico"><i data-lucide="${ICON[p.kind]}"></i></span><h2>${p.name}<span>${sub}</span></h2><button class="xbtn" data-act="close"><i data-lucide="x"></i></button></div>`;
+  if (p.kind === 'order' || (p.kind === 'road' && !eSku)) {
+    const order = p.kind === 'order';
+    const rows = order
+      ? p.pos.map(([no,sup,q,d,st]) => `<div class="xrow"><span class="a">${no} <span class="mute" style="font-weight:400">· ${sup}</span></span><span class="q">${fmt(q)}</span><span class="s"><span class="${st === 'late' ? 'warn' : ''}">Promised ${d}</span>${st === 'late' ? '<span class="dot d-notseen" style="color:var(--warn-fg)">Late</span>' : st ? `<span class="dot d-counting" style="color:var(--text)">${st}</span>` : ''}</span></div>`).join('')
+      : p.trips.map(([no,to,q,t]) => `<div class="xrow"><span class="a">${no} <span class="mute" style="font-weight:400">· HO → ${to}</span></span><span class="q">${fmt(q)}</span><span class="s">Left ${t}</span></div>`).join('');
+    const rets = order ? '' : `<div class="sh-sec"><h3>Back to HO <span>${p.back}</span></h3>${p.rets.map(([no,from,q,t]) => `<div class="xrow"><span class="a">${no} <span class="mute" style="font-weight:400">· ${from} → HO</span></span><span class="q">${q}</span><span class="s">Left ${t}</span></div>`).join('')}</div>`;
+    document.getElementById('sheet').innerHTML = head(order ? 'Not in inventory' : 'In inventory') + `
+      <div class="sh-body">
+        <div class="sh-hero"><div class="sh-figs">${order
+          ? `<div><b>${fmt(p.awaited)}</b><span>Awaited</span></div><div><b>${fmt(p.week)}</b><span>Due this week</span></div><div><b class="warn">${p.pos.filter(x => x[4] === 'late').length}</b><span>Late PO</span></div>`
+          : `<div><b>${fmt(p.book)}</b><span>Inventory</span></div><div><b>${fmt(p.to)}</b><span>To stores</span></div><div><b>${fmt(p.back)}</b><span>Back to HO</span></div>`}</div></div>
+        <div class="sh-sec"><h3>${order ? 'Purchase orders' : 'To stores'} <span>${order ? p.pos.length : fmt(p.to)}</span></h3>${rows}</div>
+        ${rets}
+        ${order ? `<div class="sh-sec"><button class="btn">Open in Buying</button></div>` : ''}
+      </div>`;
+    lucide.createIcons();
+    return;
+  }
+  const ex = EX.filter(e => e.place === p.id && (e.status !== 'Resolved' || e.justDone));
+  const open = ex.filter(e => e.status === 'Open');
+  let where = '';
+  if (p.kind === 'ho') where = HO.pools.map(([n,v]) => `<div><span>${n}</span><b>${fmt(v)}</b></div>`).join('');
+  else if (p.kind === 'store') {
+    const fl = Math.round(f.book * .62), trip = ROAD.trips.find(t => t[1] === p.name);
+    where = `<div><span>Floor</span><b>${fmt(fl)}</b></div><div><span>Stockroom</span><b>${fmt(f.book - fl)}</b></div>${trip && !eSku ? `<div class="eq"><span class="mute">On the road here · ${trip[0]}</span><b class="mute" style="font-weight:500">+${fmt(trip[2])}</b></div>` : ''}`;
+  }
+  else where = `<div><span>To stores</span><b>1,180</b></div><div><span>Back to HO</span><b>60</b></div>`;
+  const row = e => {
+    const status = e.status === 'Resolved' ? `<span class="dot d-resolved st">${e.outcome}</span>` : e.status === 'Counting' ? `<span class="dot d-counting st">Recount asked</span>` : '';
+    const acts = e.status === 'Resolved' ? `<button class="btn sm" data-act="undo" data-id="${e.id}">Undo</button>`
+      : e.status === 'Counting' ? `<button class="btn sm" data-act="adjust" data-id="${e.id}">${adjLabel(e)}</button>`
+      : `<button class="btn sm" data-act="recount" data-id="${e.id}">Recount</button><button class="btn sm ${e.type === 'Missing' || e.type === 'Not seen' ? 'bad' : ''}" data-act="adjust" data-id="${e.id}">${adjLabel(e)}</button>`;
+    return `<div class="xrow ${e.status === 'Resolved' ? 'done' : ''}"><span class="a ell">${e.art} <span class="mute" style="font-weight:400">· ${e.variant}</span></span><span class="q">${sgn(e.qty)}</span>
+      <span class="s"><span class="dot ${tcls(e.type)}" style="color:var(--text)">${e.type}${e.type === 'Seen elsewhere' && e.at ? ' · at ' + byId[e.at].name : ''}</span><span>${e.pool}</span><span>${e.from}</span><span class="${ageCls(e.age)}">${ageTxt(e.age)}</span>${status}</span>
+      <span class="acts">${acts}</span></div>`;
+  };
+  document.getElementById('sheet').innerHTML = `
+    <div class="sh-hd"><span class="sc-ico"><i data-lucide="${ICON[p.kind]}"></i></span><h2>${p.name}<span>${p.silent ? `<span class="warn">Silent ${p.silent}</span>` : p.kind === 'store' ? 'Store' : p.kind === 'ho' ? 'HO' : 'Between places'}</span></h2><button class="xbtn" data-act="close"><i data-lucide="x"></i></button></div>
+    <div class="sh-body">
+      <div class="sh-hero">${ring(f, 96)}<div class="sh-figs">
+        <div><b>${fmt(f.book)}</b><span>Inventory</span></div>
+        <div><b class="${f.seen != null && gapPct(f) > 1.5 ? 'warn' : ''}">${f.seen == null ? '—' : fmt(f.seen)}</b><span>Observed</span></div>
+        <div><b class="${f.seen != null && gapPct(f) > 1.5 ? 'warn' : ''}">${f.seen == null ? '—' : sgn(f.seen - f.book)}</b><span>Gap</span></div></div></div>
+      ${p.kind !== 'road' ? `<div class="sh-sec"><div class="cline"><span>Last count <b class="${p.days > 30 ? 'over' : ''}">${p.cd}</b> <span class="${p.days > 30 ? 'over' : 'mute'}">· ${p.days} days ago</span></span>
+        ${p.countAsked ? `<span class="dot d-counting">Count asked</span>` : `<button class="btn ${p.days > 30 ? 'pri' : ''}" data-act="countall">Count ${p.kind === 'ho' ? 'HO' : 'store'}</button>`}</div></div>` : ''}
+      <div class="sh-sec"><h3>Exceptions <span>${ex.filter(e => e.status !== 'Resolved').length}</span>${open.length > 1 ? `<button data-act="recountall">Recount all</button>` : ''}</h3>
+        ${ex.length ? ex.map(row).join('') : '<div class="none-ex">No exceptions</div>'}</div>
+      <div class="sh-sec"><h3>${p.kind === 'road' ? 'Going' : 'Where'}</h3><div class="kv">${where}</div></div>
+    </div>`;
+  lucide.createIcons();
+  requestAnimationFrame(() => requestAnimationFrame(() => document.querySelectorAll('#sheet circle.v').forEach(c => c.style.strokeDashoffset = c.dataset.off)));
+}
+function openSheet(id) {
+  sheetId = id;
+  EX.forEach(e => delete e.justDone);
+  renderSheet();
+  document.getElementById('scrim').classList.add('on');
+  document.getElementById('sheet').classList.add('on');
+}
+function closeSheet() {
+  document.getElementById('scrim').classList.remove('on');
+  document.getElementById('sheet').classList.remove('on');
+  EX.forEach(e => delete e.justDone);
+}
+function act(kind, id) {
+  const e = EX.find(x => x.id === id);
+  if (kind === 'close') return closeSheet();
+  if (kind === 'recount') { e.prev = e.status; e.status = 'Counting'; }
+  if (kind === 'recountall') EX.filter(x => x.place === sheetId && x.status === 'Open').forEach(x => { x.prev = x.status; x.status = 'Counting'; });
+  if (kind === 'adjust') { e.prev = e.status; e.status = 'Resolved'; e.outcome = adjDone(e); e.justDone = true; }
+  if (kind === 'undo') { e.status = e.prev || 'Open'; delete e.justDone; }
+  if (kind === 'countall') byId[sheetId].countAsked = true;
+  refreshOpen();
+  ringAnim = false;
+  renderSheet();
+  renderE();
+  ringAnim = true;
+}
+
+// ================= wiring =================
+let view = 'B';
+function show(v) {
+  view = v;
+  document.querySelectorAll('.view').forEach(s => s.classList.toggle('on', s.id === 'v' + v));
+  document.querySelectorAll('#opts button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === v));
+  document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.v === v));
+  ({A:renderA,B:renderB,C:renderC,D:renderD,E:renderE})[v]();
+  document.getElementById('pset').classList.toggle('on', v === 'E');
+  try { localStorage.setItem('ic-view2', v); } catch (e) {}
+  window.scrollTo(0,0);
+}
+document.getElementById('opts').onclick = e => { const b = e.target.closest('button'); if (b) show(b.dataset.v); };
+document.getElementById('nav').onclick = e => { const a = e.target.closest('a[data-v]'); if (a) show(a.dataset.v); };
+document.addEventListener('click', e => {
+  const a = e.target.closest('[data-act]');
+  if (a) { act(a.dataset.act, a.dataset.id); return; }
+  const cd = e.target.closest('[data-card]');
+  if (cd) { openSheet(cd.dataset.card); return; }
+  if (e.target.id === 'scrim') { closeSheet(); return; }
+  if (e.target.id === 'eclear') { eSku = null; document.getElementById('eq').value = ''; renderE(); return; }
+  const ex = e.target.closest('[data-ex]');
+  if (ex) { cSel = ex.dataset.ex; document.getElementById('cstatus').value = EX.find(x => x.id === cSel).status === 'Resolved' ? 'Resolved' : 'open'; document.getElementById('ctype').value = ''; show('C'); return; }
+  const pl = e.target.closest('[data-place]');
+  if (pl) { bSel = pl.dataset.place; if (view === 'B') { renderB(); } else show('B'); return; }
+  const go = e.target.closest('[data-go]');
+  if (go) { show(go.dataset.go); return; }
+  if (e.target.id === 'bclear') { bSku = null; document.getElementById('bq').value = ''; renderB(); }
+});
+document.getElementById('bq').addEventListener('input', e => {
+  const q = e.target.value.trim().toLowerCase();
+  const k = Object.keys(SKUS).find(k => k === q || SKUS[k].art.toLowerCase() === q);
+  if (k !== bSku && (k || !q)) { bSku = k || null; renderB(); }
+});
+document.getElementById('bscope').onchange = renderB;
+document.getElementById('esort').onchange = renderE;
+document.getElementById('estyle').onchange = renderE;
+document.getElementById('erule').onchange = renderE;
+document.getElementById('cues').addEventListener('change', renderE);
+document.getElementById('eq').addEventListener('input', e => {
+  const q = e.target.value.trim().toLowerCase();
+  const k = Object.keys(SKUS).find(k => k === q || SKUS[k].art.toLowerCase() === q);
+  if (k !== eSku && (k || !q)) { eSku = k || null; renderE(); }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
+document.getElementById('cstatus').onchange = renderC;
+document.getElementById('ctype').onchange = renderC;
+document.getElementById('dq').addEventListener('input', renderD);
+let start = 'E'; try { start = localStorage.getItem('ic-view2') || 'E'; } catch (e) {}
+show(start);
+lucide.createIcons();
+</script>
+</body>
+</html>

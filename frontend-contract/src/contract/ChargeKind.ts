@@ -20,8 +20,8 @@
  * operating-equipment rows that it charges every single month.
  *
  * The accounts themselves are still never named here. Each variant names
- * three MEANINGS, and `account_map` turns a meaning plus a site plus a
+ * three MEANINGS, and `account_resolution` turns a meaning plus a unit plus a
  * qualifier into the client's account — exactly as every other posting rule
- * resolves one.
+ * resolves one. The unit is the one that owns the asset's site.
  */
 export type ChargeKind = "DEPRECIATION" | "REPLACEMENT_RESERVE" | "AMORTISATION";

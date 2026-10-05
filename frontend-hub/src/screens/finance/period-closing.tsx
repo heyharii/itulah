@@ -247,7 +247,6 @@ function CloseRange({ start }: { start: string }) {
         <Input
           value={remarks}
           onChange={(event) => setRemarks(event.target.value)}
-          placeholder="Year end 2026"
         />
       </Field>
       <div className="flex justify-end">

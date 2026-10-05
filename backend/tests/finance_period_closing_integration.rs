@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 const ACTOR: &str = "finance-ho";
 const STORE: &str = "store-01";
-const HO: &str = "dc";
+const HO: &str = "ho";
 
 fn date(y: i32, m: u32, d: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(y, m, d).unwrap_or_else(|| panic!("bad date"))
@@ -82,27 +82,27 @@ async fn expense(pool: &PgPool, on: NaiveDate, site: &str, account: &str, amount
     .await;
 }
 
-async fn balance(pool: &PgPool, account: &str, site: &str) -> i64 {
+async fn balance(pool: &PgPool, account: &str, unit: &str) -> i64 {
     sqlx::query_scalar(
         "SELECT COALESCE(SUM(debit_minor - credit_minor), 0)::bigint FROM journal_line
-          WHERE account_code = $1 AND site_id = $2",
+          WHERE account_code = $1 AND unit_id = $2",
     )
     .bind(account)
-    .bind(site)
+    .bind(unit)
     .fetch_one(pool)
     .await
     .unwrap_or_else(|error| panic!("balance {account}: {error}"))
 }
 
-/// Debits less credits over every profit-and-loss account at a site, closing
-/// entries included.
-async fn open_profit(pool: &PgPool, site: &str) -> i64 {
+/// Debits less credits over every profit-and-loss account in a unit's books,
+/// closing entries included.
+async fn open_profit(pool: &PgPool, unit: &str) -> i64 {
     sqlx::query_scalar(
         "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint
            FROM journal_line l JOIN ledger_account a USING (account_code)
-          WHERE a.root_type IN ('INCOME', 'EXPENSE') AND l.site_id = $1",
+          WHERE a.root_type IN ('INCOME', 'EXPENSE') AND l.unit_id = $1",
     )
-    .bind(site)
+    .bind(unit)
     .fetch_one(pool)
     .await
     .unwrap_or_else(|error| panic!("open profit: {error}"))
@@ -138,13 +138,13 @@ async fn a_voucher_moves_each_sites_profit_into_retained_earnings(pool: PgPool) 
 
     let unbalanced: i64 = sqlx::query_scalar(
         "SELECT COUNT(*)::bigint FROM (
-             SELECT entry_id, site_id FROM journal_line
-              GROUP BY entry_id, site_id HAVING SUM(debit_minor - credit_minor) <> 0) s",
+             SELECT entry_id, unit_id FROM journal_line
+              GROUP BY entry_id, unit_id HAVING SUM(debit_minor - credit_minor) <> 0) s",
     )
     .fetch_one(&pool)
     .await
-    .unwrap_or_else(|error| panic!("per site: {error}"));
-    assert_eq!(unbalanced, 0, "every site balances in its own books");
+    .unwrap_or_else(|error| panic!("per unit: {error}"));
+    assert_eq!(unbalanced, 0, "every unit balances in its own books");
 
     let pnl = cloud::profit_and_loss(&pool, date(2026, 9, 1), date(2026, 9, 30), Some(STORE))
         .await
@@ -271,4 +271,85 @@ async fn a_soft_closed_month_takes_the_voucher_and_a_closed_one_does_not(pool: P
         .unwrap_or_else(|| panic!("a closed month takes nothing"))
         .to_string();
     assert!(refused.contains("closed"), "{refused}");
+}
+
+/// Seal a month the way `period_close` leaves it, without running its
+/// checklist — the checklist is not what this test is about.
+async fn sealed(pool: &PgPool, year: i32, month: i32) {
+    open(pool, year, month).await;
+    sqlx::query(
+        "UPDATE fiscal_period SET status='CLOSED', closed_by=$3, closed_at=now()
+          WHERE year=$1 AND month=$2",
+    )
+    .bind(year as i16)
+    .bind(month as i16)
+    .bind(ACTOR)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("seal {year}-{month}: {error}"));
+}
+
+async fn status_of(pool: &PgPool, year: i32, month: i32) -> String {
+    sqlx::query_scalar("SELECT status FROM fiscal_period WHERE year=$1 AND month=$2")
+        .bind(year as i16)
+        .bind(month as i16)
+        .fetch_one(pool)
+        .await
+        .unwrap_or_else(|error| panic!("status {year}-{month}: {error}"))
+}
+
+/// Undo Closing, as 7Soft has it: the latest closed month first, a reason
+/// every time, and never under a year-end voucher that still stands.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn closing_is_undone_newest_month_first(pool: PgPool) {
+    sealed(&pool, 2026, 7).await;
+    sealed(&pool, 2026, 8).await;
+
+    let refused = cloud::period_reopen(&pool, 2026, 7, ACTOR, "late invoice")
+        .await
+        .err()
+        .unwrap_or_else(|| panic!("July reopened under a closed August"));
+    assert!(refused.to_string().contains("2026-08"), "{refused}");
+    assert_eq!(status_of(&pool, 2026, 7).await, "CLOSED");
+
+    let no_reason = cloud::period_reopen(&pool, 2026, 8, ACTOR, "  ").await;
+    assert!(no_reason.is_err(), "a reopen without a reason");
+
+    cloud::period_reopen(&pool, 2026, 8, ACTOR, "late invoice from PLN")
+        .await
+        .unwrap_or_else(|error| panic!("reopen August: {error}"));
+    cloud::period_reopen(&pool, 2026, 7, ACTOR, "late invoice from PLN")
+        .await
+        .unwrap_or_else(|error| panic!("reopen July: {error}"));
+    assert_eq!(status_of(&pool, 2026, 7).await, "OPEN");
+    assert_eq!(status_of(&pool, 2026, 8).await, "OPEN");
+
+    let events: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM fiscal_period_event WHERE event = 'REOPEN' AND reason = 'late invoice from PLN'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("events: {error}"));
+    assert_eq!(events, 2, "each undo is written down with its reason");
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_standing_year_end_voucher_blocks_undoing_a_close(pool: PgPool) {
+    sealed(&pool, 2026, 9).await;
+    sqlx::query(
+        "INSERT INTO period_closing_voucher (voucher_id, period_start, period_end, created_by)
+         VALUES ($1, '2026-01-01', '2026-12-31', $2)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(ACTOR)
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("voucher: {error}"));
+
+    let refused = cloud::period_reopen(&pool, 2026, 9, ACTOR, "late invoice")
+        .await
+        .err()
+        .unwrap_or_else(|| panic!("reopened under a standing voucher"));
+    assert!(refused.to_string().contains("Period Closing Voucher"), "{refused}");
+    assert_eq!(status_of(&pool, 2026, 9).await, "CLOSED");
 }

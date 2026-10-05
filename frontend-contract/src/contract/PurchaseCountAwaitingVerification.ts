@@ -14,9 +14,19 @@ export type PurchaseCountAwaitingVerification = { count_id: string,
  * The delivery document this count hangs off — and the only thing the
  * supplier's invoice can be attached to. A verifier holding the paper
  * would otherwise have to guess which of a supplier's open deliveries it
- * belongs to, and on a busy bay that guess is wrong.
+ * belongs to, and on a busy bay that guess is wrong. One receipt holds
+ * one order's counts: a count for a second order of the same lorry is
+ * put on that order's own receipt (`receipt_for_order`), so an invoice
+ * filed here is compared with this order's lines only.
  */
-receipt_id: string, po_line_id: string, po_number: string, supplier_id: string, article_code: string, article_name: string, counted_quantity: number, counted_by: string, counted_at: string, 
+receipt_id: string, po_line_id: string, po_number: string, supplier_id: string, article_code: string, article_name: string, counted_quantity: number,
+/**
+ * What the checker wrote as not matching the order, inside the count:
+ * pieces on the lorry that are not this article. Received runs on
+ * `counted_quantity − wrong_quantity`; the wrong pieces go back to the
+ * supplier on a purchase return.
+ */
+wrong_quantity: number, counted_by: string, counted_at: string,
 /**
  * What the order expects, in the same unit the checker counted in.
  */
@@ -51,4 +61,9 @@ order_unit_code: string | null, order_unit_quantity: string | null, unit_factor:
  * What the count was typed in — "9.5 KODI". Absent when counted in
  * pieces.
  */
-counted_unit_code: string | null, counted_unit_quantity: string | null, };
+counted_unit_code: string | null, counted_unit_quantity: string | null, 
+/**
+ * The unit the line's stock is kept in — PCS, or GRAM/CM for goods kept
+ * by weight or length (0653). Null on orders sent before it: PCS.
+ */
+stock_unit_code: string | null, };

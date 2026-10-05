@@ -186,7 +186,6 @@ export function PriceAmendments() {
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="PO or article"
             className="h-8 w-48"
           />
         }
@@ -366,7 +365,7 @@ function AmendmentSheet({
           </div>
 
           <div>
-            <MiniTable head={["Price", "Per unit"]}>
+            <MiniTable head={["Price", "Per Unit"]}>
               <tr className="border-t border-hairline">
                 <td className="py-2 text-[0.875rem] text-ink">
                   Agreed on the order
@@ -405,7 +404,6 @@ function AmendmentSheet({
               rows={3}
               value={note}
               onChange={(event) => setNote(event.target.value)}
-              placeholder="Optional. It travels back to the warehouse with the answer."
             />
           </div>
         </div>

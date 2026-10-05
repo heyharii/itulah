@@ -85,7 +85,6 @@ export function HrAttendance() {
   const [recording, setRecording] = useState<Prefill | null>(null)
   return (
     <HrWorkspace
-      sub="Check-ins come from the shop's reader or the employee app. Present, late and unpaid are worked out from the shift. A forgotten check-in is fixed by a request, never by editing the day."
       actions={
         <Button variant="primary" onClick={() => setRecording({})}>
           <Plus />
@@ -125,8 +124,8 @@ function Attendance({
   const [tab, setTab] = useState<Tab>("today")
   const team = useTeam(scope)
   const pendingFixes = useQuery({
-    queryKey: hrKeys.corrections(scope.id, true),
-    queryFn: ({ signal }) => correctionsAt(scope.id, true, signal),
+    queryKey: hrKeys.corrections(scope.unit_id, true),
+    queryFn: ({ signal }) => correctionsAt(scope.unit_id, true, signal),
   })
   const swaps = usePendingSwaps(scope)
   const waiting =
@@ -196,16 +195,16 @@ function Today({
 }) {
   const today = isoDay(new Date())
   const roster = useQuery({
-    queryKey: hrKeys.roster(scope.id, today, today),
-    queryFn: ({ signal }) => rosterAt(scope.id, today, today, signal),
+    queryKey: hrKeys.roster(scope.unit_id, today, today),
+    queryFn: ({ signal }) => rosterAt(scope.unit_id, today, today, signal),
   })
   const attendance = useQuery({
-    queryKey: hrKeys.attendanceToday(scope.id, today),
-    queryFn: ({ signal }) => attendanceToday(scope.id, today, signal),
+    queryKey: hrKeys.attendanceToday(scope.unit_id, today),
+    queryFn: ({ signal }) => attendanceToday(scope.unit_id, today, signal),
   })
 
   return centreState(attendance, {
-    loading: "Reading today at the centre…",
+    loading: "Loading…",
     what: "today's attendance",
     render: (view) => {
       const connected = view.punch_source_connected
@@ -243,9 +242,7 @@ function Today({
         <>
           {!connected && (
             <Banner tone="info" className="mb-4">
-              No reader and no phone has reported a check-in for {scope.label}{" "}
-              yet, so nobody below can be called present or absent — the
-              statuses read "not assessed" until one does.
+              No check-in source has reported yet. Not assessed.
             </Banner>
           )}
           <StatStrip>
@@ -276,7 +273,7 @@ function Today({
           <PeopleTable
             rows={rows}
             rowKey={(row) => row.employeeId}
-            empty={`Nobody is rostered at ${scope.label} today and nobody has checked in.`}
+            empty="Nobody rostered or checked in today."
             columns={[
               {
                 key: "who",
@@ -362,7 +359,7 @@ function Today({
           {view.underivable.length > 0 && (
             <>
               <Heading count={view.underivable.length}>
-                Days that could not be judged
+                Not assessed
               </Heading>
               <Banner tone="warn">
                 {view.underivable.map((day) => (
@@ -373,8 +370,6 @@ function Today({
                     {personName(team, day.employee_id)}: {day.reason}
                   </span>
                 ))}
-                These are about the inputs — a missing policy, an unknown shift
-                — and are head office's to fix, not the person's.
               </Banner>
             </>
           )}
@@ -422,7 +417,7 @@ function letter(
   return {
     code: "?",
     tone: "bg-bad-bg text-bad-fg",
-    title: "Not recorded — needs a fix or a decision",
+    title: "Not recorded",
   }
 }
 
@@ -636,11 +631,6 @@ function Sheet({
           </span>
         ))}
       </div>
-      <p className="mt-2 text-meta text-mute">
-        Late and half-day are judged by head office's attendance policy. A day
-        with no check-in and no leave is marked ? and holds up the month's close
-        — tap it to record a fix.
-      </p>
     </>
   )
 }
@@ -671,8 +661,8 @@ function Fixes({
   team: EmployeeList | undefined
 }) {
   const history = useQuery({
-    queryKey: hrKeys.corrections(scope.id, false),
-    queryFn: ({ signal }) => correctionsAt(scope.id, false, signal),
+    queryKey: hrKeys.corrections(scope.unit_id, false),
+    queryFn: ({ signal }) => correctionsAt(scope.unit_id, false, signal),
   })
   const [open, setOpen] = useState<CorrectionRow | null>(null)
 
@@ -684,7 +674,7 @@ function Fixes({
         Attendance fixes
       </Heading>
       {centreState(history, {
-        loading: "Reading the fixes…",
+        loading: "Loading…",
         what: "this shop's attendance fixes",
         render: (rows) => (
           <PeopleTable
@@ -699,7 +689,7 @@ function Fixes({
             )}
             rowKey={(fix) => fix.id}
             onRowClick={setOpen}
-            empty={`No fix has been asked for at ${scope.label}.`}
+            empty="No fixes requested."
             columns={[
               {
                 key: "who",
@@ -829,11 +819,6 @@ function FixSheet({
           />
         </SheetSection>
       )}
-      <p className="text-meta text-mute">
-        Approved: the day is judged again with these times, by the same policy
-        as every other day. Refused: it stays as the reader saw it. Whoever
-        asked for a fix cannot also approve it.
-      </p>
     </PeopleSheet>
   )
 }
@@ -885,7 +870,6 @@ function RecordFix({
       }}
       crumb="Attendance"
       title="Record a fix"
-      sub="A fix always goes through the store head's decision, and is kept."
       foot={
         <Submit
           label="Send to the store head"
@@ -941,18 +925,13 @@ function RecordFix({
             </Field>
           )}
         </div>
-        <Field label="Why" hint="Required — it is the record of what happened.">
+        <Field label="Reason">
           <Input
             value={reason}
             placeholder="The reader was down this morning"
             onChange={(event) => setReason(event.target.value)}
           />
         </Field>
-        <p className="text-meta text-mute">
-          A fix states times, never "present" or "late" — those are worked out
-          from the times by the same policy as every other day. Leave is not a
-          fix: record it under Leave.
-        </p>
       </div>
     </PeopleSheet>
   )

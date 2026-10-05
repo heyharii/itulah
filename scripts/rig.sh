@@ -30,7 +30,7 @@
 #   RIG_VIRTUAL_START    virtual anchor, RFC 3339      (default: 1 Jan, 00:00 +07)
 #   RIG_AUTH_MODE        disabled | required           (default: disabled)
 #   RIG_ADMIN_PASSWORD   bootstrap admin password when auth is required
-#   RIG_PORT_CLOUD/DC/STORE  listener ports (defaults 8180 / 8182 / 8181)
+#   RIG_PORT_CLOUD/DC/STORE  listener ports (defaults 8180 / 8181 / 8182)
 #
 # The virtual clock re-anchors at every launch: a run always wakes up on its
 # virtual New Year, and `reset` starts the year over.
@@ -47,8 +47,8 @@ clock_mode="${RIG_CLOCK:-scaled}"
 clock_factor="${RIG_FACTOR:-876}"
 virtual_start="${RIG_VIRTUAL_START:-$(date +%Y)-01-01T00:00:00+07:00}"
 port_cloud="${RIG_PORT_CLOUD:-8180}"
-port_dc="${RIG_PORT_DC:-8182}"
-port_store="${RIG_PORT_STORE:-8181}"
+port_dc="${RIG_PORT_DC:-8181}"
+port_store="${RIG_PORT_STORE:-8182}"
 # Where the two edges listen. Loopback by default; 0.0.0.0 lets a handheld or a
 # till on the LAN reach them (demo only — the rig runs with auth disabled).
 edge_host="${RIG_EDGE_HOST:-127.0.0.1}"
@@ -239,8 +239,11 @@ launch_run() {  # launch_run <run_dir> <db>
   auth_env
   # SYNC_UPLOAD_URL is the cloud BASE: HttpTransport::new appends the
   # ingest/handshake paths itself.
+  # The role is explicit because a developer's edge reads the checkout's
+  # `.env` (edge::node::prepare_environment), and that file describes the
+  # cloud: without it both edges start as INVENTORY_NODE_ROLE=CLOUD and exit.
   env BIND_ADDR="$edge_host:$port_dc" \
-    INVENTORY_SITE_ID=dc INVENTORY_NODE_ID=dc \
+    INVENTORY_SITE_ID=dc INVENTORY_NODE_ID=dc INVENTORY_NODE_ROLE=DC \
     INVENTORY_DATABASE_PATH="$dir/dc-edge.sqlite3" FRONTEND_DIR="$dir/frontend" \
     INVENTORY_ENABLE_TEST_CONTROLS=true INVENTORY_ORIGIN_GENERATION=1 \
     SYNC_UPLOAD_URL="http://127.0.0.1:$port_cloud" \
@@ -252,7 +255,7 @@ launch_run() {  # launch_run <run_dir> <db>
   step "node store: 127.0.0.1:$port_store  (origin store-01 → cloud ingest)"
   auth_env
   env BIND_ADDR="$edge_host:$port_store" \
-    INVENTORY_SITE_ID=store-01 INVENTORY_NODE_ID=store-01 \
+    INVENTORY_SITE_ID=store-01 INVENTORY_NODE_ID=store-01 INVENTORY_NODE_ROLE=STORE \
     INVENTORY_DATABASE_PATH="$dir/store-edge.sqlite3" FRONTEND_DIR="$dir/frontend" \
     INVENTORY_ENABLE_TEST_CONTROLS=true INVENTORY_ORIGIN_GENERATION=1 \
     SYNC_UPLOAD_URL="http://127.0.0.1:$port_cloud" \

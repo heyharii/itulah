@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query"
-import { Barcode, ChevronRight, Layers, Sparkles } from "lucide-react"
+import { useMemo, useState } from "react"
+import { ChevronDown, Sparkles } from "lucide-react"
 
 import { Card } from "@/components/ui/card"
 import { Pill } from "@/components/ui/pill"
 import { Screen } from "@/components/ui/screen"
+import { Segmented } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { count, label } from "@/lib/format"
@@ -12,12 +14,15 @@ import { useParam } from "@/lib/params"
 import {
   catalogueKey,
   fetchCatalogue,
+  fetchSkuStock,
+  skuStockKey,
   fetchOffers,
   offersKey,
 } from "@/lib/queries"
 import { queryState } from "@/lib/query-state"
+import { cn } from "@/lib/utils"
 import { Photograph } from "@/screens/catalogue"
-import { Fact, Facts, OfferPill } from "@/screens/promotions/parts"
+import { OfferDetail, OfferPill } from "@/screens/promotions/parts"
 import { describeEffect } from "@/screens/promotions/shared"
 import type { CatalogRow, StoreOffer } from "@itulah/contract"
 import { money } from "@itulah/contract/money"
@@ -46,7 +51,6 @@ import { money } from "@itulah/contract/money"
 /// Stock on hand is not here: this screen reads the price book and the offers
 /// and nothing else, and what the shop holds of a SKU is the Stock screen's.
 export function Product() {
-  const go = useGo()
   const sku = useParam("sku")
 
   const catalogue = useQuery({
@@ -102,15 +106,21 @@ export function Product() {
           row === undefined ? (
             <EmptyState>
               {sku.value === undefined
-                ? "No product was named."
+                ? "No article was named."
                 : `${sku.value} is not in this shop's priced range.`}
             </EmptyState>
           ) : (
             <Detail
               row={row}
+              siblings={
+                row.article_code === null
+                  ? []
+                  : (book?.items ?? []).filter(
+                      (item) => item.article_code === row.article_code,
+                    )
+              }
               currency={currency}
               touching={touching}
-              onOffers={() => go("/promotions")}
             />
           ),
       })}
@@ -120,27 +130,33 @@ export function Product() {
 
 function Detail({
   row,
+  siblings,
   currency,
   touching,
-  onOffers,
 }: {
   row: CatalogRow
+  /// Every SKU of the same article, this one included.
+  siblings: readonly CatalogRow[]
   currency: string
   touching: readonly StoreOffer[] | null
-  onOffers: () => void
 }) {
   const down = row.unit_price_minor < row.base_unit_price_minor
-  const saved = row.base_unit_price_minor - row.unit_price_minor
   // Whole percent, rounded down: "21% off" on something that is 20.6% off is
   // a promise the till will not keep to the rupiah.
   const percentOff =
     down && row.base_unit_price_minor > 0
-      ? Math.floor((saved / row.base_unit_price_minor) * 100)
+      ? Math.floor(
+          ((row.base_unit_price_minor - row.unit_price_minor) /
+            row.base_unit_price_minor) *
+            100,
+        )
       : 0
   const division =
     row.division_code !== null && row.division_code !== ""
       ? row.division_code
       : null
+  const go = useGo()
+  const grid = useMemo(() => variantGrid(siblings), [siblings])
 
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-5 md:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] md:gap-7 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]">
@@ -150,24 +166,15 @@ function Detail({
           stays in view while they scroll. */}
       <div className="md:sticky md:top-6">
         <div className="-mx-4 -mt-4 aspect-[4/3] overflow-hidden bg-soft-2 md:mx-0 md:mt-0 md:aspect-[4/5] md:rounded-card md:border md:border-hairline md:shadow-soft">
-          <Photograph sku={row.sku_code} has={row.has_image} />
+          <Photograph sku={row.sku_code} has={row.has_image} name={row.name} />
         </div>
-        {/* Not a defect, and worth saying plainly rather than leaving a grey
-            box. The photograph travels with the catalogue from head office; a
-            style set up before anybody uploaded one simply has none. */}
-        {!row.has_image && (
-          <p className="mt-2 text-meta text-mute">
-            Head office has not uploaded a photograph for this style.
-          </p>
-        )}
       </div>
 
-      <div className="flex min-w-0 flex-col gap-5">
+      <div className="flex min-w-0 flex-col gap-7">
         <div>
-          {(division !== null || down) && (
+          {down && (
             <div className="mb-2 flex flex-wrap items-center gap-1.5">
-              {division !== null && <Pill>{label(division)}</Pill>}
-              {down && <Pill tone="bad">Price down</Pill>}
+              <Pill tone="bad">Price down</Pill>
             </div>
           )}
           <h1 className="text-[1.375rem] leading-tight font-semibold tracking-[-0.02em] text-ink">
@@ -178,7 +185,7 @@ function Detail({
           {/* The price is what this page is asked for, so it is the one large
               figure on it. Both numbers when it is marked down, because a
               was-price with nothing struck through is just a smaller price. */}
-          <div className="mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <div className="mt-5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <span className="text-[1.75rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
               {money(row.unit_price_minor, currency)}
             </span>
@@ -188,7 +195,8 @@ function Detail({
                   {money(row.base_unit_price_minor, currency)}
                 </span>
                 <span className="text-meta font-medium text-bad-fg tabular-nums">
-                  {money(saved, currency)} off
+                  {money(row.base_unit_price_minor - row.unit_price_minor, currency)}{" "}
+                  off
                   {percentOff > 0 && ` · ${percentOff}%`}
                 </span>
               </>
@@ -200,116 +208,162 @@ function Detail({
               office, and the answer is the node's own word for it rather than
               a guess. */}
           <p className="mt-2 text-meta text-body">
-            {sourceSentence(row.price_source)} · Price book #
-            <span className="tabular-nums">
-              {count(row.publication_version)}
-            </span>
+            {sourceSentence(row.price_source)}
           </p>
         </div>
 
-        <Card>
-          <h2 className="px-4 pt-3.5 pb-2.5 text-card-title font-semibold text-ink">
-            Details
-          </h2>
-          <div className="px-4 pb-4">
-            <Facts>
-              <Fact term="Barcode">
-                {row.barcode === null ? (
-                  "—"
-                ) : (
-                  <span className="inline-flex items-center gap-1.5">
-                    <Barcode className="size-3.5 shrink-0 text-line-ico" />
-                    <span className="truncate font-mono">{row.barcode}</span>
-                  </span>
-                )}
-              </Fact>
-              <Fact term="Style">
-                {row.article_code === null ? (
-                  "—"
-                ) : (
-                  <span className="inline-flex items-center gap-1.5">
-                    <Layers className="size-3.5 shrink-0 text-line-ico" />
-                    <span className="truncate font-mono">
-                      {row.article_code}
-                    </span>
-                  </span>
-                )}
-              </Fact>
-              <Fact term="Division">
-                {division === null ? "—" : label(division)}
-              </Fact>
-              <Fact term="Sold in">{row.uom}</Fact>
-              <Fact term="Tax class">{label(row.tax_category)}</Fact>
-              <Fact term="Base price">
-                {money(row.base_unit_price_minor, currency)}
-              </Fact>
-            </Facts>
-          </div>
-          {row.tags.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 border-t border-hairline px-4 py-3">
-              <span className="mr-1 text-meta text-mute">Filed under</span>
-              {row.tags.map((code) => (
-                <Tag key={code}>{code}</Tag>
-              ))}
+        {siblings.length > 1 && (
+          <Card>
+            <h2 className="px-5 pt-5 pb-3.5 text-card-title font-semibold text-ink">
+              Sizes and colours
+              <span className="ml-1.5 font-normal text-mute tabular-nums">
+                {count(siblings.length)}
+              </span>
+            </h2>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-cell">
+                <thead>
+                  <tr className="bg-soft text-eyebrow font-medium text-body">
+                    <th className="h-11 px-5 text-left font-medium">Colour</th>
+                    {grid.sizes.map((size) => (
+                      <th
+                        key={size}
+                        className="h-11 px-4 text-right font-medium"
+                      >
+                        {size}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {grid.colours.map((colour) => (
+                    <tr key={colour} className="border-t border-hairline">
+                      <th
+                        scope="row"
+                        className="h-16 px-5 text-left font-medium whitespace-nowrap text-ink"
+                      >
+                        {colour}
+                      </th>
+                      {grid.sizes.map((size) => {
+                        const item = grid.cells.get(`${colour}|${size}`)
+                        if (item === undefined)
+                          return (
+                            <td
+                              key={size}
+                              className="px-3 text-right text-mute"
+                            >
+                              —
+                            </td>
+                          )
+                        const here = item.sku_code === row.sku_code
+                        const cut =
+                          item.unit_price_minor < item.base_unit_price_minor
+                        return (
+                          <td key={size} className="p-1 text-right">
+                            <button
+                              type="button"
+                              disabled={here}
+                              aria-current={here ? "true" : undefined}
+                              onClick={() =>
+                                go("/catalogue/product", { sku: item.sku_code })
+                              }
+                              className={cn(
+                                "inline-flex min-h-12 flex-col items-end justify-center rounded-inner px-3 whitespace-nowrap tabular-nums transition-colors",
+                                here
+                                  ? "bg-accent text-on-dark"
+                                  : "text-ink hover:bg-soft",
+                              )}
+                            >
+                              {cut && (
+                                <span
+                                  className={cn(
+                                    "text-meta line-through",
+                                    here ? "opacity-70" : "text-mute",
+                                  )}
+                                >
+                                  {money(item.base_unit_price_minor, currency)}
+                                </span>
+                              )}
+                              <span className="font-medium">
+                                {money(item.unit_price_minor, currency)}
+                              </span>
+                            </button>
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          )}
+          </Card>
+        )}
+
+        {siblings.length > 0 && (
+          <StockGrid grid={grid} current={row.sku_code} />
+        )}
+
+        <Card>
+          <dl className="divide-y divide-hairline px-5">
+            <DetailRow term="Division">
+              {division === null ? "—" : label(division)}
+            </DetailRow>
+            {row.tags.length > 0 && (
+              <DetailRow term="Tags">
+                <span className="flex flex-wrap justify-end gap-1.5">
+                  {row.tags.map((code) => (
+                    <Tag key={code}>{code}</Tag>
+                  ))}
+                </span>
+              </DetailRow>
+            )}
+          </dl>
         </Card>
 
         {touching !== null && (
-          <Promotions touching={touching} onOffers={onOffers} />
+          <Promotions touching={touching} />
         )}
       </div>
     </div>
   )
 }
 
-/// The running promotions whose reach includes this garment, each one a door
-/// to the Promotions board where its whole detail is.
-function Promotions({
-  touching,
-  onOffers,
-}: {
-  touching: readonly StoreOffer[]
-  onOffers: () => void
-}) {
+/// The running promotions whose reach includes this garment. Each opens in
+/// place to its terms, so nobody is sent to another screen to read one.
+function Promotions({ touching }: { touching: readonly StoreOffer[] }) {
+  const [open, setOpen] = useState<string | null>(null)
   return (
     <Card>
-      <div className="flex items-center justify-between gap-3 px-4 pt-3.5 pb-2.5">
-        <h2 className="text-card-title font-semibold text-ink">
-          In these promotions
-          {touching.length > 0 && (
-            <span className="ml-1.5 font-normal text-mute tabular-nums">
-              {count(touching.length)}
-            </span>
-          )}
-        </h2>
-        <button
-          type="button"
-          onClick={onOffers}
-          className="-mr-2 inline-flex h-8 items-center gap-0.5 rounded-inner px-2 text-meta font-medium text-accent transition-colors hover:bg-accent-bg pointer-coarse:h-tap"
-        >
-          All promotions
-          <ChevronRight className="size-3.5" />
-        </button>
-      </div>
+      <h2 className="px-5 pt-5 pb-3.5 text-card-title font-semibold text-ink">
+        In these promotions
+        {touching.length > 0 && (
+          <span className="ml-1.5 font-normal text-mute tabular-nums">
+            {count(touching.length)}
+          </span>
+        )}
+      </h2>
 
       {touching.length === 0 ? (
-        <p className="border-t border-hairline px-4 py-4 text-meta text-body">
-          No running promotion reaches this product. A markdown, when there is
-          one, is already in the price above.
+        <p className="border-t border-hairline px-5 py-4 text-meta text-body">
+          No running promotion reaches this article.
         </p>
       ) : (
-        <>
-          <ul className="border-t border-hairline">
-            {touching.map((offer) => (
+        <ul className="border-t border-hairline">
+          {touching.map((offer) => {
+            const expanded = open === offer.rule_id
+            return (
               <li
                 key={offer.rule_id}
-                className="border-b border-hairline last:border-b-0"
+                className={cn(
+                  "border-b border-hairline last:border-b-0",
+                  expanded && "bg-soft",
+                )}
               >
                 <button
                   type="button"
-                  onClick={onOffers}
-                  className="flex min-h-tap w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-soft active:bg-soft"
+                  aria-expanded={expanded}
+                  onClick={() => setOpen(expanded ? null : offer.rule_id)}
+                  className="flex min-h-tap w-full items-center gap-3.5 px-5 py-3.5 text-left transition-colors hover:bg-soft active:bg-soft"
                 >
                   <span className="grid size-[1.875rem] shrink-0 place-items-center rounded-inner bg-accent-bg text-accent">
                     <Sparkles className="size-[0.9375rem]" />
@@ -330,19 +384,23 @@ function Promotions({
                     )}
                     <OfferPill offer={offer} />
                   </span>
+                  <ChevronDown
+                    aria-hidden
+                    className={cn(
+                      "size-4 shrink-0 text-line-ico transition-transform duration-200",
+                      expanded && "rotate-180",
+                    )}
+                  />
                 </button>
+                {expanded && (
+                  <div className="px-5 pt-1 pb-5">
+                    <OfferDetail offer={offer} />
+                  </div>
+                )}
               </li>
-            ))}
-          </ul>
-          {/* The honest caveat, said once. Whether a promotion actually fires
-              depends on the whole basket, and a screen that implied otherwise
-              would have a cashier promising a discount the counter then does
-              not give. */}
-          <p className="border-t border-hairline bg-soft px-4 py-2.5 text-meta text-mute">
-            What a promotion is worth depends on the whole basket. The counter
-            works it out at payment.
-          </p>
-        </>
+            )
+          })}
+        </ul>
       )}
     </Card>
   )
@@ -393,4 +451,147 @@ function reaches(offer: StoreOffer, row: CatalogRow): boolean {
     case "WHOLE_CART":
       return true
   }
+}
+
+/// One fact on one line: the term at the left, its answer at the right.
+function DetailRow({
+  term,
+  children,
+}: {
+  term: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex min-h-14 items-center justify-between gap-4 py-3">
+      <dt className="shrink-0 text-cell text-body">{term}</dt>
+      <dd className="min-w-0 truncate text-right text-cell text-ink tabular-nums">
+        {children}
+      </dd>
+    </div>
+  )
+}
+
+/// The article's SKUs as colours down and sizes across.
+///
+/// The catalogue carries one name per SKU — "Kaos Basic Katun Combed Black S" —
+/// and no separate colour or size. What every SKU of the article shares is the
+/// article's name; the last word is the size; whatever is left between is the
+/// colour. Both axes keep the order they first appear in, which is the order
+/// the book was sent in.
+function variantGrid(items: readonly CatalogRow[]) {
+  const words = items.map((item) => item.name.split(/\s+/))
+  let shared = 0
+  while (
+    words.every(
+      (one) => one.length > shared + 1 && one[shared] === words[0]?.[shared],
+    )
+  )
+    shared += 1
+  const colours: string[] = []
+  const sizes: string[] = []
+  const cells = new Map<string, CatalogRow>()
+  items.forEach((item, index) => {
+    const one = words[index] ?? []
+    const size = one.length > shared ? (one[one.length - 1] ?? "—") : "—"
+    const joined = one.slice(shared, -1).join(" ")
+    const colour = joined === "" ? "—" : joined
+    if (!colours.includes(colour)) colours.push(colour)
+    if (!sizes.includes(size)) sizes.push(size)
+    cells.set(`${colour}|${size}`, item)
+  })
+  return { colours, sizes, cells }
+}
+
+type Room = "floor" | "warehouse" | "total"
+
+/// The article's stock, colours down and sizes across, one room at a time.
+///
+/// Its own table rather than a second figure in the price cells: a price and
+/// a count in one cell are two numbers nobody can tell apart at a glance.
+function StockGrid({
+  grid,
+  current,
+}: {
+  grid: ReturnType<typeof variantGrid>
+  current: string
+}) {
+  const [room, setRoom] = useState<Room>("total")
+  const stock = useQuery({
+    queryKey: skuStockKey(),
+    queryFn: ({ signal }) => fetchSkuStock(signal),
+    refetchInterval: 60_000,
+  })
+  // A node that does not serve the read yet costs this card, not the page.
+  if (stock.isError) return null
+  const bySku = new Map(
+    (stock.data?.items ?? []).map((item) => [item.sku_code, item]),
+  )
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5 pb-3.5">
+        <h2 className="text-card-title font-semibold text-ink">Stock</h2>
+        <Segmented<Room>
+          value={room}
+          onChange={setRoom}
+          options={[
+            { value: "floor", label: "Floor" },
+            { value: "warehouse", label: "Warehouse" },
+            { value: "total", label: "Total" },
+          ]}
+        />
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-cell">
+          <thead>
+            <tr className="bg-soft text-eyebrow font-medium text-body">
+              <th className="h-11 px-5 text-left font-medium">Colour</th>
+              {grid.sizes.map((size) => (
+                <th key={size} className="h-11 px-4 text-right font-medium">
+                  {size}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {grid.colours.map((colour) => (
+              <tr key={colour} className="border-t border-hairline">
+                <th
+                  scope="row"
+                  className="h-14 px-5 text-left font-medium whitespace-nowrap text-ink"
+                >
+                  {colour}
+                </th>
+                {grid.sizes.map((size) => {
+                  const item = grid.cells.get(`${colour}|${size}`)
+                  if (item === undefined)
+                    return (
+                      <td key={size} className="px-4 text-right text-mute">
+                        —
+                      </td>
+                    )
+                  const units =
+                    stock.data === undefined
+                      ? null
+                      : (bySku.get(item.sku_code)?.[room] ?? 0)
+                  return (
+                    <td
+                      key={size}
+                      className={cn(
+                        "px-4 text-right tabular-nums",
+                        item.sku_code === current && "bg-soft font-semibold",
+                        units === 0 ? "text-mute" : "text-ink",
+                      )}
+                    >
+                      {units === null ? "…" : count(units)}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  )
 }

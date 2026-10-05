@@ -5,14 +5,12 @@ import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { Day } from "@/components/ui/day"
 import { Panel } from "@/components/ui/dialog"
 import { Checkbox, Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
 import { EmptyState, Problem, Receipt } from "@/components/ui/states"
-import { count, day, label, money, moment } from "@/lib/format"
+import { count, day, label, money } from "@/lib/format"
 import {
   financeKeys,
   listJournalRepeats,
@@ -63,6 +61,37 @@ export function JournalTemplates() {
   })
   const [editing, setEditing] = useState<JournalTemplate | "new" | null>(null)
   const [inactive, setInactive] = useState(false)
+  const client = useQueryClient()
+  const repeats = useQuery({
+    queryKey: financeKeys.journalRepeats(),
+    queryFn: ({ signal }) => listJournalRepeats(signal),
+  })
+  /// The schedule being edited: an existing repeat, or a new one for a
+  /// template ("Schedule" on a row that has none).
+  const [scheduling, setScheduling] = useState<{
+    repeat: JournalRepeat | null
+    template: string
+  } | null>(null)
+  const run = useMutation({
+    mutationFn: runJournalRepeats,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: financeKeys.journalRepeats() })
+      void client.invalidateQueries({ queryKey: financeKeys.all })
+    },
+  })
+  const repeatOf = useMemo(() => {
+    const table = new Map<string, JournalRepeat>()
+    for (const repeat of repeats.data ?? []) {
+      const held = table.get(repeat.template_id)
+      // An active schedule wins over a stopped one.
+      if (held === undefined || (!held.is_active && repeat.is_active))
+        table.set(repeat.template_id, repeat)
+    }
+    return table
+  }, [repeats.data])
+  const due = (repeats.data ?? []).filter(
+    (row) => row.is_active && row.next_date <= todayIso()
+  ).length
 
   const rows = useMemo(
     () => (templates.data ?? []).filter((row) => inactive || row.is_active),
@@ -78,81 +107,139 @@ export function JournalTemplates() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance · Setup"
-        title="Journal entry templates"
-        sub="A manual journal's lines, saved once and started again — by hand, or by a repeat on its date."
+        crumb="Finance · Payments"
+        title="Recurring Journal"
+        sub="Journals that come back on a schedule — accruals, amortisation, allocations. Each posts on its date."
         actions={
-          <Button variant="primary" onClick={() => setEditing("new")}>
-            New template
-          </Button>
+          <>
+            <Button pending={run.isPending} onClick={() => run.mutate()}>
+              {due > 0 ? `Run ${count(due)} due now` : "Run due now"}
+            </Button>
+            <Button variant="primary" onClick={() => setEditing("new")}>
+              New recurring journal
+            </Button>
+          </>
         }
       />
 
-      <Card className="mb-4 overflow-hidden">
-        <CardHeader>
-          <CardTitle>Templates</CardTitle>
-          <Checkbox
-            label="Show inactive"
-            checked={inactive}
-            onChange={setInactive}
-          />
-        </CardHeader>
-        {queryState(templates, {
-          loading: "Reading the templates…",
-          render: () =>
-            rows.length === 0 ? (
-              <EmptyState>
-                No template yet. Save one from the lines of an entry that comes
-                back every month.
-              </EmptyState>
-            ) : (
-              <Grid>
-                <thead>
-                  <tr>
-                    <Th>Name</Th>
-                    <Th align="right">Lines</Th>
-                    <Th align="right">Total</Th>
-                    <Th>Saved</Th>
-                    <Th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
+      <Problem error={run.error} className="mb-3" />
+      {run.isSuccess && (
+        <Receipt className="mb-3">
+          {count(run.data.drafted)} drafted · {count(run.data.posted)} posted
+          {run.data.failed.length > 0 &&
+            ` · ${count(run.data.failed.length)} failed: ${run.data.failed.join("; ")}`}
+        </Receipt>
+      )}
+
+      <div className="mb-3 flex justify-end">
+        <Checkbox
+          label="Show stopped"
+          checked={inactive}
+          onChange={setInactive}
+        />
+      </div>
+
+      {queryState(templates, {
+        loading: "Reading the recurring journals…",
+        render: () =>
+          rows.length === 0 ? (
+            <EmptyState>
+              Nothing recurs yet. Save the lines of an entry that comes back
+              every month, then give it a schedule.
+            </EmptyState>
+          ) : (
+            <Grid>
+              <thead>
+                <tr>
+                  <Th>Journal</Th>
+                  <Th align="right" width="10rem">
+                    Amount
+                  </Th>
+                  <Th width="15rem">Schedule</Th>
+                  <Th width="9rem">Last run</Th>
+                  <Th width="11rem" />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => {
+                  const repeat = repeatOf.get(row.template_id)
+                  const late =
+                    repeat !== undefined &&
+                    repeat.is_active &&
+                    repeat.next_date <= todayIso()
+                  return (
                     <tr
                       key={row.template_id}
                       onClick={() => setEditing(row)}
-                      className="cursor-pointer hover:bg-soft"
+                      className="cursor-pointer"
                     >
-                      <Td>
-                        <span className="text-ink">{row.name}</span>
-                        {!row.is_active && (
-                          <Pill tone="neutral" className="ml-2">
-                            Inactive
-                          </Pill>
-                        )}
-                        {row.memo && (
-                          <div className="text-mute">{row.memo}</div>
-                        )}
+                      <Td className="max-w-0">
+                        <span className="block truncate text-ink">
+                          {row.name}
+                          {!row.is_active && (
+                            <span className="text-mute"> · stopped</span>
+                          )}
+                        </span>
+                        <span className="block truncate text-[0.875rem] text-mute">
+                          {row.memo || `${count(row.lines.length)} lines`}
+                        </span>
                       </Td>
-                      <Td align="right">{count(row.lines.length)}</Td>
                       <Td align="right">
                         {templateTotal(row) === 0 ? (
-                          <span className="text-faint">
-                            Filled in each time
-                          </span>
+                          <span className="text-mute">Filled in each time</span>
                         ) : (
                           money(templateTotal(row))
                         )}
                       </Td>
                       <Td>
-                        <span className="text-faint">
-                          {row.created_by} · {moment(row.created_at)}
-                        </span>
+                        {/* The schedule is the row's own: one journal, one
+                            line, instead of a second table to match it in. */}
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setScheduling({
+                              repeat: repeat ?? null,
+                              template: row.template_id,
+                            })
+                          }}
+                          className="text-left hover:underline"
+                        >
+                          {repeat === undefined ? (
+                            <span className="text-accent">Add a schedule</span>
+                          ) : (
+                            <>
+                              <span className="block text-ink">
+                                {label(repeat.frequency)}
+                                {!repeat.is_active && " · paused"}
+                              </span>
+                              <span
+                                className={
+                                  late
+                                    ? "block text-[0.875rem] text-warn-fg"
+                                    : "block text-[0.875rem] text-mute"
+                                }
+                              >
+                                Next {day(repeat.next_date)} ·{" "}
+                                {repeat.auto_post
+                                  ? "posts itself"
+                                  : "as a draft"}
+                              </span>
+                            </>
+                          )}
+                        </button>
+                      </Td>
+                      <Td className="text-body">
+                        {repeat?.last_run_on ? (
+                          day(repeat.last_run_on)
+                        ) : (
+                          <span className="text-mute">Never</span>
+                        )}
                       </Td>
                       <Td align="right">
                         <Button
                           size="sm"
-                          variant="quiet"
+                          variant="ghost"
                           disabled={!row.is_active}
                           onClick={(event) => {
                             event.stopPropagation()
@@ -160,18 +247,32 @@ export function JournalTemplates() {
                           }}
                         >
                           <Play />
-                          Start a journal
+                          Post one now
                         </Button>
                       </Td>
                     </tr>
-                  ))}
-                </tbody>
-              </Grid>
-            ),
-        })}
-      </Card>
+                  )
+                })}
+              </tbody>
+            </Grid>
+          ),
+      })}
 
-      <Repeats templates={templates.data ?? []} />
+      <Panel
+        open={scheduling !== null}
+        onOpenChange={(next) => !next && setScheduling(null)}
+        title={scheduling?.repeat ? "Change the schedule" : "Add a schedule"}
+      >
+        {scheduling !== null && (
+          <RepeatForm
+            key={scheduling.repeat?.repeat_id ?? `new-${scheduling.template}`}
+            repeat={scheduling.repeat}
+            forTemplate={scheduling.template}
+            templates={templates.data ?? []}
+            onDone={() => setScheduling(null)}
+          />
+        )}
+      </Panel>
 
       {editing !== null && (
         <TemplateEditor
@@ -285,7 +386,6 @@ function TemplateForm({
             <Input
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="Sewa gedung bulanan"
             />
           </Field>
           <Field label="Memo">
@@ -311,7 +411,7 @@ function TemplateForm({
             disabled={name.trim() === "" || kept.length === 0}
             onClick={() => save.mutate()}
           >
-            {save.isPending ? "Saving…" : "Save template"}
+            {save.isPending ? "Submitting…" : "Submit"}
           </Button>
         </div>
       </div>
@@ -323,159 +423,22 @@ function TemplateForm({
 // Repeats
 // ---------------------------------------------------------------------------
 
-function Repeats({ templates }: { templates: readonly JournalTemplate[] }) {
-  const client = useQueryClient()
-  const repeats = useQuery({
-    queryKey: financeKeys.journalRepeats(),
-    queryFn: ({ signal }) => listJournalRepeats(signal),
-  })
-  const [editing, setEditing] = useState<JournalRepeat | "new" | null>(null)
-
-  const run = useMutation({
-    mutationFn: runJournalRepeats,
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: financeKeys.journalRepeats() })
-      // Drafted or posted entries move the register and, when posted, every
-      // balance.
-      void client.invalidateQueries({ queryKey: financeKeys.all })
-    },
-  })
-
-  const due = (repeats.data ?? []).filter(
-    (row) => row.is_active && row.next_date <= todayIso()
-  ).length
-
-  return (
-    <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
-      <Card className="overflow-hidden">
-        <CardHeader>
-          <CardTitle>Repeats</CardTitle>
-          <span className="flex items-center gap-2">
-            <Button
-              size="sm"
-              pending={run.isPending}
-              onClick={() => run.mutate()}
-            >
-              {run.isPending
-                ? "Running…"
-                : due > 0
-                  ? `Run ${count(due)} due now`
-                  : "Run due now"}
-            </Button>
-            <Button
-              size="sm"
-              variant="primary"
-              disabled={templates.length === 0}
-              onClick={() => setEditing("new")}
-            >
-              New repeat
-            </Button>
-          </span>
-        </CardHeader>
-        <div className="px-4">
-          <Problem error={run.error} className="mb-3" />
-          {run.isSuccess && (
-            <Receipt className="mb-3">
-              {count(run.data.drafted)} drafted · {count(run.data.posted)}{" "}
-              posted
-              {run.data.failed.length > 0 &&
-                ` · ${count(run.data.failed.length)} failed: ${run.data.failed.join("; ")}`}
-            </Receipt>
-          )}
-        </div>
-        {queryState(repeats, {
-          loading: "Reading the repeats…",
-          render: (rows) =>
-            rows.length === 0 ? (
-              <EmptyState>
-                Nothing repeats. A repeat raises a template on its date, every
-                month, quarter or year.
-              </EmptyState>
-            ) : (
-              <Grid>
-                <thead>
-                  <tr>
-                    <Th>Template</Th>
-                    <Th>Every</Th>
-                    <Th>Next</Th>
-                    <Th>Until</Th>
-                    <Th>Raises</Th>
-                    <Th>Last run</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr
-                      key={row.repeat_id}
-                      onClick={() => setEditing(row)}
-                      className="cursor-pointer hover:bg-soft"
-                    >
-                      <Td>
-                        <span className="text-ink">{row.template_name}</span>
-                        {!row.is_active && (
-                          <Pill tone="neutral" className="ml-2">
-                            Stopped
-                          </Pill>
-                        )}
-                      </Td>
-                      <Td>{label(row.frequency)}</Td>
-                      <Td>
-                        <span
-                          className={
-                            row.is_active && row.next_date <= todayIso()
-                              ? "font-medium text-warn-fg"
-                              : ""
-                          }
-                        >
-                          {day(row.next_date)}
-                        </span>
-                      </Td>
-                      <Td>{row.end_date === null ? "—" : day(row.end_date)}</Td>
-                      <Td>
-                        {row.auto_post ? (
-                          <Pill tone="warn">Posted entry</Pill>
-                        ) : (
-                          <Pill tone="neutral">Draft</Pill>
-                        )}
-                      </Td>
-                      <Td>
-                        {row.last_run_on === null ? (
-                          <span className="text-faint">Never</span>
-                        ) : (
-                          day(row.last_run_on)
-                        )}
-                      </Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Grid>
-            ),
-        })}
-      </Card>
-
-      {editing !== null && (
-        <RepeatForm
-          key={editing === "new" ? "new" : editing.repeat_id}
-          repeat={editing === "new" ? null : editing}
-          templates={templates}
-          onDone={() => setEditing(null)}
-        />
-      )}
-    </div>
-  )
-}
-
 function RepeatForm({
   repeat,
+  forTemplate,
   templates,
   onDone,
 }: {
   repeat: JournalRepeat | null
+  /// The template a new schedule is for, chosen already.
+  forTemplate?: string
   templates: readonly JournalTemplate[]
   onDone: () => void
 }) {
   const client = useQueryClient()
-  const [template, setTemplate] = useState(repeat?.template_id ?? "")
+  const [template, setTemplate] = useState(
+    repeat?.template_id ?? forTemplate ?? ""
+  )
   const [frequency, setFrequency] = useState(repeat?.frequency ?? "MONTHLY")
   const [next, setNext] = useState(repeat?.next_date ?? "")
   const [end, setEnd] = useState(repeat?.end_date ?? "")
@@ -504,15 +467,7 @@ function RepeatForm({
   )
 
   return (
-    <Card className="flex flex-col gap-3 p-4">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-card-title font-semibold text-ink">
-          {repeat === null ? "New repeat" : `Repeat of ${repeat.template_name}`}
-        </h3>
-        <Button size="sm" variant="quiet" onClick={onDone}>
-          Close
-        </Button>
-      </div>
+    <div className="flex flex-col gap-4">
       <Problem error={save.error} />
       <Field label="Template" required>
         <Select value={template} onChange={setTemplate}>
@@ -543,7 +498,6 @@ function RepeatForm({
             onChange={setEnd}
             notBefore={next || null}
             label="Until"
-            placeholder="No end"
           />
         </Field>
       </div>
@@ -561,9 +515,9 @@ function RepeatForm({
           disabled={template === "" || next === ""}
           onClick={() => save.mutate()}
         >
-          {save.isPending ? "Saving…" : "Save repeat"}
+          {save.isPending ? "Submitting…" : "Submit"}
         </Button>
       </div>
-    </Card>
+    </div>
   )
 }

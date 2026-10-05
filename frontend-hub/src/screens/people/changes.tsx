@@ -682,14 +682,12 @@ function NewChangeSheet({
               <Input
                 value={position}
                 onChange={(event) => setPosition(event.target.value)}
-                placeholder="Kepala toko"
               />
             </Field>
             <Field label="New grade">
               <Input
                 value={grade}
                 onChange={(event) => setGrade(event.target.value)}
-                placeholder="G2"
               />
             </Field>
           </>

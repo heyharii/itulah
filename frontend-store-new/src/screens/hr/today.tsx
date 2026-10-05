@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query"
-import { Store } from "lucide-react"
 
 import { PeopleTable } from "@/components/ui/people-table"
 import { Pill } from "@/components/ui/pill"
@@ -48,7 +47,7 @@ import { HrWorkspace } from "@/screens/hr/workspace"
 /// would be a claim that somebody looked.
 export function HrToday() {
   return (
-    <HrWorkspace sub="This shop today. Head office reads the same records without anything being sent twice.">
+    <HrWorkspace>
       {(scope) => <Today scope={scope} />}
     </HrWorkspace>
   )
@@ -81,36 +80,36 @@ function Today({ scope }: { scope: StoreScope }) {
 
   const team = useTeam(scope)
   const roster = useQuery({
-    queryKey: hrKeys.roster(scope.id, today, today),
-    queryFn: ({ signal }) => rosterAt(scope.id, today, today, signal),
+    queryKey: hrKeys.roster(scope.unit_id, today, today),
+    queryFn: ({ signal }) => rosterAt(scope.unit_id, today, today, signal),
   })
   const attendance = useQuery({
-    queryKey: hrKeys.attendanceToday(scope.id, today),
-    queryFn: ({ signal }) => attendanceToday(scope.id, today, signal),
+    queryKey: hrKeys.attendanceToday(scope.unit_id, today),
+    queryFn: ({ signal }) => attendanceToday(scope.unit_id, today, signal),
   })
   const leave = useQuery({
-    queryKey: hrKeys.leave(scope.id),
-    queryFn: ({ signal }) => pendingLeaveAt(scope.id, signal),
+    queryKey: hrKeys.leave(scope.unit_id),
+    queryFn: ({ signal }) => pendingLeaveAt(scope.unit_id, signal),
   })
   const corrections = useQuery({
-    queryKey: hrKeys.corrections(scope.id, true),
-    queryFn: ({ signal }) => correctionsAt(scope.id, true, signal),
+    queryKey: hrKeys.corrections(scope.unit_id, true),
+    queryFn: ({ signal }) => correctionsAt(scope.unit_id, true, signal),
   })
   const swaps = useQuery({
     queryKey: hrKeys.swaps(),
-    queryFn: ({ signal }) => pendingSwapsAt(scope.id, signal),
+    queryFn: ({ signal }) => pendingSwapsAt(scope.unit_id, signal),
   })
   const claims = useQuery({
-    queryKey: hrKeys.claimsAt(scope.id),
-    queryFn: ({ signal }) => claimsAt(scope.id, signal),
+    queryKey: hrKeys.claimsAt(scope.unit_id),
+    queryFn: ({ signal }) => claimsAt(scope.unit_id, signal),
   })
   const period = useQuery({
-    queryKey: hrKeys.period(scope.id, lastMonth),
-    queryFn: ({ signal }) => periodAt(scope.id, lastMonth, signal),
+    queryKey: hrKeys.period(scope.unit_id, lastMonth),
+    queryFn: ({ signal }) => periodAt(scope.unit_id, lastMonth, signal),
   })
   const applicants = useQuery({
     queryKey: hrKeys.applicants(),
-    queryFn: ({ signal }) => applicantsAt(scope.id, signal),
+    queryFn: ({ signal }) => applicantsAt(scope.unit_id, signal),
   })
   const tasks = useQuery({
     queryKey: hrKeys.tasks(),
@@ -197,7 +196,7 @@ function Today({ scope }: { scope: StoreScope }) {
         key: `login-${person.employee_id}`,
         kind: "Access",
         employeeId: person.employee_id,
-        text: "No login issued — cannot open the till or the app",
+        text: "No login issued",
         tone: "warn",
         to: "/hr/lifecycle",
       })
@@ -208,7 +207,7 @@ function Today({ scope }: { scope: StoreScope }) {
       key: `underivable-${day.employee_id}-${day.date}`,
       kind: "Attendance",
       employeeId: day.employee_id,
-      text: `Today could not be judged: ${day.reason}`,
+      text: `Not assessed: ${day.reason}`,
       tone: "warn",
       to: "/hr/attendance",
     })
@@ -221,7 +220,7 @@ function Today({ scope }: { scope: StoreScope }) {
       key: "tasks",
       kind: "Checklist",
       employeeId: null,
-      text: `${openTasks.length} onboarding or exit task${openTasks.length === 1 ? "" : "s"} owned by this shop still open`,
+      text: `${openTasks.length} checklist task${openTasks.length === 1 ? "" : "s"} open`,
       tone: "warn",
       to: "/hr/lifecycle",
     })
@@ -229,9 +228,9 @@ function Today({ scope }: { scope: StoreScope }) {
   if (period.data?.status === "OPEN" && period.data.readiness !== null) {
     exceptions.push({
       key: "period",
-      kind: "Payroll",
+      kind: "Period close",
       employeeId: null,
-      text: `${readMonth(lastMonth)} attendance is still open — head office cannot build payroll from it`,
+      text: `${readMonth(lastMonth)} attendance not closed`,
       tone: "bad",
       to: "/hr/payroll",
     })
@@ -245,21 +244,6 @@ function Today({ scope }: { scope: StoreScope }) {
 
   return (
     <>
-      <div className="mb-5 flex items-start gap-3 rounded-card border border-hairline bg-soft px-4 py-3">
-        <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-inner bg-accent text-on-dark [&_svg]:size-4">
-          <Store />
-        </span>
-        <p className="text-meta leading-relaxed text-body">
-          <b className="font-semibold text-ink">
-            The shop records what happened:
-          </b>{" "}
-          attendance, overtime, leave, claims and interviews. Paid days are
-          counted from attendance, so nobody here types a payroll figure. Rates,
-          formulas and money limits are head office's. Leave, overtime,
-          attendance fixes and day-to-day claims are decided by the store head.
-        </p>
-      </div>
-
       <StatStrip>
         <Stat
           label="Headcount"
@@ -326,7 +310,7 @@ function Today({ scope }: { scope: StoreScope }) {
         rows={waiting}
         rowKey={(row) => row.key}
         onRowClick={(row) => go(row.to)}
-        empty="Nothing is waiting on the store head."
+        empty="Nothing waiting."
         columns={[
           {
             key: "kind",
@@ -354,14 +338,14 @@ function Today({ scope }: { scope: StoreScope }) {
         <div className="min-w-0">
           <Heading>Attendance today</Heading>
           {centreState(roster, {
-            loading: "Reading today's rota…",
+            loading: "Loading…",
             what: "today's rota",
             render: (days) => (
               <PeopleTable
                 rows={days}
                 rowKey={(day) => day.employee_id}
                 onRowClick={() => go("/hr/attendance")}
-                empty={`Head office has no rota for ${scope.label} today. That is a rota nobody has built yet, not a shop with nobody in it.`}
+                empty="No rota for today."
                 columns={[
                   {
                     key: "who",

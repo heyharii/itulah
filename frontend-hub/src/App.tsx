@@ -1,8 +1,10 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { RouterProvider } from "@tanstack/react-router"
-import { Suspense, lazy, useEffect, useState } from "react"
+import { Suspense, lazy, useEffect, useRef, useState } from "react"
 
+import { BusinessChooser, BusinessEyebrow } from "@/components/business-door"
 import { LoginForm } from "@/components/login-form"
+import { SignInDoor } from "@/components/sign-in-door"
 import { Toasts } from "@/components/ui/toast"
 import { cacheKey } from "@/lib/api"
 import { onWorkerMessage } from "@/lib/pwa"
@@ -12,6 +14,7 @@ import {
   signedOutElsewhere,
   useIdentity,
 } from "@/lib/session"
+import { selectBusiness, useTenancy } from "@/lib/tenancy"
 import { router } from "@/routes"
 import { JoinPage } from "@/screens/join/join-page"
 import { deferSetup, useSetupDeferred } from "@/screens/setup/defer"
@@ -23,6 +26,26 @@ import { ApiError, type Identity } from "@itulah/contract/client"
 function joinTokenFromLocation(): string | null {
   const match = /^\/join\/([^/?#]+)/.exec(window.location.pathname)
   return match ? decodeURIComponent(match[1]) : null
+}
+
+/// `?business=<slug>` out of the address bar, once, at mount — a link shared
+/// so a teammate lands straight on the right business's door on a sandbox
+/// server. `null` on any server that was never given one; nothing below acts
+/// on it unless tenancy also turns out to be `"sandbox"`.
+function businessSlugFromLocation(): string | null {
+  return new URLSearchParams(window.location.search).get("business")
+}
+
+/// Removes `?business=` from the address bar without a reload or a history
+/// entry — the same courtesy `JoinPage.onAccepted` pays `/join/{token}`.
+function stripBusinessParam() {
+  const url = new URL(window.location.href)
+  url.searchParams.delete("business")
+  window.history.replaceState(
+    null,
+    "",
+    `${url.pathname}${url.search}${url.hash}`
+  )
 }
 
 /// Fetched only when a company has not finished setting up, which is once.
@@ -47,6 +70,39 @@ export function App() {
   // asked anything: showing a login box during that moment makes an
   // already-signed-in operator type their password for nothing.
   const session = useIdentity()
+
+  // Whether this server is a sandbox hosting many businesses at all. `single`
+  // on every production deployment — the default this app has always had —
+  // so nothing below changes what a normal sign-in looks like.
+  const tenancy = useTenancy()
+
+  // A shared `?business=<slug>` link, handled once tenancy is known to be a
+  // sandbox: select it, drop whatever session that might have ended, and
+  // clean the address bar. `linkSlug` is read once at mount, the way
+  // `joinToken` is, and `handled` stops the effect from selecting twice under
+  // strict mode's double-invoke.
+  const [linkSlug] = useState(businessSlugFromLocation)
+  const [resolvingLink, setResolvingLink] = useState(linkSlug !== null)
+  const linkHandled = useRef(false)
+  useEffect(() => {
+    if (linkSlug === null || linkHandled.current || tenancy.isPending) return
+    linkHandled.current = true
+    if (tenancy.mode !== "sandbox") {
+      // A normal server has no businesses to select — the parameter is left
+      // for whatever route reads it, if any, and the door behaves as today.
+      setResolvingLink(false)
+      return
+    }
+    selectBusiness(linkSlug)
+      // A stale or mistyped code: fall through to the ordinary chooser
+      // rather than stopping the app from loading at all.
+      .catch(() => undefined)
+      .finally(() => {
+        stripBusinessParam()
+        queryClient.setQueryData<Identity | null>(cacheKey.me(), null)
+        void tenancy.refresh().then(() => setResolvingLink(false))
+      })
+  }, [linkSlug, tenancy.isPending, tenancy.mode, tenancy.refresh, queryClient])
 
   // Whether the company has been set up at all. Asked once there is somebody
   // signed in, and only answered for whoever may set it up: anybody else, or
@@ -79,7 +135,9 @@ export function App() {
         ? session.error.message
         : "could not reach the server"
 
-  if (joinToken !== null) {
+  // A join link from a sandbox server carries its business; the invitation
+  // lives in that business, so it is chosen before the page asks about it.
+  if (joinToken !== null && !resolvingLink) {
     return (
       <>
         <JoinPage
@@ -99,7 +157,7 @@ export function App() {
     )
   }
 
-  if (session.isPending) {
+  if (session.isPending || tenancy.isPending || resolvingLink) {
     return (
       <main className="grid h-full place-items-center">
         <p className="text-meta text-body">Checking your session…</p>
@@ -108,10 +166,44 @@ export function App() {
   }
 
   if ((session.data ?? null) === null) {
+    // Sandbox, nobody has chosen a business yet: the door is a chooser rather
+    // than a form — there is no account to sign in to until one is picked.
+    if (tenancy.mode === "sandbox" && tenancy.business === null) {
+      return (
+        <SignInDoor>
+          <BusinessChooser
+            inviteRequired={tenancy.inviteRequired}
+            onSelected={() => void tenancy.refresh()}
+            onCreated={(signedIn) => {
+              clearSignedOutElsewhere()
+              queryClient.setQueryData<Identity | null>(
+                cacheKey.me(),
+                signedIn.user as Identity
+              )
+              if (signedIn.user.role_code === undefined)
+                void queryClient.invalidateQueries({ queryKey: cacheKey.me() })
+            }}
+          />
+        </SignInDoor>
+      )
+    }
+
     return (
-      <main className="h-full">
+      <SignInDoor>
         <LoginForm
+          title="Sign in"
+          caption="Use the account your administrator set up for you."
+          footnote="Forgot your password? An administrator can set a new one for you."
+          className="flex-1"
           problem={problem ?? signedOutElsewhere()}
+          // The sandbox names which business this form signs in to, and offers
+          // a way out of it. A normal server has nothing here, exactly as
+          // before.
+          eyebrow={
+            tenancy.mode === "sandbox" && tenancy.business ? (
+              <BusinessEyebrow business={tenancy.business} />
+            ) : undefined
+          }
           onSignedIn={(signedIn) => {
             clearSignedOutElsewhere()
             // Writing the answer rather than waiting for a refetch clears the
@@ -132,7 +224,7 @@ export function App() {
               void queryClient.invalidateQueries({ queryKey: cacheKey.me() })
           }}
         />
-      </main>
+      </SignInDoor>
     )
   }
 

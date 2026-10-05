@@ -3,23 +3,26 @@ import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { PageHeader } from "@/components/ui/page-header"
-import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
-import { count, day, money } from "@/lib/format"
-import { accountLedger, financeKeys, moneyOverview } from "@/lib/queries/finance"
+import { count, money } from "@/lib/format"
 import {
-  CardRow,
-  Code,
-  Grid,
-  Note,
-  NumberCard,
-  Td,
-  Th,
-} from "@/screens/finance-final/parts"
+  accountLedger,
+  financeKeys,
+  moneyOverview,
+} from "@/lib/queries/finance"
+import { Code, Grid, Td, Th } from "@/screens/finance-final/parts"
 import { useAsOf } from "@/screens/finance/hooks"
 import { AsOfControl, UnitName, UnitSelect } from "@/screens/finance/parts"
+import { ReportFilters } from "@/screens/finance/report"
 
-/// Accounts receivable — what we are actually owed.
+/// Accounts receivable — what we are actually owed — on ERPNext's Accounts
+/// Receivable page (`accounts/report/accounts_receivable`): unit in
+/// Company's place and Report Date as the filters, then one row per kind of
+/// party, then the card settlement accounts unit by unit.
+///
+/// ERPNext's ageing chart and bucket columns are not drawn: nothing here
+/// records when a receivable falls due — a card settlement has no due date, a
+/// staff advance no repayment date — so there is nothing to age yet.
 ///
 /// # Why this is not a debtor book
 ///
@@ -131,82 +134,53 @@ export function AccountsReceivable() {
     }),
   })
 
-  const byKey = useMemo(() => {
-    const table = new Map<string, number | null>()
-    for (const row of families.rows) table.set(row.family.key, row.balance)
-    return table
-  }, [families.rows])
-
   return (
     <PageContent>
-      <PageHeader
-        crumb="Finance · Receivables"
-        title="Accounts receivable"
-        sub="What is owed to us — settlement an acquirer has not paid over, money one unit owes another, and money in people's hands."
-      />
+      <PageHeader crumb="Finance · Receivables" title="Accounts Receivable" />
 
-      <Toolbar>
-        <AsOfControl asOf={asOf} />
+      <ReportFilters
+        note={
+          <>
+            {asOf.chip}
+            {unit === "" ? (
+              " · every unit"
+            ) : (
+              <>
+                {" · "}
+                <UnitName id={unit} />
+              </>
+            )}
+          </>
+        }
+      >
         <UnitSelect
           value={unit}
           onChange={setUnit}
-          className="h-8 w-44"
+          className="h-control w-44"
           aria-label="Unit"
         />
-        <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute">
-          {asOf.chip}
-          {unit === "" ? (
-            " · every unit"
-          ) : (
-            <>
-              {" · "}
-              <UnitName id={unit} />
-            </>
-          )}
-        </span>
-      </Toolbar>
+        <AsOfControl asOf={asOf} />
+      </ReportFilters>
 
       {families.isPending ? (
         <LoadingState>
-          Reading what each receivable account holds at the reporting date…
+          Reading what each receivable account holds at the report date…
         </LoadingState>
       ) : families.isError ? (
         <ErrorState error={families.error} />
       ) : (
-        <div className="flex flex-col gap-4">
-          <CardRow>
-            {/* Three cards, three single server figures. Not one of them adds
-                two accounts together: a card that sums families is a card that
-                has an opinion, and the accounts below have different natures —
-                an allowance is a contra-asset and an inter-unit payable read
-                backwards is not the same kind of thing as a card settlement. */}
-            <NumberCard
-              label="Owed by acquirers"
-              value={byKey.get("cards") ?? null}
-              note="Card sales the scheme has not paid over"
-            />
-            <NumberCard
-              label="Owed by people"
-              value={byKey.get("people") ?? null}
-              note="Staff, store heads and management"
-            />
-            <NumberCard
-              label="Owed by another unit"
-              value={byKey.get("interunit-receivable") ?? null}
-              note="Before the payable side is read back — see below"
-            />
-          </CardRow>
-
+        <>
+          {/* No total row: an allowance subtracts, an advance is work owed
+              rather than cash, and the last row is a liability read backwards.
+              Adding them would make a figure with no name. */}
           <Grid>
             <thead>
               <tr>
-                <Th>What it is</Th>
-                <Th width="18rem">The client&rsquo;s account</Th>
-                <Th width="7.5rem">Code</Th>
-                <Th width="17rem">How to read it</Th>
-                <Th align="right" width="10rem">
-                  At {day(asOf.value)}
+                <Th>Party Type</Th>
+                <Th width="20rem">Account</Th>
+                <Th width="8rem">Account No</Th>
+                <Th align="right" width="11rem">
+                  Outstanding Amount
                 </Th>
               </tr>
             </thead>
@@ -214,14 +188,17 @@ export function AccountsReceivable() {
               {families.rows.map(({ family, name, balance }) => (
                 <tr key={family.key}>
                   <Td>
-                    <span className="font-medium text-ink">{family.what}</span>
+                    <span
+                      className="font-medium text-ink"
+                      title={family.reading}
+                    >
+                      {family.what}
+                    </span>
                     <span className="mt-0.5 block text-[0.875rem] text-mute">
                       {family.covers}
                     </span>
                   </Td>
                   <Td>
-                    {/* The server's own answer, not a label written here. If
-                        the client renames an account the page follows. */}
                     {name === null ? (
                       <span className="text-faint">—</span>
                     ) : (
@@ -229,18 +206,11 @@ export function AccountsReceivable() {
                     )}
                   </Td>
                   <Td>
-                    {/* Every account the family adds, not one group code. The
-                        collapse turned a group into its meanings, so a family
-                        that used to print `1011101` now prints the two card
-                        receivables it is the sum of. */}
                     {family.codes.map((code) => (
                       <span key={code} className="block">
                         <Code>{code}</Code>
                       </span>
                     ))}
-                  </Td>
-                  <Td className="text-[0.875rem] text-body">
-                    {family.reading}
                   </Td>
                   <Td align="right">
                     <Balance minor={balance} />
@@ -250,68 +220,8 @@ export function AccountsReceivable() {
             </tbody>
           </Grid>
 
-          <Note>
-            <b>There is no total row, and that is deliberate.</b> These six
-            families do not add up to one number: an allowance is a
-            contra-asset that subtracts, an advance is money we have paid out
-            rather than money owed to us, and the last row is a{" "}
-            <i>liability</i> account read backwards — a debit on{" "}
-            <code>HUTANG AFFILIASI</code> means the unit overpaid and is owed,
-            which is the same fact as an inter-unit receivable booked on the
-            other side of the books. Adding them would produce a figure with no
-            name. Each row is the server&rsquo;s own sum over that
-            account&rsquo;s whole subtree, so the fourteen location leaves the
-            client&rsquo;s chart splits each of these into are already added up
-            before they reach this page.
-          </Note>
-
           <Settlement asOf={asOf.value} unit={unit} />
-
-          <Note>
-            <b>Why the settlement rows read nothing.</b> The accounts are there
-            and they are mapped — the account map carries a family called{" "}
-            <i>Receivables</i>, and <code>card_receivable_credit</code>,{" "}
-            <code>card_receivable_debit</code> and <code>card_fee</code> each
-            point at one of the client&rsquo;s accounts at all fourteen units.
-            Source-driven posting is enabled. Once a sales day is posted, cash
-            goes to the drawer, card and QRIS to the existing receivable
-            accounts, MDR to the fee account, and the receivable clears when
-            the acquirer settlement is posted. QRIS shares Piutang Debit Card;
-            the acquirer remains available as a settlement-ledger dimension.
-            There is no voucher receivable: a voucher is a liability we owe
-            the shopper, settled when it is spent and tracked in the voucher
-            ledger rather than here.
-          </Note>
-
-          <Note>
-            <b>What an ageing of this side would need.</b> Nothing can be
-            bucketed by age today, because nothing records when any of these
-            falls due — a ledger balance has a posting date and no due date, so
-            drawing empty <i>1–30 / 31–60 / 61–90</i> columns here would say the
-            figures are missing when in fact the question cannot yet be asked. A{" "}
-            <code>GET /finance/receivables-aging</code> would have to mirror the
-            payable one exactly: <code>as_of</code> and <code>unit</code> as
-            query parameters, both sides wound back to the reporting date, and
-            an answer of <code>as_of</code>, <code>unit_id</code>, a{" "}
-            <code>parties</code> array of{" "}
-            <code>
-              {
-                "{ party_type, party_id, party_name, item_count, oldest_days, buckets }"
-              }
-            </code>{" "}
-            and a grand <code>total</code>, with <code>buckets</code> the same
-            five <code>AgingBuckets</code> fields in minor units and the
-            bucketing done in SQL. <code>party_type</code> is the field the
-            payable version does not need: this side has three kinds of debtor
-            — an acquirer, a unit, a person — and one supplier column cannot
-            hold them. Before any of that, something has to give each row a due
-            date: a settlement terms table per acquirer (scheme, T+n), a
-            repayment date on a staff advance, and a settlement date on an
-            inter-unit charge. Without those three the endpoint could only age
-            from the posting date, which for a card sale is right by accident
-            and for a staff loan is meaningless.
-          </Note>
-        </div>
+        </>
       )}
     </PageContent>
   )
@@ -335,8 +245,7 @@ export function AccountsReceivable() {
 /// people owe, what the write-down takes back, what we have paid out ahead,
 /// then the two halves of between-unit.
 const FAMILIES: readonly {
-  /// Stable identity for the summary cards, independent of how many accounts
-  /// the family turns out to span.
+  /// Stable identity, independent of how many accounts the family spans.
   readonly key: string
   readonly codes: readonly string[]
   readonly what: string
@@ -438,7 +347,9 @@ function Settlement({ asOf, unit }: { asOf: string; unit: string }) {
 
   const rows = useMemo(
     () =>
-      (overview.data?.rows ?? []).filter((row) => row.pot === "CARD_RECEIVABLE"),
+      (overview.data?.rows ?? []).filter(
+        (row) => row.pot === "CARD_RECEIVABLE"
+      ),
     [overview.data]
   )
 
@@ -451,9 +362,8 @@ function Settlement({ asOf, unit }: { asOf: string; unit: string }) {
   if (rows.length === 0) {
     return (
       <EmptyState>
-        No settlement account is mapped in this unit. A place money can be
-        owed is a meaning bound to an account on the Account map, and until one
-        is bound there is nowhere for a card sale to sit.
+        No card settlement account is linked in this unit. Link one on Account
+        Links.
       </EmptyState>
     )
   }
@@ -462,15 +372,14 @@ function Settlement({ asOf, unit }: { asOf: string; unit: string }) {
 
   return (
     <>
-      <h2 className="mt-2 text-[0.875rem] font-semibold text-ink">
-        Settlement accounts, unit by unit
-      </h2>
-      <p className="-mt-2 text-[0.875rem] text-mute">
-        {count(rows.length)} mapped across the units this filter admits ·{" "}
-        {holding === 0
-          ? "not one of them carries a balance"
-          : `${count(holding)} carrying a balance`}
-      </p>
+      <div className="mt-6 mb-2 flex items-baseline gap-3">
+        <h2 className="text-[0.9375rem] font-semibold text-ink">
+          Card settlement, by unit
+        </h2>
+        <span className="text-[0.875rem] text-mute">
+          {count(rows.length)} accounts · {count(holding)} with a balance
+        </span>
+      </div>
       <Grid>
         <thead>
           <tr>
@@ -478,8 +387,8 @@ function Settlement({ asOf, unit }: { asOf: string; unit: string }) {
             <Th width="9rem">Unit</Th>
             <Th width="8rem">Ledger</Th>
             <Th width="13rem">Meaning</Th>
-            <Th align="right" width="10rem">
-              Per books
+            <Th align="right" width="11rem">
+              Outstanding Amount
             </Th>
           </tr>
         </thead>
@@ -498,9 +407,7 @@ function Settlement({ asOf, unit }: { asOf: string; unit: string }) {
               <Td>
                 <Code>{row.account_code}</Code>
               </Td>
-              <Td className="text-[0.875rem] text-mute">
-                {row.semantic_key}
-              </Td>
+              <Td className="text-[0.875rem] text-mute">{row.semantic_key}</Td>
               <Td align="right">
                 <Balance minor={row.per_books_minor} />
               </Td>

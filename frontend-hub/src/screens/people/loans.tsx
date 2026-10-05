@@ -143,7 +143,6 @@ export function LoanCard({
             <Input
               value={why}
               onChange={(event) => setWhy(event.target.value)}
-              placeholder="dilunasi tunai"
             />
           </Field>
           <Button
@@ -228,7 +227,6 @@ export function GrantLoan({
             inputMode="numeric"
             value={amount}
             onChange={(event) => setAmount(event.target.value)}
-            placeholder="3000000"
           />
         </Field>
         <Field
@@ -240,7 +238,6 @@ export function GrantLoan({
             inputMode="numeric"
             value={months}
             onChange={(event) => setMonths(event.target.value)}
-            placeholder="6"
           />
         </Field>
         <Field label="First month off pay" required>
@@ -254,14 +251,12 @@ export function GrantLoan({
           <Input
             value={purpose}
             onChange={(event) => setPurpose(event.target.value)}
-            placeholder="biaya sekolah anak"
           />
         </Field>
         <Field label="Why" required>
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            placeholder="disetujui HR"
           />
         </Field>
       </div>

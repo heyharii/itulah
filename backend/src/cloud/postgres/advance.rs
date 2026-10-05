@@ -395,10 +395,19 @@ pub async fn advance_create(
         }
     }
     let advance_id = Uuid::new_v4();
-    let number: String =
-        sqlx::query_scalar("SELECT 'ADV-' || to_char(nextval('advance_number_seq'), 'FM000000')")
-            .fetch_one(pool)
-            .await?;
+    // Requested today, in the books of the unit whose site asked (0701).
+    let mut tx = pool.begin().await?;
+    let requested_on: chrono::NaiveDate = sqlx::query_scalar("SELECT current_date")
+        .fetch_one(&mut *tx)
+        .await?;
+    let asking_unit = super::sites::unit_of_site(&mut *tx, &request.site_id).await?;
+    let number = super::number_series::next_number(
+        &mut tx,
+        super::number_series::ADVANCE,
+        requested_on,
+        Some(&asking_unit),
+    )
+    .await?;
     sqlx::query(
         "INSERT INTO advance
            (advance_id, advance_number, site_id, party_type, employee_id, supplier_id,
@@ -417,8 +426,9 @@ pub async fn advance_create(
     .bind(request.amount_minor)
     .bind(actor)
     .bind(request.note.as_deref())
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
     advance_detail(pool, advance_id).await
 }
 
@@ -711,7 +721,7 @@ pub async fn advance_reconciliation(
                FROM journal_line l
                JOIN mapped ON mapped.unit_id = l.unit_id AND mapped.account_code = l.account_code
               GROUP BY l.unit_id, l.account_code
-         ), sub AS (
+         ), sub_parts AS (
              SELECT s.unit_id,
                     COALESCE(m.account_code, '?') AS account_code,
                     SUM(a.amount_minor - COALESCE(t.settled, 0))::bigint AS subledger_minor,
@@ -730,6 +740,48 @@ pub async fn advance_reconciliation(
                 AND m.source_type = 'COMPANY' AND m.source_id = a.advance_qualifier
               WHERE a.status IN ('PAID', 'PARTIALLY_SETTLED')
               GROUP BY s.unit_id, COALESCE(m.account_code, '?')
+             -- The same `advance` role also carries money paid ahead to
+             -- suppliers (1052) and to contractors (1053). Their documents are
+             -- the subledger for those accounts; read on the account and unit
+             -- their own posting debited, so the qualifier never has to be
+             -- guessed (CONTROL_ADVANCE, 1 Oct).
+             UNION ALL
+             SELECT l.unit_id, l.account_code,
+                    SUM(sa.amount_minor - COALESCE(ap.applied, 0))::bigint,
+                    COUNT(*) FILTER (WHERE sa.amount_minor > COALESCE(ap.applied, 0))::bigint,
+                    SUM(CASE WHEN sa.advance_date < CURRENT_DATE - 30
+                             THEN sa.amount_minor - COALESCE(ap.applied, 0) ELSE 0 END)::bigint
+               FROM supplier_advance sa
+               JOIN LATERAL (
+                    SELECT jl.unit_id, jl.account_code FROM journal_line jl
+                     WHERE jl.entry_id = sa.journal_entry_id AND jl.debit_minor > 0
+                     ORDER BY jl.line_number LIMIT 1
+               ) l ON true
+               LEFT JOIN (
+                    SELECT advance_id, SUM(amount_minor) AS applied
+                      FROM supplier_advance_application GROUP BY advance_id
+               ) ap ON ap.advance_id = sa.advance_id
+              WHERE sa.status = 'POSTED'
+              GROUP BY l.unit_id, l.account_code
+             UNION ALL
+             SELECT l.unit_id, l.account_code,
+                    SUM(ca.amount_minor)::bigint
+                      - COALESCE((SELECT SUM(cpi.applied_minor) FROM contractor_project_invoice cpi
+                                   WHERE cpi.project_id = ANY(ARRAY_AGG(ca.project_id))), 0)::bigint,
+                    COUNT(DISTINCT ca.project_id)::bigint,
+                    0::bigint
+               FROM contractor_project_advance ca
+               JOIN LATERAL (
+                    SELECT jl.unit_id, jl.account_code FROM journal_line jl
+                     WHERE jl.entry_id = ca.entry_id AND jl.debit_minor > 0
+                     ORDER BY jl.line_number LIMIT 1
+               ) l ON true
+              GROUP BY l.unit_id, l.account_code
+         ), sub AS (
+             SELECT unit_id, account_code, SUM(subledger_minor)::bigint AS subledger_minor,
+                    SUM(open_advances)::bigint AS open_advances,
+                    SUM(over_thirty_days_minor)::bigint AS over_thirty_days_minor
+               FROM sub_parts GROUP BY unit_id, account_code
          )
          SELECT COALESCE(gl.unit_id, sub.unit_id) AS unit_id,
                 COALESCE(gl.account_code, sub.account_code) AS account_code,

@@ -38,6 +38,9 @@ pub enum GiroState {
     Due,
     Cleared,
     Rejected,
+    /// The payment that wrote it was reversed before the bank took it: the
+    /// leaf is torn up, not bounced (0712).
+    Voided,
 }
 
 impl GiroState {
@@ -48,6 +51,7 @@ impl GiroState {
             Self::Due => "DUE",
             Self::Cleared => "CLEARED",
             Self::Rejected => "REJECTED",
+            Self::Voided => "VOIDED",
         }
     }
 
@@ -58,13 +62,14 @@ impl GiroState {
             "DUE" => Some(Self::Due),
             "CLEARED" => Some(Self::Cleared),
             "REJECTED" => Some(Self::Rejected),
+            "VOIDED" => Some(Self::Voided),
             _ => None,
         }
     }
 
     /// Is this the end of the road?
     pub fn is_settled(self) -> bool {
-        matches!(self, Self::Cleared | Self::Rejected)
+        matches!(self, Self::Cleared | Self::Rejected | Self::Voided)
     }
 
     /// Does this giro still sit on `giro_outstanding`?
@@ -114,6 +119,23 @@ pub fn giro_may_move(from: GiroState, to: GiroState) -> Result<(), String> {
     Ok(())
 }
 
+/// May a giro's clearing be taken back — Batal Cair, or the first half of a
+/// bounce after clearing (0705)?
+///
+/// Only from CLEARED, and it is the one exception to "a settled giro is
+/// settled": the clearing is not undone by editing it but by reversing its
+/// entry, so nothing that moved is un-moved in place. A REJECTED giro stays
+/// rejected; a giro not yet cleared has nothing to take back.
+pub fn giro_may_unclear(from: GiroState) -> Result<(), String> {
+    match from {
+        GiroState::Cleared => Ok(()),
+        other => Err(format!(
+            "this giro is {}, not cleared; there is no clearing to take back",
+            other.as_str().to_lowercase()
+        )),
+    }
+}
+
 /// How far up the ladder a state sits. Not public: the ordering is an
 /// implementation of the rule above, and exposing it would invite somebody to
 /// compare two states somewhere else and get a different answer.
@@ -124,6 +146,7 @@ fn rung(state: GiroState) -> u8 {
         GiroState::Due => 2,
         GiroState::Cleared => 3,
         GiroState::Rejected => 3,
+        GiroState::Voided => 3,
     }
 }
 

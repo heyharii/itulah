@@ -49,7 +49,6 @@ export function Repairs() {
   const [filed, setFiled] = useState(false)
   return (
     <GaScreen
-      sub="What this shop has reported broken, and where each report has got to."
       actions={
         <Button
           variant="primary"
@@ -67,8 +66,7 @@ export function Repairs() {
         <>
           {filed && (
             <Banner tone="ok" className="mb-4">
-              Sent to head office. It is on the repair book as Reported, and
-              moves up the ladder below as GA works on it.
+              Sent to head office.
             </Banner>
           )}
           <RepairList site={site} onNew={() => setComposing(true)} />
@@ -106,7 +104,7 @@ const columns: readonly RowColumn<GaRepairRow>[] = [
   },
   {
     id: "vendor",
-    header: "Vendor",
+    header: "Supplier",
     cell: (row) => row.supplier_name,
   },
   {
@@ -130,7 +128,7 @@ function RepairList({ site, onNew }: { site: string; onNew: () => void }) {
   return (
     <>
       {gaState(repairs, {
-        loading: "Reading this shop's repairs…",
+        loading: "Loading…",
         render: (rows) => {
           const open = rows.filter((row) => repairIsOpen(row.status))
           const done = rows.filter((row) => !repairIsOpen(row.status))
@@ -140,13 +138,11 @@ function RepairList({ site, onNew }: { site: string; onNew: () => void }) {
               <Card>
                 <div className="mx-auto flex max-w-[30em] flex-col items-center gap-4 px-4 py-12 text-center">
                   <p className="text-meta text-body">
-                    Nothing has been reported broken at this shop. When
-                    something is — the AC, a door, the lights — tell head office
-                    here and follow it until it is fixed.
+                    No repairs reported.
                   </p>
                   <Button variant="ghost" onClick={onNew}>
                     <Plus />
-                    Report the first one
+                    New request
                   </Button>
                 </div>
               </Card>
@@ -177,8 +173,8 @@ function RepairList({ site, onNew }: { site: string; onNew: () => void }) {
                   }}
                   empty={
                     phase === "OPEN"
-                      ? "Nothing is waiting to be fixed. Everything reported here has been dealt with."
-                      : "Nothing has been fixed or closed here yet."
+                      ? "Nothing open."
+                      : "Nothing closed yet."
                   }
                 />
               </Card>
@@ -239,7 +235,7 @@ function RepairSheet({
           <Fact term="Kind">
             {repairObjectWords(repair.objek, repair.objek_name)}
           </Fact>
-          <Fact term="Vendor">{repair.supplier_name}</Fact>
+          <Fact term="Supplier">{repair.supplier_name}</Fact>
           <Fact term="Under contract">
             {repair.contract_number ??
               (repair.contract_id === null ? "No" : "Yes")}

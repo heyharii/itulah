@@ -2,25 +2,18 @@ import { useQuery } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { ExportButton } from "@/components/ui/export-button"
 import { PageHeader } from "@/components/ui/page-header"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
+import { monthStamp, type ExportSheet } from "@/lib/export-xlsx"
 import { count, day, money } from "@/lib/format"
 import { financeKeys, trialBalance } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
-import {
-  CardRow,
-  Code,
-  Grid,
-  Note,
-  NumberCard,
-  Td,
-  Th,
-  TotalRow,
-} from "@/screens/finance-final/parts"
+import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import { isoDay, ladderLevel } from "@/screens/finance/chart"
-import { useWindow } from "@/screens/finance/hooks"
+import { useUnitName, useWindow } from "@/screens/finance/hooks"
 import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
+import { FilterCheck, ReportFilters } from "@/screens/finance/report"
 import type { TrialBalanceRow } from "@itulah/contract"
 
 /// Opening, movement and closing for every account that moved — and the proof
@@ -66,7 +59,9 @@ import type { TrialBalanceRow } from "@itulah/contract"
 export function TrialBalance() {
   const range = useWindow()
   const [unit, setUnit] = useState("")
-  const [grain, setGrain] = useState<"unit" | "account">("unit")
+  // One row per account, as ERPNext's Trial Balance reads; "Split by Unit"
+  // is the option, not the default.
+  const [grain, setGrain] = useState<"unit" | "account">("account")
 
   // The day before the window opens. A balance "as at 31 August" is what the
   // books carried into September, and asking for 1 September instead would put
@@ -76,12 +71,18 @@ export function TrialBalance() {
   const opening = useQuery({
     queryKey: financeKeys.trialBalance(before, unit || null),
     queryFn: ({ signal }) =>
-      trialBalance({ as_of: before, unit: unit || undefined, limit: 2000 }, signal),
+      trialBalance(
+        { as_of: before, unit: unit || undefined, limit: 2000 },
+        signal
+      ),
   })
   const closing = useQuery({
     queryKey: financeKeys.trialBalance(range.to, unit || null),
     queryFn: ({ signal }) =>
-      trialBalance({ as_of: range.to, unit: unit || undefined, limit: 2000 }, signal),
+      trialBalance(
+        { as_of: range.to, unit: unit || undefined, limit: 2000 },
+        signal
+      ),
   })
 
   const lines = useMemo(
@@ -117,57 +118,127 @@ export function TrialBalance() {
     (opening.data !== undefined &&
       opening.data.rows.length < opening.data.total)
 
+  const unitName = useUnitName()
+
+  /// What is on screen, as a sheet: each class as a heading, its lines, its
+  /// subtotal, then the foot.
+  const build = (): ExportSheet | null => {
+    if (closing.data === undefined || lines.length === 0) return null
+    const rows: (string | number | null)[][] = []
+    const rowStyles: { bold?: boolean; indent?: number }[] = []
+    const split = grain === "unit"
+    const figures = (one: ReturnType<typeof total>) => [
+      one.openDebit,
+      one.openCredit,
+      one.periodDebit,
+      one.periodCredit,
+      one.closeDebit,
+      one.closeCredit,
+    ]
+    for (const bucket of groups) {
+      const name = className.get(bucket.rootClass) ?? bucket.rootClass
+      rows.push([
+        bucket.rootClass,
+        name,
+        ...(split ? [null] : []),
+        ...Array<null>(6).fill(null),
+      ])
+      rowStyles.push({ bold: true })
+      for (const line of bucket.lines) {
+        rows.push([
+          line.code,
+          line.name,
+          ...(split ? [unitName(line.unitId)] : []),
+          ...figures(line),
+        ])
+        rowStyles.push({ indent: Math.min(ladderLevel(line.depth), 4) })
+      }
+      rows.push([
+        null,
+        `Subtotal · ${name}`,
+        ...(split ? [null] : []),
+        ...figures(total(bucket.lines)),
+      ])
+      rowStyles.push({ bold: true })
+    }
+    return {
+      filename: `Trial-Balance-${monthStamp(range.to)}`,
+      sheet: "Trial Balance",
+      title: "Trial Balance",
+      subtitle: `${day(before)} → ${day(closing.data.as_of)} · ${
+        unit === "" ? "every unit" : unitName(unit)
+      }${split ? " · split by unit" : ""}`,
+      columns: [
+        { header: "Code", kind: "text", width: 12 },
+        { header: "Account", kind: "text", width: 44 },
+        ...(split
+          ? [{ header: "Unit", kind: "text" as const, width: 22 }]
+          : []),
+        { header: "Opening Dr", kind: "money" },
+        { header: "Opening Cr", kind: "money" },
+        { header: "Debit", kind: "money" },
+        { header: "Credit", kind: "money" },
+        { header: "Closing Dr", kind: "money" },
+        { header: "Closing Cr", kind: "money" },
+      ],
+      rows,
+      rowStyles,
+      totalRow: [
+        null,
+        `Total of ${count(lines.length)} lines`,
+        ...(split ? [null] : []),
+        ...figures(foot),
+      ],
+    }
+  }
+
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance · Accounting"
+        crumb="Finance · Financial Reports"
         title="Trial Balance"
-        sub="Opening, movement and closing for every account, proving the book balances — for the whole company or for one unit."
+        actions={
+          <ExportButton
+            build={build}
+            disabled={closing.data === undefined || lines.length === 0}
+          />
+        }
       />
 
-      <Toolbar>
+      <ReportFilters
+        note={
+          closing.data && (
+            <>
+              {day(before)} → {day(closing.data.as_of)} ·{" "}
+              {closing.data.unit_id === null ? (
+                "every unit"
+              ) : (
+                <UnitName id={closing.data.unit_id} />
+              )}
+            </>
+          )
+        }
+      >
         <UnitSelect
           value={unit}
           onChange={setUnit}
-          className="h-8 w-44"
+          className="h-control w-44"
           aria-label="Unit"
         />
         <WindowControl range={range} />
-        <Segmented
-          value={grain}
-          onChange={setGrain}
-          options={[
-            { value: "unit", label: "By account and unit" },
-            { value: "account", label: "By account" },
-          ]}
+        <FilterCheck
+          label="Split by Unit"
+          checked={grain === "unit"}
+          onChange={(split) => setGrain(split ? "unit" : "account")}
         />
-        <Toolbar.Spacer />
-        {/* The dates the server actually read at, not the boxes'. These are the
-            two moments every figure below belongs to. */}
-        {closing.data && (
-          <span className="text-[0.875rem] text-mute">
-            {day(before)} → {day(closing.data.as_of)} ·{" "}
-            {closing.data.unit_id === null ? (
-              "every unit"
-            ) : (
-              <UnitName id={closing.data.unit_id} />
-            )}
-          </span>
-        )}
-      </Toolbar>
+      </ReportFilters>
 
       {/* The one thing this report exists to say, said before anything else on
           the page and in words. It cannot normally be false — an unbalanced
           entry is refused by a deferred constraint trigger at COMMIT — which is
           exactly why the day it is false somebody has to see it immediately. */}
       {closing.data &&
-        (proved && footFolds ? (
-          <Banner tone="ok" className="mb-3">
-            The book balances at {day(closing.data.as_of)}. Debits and credits
-            both come to {money(closing.data.total_debit_minor)} over{" "}
-            {count(closing.data.ledger_rows)} account lines.
-          </Banner>
-        ) : (
+        (proved && footFolds ? null : (
           <Banner tone="bad" className="mb-3">
             <b className="font-semibold">
               This trial balance does not balance.
@@ -200,44 +271,13 @@ export function TrialBalance() {
 
       {cut && (
         <Banner tone="warn" className="mb-3">
-          The chart is larger than one page of this report. The lines and their
-          subtotals below cover only what arrived; the proof above and the
-          server figures in the cards are over every account and are unaffected.
-          Narrow by unit to bring the list inside one page.
+          The chart is larger than one page of this report, so the lines and
+          totals below cover only what arrived. Narrow by unit to bring it
+          inside one page.
         </Banner>
       )}
 
       <div className="flex flex-col gap-4">
-        <CardRow columns={3}>
-          <NumberCard
-            label={`Debits at ${day(range.to)}`}
-            value={closing.data?.total_debit_minor ?? null}
-            note="Server's own sum, over every account"
-          />
-          <NumberCard
-            label={`Credits at ${day(range.to)}`}
-            value={closing.data?.total_credit_minor ?? null}
-            note="Never narrowed by anything on this screen"
-          />
-          <NumberCard
-            label="Difference"
-            value={
-              closing.data === undefined
-                ? null
-                : closing.data.total_debit_minor -
-                  closing.data.total_credit_minor
-            }
-            tone={closing.data === undefined ? undefined : proved ? "ok" : "bad"}
-            note={
-              closing.data === undefined
-                ? "Adding up the book…"
-                : proved
-                  ? "The two sides agree."
-                  : "They do not agree. This is the page."
-            }
-          />
-        </CardRow>
-
         {queryState(closing, {
           loading: "Adding up every account the book has touched…",
           render: () =>
@@ -254,7 +294,7 @@ export function TrialBalance() {
                   <Grid>
                     <thead>
                       <tr>
-                        <Th>Account</Th>
+                        <Th width="16rem">Account</Th>
                         {grain === "unit" && <Th width="8rem">Unit</Th>}
                         <Th align="right" width="8.5rem">
                           Opening Dr
@@ -302,17 +342,19 @@ export function TrialBalance() {
                           </tr>,
                           ...bucket.lines.map((line) => (
                             <tr key={line.key}>
-                              <Td>
+                              {/* Code then name on one line, as the P&L and
+                                  the Balance Sheet print it; `max-w-0` lets a
+                                  long name give way to the six figures. */}
+                              <Td className="max-w-0">
                                 <span
-                                  className="block"
+                                  className="block truncate"
+                                  title={`${line.code} ${line.name}`}
                                   style={{
                                     paddingLeft: `${Math.min(ladderLevel(line.depth), 4) * 0.5}rem`,
                                   }}
                                 >
+                                  <Code>{line.code}</Code>{" "}
                                   <span className="text-ink">{line.name}</span>
-                                  <span className="block">
-                                    <Code>{line.code}</Code>
-                                  </span>
                                 </span>
                               </Td>
                               {grain === "unit" && (
@@ -355,9 +397,7 @@ export function TrialBalance() {
                           must be equal, and if they are not it is drawn in the
                           colour that means somebody has to act. */}
                       <TotalRow>
-                        <Td
-                          className={footFolds ? undefined : "text-bad-fg"}
-                        >
+                        <Td className={footFolds ? undefined : "text-bad-fg"}>
                           Total of {count(lines.length)} lines
                           {footFolds ? "" : " — DOES NOT BALANCE"}
                         </Td>
@@ -384,23 +424,6 @@ export function TrialBalance() {
                 ),
             }),
         })}
-
-        <Note>
-          Two things this report cannot tell you, so that nobody reads them into
-          it. <b>There is no opening flag on our ledger.</b> ERPNext marks a
-          migration posting <code>is_opening</code> and keeps it out of the
-          movement columns; here an opening balance is an ordinary entry with an
-          ordinary date, so if it falls inside the window it is counted as
-          movement — which is why the seeded balances of 1 June appear as June
-          debits rather than as an opening. <b>And closing does not sweep.</b>{" "}
-          Sealing a month locks posting into it and moves no figure at all, so
-          income and expense accounts accumulate across years here and the
-          closing columns below carry them. In ERPNext a Period Closing Voucher
-          would have zeroed them into an equity account — per unit, since the
-          sweep is written once per dimension tuple. We post no such entry, so
-          Profit &amp; Loss must always be read over a window rather than off
-          this report&rsquo;s closing column.
-        </Note>
       </div>
     </PageContent>
   )
@@ -414,10 +437,7 @@ export function TrialBalance() {
 /// eye stops being able to find the figures that are real.
 function Figure({ value, strong }: { value: number; strong?: boolean }) {
   return (
-    <Td
-      align="right"
-      className={strong ? "font-medium text-ink" : undefined}
-    >
+    <Td align="right" className={strong ? "font-medium text-ink" : undefined}>
       {value === 0 ? (
         <span className="text-hairline-strong">·</span>
       ) : (
@@ -555,9 +575,7 @@ function rollUp(lines: readonly Line[]): Line[] {
 /// The server already answers in account-code order, so bucketing preserves it
 /// and nothing is sorted here — a trial balance read in an order other than the
 /// chart's is one an accountant cannot check against their own printout.
-function group(
-  lines: readonly Line[]
-): { rootClass: string; lines: Line[] }[] {
+function group(lines: readonly Line[]): { rootClass: string; lines: Line[] }[] {
   const table = new Map<string, Line[]>()
   for (const line of lines) {
     const held = table.get(line.rootClass)
@@ -569,7 +587,9 @@ function group(
     .map(([rootClass, rows]) => ({ rootClass, lines: rows }))
 }
 
-function total(lines: readonly Line[]): Omit<Line, "key" | "code" | "name" | "rootClass" | "depth" | "unitId"> {
+function total(
+  lines: readonly Line[]
+): Omit<Line, "key" | "code" | "name" | "rootClass" | "depth" | "unitId"> {
   return lines.reduce(
     (sum, line) => ({
       openDebit: sum.openDebit + line.openDebit,

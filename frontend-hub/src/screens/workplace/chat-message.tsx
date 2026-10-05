@@ -16,7 +16,11 @@ import { memo } from "react"
 import { ITEM, POPUP } from "@/lib/filter-chrome"
 import { cn } from "@/lib/utils"
 import type { OutboxItem } from "@/screens/workplace/chat-store"
-import { RichText, plainText, type MentionTarget } from "@/screens/workplace/chat-text"
+import {
+  RichText,
+  plainText,
+  type MentionTarget,
+} from "@/screens/workplace/chat-text"
 import { clock, dayOf } from "@/screens/workplace/lib"
 import { AttachmentLink, Avatar } from "@/screens/workplace/parts"
 import { chatAttachmentUrl } from "@/lib/queries/workplace"
@@ -149,7 +153,11 @@ export const MessageRow = memo(function MessageRow({
       {!mine && (
         <div className="w-7 shrink-0">
           {!compact && (
-            <Avatar name={message.author_name} size="default" className="mt-[1.125rem]" />
+            <Avatar
+              name={message.author_name}
+              size="default"
+              className="mt-[1.125rem]"
+            />
           )}
         </div>
       )}
@@ -161,7 +169,12 @@ export const MessageRow = memo(function MessageRow({
         )}
       >
         {!compact && (
-          <div className={cn("flex items-baseline gap-2", mine && "flex-row-reverse")}>
+          <div
+            className={cn(
+              "flex items-baseline gap-2",
+              mine && "flex-row-reverse"
+            )}
+          >
             <span className="truncate text-meta font-medium text-body">
               {mine ? "You" : message.author_name}
             </span>
@@ -171,7 +184,12 @@ export const MessageRow = memo(function MessageRow({
           </div>
         )}
 
-        <div className={cn("relative mt-1 flex max-w-full flex-col", mine && "items-end")}>
+        <div
+          className={cn(
+            "relative mt-1 flex max-w-full flex-col",
+            mine && "items-end"
+          )}
+        >
           {message.reply_to !== null && !deleted && (
             <Quote reply={message.reply_to} mine={mine} onJump={actions.jump} />
           )}
@@ -204,7 +222,15 @@ export const MessageRow = memo(function MessageRow({
             />
           )}
 
-          {!deleted && <Toolbar message={message} mine={mine} canModerate={canModerate} actions={actions} me={me} />}
+          {!deleted && (
+            <Toolbar
+              message={message}
+              mine={mine}
+              canModerate={canModerate}
+              actions={actions}
+              me={me}
+            />
+          )}
         </div>
 
         {(message.edited_at !== null ||
@@ -233,14 +259,18 @@ export const MessageRow = memo(function MessageRow({
         )}
 
         {!deleted && message.reactions.length > 0 && (
-          <div className={cn("mt-1 flex flex-wrap gap-1", mine && "justify-end")}>
+          <div
+            className={cn("mt-1 flex flex-wrap gap-1", mine && "justify-end")}
+          >
             {message.reactions.map((reaction) => {
               const reacted = me !== undefined && reaction.users.includes(me)
               return (
                 <button
                   key={reaction.emoji}
                   type="button"
-                  onClick={() => actions.react(message, reaction.emoji, !reacted)}
+                  onClick={() =>
+                    actions.react(message, reaction.emoji, !reacted)
+                  }
                   title={namesOf(reaction.users, members, me)}
                   aria-pressed={reacted}
                   className={cn(
@@ -275,7 +305,8 @@ function namesOf(
     .map((name) =>
       name === me
         ? "You"
-        : (members.find((member) => member.username === name)?.display_name ?? name)
+        : (members.find((member) => member.username === name)?.display_name ??
+          name)
     )
     .join(", ")
 }
@@ -308,7 +339,7 @@ function Quote({
       <span
         className={cn(
           "line-clamp-2 text-[0.8125rem] text-body",
-          reply.deleted && "italic text-mute"
+          reply.deleted && "text-mute italic"
         )}
       >
         {said}
@@ -332,7 +363,12 @@ function Attachments({
   )
   const others = files.filter((file) => !images.includes(file))
   return (
-    <div className={cn("mt-1 flex max-w-full flex-col gap-1.5", mine && "items-end")}>
+    <div
+      className={cn(
+        "mt-1 flex max-w-full flex-col gap-1.5",
+        mine && "items-end"
+      )}
+    >
       {images.length > 0 && (
         <div className={cn("flex flex-wrap gap-1.5", mine && "justify-end")}>
           {images.map((file) => {
@@ -436,14 +472,21 @@ function Toolbar({
           <MoreHorizontal className="size-4" />
         </Menu.Trigger>
         <Menu.Portal>
-          <Menu.Positioner side="bottom" align={mine ? "end" : "start"} sideOffset={4} className="z-50">
+          <Menu.Positioner
+            side="bottom"
+            align={mine ? "end" : "start"}
+            sideOffset={4}
+            className="z-50"
+          >
             <Menu.Popup className={cn(POPUP, "min-w-[13rem]")}>
               <div className="grid grid-cols-6 gap-0.5 px-1 pt-1 pb-1.5">
                 {[...QUICK_REACTIONS, ...MORE_REACTIONS].map((emoji) => (
                   <Menu.Item
                     key={emoji}
                     aria-label={`React ${emoji}`}
-                    onClick={() => actions.react(message, emoji, !reacted(emoji))}
+                    onClick={() =>
+                      actions.react(message, emoji, !reacted(emoji))
+                    }
                     className={cn(
                       "grid size-8 cursor-default place-items-center rounded-md text-[1.0625rem] outline-none data-[highlighted]:bg-soft-2",
                       reacted(emoji) && "bg-accent-bg"
@@ -454,15 +497,24 @@ function Toolbar({
                 ))}
               </div>
               <div className="my-1 h-px bg-hairline" />
-              <Menu.Item className={ITEM} onClick={() => actions.reply(message)}>
+              <Menu.Item
+                className={ITEM}
+                onClick={() => actions.reply(message)}
+              >
                 <CornerUpLeft className="size-3.5 text-line-ico" /> Reply
               </Menu.Item>
               {hasWords && (
-                <Menu.Item className={ITEM} onClick={() => actions.copy(message)}>
+                <Menu.Item
+                  className={ITEM}
+                  onClick={() => actions.copy(message)}
+                >
                   <Copy className="size-3.5 text-line-ico" /> Copy text
                 </Menu.Item>
               )}
-              <Menu.Item className={ITEM} onClick={() => actions.pin(message, !pinned)}>
+              <Menu.Item
+                className={ITEM}
+                onClick={() => actions.pin(message, !pinned)}
+              >
                 {pinned ? (
                   <>
                     <PinOff className="size-3.5 text-line-ico" /> Unpin
@@ -474,7 +526,10 @@ function Toolbar({
                 )}
               </Menu.Item>
               {mine && (
-                <Menu.Item className={ITEM} onClick={() => actions.edit(message)}>
+                <Menu.Item
+                  className={ITEM}
+                  onClick={() => actions.edit(message)}
+                >
                   <Pencil className="size-3.5 text-line-ico" /> Edit
                 </Menu.Item>
               )}

@@ -63,7 +63,6 @@ export function ExpenseCategories() {
             <Input
               value={needle}
               onChange={(event) => setNeedle(event.target.value)}
-              placeholder="Search"
               className="h-8 w-48"
             />
             <Button variant="primary" onClick={() => setEditing("new")}>
@@ -217,15 +216,10 @@ function CategoryForm({
           value={code}
           disabled={category !== null}
           onChange={(event) => setCode(event.target.value)}
-          placeholder="ELECTRICITY"
         />
       </Field>
       <Field label="Name" required>
-        <Input
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder="Biaya listrik"
-        />
+        <Input value={name} onChange={(event) => setName(event.target.value)} />
       </Field>
       <Checkbox
         label="Shops can file under it"
@@ -256,7 +250,7 @@ function CategoryForm({
           disabled={code.trim() === "" || name.trim() === ""}
           onClick={() => save.mutate()}
         >
-          {save.isPending ? "Saving…" : "Save category"}
+          {save.isPending ? "Submitting…" : "Submit"}
         </Button>
       </div>
     </EditorCard>

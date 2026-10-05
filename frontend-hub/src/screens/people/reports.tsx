@@ -165,7 +165,7 @@ function Workforce() {
                 office means nobody has been posted at all.
               </EmptyState>
             ) : (
-              <MiniTable head={["Unit", "Working", "Terms ending", ""]}>
+              <MiniTable head={["Unit", "Working", "Terms Ending", ""]}>
                 {units.map((unit) => (
                   <MiniRow key={unit.value}>
                     <MiniCell>{unit.label ?? unit.value}</MiniCell>

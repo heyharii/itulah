@@ -81,7 +81,9 @@ export function requestStoreAction(
 function anyPending(items: readonly StoreActionEntry[]): boolean {
   return items.some(
     (item) =>
-      item.state === "QUEUED" || item.state === "SENT" || item.state === "RUNNING"
+      item.state === "QUEUED" ||
+      item.state === "SENT" ||
+      item.state === "RUNNING"
   )
 }
 

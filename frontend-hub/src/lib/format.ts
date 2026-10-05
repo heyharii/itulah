@@ -19,6 +19,19 @@ export function money(minor: number | null | undefined): string {
 
 const plain = new Intl.NumberFormat("id-ID")
 
+/// A date in English month names, day first ("01 Oct 2026"). The hub is
+/// English (owner, 2026-09-27) and Indonesian month names — "Okt", "Agu",
+/// "Mei", "Des" — read as a mistake beside it; amounts keep the rupiah's own
+/// grouping. `en-GB` spells September "Sept", which is trimmed to "Sep".
+export function dateText(
+  date: Date,
+  options: Intl.DateTimeFormatOptions
+): string {
+  return new Intl.DateTimeFormat("en-GB", options)
+    .format(date)
+    .replace(/\bSept\b/, "Sep")
+}
+
 export function count(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—"
   return plain.format(value)
@@ -30,23 +43,26 @@ export function day(iso: string | null | undefined): string {
   if (!iso) return "—"
   const parsed = new Date(iso)
   if (Number.isNaN(parsed.getTime())) return "—"
-  return parsed.toLocaleDateString("id-ID", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  })
+  return dateText(parsed, { day: "2-digit", month: "short", year: "numeric" })
 }
 
-const rangeDay = new Intl.DateTimeFormat("id-ID", {
-  day: "numeric",
-  month: "short",
-})
+/// The same without the year, for a column of recent dates where every row is
+/// from this year and "2026" is only width.
+export function dayMonth(iso: string | null | undefined): string {
+  if (!iso) return "—"
+  const parsed = new Date(iso)
+  if (Number.isNaN(parsed.getTime())) return "—"
+  return dateText(parsed, { day: "2-digit", month: "short" })
+}
 
-const rangeFull = new Intl.DateTimeFormat("id-ID", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-})
+const rangeDay = {
+  format: (date: Date) => dateText(date, { day: "numeric", month: "short" }),
+}
+
+const rangeFull = {
+  format: (date: Date) =>
+    dateText(date, { day: "numeric", month: "short", year: "numeric" }),
+}
 
 /// Two dates as one phrase.
 ///
@@ -84,7 +100,21 @@ export function moment(iso: string | null | undefined): string {
   if (!iso) return "—"
   const parsed = new Date(iso)
   if (Number.isNaN(parsed.getTime())) return "—"
-  return parsed.toLocaleString("id-ID", {
+  return dateText(parsed, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+/// A moment that happened a moment ago, so the year says nothing: "04 Oct, 17:12".
+export function recentMoment(iso: string | null | undefined): string {
+  if (!iso) return "—"
+  const parsed = new Date(iso)
+  if (Number.isNaN(parsed.getTime())) return "—"
+  return dateText(parsed, {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
@@ -194,7 +224,7 @@ export function clock(iso: string | null | undefined): string {
   })
   return sameDay
     ? time
-    : `${at.toLocaleDateString("id-ID", { day: "numeric", month: "short" })} ${time}`
+    : `${dateText(at, { day: "numeric", month: "short" })} ${time}`
 }
 
 /// How long ago, for anything whose age is the point — a delivery on the bay,

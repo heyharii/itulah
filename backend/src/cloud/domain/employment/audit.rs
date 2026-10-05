@@ -569,6 +569,9 @@ pub mod actions {
     /// Nominate one of your people for a training program. The place
     /// manager's, bounded by reach.
     pub const TRAINING_NOMINATE: &str = "people.training.nominate";
+    /// Record whether one of your nominated people attended. The place
+    /// manager's, bounded by reach, with a reason kept for every correction.
+    pub const TRAINING_ATTENDANCE: &str = "people.training.attendance";
     /// Define training programs and close them. Admin.
     pub const TRAINING_MANAGE: &str = "people.training.manage";
     /// Record a benefit handed over — uniform sets. The place manager's,
@@ -964,6 +967,7 @@ pub fn required_role(action_key: &str) -> Role {
         | actions::RECRUITMENT_INTERVIEW
         | actions::PERFORMANCE_RECORD
         | actions::TRAINING_NOMINATE
+        | actions::TRAINING_ATTENDANCE
         | actions::BENEFIT_RECORD => Role::Supervisor,
         // The only finance key below head office. Everything else under
         // `finance.` falls through to Admin with the rest of the rules the

@@ -712,16 +712,6 @@ impl ActionType for CompleteStage {
                 ));
             }
         }
-        if kind == StageKind::Verification {
-            let checker = state
-                .stage_of(StageKind::BlindCount)
-                .and_then(|blind| blind.done_by.as_deref());
-            if checker == Some(actor.id.as_str()) {
-                return Err(FlowError::Forbidden(
-                    "the verifier cannot be the same person as the checker".into(),
-                ));
-            }
-        }
         Ok(())
     }
 
@@ -1430,14 +1420,6 @@ impl ActionType for RequestRecount {
         let stage = due(state, input)?;
         expect_kind(stage, &[StageKind::Verification], "Request a recount")?;
         may_perform(stage, actor)?;
-        let checker = state
-            .stage_of(StageKind::BlindCount)
-            .and_then(|blind| blind.done_by.as_deref());
-        if checker == Some(actor.id.as_str()) {
-            return Err(FlowError::Forbidden(
-                "the verifier cannot be the same person as the checker".into(),
-            ));
-        }
         let parsed: ReasonDetails = details(input)?;
         reason_of(&parsed, "Asking for a recount").map(|_| ())
     }

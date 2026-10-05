@@ -1,14 +1,30 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
-import { activeShift, cashMovement, closeShift, openShift } from "@/api"
+import {
+  cashMovement,
+  closeShift,
+  countShift,
+  myShifts,
+  takeOver,
+  tillSeats,
+} from "@/api"
 import { Icon } from "@/icons"
+import { useOutbox } from "@/outbox"
 import { refreshPaymentMethods } from "@/payment-methods"
+import type { Seat } from "@/seat"
 import { Topbar } from "@/till"
-import type { ShiftReport } from "@itulah/contract"
+import type { ShiftReport, TillSeat } from "@itulah/contract"
 import { money } from "@itulah/contract/money"
 
-/// The cash session — one drawer, from the float in the morning to the count
-/// at the end of it.
+/// The cash session — one person's drawer at one seat, from the float they
+/// count in when they sit down to the count they make when they leave.
+///
+/// A till is a seat the store has (`Kasir 1` … `Kasir N`, head office sets N),
+/// not the machine: whoever signs in picks one. Anyone may take a seat somebody
+/// else holds, by themselves and with no approval — that ends the other
+/// person's shift at once with nothing declared, and *they* count what they took
+/// out when they next sign in (`Uncounted`). The person arriving always counts
+/// in their own float.
 ///
 /// Everything here is the node's: which shift is running, what it took, what
 /// should therefore be in the drawer. This screen holds no figure of its own
@@ -87,10 +103,6 @@ const MOVEMENT: Record<string, string> = {
 /// leave a cashier looking at a button that did something invisible.
 const SILENT = "Node toko menolak tanpa alasan."
 
-/// The write went through — the drawer has changed — but the reply could not be
-/// read, so nothing on this screen may be trusted until the node is asked again.
-const UNREADABLE = "Jawaban node tidak terbaca. Keadaan laci dibaca ulang."
-
 /// `actor_id` is required by the node, and when the node runs with auth switched
 /// off it is NOT overwritten from a session — whatever this screen sends is what
 /// the ledger keeps forever. Checked here so the refusal names the real problem.
@@ -111,12 +123,11 @@ function when(stamp: string): string {
 
 /// The Z report, out of a reply the wrapper types loosely.
 ///
-/// `api.ts` names `activeShift`'s body `Shift` and the other three
+/// `api.ts` types `closeShift`, `countShift` and `cashMovement` bodies as
 /// `Record<string, unknown>`, but every one of these handlers returns the whole
-/// `ShiftReport` — `store_active_shift` an `Option` of it. Rather than assert
-/// that, the two fields this screen actually steers on are checked, and a body
-/// carrying neither is reported as unreadable instead of being drawn as an
-/// empty drawer.
+/// `ShiftReport`. Rather than assert that, the two fields this screen actually
+/// steers on are checked, and a body carrying neither is reported as unreadable
+/// instead of being drawn as an empty drawer.
 function asReport(body: unknown): ShiftReport | null {
   if (body === null || typeof body !== "object") return null
   const maybe = body as Partial<ShiftReport>
@@ -156,6 +167,24 @@ function useIdempotency() {
   }
 }
 
+/// `14:05`, the way a shift is spoken of at the counter. Anything that is not a
+/// timestamp is shown as it arrived.
+function clock(stamp: string): string {
+  const at = new Date(stamp)
+  if (Number.isNaN(at.getTime())) return stamp
+  const two = (n: number) => String(n).padStart(2, "0")
+  return `${two(at.getHours())}:${two(at.getMinutes())}`
+}
+
+/// The seat a shift sits at, in the shape the rest of the app keeps it.
+function seatOf(report: ShiftReport): Seat {
+  return {
+    terminal_id: report.terminal_id,
+    label: report.terminal_label === "" ? report.terminal_id : report.terminal_label,
+    shift_id: report.shift_id,
+  }
+}
+
 /// What the node last said about this drawer. `unknown` is a state of its own
 /// and never collapses into `none`.
 type Reading =
@@ -173,30 +202,34 @@ const DENOMINATIONS = [
 
 export function ShiftScreen({
   actorId,
-  terminalId,
   onBack,
+  onClosed,
+  onLeave,
 }: {
   actorId: string
-  terminalId: string
   onBack: () => void
+  /// The node has closed this person's shift. Fired the moment it is known, so
+  /// the till stops treating the seat as theirs while the count is still on
+  /// screen.
+  onClosed: () => void
+  /// Done here: back to the seat picker.
+  onLeave: () => void
 }) {
   const [reading, setReading] = useState<Reading>({ kind: "reading" })
 
   const read = useCallback(async () => {
     setReading({ kind: "reading" })
-    const reply = await activeShift()
+    // The person's own drawer, not `activeShift` ("any open shift on the
+    // node"): with several seats open, that one names somebody else's.
+    const reply = await myShifts()
     if (!reply.ok) {
       setReading({ kind: "unknown", problem: reply.problem ?? SILENT })
       return
     }
-    if (reply.body === null) {
-      setReading({ kind: "none" })
-      return
-    }
-    const report = asReport(reply.body)
+    const report = reply.body.open
     setReading(
       report === null
-        ? { kind: "unknown", problem: UNREADABLE }
+        ? { kind: "none" }
         : report.status === "OPEN"
           ? { kind: "open", report }
           : { kind: "closed", report },
@@ -213,13 +246,14 @@ export function ShiftScreen({
         void read()
         return
       }
+      if (report.status !== "OPEN") onClosed()
       setReading(
         report.status === "OPEN"
           ? { kind: "open", report }
           : { kind: "closed", report },
       )
     },
-    [read],
+    [read, onClosed],
   )
 
   let panel: ReactNode
@@ -241,26 +275,28 @@ export function ShiftScreen({
       </>
     )
   } else if (reading.kind === "none") {
+    // Seats are taken at the gate, not here: no shift now means the seat was
+    // let go of or taken, and the picker is where that is put right.
     panel = (
-      <Opening actorId={actorId} terminalId={terminalId} onDone={onDone} />
+      <>
+        <p className="notice warn">Anda tidak memegang shift di kasir mana pun.</p>
+        <div className="rows">
+          <button className="btn primary" onClick={onLeave}>
+            Pilih kasir
+          </button>
+        </div>
+      </>
     )
   } else if (reading.kind === "open") {
-    panel = (
-      <Running
-        actorId={actorId}
-        terminalId={terminalId}
-        report={reading.report}
-        onDone={onDone}
-      />
-    )
+    panel = <Running actorId={actorId} report={reading.report} onDone={onDone} />
   } else {
-    panel = (
-      <Closed
-        report={reading.report}
-        onAgain={() => setReading({ kind: "none" })}
-      />
-    )
+    panel = <Closed report={reading.report} onLeave={onLeave} />
   }
+
+  const label =
+    reading.kind === "open" || reading.kind === "closed"
+      ? reading.report.terminal_label
+      : ""
 
   return (
     <div id="app" data-screen="sale">
@@ -270,7 +306,7 @@ export function ShiftScreen({
           <div className="page-head">
             <div>
               <h1>Shift &amp; kas</h1>
-              <p className="num">{terminalId}</p>
+              {label !== "" && <p className="num">{label}</p>}
             </div>
             <button className="btn ghost" onClick={onBack}>
               <Icon name="back" />
@@ -335,17 +371,19 @@ function Rupiah({
   )
 }
 
-/// Opening the drawer: the float counted into it this morning. Also what a
-/// cashier is shown straight after signing in when no shift is open yet —
-/// see `ShiftGate` below.
-export function Opening({
+/// Sitting down at a seat: the float counted into the drawer. Free seat or one
+/// taken over, the person arriving always enters their own — the previous
+/// holder's money left with them and is theirs to count.
+function Opening({
   actorId,
-  terminalId,
+  seat,
   onDone,
+  onBack,
 }: {
   actorId: string
-  terminalId: string
+  seat: TillSeat
   onDone: (report: ShiftReport | null) => void
+  onBack: () => void
 }) {
   const [text, setText] = useState("")
   const [busy, setBusy] = useState(false)
@@ -360,11 +398,13 @@ export function Opening({
     setBusy(true)
     setProblem(null)
     const draft = {
-      terminal_id: terminalId,
+      terminal_id: seat.terminal_id,
       opening_float_minor: minorOf(text),
       actor_id: actorId,
     }
-    const reply = await openShift({
+    // One call for a free seat and a held one alike: the node ends the old
+    // shift first when there is one, and answers `ended: null` when not.
+    const reply = await takeOver({
       ...draft,
       idempotency_key: attempt.keyFor(draft),
     })
@@ -373,7 +413,7 @@ export function Opening({
       attempt.spent()
       // A new shift is when Finance's latest payment methods are picked up.
       void refreshPaymentMethods()
-      onDone(asReport(reply.body))
+      onDone(asReport(reply.body?.shift))
       return
     }
     setProblem(reply.problem ?? SILENT)
@@ -394,67 +434,280 @@ export function Opening({
       <button className="btn primary lg" type="submit" disabled={busy}>
         {busy ? "Membuka…" : `Buka shift · ${money(minorOf(text), CURRENCY)}`}
       </button>
+      <button className="btn ghost" type="button" disabled={busy} onClick={onBack}>
+        Pilih kasir lain
+      </button>
     </form>
   )
 }
 
-/// Straight after sign-in, when this terminal has no open shift: the float is
-/// asked for before the counter opens, because a till with no shift has no
-/// drawer to put the first sale's cash in. If the node cannot be asked, the
-/// counter opens anyway — the shift screen stays one press away.
+/// A seat, as the picker draws it: who has it, since when, and the one thing a
+/// person can do about it.
+function SeatRow({
+  seat,
+  onPick,
+}: {
+  seat: TillSeat
+  onPick: (seat: TillSeat) => void
+}) {
+  const held = seat.held_by !== null
+  return (
+    <div className="row-item">
+      <div className="grow">
+        <h3>{seat.label}</h3>
+        <p>
+          {!held
+            ? "Kosong"
+            : `Dipegang ${seat.held_by}${seat.held_since !== null ? ` sejak ${clock(seat.held_since)}` : ""}`}
+          {!seat.current && " · sudah tidak dipakai toko"}
+        </p>
+      </div>
+      {/* A seat head office no longer counts can be listed, because its drawer
+          is still open, but nobody sits down at it afresh. */}
+      {seat.current && (
+        <button className="btn primary" onClick={() => onPick(seat)}>
+          {held ? "Ambil alih" : `Pakai ${seat.label}`}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/// Which seat to sit at. Taking a held one asks a short question first — not an
+/// approval, nobody else is asked — because it ends somebody's shift.
+function SeatPicker({
+  actorId,
+  seats,
+  onReady,
+  onReload,
+}: {
+  actorId: string
+  seats: readonly TillSeat[]
+  onReady: (seat: Seat) => void
+  onReload: () => void
+}) {
+  const [chosen, setChosen] = useState<{ seat: TillSeat; sure: boolean } | null>(
+    null,
+  )
+  const listed = seats.filter((one) => one.current || one.held_by !== null)
+
+  if (chosen !== null && !chosen.sure) {
+    return (
+      <div className="rows">
+        <div className="notice warn" role="status">
+          Shift <strong>{chosen.seat.held_by}</strong> di{" "}
+          <strong>{chosen.seat.label}</strong> akan berakhir.{" "}
+          {chosen.seat.held_by} menghitung lacinya sendiri nanti.
+        </div>
+        <button
+          className="btn primary lg"
+          onClick={() => setChosen({ seat: chosen.seat, sure: true })}
+        >
+          Ambil alih {chosen.seat.label}
+        </button>
+        <button className="btn ghost" onClick={() => setChosen(null)}>
+          Batal
+        </button>
+      </div>
+    )
+  }
+
+  if (chosen !== null) {
+    return (
+      <>
+        <div className="page-head">
+          <div>
+            <h1>{chosen.seat.label}</h1>
+            <p>Hitung uang di laci Anda, lalu isi modal awalnya.</p>
+          </div>
+        </div>
+        <Opening
+          actorId={actorId}
+          seat={chosen.seat}
+          onDone={(report) => {
+            if (report !== null) onReady(seatOf(report))
+            else onReload()
+          }}
+          onBack={() => setChosen(null)}
+        />
+      </>
+    )
+  }
+
+  return (
+    <>
+      <div className="page-head">
+        <div>
+          <h1>Pilih kasir</h1>
+          <p>Duduk di kasir yang kosong, atau ambil alih yang sedang dipegang.</p>
+        </div>
+      </div>
+      {listed.length === 0 ? (
+        <>
+          <p className="notice warn">
+            Toko ini belum punya kasir. Kantor pusat belum menetapkan jumlah
+            kasir, atau kabarnya belum sampai ke toko.
+          </p>
+          <div className="rows">
+            <button className="btn" onClick={onReload}>
+              Coba lagi
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="rows">
+          {listed.map((one) => (
+            <SeatRow
+              key={one.terminal_id}
+              seat={one}
+              onPick={(seat) =>
+                setChosen({ seat, sure: seat.held_by === null })
+              }
+            />
+          ))}
+        </div>
+      )}
+    </>
+  )
+}
+
+/// A drawer somebody took over from this person, waiting to be counted.
+///
+/// Their shift ended when the other person sat down, with nothing declared —
+/// what they took out of the drawer is theirs to count, blind, the same way a
+/// close is. Nobody can skip it (they may sign out); the till does not open
+/// until every one is counted.
+function Uncounted({
+  actorId,
+  report,
+  onCounted,
+}: {
+  actorId: string
+  report: ShiftReport
+  onCounted: () => void
+}) {
+  return (
+    <>
+      <div className="page-head">
+        <div>
+          <h1>Hitung laci {report.terminal_label}</h1>
+          <p>
+            Shift Anda diambil alih oleh {report.taken_over_by ?? "orang lain"}
+            {report.closed_at !== null && ` pada ${clock(report.closed_at)}`}.
+            Hitung uang yang Anda ambil dari laci.
+          </p>
+        </div>
+      </div>
+      <Closing
+        actorId={actorId}
+        report={report}
+        counting
+        onDone={() => onCounted()}
+      />
+    </>
+  )
+}
+
+type Gate =
+  | { readonly kind: "asking" }
+  | { readonly kind: "problem"; readonly problem: string }
+  | { readonly kind: "count"; readonly report: ShiftReport }
+  | { readonly kind: "seats"; readonly seats: readonly TillSeat[] }
+
+/// Straight after sign-in, and again whenever a person has lost their seat:
+/// what does this person owe, and where can they sit?
+///
+/// In that order. A drawer somebody took over from them comes first and cannot
+/// be skipped — money that was never counted is money nobody can account for.
+/// Then, if they already hold a seat (a refresh, a second window), the till
+/// simply carries on at it. Otherwise they pick one. A till with no shift has
+/// no drawer to put the first sale's cash in, so nothing is sold before this
+/// is done, and if the node cannot be asked there is no seat to sit at.
 export function ShiftGate({
   actorId,
-  terminalId,
+  notice,
   onReady,
   onSignOut,
 }: {
   actorId: string
-  terminalId: string
-  onReady: () => void
+  /// Why the person is here again, when it is not a fresh sign-in.
+  notice?: string | null
+  onReady: (seat: Seat) => void
   onSignOut: () => void
 }) {
-  const [state, setState] = useState<"asking" | "none">("asking")
+  const [state, setState] = useState<Gate>({ kind: "asking" })
+  const alive = useRef(true)
+
+  const look = useCallback(async () => {
+    setState({ kind: "asking" })
+    const mine = await myShifts()
+    if (!alive.current) return
+    if (!mine.ok) {
+      setState({ kind: "problem", problem: mine.problem ?? SILENT })
+      return
+    }
+    const owed = mine.body.uncounted[0]
+    if (owed !== undefined) {
+      setState({ kind: "count", report: owed })
+      return
+    }
+    if (mine.body.open !== null) {
+      onReady(seatOf(mine.body.open))
+      return
+    }
+    const seats = await tillSeats()
+    if (!alive.current) return
+    setState(
+      seats.ok
+        ? { kind: "seats", seats: seats.body }
+        : { kind: "problem", problem: seats.problem ?? SILENT },
+    )
+  }, [onReady])
 
   useEffect(() => {
-    let alive = true
-    void (async () => {
-      const reply = await activeShift()
-      if (!alive) return
-      const report = reply.ok ? asReport(reply.body) : null
-      if (reply.ok && (reply.body === null || report?.status !== "OPEN")) {
-        setState("none")
-        return
-      }
-      onReady()
-    })()
+    alive.current = true
+    void look()
     return () => {
-      alive = false
+      alive.current = false
     }
-  }, [onReady])
+  }, [look])
 
   return (
     <div id="app" data-screen="sale">
       <Topbar actorId={actorId} onSignOut={onSignOut} />
       <main className="page">
         <div className="page-inner" style={{ maxWidth: 440 }}>
-          {state === "asking" ? (
+          {notice !== undefined && notice !== null && (
+            <div className="notice warn" role="status">
+              {notice}
+            </div>
+          )}
+          {state.kind === "asking" ? (
             <div className="empty">
               <h3>Memuat shift…</h3>
             </div>
-          ) : (
+          ) : state.kind === "problem" ? (
             <>
-              <div className="page-head">
-                <div>
-                  <h1>Buka shift</h1>
-                  <p>Hitung uang di laci, lalu isi modal awalnya.</p>
-                </div>
+              <p className="error">{state.problem}</p>
+              <div className="rows">
+                <button className="btn primary" onClick={() => void look()}>
+                  Coba lagi
+                </button>
               </div>
-              <Opening
-                actorId={actorId}
-                terminalId={terminalId}
-                onDone={() => onReady()}
-              />
             </>
+          ) : state.kind === "count" ? (
+            <Uncounted
+              actorId={actorId}
+              report={state.report}
+              onCounted={() => void look()}
+            />
+          ) : (
+            <SeatPicker
+              actorId={actorId}
+              seats={state.seats}
+              onReady={onReady}
+              onReload={() => void look()}
+            />
           )}
         </div>
       </main>
@@ -464,16 +717,19 @@ export function ShiftGate({
 
 function Running({
   actorId,
-  terminalId,
   report,
   onDone,
 }: {
   actorId: string
-  terminalId: string
   report: ShiftReport
   onDone: (report: ShiftReport | null) => void
 }) {
   const [closing, setClosing] = useState(false)
+  const outbox = useOutbox()
+  // A sale the node has not acknowledged belongs to this drawer, and closing
+  // fixes what the drawer should hold. Closed first, it would arrive afterwards
+  // as cash nobody counted.
+  const owed = outbox.unsent + outbox.refused
 
   // A blind count shows nothing that points at the expected figure — not the
   // takings, not the movements — from the moment counting starts.
@@ -490,12 +746,6 @@ function Running({
 
   return (
     <>
-      {report.terminal_id !== terminalId && (
-        <div className="notice warn">
-          Shift ini milik terminal <strong>{report.terminal_id}</strong>.
-        </div>
-      )}
-
       <div className="stats">
         <div className="stat">
           <small>Modal awal</small>
@@ -552,7 +802,18 @@ function Running({
       )}
 
       <div className="rows">
-        <button className="btn danger lg" onClick={() => setClosing(true)}>
+        {owed > 0 && (
+          <p className="error">
+            {outbox.unsent > 0
+              ? `${outbox.unsent} penjualan belum terkirim ke node — tunggu sampai terkirim sebelum menutup shift.`
+              : `${outbox.refused} penjualan ditolak node — selesaikan di layar konter sebelum menutup shift.`}
+          </p>
+        )}
+        <button
+          className="btn danger lg"
+          onClick={() => setClosing(true)}
+          disabled={owed > 0}
+        >
           <Icon name="lock" />
           Tutup shift
         </button>
@@ -658,7 +919,9 @@ function Movement({
   )
 }
 
-/// Closing the drawer, counted blind.
+/// Closing the drawer, counted blind. Also counting one that was taken over
+/// (`counting`): the same sheet, the same blindness, sent to `countShift` —
+/// the shift is already closed, so there is nothing to cancel back out of.
 ///
 /// The cashier counts every note and coin into the rows below and never sees
 /// the figure the node expects — not while counting, not before sending. The
@@ -674,11 +937,13 @@ function Closing({
   report,
   onDone,
   onCancel,
+  counting = false,
 }: {
   actorId: string
   report: ShiftReport
   onDone: (report: ShiftReport | null) => void
-  onCancel: () => void
+  onCancel?: () => void
+  counting?: boolean
 }) {
   const [counts, setCounts] = useState<Record<number, string>>({})
   const [note, setNote] = useState("")
@@ -715,7 +980,8 @@ function Closing({
       note: note.trim() === "" ? null : note.trim(),
       actor_id: actorId,
     }
-    const reply = await closeShift(report.shift_id, {
+    const send = counting ? countShift : closeShift
+    const reply = await send(report.shift_id, {
       ...draft,
       idempotency_key: attempt.keyFor(draft),
     })
@@ -762,7 +1028,13 @@ function Closing({
           disabled={busy}
           onClick={() => void close()}
         >
-          {busy ? "Menutup…" : "Kunci hitungan & tutup shift"}
+          {busy
+            ? counting
+              ? "Mengirim…"
+              : "Menutup…"
+            : counting
+              ? "Kunci hitungan"
+              : "Kunci hitungan & tutup shift"}
         </button>
         <button
           className="btn ghost"
@@ -779,11 +1051,15 @@ function Closing({
     <div className="rows">
       <div className="page-head" style={{ alignItems: "center" }}>
         <div>
-          <span className="label">Tutup shift · hitung uang di laci</span>
+          <span className="label">
+            {counting ? "Hitung uang di laci" : "Tutup shift · hitung uang di laci"}
+          </span>
         </div>
-        <button className="btn ghost" onClick={onCancel}>
-          Batal
-        </button>
+        {onCancel !== undefined && (
+          <button className="btn ghost" onClick={onCancel}>
+            Batal
+          </button>
+        )}
       </div>
 
       <div className="denom-grid">
@@ -843,10 +1119,10 @@ function Closing({
 /// next time, what number the count is meant to come to.
 function Closed({
   report,
-  onAgain,
+  onLeave,
 }: {
   report: ShiftReport
-  onAgain: () => void
+  onLeave: () => void
 }) {
   return (
     <>
@@ -902,8 +1178,8 @@ function Closed({
       </div>
 
       <div className="rows">
-        <button className="btn primary" onClick={onAgain}>
-          Buka shift baru
+        <button className="btn primary" onClick={onLeave}>
+          Pilih kasir
         </button>
       </div>
     </>

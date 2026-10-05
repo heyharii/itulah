@@ -1,8 +1,12 @@
 import type { QueryClient } from "@tanstack/react-query"
 
+import { node } from "@/lib/api"
+
 import { articleKeys, searchArticles } from "@/lib/queries/articles"
+import { listCashDocuments } from "@/lib/queries/cash-documents"
 import {
   financeKeys,
+  listGiros,
   listAssets,
   listBills,
   listJournal,
@@ -11,15 +15,26 @@ import {
 } from "@/lib/queries/finance"
 import { inventoryKeys, listAllotments } from "@/lib/queries/inventory"
 import { listEmployees, peopleKeys } from "@/lib/queries/people"
-import {
-  listPurchaseOrders,
-  listSuppliers,
-  procurementKeys,
-} from "@/lib/queries/procurement"
+import { listSuppliers, procurementKeys } from "@/lib/queries/procurement"
 import { listSales, storeopsKeys } from "@/lib/queries/storeops"
 import { listUsers, systemKeys } from "@/lib/queries/system"
 import { listThreads, workplaceKeys } from "@/lib/queries/workplace"
 import type { SheetKey } from "@/lib/sheets"
+import { supplierLabel } from "@/screens/procurement/supplier-format"
+
+/// The supplier book, for writing a supplier's name with its legal form. A
+/// failed read leaves the bare names rather than failing the search.
+async function supplierBook(client: QueryClient, signal?: AbortSignal) {
+  try {
+    return await client.fetchQuery({
+      queryKey: procurementKeys.suppliers(),
+      queryFn: () => listSuppliers(undefined, signal),
+      staleTime: 5 * 60 * 1000,
+    })
+  } catch {
+    return []
+  }
+}
 
 /// Global search, scoped to the module you are standing in.
 ///
@@ -72,33 +87,44 @@ function matches(needle: string, ...haystack: (string | null | undefined)[]) {
   return haystack.some((value) => value?.toLowerCase().includes(lower))
 }
 
+/// The server's `global_search` (migrations 0718 and 0816), not a loaded page
+/// of a list: an order from three months back is found by its number, and a
+/// supplier by its code or name, without anybody scrolling to it first. One
+/// request serves every kind, so the sources below share it through Query.
+function serverSearch(query: string, client: QueryClient, signal: AbortSignal) {
+  return client.fetchQuery({
+    queryKey: ["search", "global", query] as const,
+    staleTime: 10_000,
+    queryFn: async () =>
+      (
+        await node.get<{
+          items: {
+            kind: string
+            record_id: string
+            title: string
+            subtitle: string
+          }[]
+        }>(`/api/v1/search?${new URLSearchParams({ q: query, limit: "12" })}`, {
+          signal,
+        })
+      ).items,
+  })
+}
+
 export const searchSources: readonly SearchSource[] = [
   {
     module: "procurement",
     label: "Purchase orders",
-    run: async (query, client, signal) => {
-      const orders = await client.fetchQuery({
-        queryKey: procurementKeys.orders(),
-        queryFn: () => listPurchaseOrders(undefined, signal),
-      })
-      return orders
-        .filter((order) =>
-          matches(
-            query,
-            order.po_number,
-            order.supplier_name,
-            order.supplier_id
-          )
-        )
-        .slice(0, 8)
-        .map((order) => ({
-          id: order.purchase_order_id,
-          title: order.po_number,
-          subtitle: order.supplier_name ?? order.supplier_id,
+    run: async (query, client, signal) =>
+      (await serverSearch(query, client, signal))
+        .filter((hit) => hit.kind === "purchase_order")
+        .map((hit) => ({
+          id: hit.record_id,
+          title: hit.title,
+          subtitle: hit.subtitle,
           to: "/procurement/orders",
-          sheet: { key: "order" as const, value: order.purchase_order_id },
-        }))
-    },
+          sheet: { key: "order" as const, value: hit.record_id },
+        })),
   },
   {
     module: "finance",
@@ -133,6 +159,7 @@ export const searchSources: readonly SearchSource[] = [
         queryKey: financeKeys.bills(null),
         queryFn: () => listBills({}, signal).then((page) => page.rows),
       })
+      const book = await supplierBook(client, signal)
       return bills
         .filter((bill) =>
           matches(
@@ -146,7 +173,7 @@ export const searchSources: readonly SearchSource[] = [
         .map((bill) => ({
           id: bill.invoice_id,
           title: bill.invoice_number,
-          subtitle: bill.supplier_name ?? bill.supplier_id,
+          subtitle: supplierLabel(book, bill.supplier_id, bill.supplier_name),
           to: "/finance/payables/bills",
           sheet: { key: "bill" as const, value: bill.invoice_id },
         }))
@@ -168,6 +195,7 @@ export const searchSources: readonly SearchSource[] = [
         queryFn: () =>
           listPayments({ limit: 200 }, signal).then((page) => page.rows),
       })
+      const book = await supplierBook(client, signal)
       return payments
         .filter((payment) =>
           matches(
@@ -183,11 +211,139 @@ export const searchSources: readonly SearchSource[] = [
           id: payment.payment_id,
           title: payment.payment_number,
           subtitle:
-            payment.allocations[0]?.supplier_name ??
+            (payment.allocations[0] === undefined
+              ? null
+              : supplierLabel(
+                  book,
+                  payment.allocations[0].supplier_id,
+                  payment.allocations[0].supplier_name
+                )) ??
             payment.allocations[0]?.invoice_number ??
             payment.method,
           to: "/finance/payables/payments",
           sheet: { key: "payment" as const, value: payment.payment_id },
+        }))
+    },
+  },
+  {
+    module: "finance",
+    label: "Cash vouchers",
+    /// BKK and BKM by number, by who was paid or paid us, by the memo and by
+    /// the giro written on them — the paper somebody is holding.
+    run: async (query, client, signal) => {
+      const documents = await client.fetchQuery({
+        queryKey: [...financeKeys.all, "cash-documents", "search"] as const,
+        queryFn: () => listCashDocuments({ limit: 300 }, signal),
+        staleTime: 60_000,
+      })
+      const book = await supplierBook(client, signal)
+      return documents
+        .filter((doc) =>
+          matches(
+            query,
+            doc.number,
+            doc.party_name,
+            doc.memo,
+            doc.reference,
+            doc.giro_number,
+            doc.entry_number
+          )
+        )
+        .slice(0, 8)
+        .map((doc) => {
+          const word =
+            doc.kind === "PAY" ? "bkk" : doc.kind === "RECEIVE" ? "bkm" : null
+          return {
+            id: doc.document_id,
+            title: doc.number ?? `Draft ${doc.kind === "PAY" ? "BKK" : "BKM"}`,
+            subtitle: [
+              doc.party_type === "SUPPLIER"
+                ? supplierLabel(book, doc.supplier_id, doc.party_name)
+                : doc.party_name,
+              doc.memo,
+            ]
+              .filter(Boolean)
+              .join(" · "),
+            to:
+              word === null
+                ? "/finance/cash-bank/bkk"
+                : `/finance/cash-bank/${word}/${doc.document_id}`,
+          }
+        })
+    },
+  },
+  {
+    module: "finance",
+    label: "Giros",
+    run: async (query, client, signal) => {
+      const giros = await client.fetchQuery({
+        queryKey: ["finance", "giros", "search"] as const,
+        queryFn: () => listGiros({ limit: 1000 }, signal),
+        staleTime: 60_000,
+      })
+      const book = await supplierBook(client, signal)
+      return giros
+        .filter((giro) =>
+          matches(
+            query,
+            giro.number,
+            giro.party_name,
+            giro.payment_number,
+            giro.cash_document_number
+          )
+        )
+        .slice(0, 8)
+        .map((giro) => ({
+          id: giro.giro_id,
+          title: giro.number,
+          subtitle: [
+            giro.party_name === null
+              ? null
+              : supplierLabel(book, giro.party_name, giro.party_name),
+            giro.bank,
+            giro.status.toLowerCase(),
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          to: "/finance/cash-bank/giro",
+        }))
+    },
+  },
+  {
+    module: "finance",
+    label: "Contractor projects",
+    run: async (query, client, signal) => {
+      const projects = await client.fetchQuery({
+        queryKey: ["finance", "contractor-projects"] as const,
+        queryFn: () =>
+          node.get<
+            {
+              project_id: string
+              project_number: string
+              name: string
+              supplier_name: string | null
+              supplier_id: string
+            }[]
+          >("/api/v1/finance/contractor-projects", { signal }),
+        staleTime: 60_000,
+      })
+      const book = await supplierBook(client, signal)
+      return projects
+        .filter((row) =>
+          matches(
+            query,
+            row.project_number,
+            row.name,
+            row.supplier_name,
+            row.supplier_id
+          )
+        )
+        .slice(0, 8)
+        .map((row) => ({
+          id: row.project_id,
+          title: row.name,
+          subtitle: `${row.project_number} · ${supplierLabel(book, row.supplier_id, row.supplier_name)}`,
+          to: "/finance/assets/contractor-projects",
         }))
     },
   },
@@ -236,24 +392,20 @@ export const searchSources: readonly SearchSource[] = [
     },
   },
   {
-    module: "procurement",
+    // Suppliers answers in the Master module since 2026-10-04, so scoping
+    // the palette to "here" on the suppliers screen still finds them.
+    module: "master",
     label: "Suppliers",
     run: async (query, client, signal) => {
-      const suppliers = await client.fetchQuery({
-        queryKey: procurementKeys.suppliers(),
-        queryFn: () => listSuppliers(undefined, signal),
-      })
-      return suppliers
-        .filter((supplier) =>
-          matches(query, supplier.supplier_code, supplier.name)
-        )
-        .slice(0, 8)
-        .map((supplier) => ({
-          id: supplier.supplier_id,
-          title: supplier.name,
-          subtitle: supplier.supplier_code,
+      const book = await supplierBook(client, signal)
+      return (await serverSearch(query, client, signal))
+        .filter((hit) => hit.kind === "supplier")
+        .map((hit) => ({
+          id: hit.record_id,
+          title: supplierLabel(book, hit.record_id, hit.title),
+          subtitle: hit.subtitle,
           to: "/procurement/suppliers",
-          sheet: { key: "supplier" as const, value: supplier.supplier_id },
+          sheet: { key: "supplier" as const, value: hit.record_id },
         }))
     },
   },

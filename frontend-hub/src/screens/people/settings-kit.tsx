@@ -35,7 +35,7 @@ export function SheetFooter({
           disabled={disabled}
           onClick={onSave}
         >
-          {pending ? (pendingLabel ?? "Saving…") : (saveLabel ?? "Save")}
+          {pending ? (pendingLabel ?? "Submitting…") : (saveLabel ?? "Submit")}
         </Button>
       )}
     </div>

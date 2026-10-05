@@ -7,30 +7,33 @@ import {
   PackageSearch,
   PackageX,
   Radar,
-  Ruler,
   Scale,
   ShieldCheck,
   Workflow,
 } from "lucide-react"
 
+import { SHOW_MISSING } from "@/lib/features"
 import type { AppModule } from "@/lib/navigation"
+import { useOpenExceptionCount } from "@/screens/inventory/exceptions-data"
 
 /// This module's row in the sidebar and the sub-items under it.
 /// Owned by the module, composed by `lib/navigation.ts` — so adding a screen
 /// here never touches another module's file.
 ///
-/// # Four rows, and why not eleven
+/// # Six rows, and why not eleven
 ///
-/// This was eleven screens in four groups, then one, and is now four. The
-/// collapse to one was right about the readings and wrong about the records:
-/// Overview, Pools and Sightings *were* three readings of the same fleet, and
-/// As of, Control and Time machine three ways of doubting it — none of those
-/// is a destination somebody sets out for, and all of them are still routed,
-/// still linkable and still in ⌘K, because `hidden` only means "not a
-/// sub-item".
+/// This was eleven screens in four groups, then one, and is now six. The
+/// owner's Inventory menu of 4 Oct 2026 names what the module is opened for:
+/// **Stock** — the store-cards board, one card per place the fleet stands in —
+/// and **Exceptions**, the cases the readings raise. Counts and Movements keep
+/// their rows (the records a number sends somebody to); the remaining readings
+/// — Observations, Satuan & conversions — sit under the department's **More**
+/// fold, and the doubting surfaces (As of, Control, Time machine) stay hidden,
+/// still routed, still linkable and still in ⌘K, because `hidden` only means
+/// "not a sub-item".
 ///
-/// What the collapse also buried were the three surfaces that are not readings
-/// of stock at all:
+/// What the earlier collapse buried were the three surfaces that are not
+/// readings of stock at all:
 ///
 /// - **Counts** is the only thing in this app allowed to tell the ledger it is
 ///   wrong. It has a lifecycle, an approval and a history, and a person opens
@@ -67,8 +70,15 @@ export const inventoryNav: AppModule = {
       items: [
         { path: "/inventory", label: "Stock", icon: Boxes },
         {
+          path: "/inventory/exceptions",
+          label: "Exceptions",
+          icon: PackageX,
+          useCount: useOpenExceptionCount,
+          badge: "warn",
+        },
+        {
           path: "/inventory/availability",
-          label: "Availability",
+          label: "On Hand & Shortfall",
           icon: PackageSearch,
           hidden: true,
         },
@@ -79,31 +89,35 @@ export const inventoryNav: AppModule = {
           label: "Movements",
           icon: ArrowLeftRight,
         },
-        { path: "/inventory/observations", label: "Sightings", icon: Radar },
-        // Master data rather than a reading: the units an order may be
-        // typed in, and how many pieces each is. Sought by name — a buyer
-        // setting up KODI goes looking for it — so it is a sub-item.
         {
-          path: "/inventory/units",
-          label: "Units & conversions",
-          icon: Ruler,
+          path: "/inventory/observations",
+          label: "Observations",
+          icon: Radar,
+          more: true,
         },
         // Flow templates (0615-0619): the order of stages each route of goods
         // runs, who raises its plan and who does each stage. Sought by name —
         // an Admin setting up a new route goes looking for it — so it is a
         // sub-item. The owner's "Alur barang", in English with the rest of
-        // the hub (27 Sep).
+        // the hub (27 Sep). Relabelled "Flows" on the owner's menu of
+        // 2026-09-28. Out of the sidebar on the owner's word (3 Oct 2026);
+        // still routed and in ⌘K.
         {
           path: "/inventory/flows",
-          label: "Goods flows",
+          label: "Flows",
           icon: Workflow,
-        },
-        {
-          path: "/inventory/missing",
-          label: "Missing",
-          icon: PackageX,
           hidden: true,
         },
+        // Hidden while SHOW_MISSING is off; the route stays declared.
+        ...(SHOW_MISSING
+          ? [
+              {
+                path: "/inventory/missing",
+                label: "Missing",
+                icon: PackageX,
+              },
+            ]
+          : []),
         {
           path: "/inventory/reconciliations",
           label: "Reconciliations",

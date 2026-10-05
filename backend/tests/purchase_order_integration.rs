@@ -1,5 +1,5 @@
 //! Purchase orders end to end: raised centrally, counted blind at a DC,
-//! verified by a second person, and only then real.
+//! accepted by a permitted role, and only then real.
 //!
 //! The control this exercises is the reason receiving works the way it does.
 //! A checker counts what arrived without being told what to expect — a count
@@ -120,6 +120,9 @@ fn order_for(site: &str) -> NewPurchaseOrder {
             ordered_quantity: 120,
             unit_price_minor: 300_000,
             promised_date: None,
+            unit_code: None,
+            unit_quantity: None,
+            order_unit_price_minor: None,
         }],
     }
 }
@@ -175,7 +178,7 @@ fn stock(edge: &SqliteEdge) -> (i64, i64) {
 }
 
 #[sqlx::test(migrations = "./migrations/postgres")]
-async fn a_delivery_becomes_stock_only_when_a_second_person_accepts_the_count(pool: PgPool) {
+async fn a_delivery_becomes_stock_when_the_count_is_accepted(pool: PgPool) {
     enrol_dc(&pool).await;
     let dc = distribution_centre();
     let (po_id, command_id, target) = cloud::create_purchase_order(&pool, &order_for(DC_SITE))
@@ -217,6 +220,7 @@ async fn a_delivery_becomes_stock_only_when_a_second_person_accepts_the_count(po
             receipt_id: delivery(&dc),
             po_line_id,
             counted_quantity: 118,
+            wrong_quantity: 0,
             counted_unit_code: None,
             counted_unit_quantity: None,
             actor_id: "penerima-1".into(),
@@ -237,26 +241,14 @@ async fn a_delivery_becomes_stock_only_when_a_second_person_accepts_the_count(po
         "an unverified count must not settle anything against the supplier"
     );
 
-    // --- The counter cannot approve their own count ----------------------
-    let refused = dc.verify_purchase(PurchaseVerifyRequest {
-        count_id: count.count_id,
-        verifier_actor_id: "penerima-1".into(),
-        decision: PurchaseVerifyDecision::Accept,
-        note: None,
-        invoiced_price_minor: None,
-        idempotency_key: "verify-self".into(),
-    });
-    let error = refused
-        .err()
-        .unwrap_or_else(|| panic!("self-approval must be refused"));
-    assert!(error.to_string().contains("second person"), "{error}");
-    assert_eq!(stock(&dc), (0, 0));
-
-    // --- A second person accepts it --------------------------------------
+    // --- The counter accepts their own count ------------------------------
+    // Eligibility is the caller's role and permission, not a name
+    // comparison (owner, 2026-10-04): one person may count a delivery and
+    // accept it.
     let verified = dc
         .verify_purchase(PurchaseVerifyRequest {
             count_id: count.count_id,
-            verifier_actor_id: "supervisor-1".into(),
+            verifier_actor_id: "penerima-1".into(),
             decision: PurchaseVerifyDecision::Accept,
             note: None,
             invoiced_price_minor: None,
@@ -264,7 +256,7 @@ async fn a_delivery_becomes_stock_only_when_a_second_person_accepts_the_count(po
         })
         .unwrap_or_else(|e| panic!("verify: {e}"));
     assert_eq!(verified.counted_by, "penerima-1");
-    assert_eq!(verified.verified_by, "supervisor-1");
+    assert_eq!(verified.verified_by, "penerima-1");
     assert_eq!(
         verified.accepted_quantity,
         Some(118),
@@ -318,7 +310,7 @@ async fn a_delivery_becomes_stock_only_when_a_second_person_accepts_the_count(po
     .await
     .unwrap_or_else(|e| panic!("receipt: {e}"));
     assert_eq!(counted, "penerima-1");
-    assert_eq!(approved, "supervisor-1");
+    assert_eq!(approved, "penerima-1");
 
     // Deciding twice changes nothing.
     let again = dc.verify_purchase(PurchaseVerifyRequest {
@@ -347,6 +339,7 @@ async fn a_recount_leaves_the_goods_where_they_were_and_says_why(pool: PgPool) {
             receipt_id: delivery(&dc),
             po_line_id,
             counted_quantity: 60,
+            wrong_quantity: 0,
             counted_unit_code: None,
             counted_unit_quantity: None,
             actor_id: "penerima-1".into(),
@@ -358,7 +351,7 @@ async fn a_recount_leaves_the_goods_where_they_were_and_says_why(pool: PgPool) {
     // just makes the same count happen twice.
     let unexplained = dc.verify_purchase(PurchaseVerifyRequest {
         count_id: first.count_id,
-        verifier_actor_id: "supervisor-1".into(),
+        verifier_actor_id: "buyer-1".into(),
         decision: PurchaseVerifyDecision::Recount,
         note: None,
         invoiced_price_minor: None,
@@ -369,7 +362,7 @@ async fn a_recount_leaves_the_goods_where_they_were_and_says_why(pool: PgPool) {
     let sent_back = dc
         .verify_purchase(PurchaseVerifyRequest {
             count_id: first.count_id,
-            verifier_actor_id: "supervisor-1".into(),
+            verifier_actor_id: "buyer-1".into(),
             decision: PurchaseVerifyDecision::Recount,
             note: Some("Jauh di bawah PO — cek apakah ada karton belum dibuka".into()),
             invoiced_price_minor: None,
@@ -393,21 +386,21 @@ async fn a_recount_leaves_the_goods_where_they_were_and_says_why(pool: PgPool) {
             receipt_id: delivery(&dc),
             po_line_id,
             counted_quantity: 120,
+            wrong_quantity: 0,
             counted_unit_code: None,
             counted_unit_quantity: None,
             actor_id: "penerima-1".into(),
             idempotency_key: "count-2".into(),
         })
         .unwrap_or_else(|e| panic!("recount: {e}"));
-    dc.verify_purchase(PurchaseVerifyRequest {
-        count_id: second.count_id,
-        verifier_actor_id: "supervisor-1".into(),
-        decision: PurchaseVerifyDecision::Accept,
-        note: None,
-        invoiced_price_minor: None,
-        idempotency_key: "verify-2".into(),
-    })
-    .unwrap_or_else(|e| panic!("verify: {e}"));
+    // Exactly what the order owes: received without a review.
+    assert!(
+        dc.counts_awaiting_verification()
+            .unwrap_or_else(|e| panic!("queue: {e}"))
+            .iter()
+            .all(|waiting| waiting.count_id != second.count_id),
+        "an exact count is received automatically"
+    );
 
     sync(&dc, &pool).await;
     let detail = cloud::purchase_order_status(&pool, po_id)
@@ -440,21 +433,31 @@ async fn a_short_delivery_keeps_the_order_open_for_the_rest(pool: PgPool) {
                 receipt_id: delivery(&dc),
                 po_line_id,
                 counted_quantity: quantity,
+                wrong_quantity: 0,
                 counted_unit_code: None,
                 counted_unit_quantity: None,
                 actor_id: checker.into(),
                 idempotency_key: format!("count-{index}"),
             })
             .unwrap_or_else(|e| panic!("count {index}: {e}"));
-        dc.verify_purchase(PurchaseVerifyRequest {
-            count_id: count.count_id,
-            verifier_actor_id: "supervisor-1".into(),
-            decision: PurchaseVerifyDecision::Accept,
-            note: None,
-            invoiced_price_minor: None,
-            idempotency_key: format!("verify-{index}"),
-        })
-        .unwrap_or_else(|e| panic!("verify {index}: {e}"));
+        if index == 0 {
+            // Short: the creator reviews it and keeps the rest on order.
+            dc.verify_purchase(PurchaseVerifyRequest {
+                count_id: count.count_id,
+                verifier_actor_id: "buyer-1".into(),
+                decision: PurchaseVerifyDecision::Accept,
+                note: None,
+                invoiced_price_minor: None,
+                idempotency_key: format!("verify-{index}"),
+            })
+            .unwrap_or_else(|e| panic!("verify {index}: {e}"));
+        } else {
+            // Exactly the rest: received without a review.
+            assert!(dc
+                .counts_awaiting_verification()
+                .unwrap_or_else(|e| panic!("queue {index}: {e}"))
+                .is_empty());
+        }
         sync(&dc, &pool).await;
 
         let detail = cloud::purchase_order_status(&pool, po_id)
@@ -515,6 +518,7 @@ async fn a_dc_cannot_count_against_an_order_it_was_never_given(pool: PgPool) {
         receipt_id: delivery(&dc),
         po_line_id: Uuid::new_v4(),
         counted_quantity: 5,
+        wrong_quantity: 0,
         counted_unit_code: None,
         counted_unit_quantity: None,
         actor_id: "penerima-1".into(),
@@ -551,7 +555,10 @@ async fn accepting_reports_a_price_difference_without_holding_the_goods(pool: Pg
         .count_purchase(PurchaseCountRequest {
             receipt_id: delivery(&dc),
             po_line_id,
-            counted_quantity: 120,
+            // Two short, so the count waits for the creator, who reports the
+            // invoice as they accept. An exact count is received on its own.
+            counted_quantity: 118,
+            wrong_quantity: 0,
             counted_unit_code: None,
             counted_unit_quantity: None,
             actor_id: "penerima-1".into(),
@@ -564,7 +571,7 @@ async fn accepting_reports_a_price_difference_without_holding_the_goods(pool: Pg
     let accepted = dc
         .verify_purchase(PurchaseVerifyRequest {
             count_id: count.count_id,
-            verifier_actor_id: "supervisor-1".into(),
+            verifier_actor_id: "buyer-1".into(),
             decision: PurchaseVerifyDecision::Accept,
             note: Some("Invoice supplier 310.000 per karton, PO 300.000".into()),
             invoiced_price_minor: Some(310_000),
@@ -573,10 +580,10 @@ async fn accepting_reports_a_price_difference_without_holding_the_goods(pool: Pg
         .unwrap_or_else(|e| panic!("accept: {e}"));
 
     // The goods went in. One action, one visit.
-    assert_eq!(accepted.accepted_quantity, Some(120));
+    assert_eq!(accepted.accepted_quantity, Some(118));
     assert_eq!(
         stock(&dc),
-        (0, 120),
+        (0, 118),
         "a billing dispute does not hold goods"
     );
     let request_id = accepted
@@ -589,7 +596,7 @@ async fn accepting_reports_a_price_difference_without_holding_the_goods(pool: Pg
         .await
         .unwrap_or_else(|e| panic!("status: {e}"));
     assert_eq!(
-        detail["lines"][0]["received_quantity"], 120,
+        detail["lines"][0]["received_quantity"], 118,
         "the delivery settled while the price is still being argued"
     );
 
@@ -666,28 +673,24 @@ async fn a_matching_invoice_raises_no_query(pool: PgPool) {
     sync(&dc, &pool).await;
     let po_line_id = line_of(&pool, po_id).await;
 
-    let count = dc
-        .count_purchase(PurchaseCountRequest {
+    // Exactly what was ordered: received without a review, so nobody is
+    // asked to compare an invoice at all.
+    dc.count_purchase(PurchaseCountRequest {
             receipt_id: delivery(&dc),
             po_line_id,
             counted_quantity: 120,
+            wrong_quantity: 0,
             counted_unit_code: None,
             counted_unit_quantity: None,
             actor_id: "penerima-1".into(),
             idempotency_key: "count-1".into(),
         })
         .unwrap_or_else(|e| panic!("count: {e}"));
-    let accepted = dc
-        .verify_purchase(PurchaseVerifyRequest {
-            count_id: count.count_id,
-            verifier_actor_id: "supervisor-1".into(),
-            decision: PurchaseVerifyDecision::Accept,
-            note: None,
-            invoiced_price_minor: Some(300_000),
-            idempotency_key: "accept-1".into(),
-        })
-        .unwrap_or_else(|e| panic!("accept: {e}"));
-    assert_eq!(accepted.price_amendment_request_id, None);
+    assert!(dc
+        .counts_awaiting_verification()
+        .unwrap_or_else(|e| panic!("queue: {e}"))
+        .is_empty());
+    assert_eq!(stock(&dc), (0, 120));
     sync(&dc, &pool).await;
     assert_eq!(
         cloud::pending_price_amendments(&pool, &cloud::PriceAmendmentScope::default())
@@ -717,7 +720,9 @@ async fn a_refused_price_query_leaves_the_order_alone_but_stays_on_record(pool: 
         .count_purchase(PurchaseCountRequest {
             receipt_id: delivery(&dc),
             po_line_id,
-            counted_quantity: 120,
+            // Short, so the creator reviews it and can report the invoice.
+            counted_quantity: 118,
+            wrong_quantity: 0,
             counted_unit_code: None,
             counted_unit_quantity: None,
             actor_id: "penerima-1".into(),
@@ -727,7 +732,7 @@ async fn a_refused_price_query_leaves_the_order_alone_but_stays_on_record(pool: 
     let asked = dc
         .verify_purchase(PurchaseVerifyRequest {
             count_id: count.count_id,
-            verifier_actor_id: "supervisor-1".into(),
+            verifier_actor_id: "buyer-1".into(),
             decision: PurchaseVerifyDecision::Accept,
             note: Some("Invoice 400.000 — jauh di atas PO".into()),
             invoiced_price_minor: Some(400_000),
@@ -777,7 +782,7 @@ async fn a_refused_price_query_leaves_the_order_alone_but_stays_on_record(pool: 
     assert!(note.contains("400.000"));
 
     // The delivery was never held in the first place.
-    assert_eq!(stock(&dc), (0, 120));
+    assert_eq!(stock(&dc), (0, 118));
 }
 
 /// The two views are different on purpose, and the difference is the control.
@@ -815,6 +820,7 @@ async fn the_checker_is_shown_nothing_to_confirm_and_the_verifier_everything_to_
         receipt_id: delivery(&dc),
         po_line_id,
         counted_quantity: 118,
+        wrong_quantity: 0,
         counted_unit_code: None,
         counted_unit_quantity: None,
         actor_id: "penerima-1".into(),
@@ -842,7 +848,7 @@ async fn the_checker_is_shown_nothing_to_confirm_and_the_verifier_everything_to_
     // delivery, whatever happens to the price afterwards.
     dc.verify_purchase(PurchaseVerifyRequest {
         count_id: waiting.count_id,
-        verifier_actor_id: "supervisor-1".into(),
+        verifier_actor_id: "buyer-1".into(),
         decision: PurchaseVerifyDecision::Accept,
         note: None,
         invoiced_price_minor: Some(310_000),
@@ -881,7 +887,9 @@ async fn the_verifier_keeps_the_invoice_against_the_delivery_the_count_names(poo
     dc.count_purchase(PurchaseCountRequest {
         receipt_id,
         po_line_id,
-        counted_quantity: 120,
+        // Short, so it waits for review (an exact count is received at once).
+        counted_quantity: 118,
+        wrong_quantity: 0,
         counted_unit_code: None,
         counted_unit_quantity: None,
         actor_id: "penerima-1".into(),
@@ -971,6 +979,7 @@ async fn a_buyer_can_stop_waiting_and_the_shortfall_is_recorded_as_one(pool: PgP
             receipt_id: delivery(&dc),
             po_line_id,
             counted_quantity: 100,
+            wrong_quantity: 0,
             counted_unit_code: None,
             counted_unit_quantity: None,
             actor_id: "penerima-1".into(),
@@ -979,7 +988,7 @@ async fn a_buyer_can_stop_waiting_and_the_shortfall_is_recorded_as_one(pool: PgP
         .unwrap_or_else(|e| panic!("count: {e}"));
     dc.verify_purchase(PurchaseVerifyRequest {
         count_id: count.count_id,
-        verifier_actor_id: "supervisor-1".into(),
+        verifier_actor_id: "buyer-1".into(),
         decision: PurchaseVerifyDecision::Accept,
         note: None,
         invoiced_price_minor: None,
@@ -1066,26 +1075,18 @@ async fn a_fully_received_line_cannot_be_closed_short(pool: PgPool) {
     sync(&dc, &pool).await;
     let po_line_id = line_of(&pool, po_id).await;
 
-    let count = dc
-        .count_purchase(PurchaseCountRequest {
+    // Exactly what was ordered: received without a review.
+    dc.count_purchase(PurchaseCountRequest {
             receipt_id: delivery(&dc),
             po_line_id,
             counted_quantity: 120,
+            wrong_quantity: 0,
             counted_unit_code: None,
             counted_unit_quantity: None,
             actor_id: "penerima-1".into(),
             idempotency_key: "count-1".into(),
         })
         .unwrap_or_else(|e| panic!("count: {e}"));
-    dc.verify_purchase(PurchaseVerifyRequest {
-        count_id: count.count_id,
-        verifier_actor_id: "supervisor-1".into(),
-        decision: PurchaseVerifyDecision::Accept,
-        note: None,
-        invoiced_price_minor: None,
-        idempotency_key: "accept-1".into(),
-    })
-    .unwrap_or_else(|e| panic!("accept: {e}"));
     sync(&dc, &pool).await;
 
     let error = cloud::close_purchase_line_short(&pool, po_line_id, "buyer-1", "sudah lengkap")
@@ -1103,7 +1104,9 @@ async fn a_fully_received_line_cannot_be_closed_short(pool: PgPool) {
 // stands. Slice A.
 // ---------------------------------------------------------------------------
 
-/// Accept a count with a second pair of hands, and hand back what it did.
+/// Accept a count as the PO's creator (a second pair of hands), and hand back
+/// what it did. Only a count that is over or short waits for this; an exact
+/// one is received on its own.
 fn accept(
     dc: &SqliteEdge,
     count_id: Uuid,
@@ -1111,7 +1114,7 @@ fn accept(
 ) -> inventory_backend::edge::PurchaseVerifyResult {
     dc.verify_purchase(PurchaseVerifyRequest {
         count_id,
-        verifier_actor_id: "pemeriksa-1".into(),
+        verifier_actor_id: "buyer-1".into(),
         decision: PurchaseVerifyDecision::Accept,
         note: None,
         invoiced_price_minor: None,
@@ -1125,6 +1128,7 @@ fn count_of(dc: &SqliteEdge, po_line_id: Uuid, quantity: i64, key: &str) -> Uuid
         receipt_id: delivery(dc),
         po_line_id,
         counted_quantity: quantity,
+        wrong_quantity: 0,
         counted_unit_code: None,
         counted_unit_quantity: None,
         actor_id: "penerima-1".into(),
@@ -1204,7 +1208,8 @@ async fn a_second_delivery_against_a_filled_order_is_all_excess(pool: PgPool) {
     sync(&dc, &pool).await;
     let po_line_id = line_of(&pool, po_id).await;
 
-    accept(&dc, count_of(&dc, po_line_id, 120, "count-a"), "verify-a");
+    // The first lorry is exactly the order: received without a review.
+    count_of(&dc, po_line_id, 120, "count-a");
     let second = accept(&dc, count_of(&dc, po_line_id, 120, "count-b"), "verify-b");
     assert_eq!(
         second.matched_quantity,
@@ -1252,6 +1257,7 @@ async fn a_lorry_from_one_supplier_cannot_answer_another_suppliers_order(pool: P
         receipt_id: from_the_second_supplier,
         po_line_id: line_of(&pool, first).await,
         counted_quantity: 10,
+        wrong_quantity: 0,
         counted_unit_code: None,
         counted_unit_quantity: None,
         actor_id: "penerima-1".into(),
@@ -1297,7 +1303,7 @@ async fn an_approval_settles_the_delivery_it_answers_and_leaves_the_order_alone(
     let first = dc
         .verify_purchase(PurchaseVerifyRequest {
             count_id: count_of(&dc, po_line_id, 40, "count-40"),
-            verifier_actor_id: "pemeriksa-1".into(),
+            verifier_actor_id: "buyer-1".into(),
             decision: PurchaseVerifyDecision::Accept,
             note: Some("faktur 310.000".into()),
             invoiced_price_minor: Some(310_000),
@@ -1362,8 +1368,12 @@ async fn an_approval_settles_the_delivery_it_answers_and_leaves_the_order_alone(
 
     // The rest of the order arrives at the price it was raised at.
     sync(&dc, &pool).await;
-    let second = accept(&dc, count_of(&dc, po_line_id, 80, "count-80"), "verify-80");
-    assert_eq!(second.agreed_unit_price_minor, Some(300_000));
+    // Exactly the rest: received without a review, at the order's price.
+    count_of(&dc, po_line_id, 80, "count-80");
+    assert!(dc
+        .counts_awaiting_verification()
+        .unwrap_or_else(|e| panic!("queue: {e}"))
+        .is_empty());
     sync(&dc, &pool).await;
     let detail = cloud::purchase_order_status(&pool, po_id)
         .await
@@ -1428,11 +1438,8 @@ async fn a_filled_line_leaves_the_checkers_list(pool: PgPool) {
         "half a delivery still owes the other half"
     );
 
-    accept(
-        &dc,
-        count_of(&dc, po_line_id, 60, "count-rest"),
-        "verify-rest",
-    );
+    // Exactly the rest: received without a review.
+    count_of(&dc, po_line_id, 60, "count-rest");
     assert!(
         dc.open_purchase_lines().unwrap_or_default().is_empty(),
         "a line nobody owes a delivery against is not work"
@@ -1466,4 +1473,77 @@ async fn identification_is_offered_the_matched_quantity_and_not_the_excess(pool:
         "identification works what the order bought"
     );
     assert_eq!(waiting[0]["excess_quantity"], 10);
+}
+
+/// A count that is exactly what the order owes needs nobody's review (owner,
+/// 2026-10-02). It is received through the same acceptance as a manual one,
+/// in the name of the PO's creator, and the centre hears it the same way.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn an_exact_count_is_received_without_a_review(pool: PgPool) {
+    enrol_dc(&pool).await;
+    let dc = distribution_centre();
+    let (po_id, _, _) = cloud::create_purchase_order(&pool, &order_for(DC_SITE))
+        .await
+        .unwrap_or_else(|e| panic!("raise: {e}"));
+    sync(&dc, &pool).await;
+    let po_line_id = line_of(&pool, po_id).await;
+
+    let count_id = count_of(&dc, po_line_id, 120, "count-exact");
+    assert!(
+        dc.counts_awaiting_verification()
+            .unwrap_or_else(|e| panic!("queue: {e}"))
+            .is_empty(),
+        "nothing differs, so nothing waits"
+    );
+    assert_eq!(stock(&dc), (0, 120));
+
+    sync(&dc, &pool).await;
+    let detail = cloud::purchase_order_status(&pool, po_id)
+        .await
+        .unwrap_or_else(|e| panic!("status: {e}"));
+    assert_eq!(detail["lines"][0]["received_quantity"], 120);
+    assert_eq!(detail["lifecycle"], "FULLY_RECEIVED");
+    assert_eq!(detail["lines"][0]["receipts"][0]["quantity"], 120);
+    let (counted, approved): (String, String) = sqlx::query_as(
+        "SELECT counted_by, verified_by FROM goods_receipt_line WHERE count_id = $1",
+    )
+    .bind(count_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("receipt: {e}"));
+    assert_eq!(counted, "penerima-1");
+    assert_eq!(approved, "buyer-1", "received in the creator's name");
+}
+
+/// The person who raised the order may count it too (owner, 2026-10-05): counting
+/// and accepting are permissions, not two people. An exact count by the creator
+/// is received like anyone's, in the creator's own name.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn an_exact_count_by_the_orders_creator_is_received_too(pool: PgPool) {
+    enrol_dc(&pool).await;
+    let dc = distribution_centre();
+    let (po_id, _, _) = cloud::create_purchase_order(&pool, &order_for(DC_SITE))
+        .await
+        .unwrap_or_else(|e| panic!("raise: {e}"));
+    sync(&dc, &pool).await;
+    let po_line_id = line_of(&pool, po_id).await;
+
+    dc.count_purchase(PurchaseCountRequest {
+        receipt_id: delivery(&dc),
+        po_line_id,
+        counted_quantity: 120,
+        wrong_quantity: 0,
+        counted_unit_code: None,
+        counted_unit_quantity: None,
+        actor_id: "buyer-1".into(),
+        idempotency_key: "count-by-creator".into(),
+    })
+    .unwrap_or_else(|e| panic!("count: {e}"));
+    assert!(
+        dc.counts_awaiting_verification()
+            .unwrap_or_else(|e| panic!("queue: {e}"))
+            .is_empty(),
+        "the creator counted exactly what is owed, so nothing waits"
+    );
+    assert_eq!(stock(&dc), (0, 120));
 }

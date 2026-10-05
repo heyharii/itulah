@@ -44,10 +44,10 @@ export function TeamTab({ store }: { store: StoreSummary }) {
           title="PIC"
           actions={
             <AppLink
-              to="/system/units"
+              to="/master/organisation"
               className="text-[0.875rem] font-medium text-accent"
             >
-              Change in System › Units
+              Change in Master › Units
             </AppLink>
           }
         >

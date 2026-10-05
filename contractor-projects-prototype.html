@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contractor Projects — prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Tokens from frontend-hub/src/styles/index.css. Finance › Assets › Contractor
+   projects (owner, 2026-10-01): pay the contractor in advance, gather the
+   invoices over the months, then split the whole cost into assets and
+   expense accounts when the work is done. Three screens; the pills at the top
+   switch them (prototype chrome, not part of the app). */
+:root{
+  --ink:#20242c;--text:#394150;--body:#626b78;--mute:#737c89;--faint:#b9c0c9;
+  --canvas:#fff;--soft:#f8f9fb;--soft-2:#f0f2f5;--soft-3:#f6f6f7;--hairline:#e7eaf0;--hairline-2:#dce1e8;--hairline-strong:#c7ced8;
+  --rail:#16181d;--rail-2:#23262d;--rail-3:#2e323a;--rail-ink:#f2f4f7;--rail-mute:#7d8491;--rail-text:#c3c8d1;
+  --accent:#2563eb;--accent-bg:#eff5ff;
+  --ok-fg:#15803d;--ok-bg:#e6f6e1;--warn-fg:#b45309;--warn-bg:#faeacd;--bad-fg:#be123c;--bad-bg:#fbeaea;--info-fg:#2c57bf;--info-bg:#ddebfa;
+  --r-card:12px;--r-inner:7px;
+  --shadow-card:0 1px 2px rgb(0 0 0/5%),0 4px 14px rgb(0 0 0/4%);
+  --ease-out:cubic-bezier(.23,1,.32,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:14px/1.5 Inter,system-ui,sans-serif;color:var(--text);background:var(--soft-3);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px}
+.num{font-variant-numeric:tabular-nums}
+.mute{color:var(--mute)}
+.proto{position:sticky;top:0;z-index:5;display:flex;gap:6px;align-items:center;padding:10px 20px;background:var(--canvas);border-bottom:1px solid var(--hairline)}
+.proto b{color:var(--ink);margin-right:10px}
+.proto button{height:32px;padding:0 14px;border-radius:999px;border:1px solid var(--hairline-2);background:var(--canvas);font-weight:500;color:var(--body)}
+.proto button[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:#fff}
+.shell{display:flex;min-height:calc(100vh - 53px)}
+.rail{width:248px;background:var(--rail);color:var(--rail-text);padding:16px 12px;flex:none}
+.rail .brand{color:var(--rail-ink);font-weight:600;font-size:15px;margin:0 6px 18px}
+.rail .grp{color:var(--rail-ink);font-weight:500;padding:8px 10px;margin-top:4px}
+.rail .item{padding:7px 10px 7px 22px;border-radius:var(--r-inner);color:var(--rail-text)}
+.rail .item.on{background:var(--rail-3);color:var(--rail-ink);font-weight:500}
+.page{flex:1;min-width:0;padding:28px 36px 60px;max-width:1240px}
+.crumb{color:var(--mute);margin-bottom:4px}
+h1{font-size:22px;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+.sub{color:var(--body);margin-top:4px}
+.head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:24px}
+.btn{height:38px;padding:0 16px;border-radius:var(--r-inner);border:1px solid var(--hairline-2);background:var(--canvas);font-weight:500;color:var(--ink);display:inline-flex;align-items:center;gap:8px;transition:background .15s,transform .12s var(--ease-out)}
+.btn:hover{background:var(--soft)}
+.btn:active{transform:scale(.98)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:#1d4ed8}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--accent)}
+.card{background:var(--canvas);border:1px solid var(--hairline-2);border-radius:var(--r-card);box-shadow:var(--shadow-card);overflow:hidden}
+table{width:100%;border-collapse:collapse}
+th{height:48px;padding:0 16px;background:var(--soft);border-bottom:1px solid var(--hairline-2);text-align:left;font-weight:500;color:var(--body);font-size:14px;white-space:nowrap}
+td{height:64px;padding:12px 16px;border-bottom:1px solid var(--hairline);vertical-align:middle}
+tbody tr:last-child td{border-bottom:0}
+tbody tr.click{cursor:pointer}
+tbody tr.click:hover{background:var(--soft)}
+.r{text-align:right}
+.line2{display:block;color:var(--mute);font-size:14px}
+.name{color:var(--ink)}
+.status{display:inline-flex;align-items:center;gap:7px}
+.dot{width:8px;height:8px;border-radius:50%}
+.figs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:28px}
+.fig{background:var(--canvas);border:1px solid var(--hairline-2);border-radius:var(--r-card);padding:16px 18px}
+.fig .l{color:var(--body)}
+.fig .v{font-size:20px;font-weight:600;color:var(--ink);margin-top:4px}
+.fig .n{color:var(--mute);margin-top:2px}
+.sect{display:flex;align-items:baseline;justify-content:space-between;margin:28px 0 10px}
+.sect h2{font-size:16px;font-weight:500;color:var(--ink)}
+.bar{height:10px;border-radius:999px;background:var(--soft-2);overflow:hidden;display:flex;margin:6px 0 0}
+.bar i{display:block;height:100%}
+.split{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:24px;align-items:start}
+.srow{display:grid;grid-template-columns:150px minmax(0,1fr) 120px 170px 36px;gap:10px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--hairline)}
+.srow:last-child{border-bottom:0}
+.srow.h{background:var(--soft);color:var(--body);font-weight:500;padding-top:12px;padding-bottom:12px}
+select,input{height:38px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 10px;background:var(--canvas);width:100%}
+input.amt{text-align:right;font-variant-numeric:tabular-nums}
+.x{width:32px;height:32px;border:0;background:none;color:var(--mute);border-radius:var(--r-inner)}
+.x:hover{background:var(--soft-2);color:var(--ink)}
+.left{padding:14px 16px;display:flex;justify-content:space-between;align-items:center;background:var(--soft)}
+.ok{color:var(--ok-fg)}.bad{color:var(--bad-fg)}
+.side .card{padding:18px}
+.je{width:100%;font-size:14px}
+.je td{height:auto;padding:7px 0;border:0}
+.je tr.t td{border-top:1px solid var(--hairline-2);padding-top:10px;font-weight:500;color:var(--ink)}
+.note{color:var(--body);margin-top:14px;line-height:1.6}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<div class="proto"><b>Contractor projects</b>
+  <button data-go="list" aria-pressed="true">1 · List</button>
+  <button data-go="project" aria-pressed="false">2 · A project</button>
+  <button data-go="close" aria-pressed="false">3 · Close and split</button>
+</div>
+<div class="shell">
+  <nav class="rail">
+    <div class="brand">Central</div>
+    <div class="grp">Finance</div>
+    <div class="item">Payables</div>
+    <div class="item">Payments</div>
+    <div class="item">Banking</div>
+    <div class="grp">Assets</div>
+    <div class="item">Asset</div>
+    <div class="item on">Contractor projects</div>
+    <div class="item">Asset Category</div>
+    <div class="item">Fixed Asset Register</div>
+  </nav>
+
+  <!-- 1 · list -->
+  <main class="page" id="list">
+    <div class="crumb">Finance · Assets</div>
+    <div class="head">
+      <div><h1>Contractor projects</h1>
+        <p class="sub">Work paid for in advance and invoiced over months, split into assets when it is done.</p></div>
+      <button class="btn primary">New project</button>
+    </div>
+    <div class="card"><table>
+      <thead><tr><th>Project</th><th style="width:150px">Unit</th><th class="r" style="width:170px">Paid in advance</th><th class="r" style="width:170px">Invoiced</th><th style="width:220px">Status</th></tr></thead>
+      <tbody>
+        <tr class="click" data-go="project"><td><span class="name">Renovasi Toko Cikupa</span><span class="line2">CV Renovasi Bangun Sentosa · since 3 Apr 2026</span></td><td>Cikupa</td><td class="r num">Rp 300.000.000</td><td class="r num">Rp 355.000.000</td><td><span class="status"><span class="dot" style="background:var(--ok-fg)"></span>Work done · ready to split</span></td></tr>
+        <tr class="click" data-go="project"><td><span class="name">Fit-out Toko Wonosobo</span><span class="line2">CV Renovasi Bangun Sentosa · since 1 Aug 2026</span></td><td>Wonosobo</td><td class="r num">Rp 150.000.000</td><td class="r num">Rp 62.500.000</td><td><span class="status"><span class="dot" style="background:var(--info-fg)"></span>Running · month 3 of 6</span></td></tr>
+        <tr class="click" data-go="project"><td><span class="name">Instalasi AC Gudang HO</span><span class="line2">CV Dingin Sejuk AC Service · since 2 Sep 2026</span></td><td>Head Office</td><td class="r num">Rp 40.000.000</td><td class="r num"><span class="mute">—</span></td><td><span class="status"><span class="dot" style="background:var(--info-fg)"></span>Running · no invoice yet</span></td></tr>
+        <tr class="click" data-go="project"><td><span class="name">Renovasi Toko Jambi</span><span class="line2">CV Renovasi Bangun Sentosa · closed 28 Feb 2026</span></td><td>Jambi</td><td class="r num">Rp 210.000.000</td><td class="r num">Rp 210.000.000</td><td><span class="status"><span class="dot" style="background:var(--faint)"></span>Closed · 3 assets</span></td></tr>
+      </tbody></table></div>
+  </main>
+
+  <!-- 2 · a project -->
+  <main class="page hidden" id="project">
+    <div class="crumb">Finance · Assets · Contractor projects</div>
+    <div class="head">
+      <div><h1>Renovasi Toko Cikupa</h1>
+        <p class="sub">CV Renovasi Bangun Sentosa · Cikupa · 3 Apr 2026 – 30 Sep 2026</p></div>
+      <div style="display:flex;gap:8px"><button class="btn">Pay an advance</button><button class="btn primary" data-go="close">Close and split</button></div>
+    </div>
+    <div class="figs">
+      <div class="fig"><div class="l">Paid in advance</div><div class="v num">Rp 300.000.000</div><div class="n">2 payments</div></div>
+      <div class="fig"><div class="l">Invoiced</div><div class="v num">Rp 355.000.000</div><div class="n">6 invoices</div></div>
+      <div class="fig"><div class="l">Still to pay</div><div class="v num">Rp 55.000.000</div><div class="n">invoiced beyond the advance</div></div>
+      <div class="fig"><div class="l">Cost so far</div><div class="v num">Rp 355.000.000</div><div class="n">waiting in Contract in Progress</div></div>
+    </div>
+    <div class="bar" title="Advance used by invoices"><i style="width:84.5%;background:var(--accent)"></i><i style="width:15.5%;background:var(--warn-fg)"></i></div>
+    <p class="note" style="margin-top:6px">The advance covers Rp 300.000.000 of the invoices; the last Rp 55.000.000 is owed to the contractor and paid through BKK like any bill.</p>
+
+    <div class="sect"><h2>Advances paid</h2><span class="mute">into 1011303003 Advanced – To Contractors</span></div>
+    <div class="card"><table>
+      <thead><tr><th style="width:150px">Paid on</th><th>Voucher</th><th class="r" style="width:200px">Amount</th></tr></thead>
+      <tbody>
+        <tr><td>3 Apr 2026</td><td><span class="mono">BKK-26-04-00012</span><span class="line2">DP 50% renovasi · transfer BCA</span></td><td class="r num">Rp 200.000.000</td></tr>
+        <tr><td>1 Jul 2026</td><td><span class="mono">BKK-26-07-00004</span><span class="line2">Termin 2 · transfer BCA</span></td><td class="r num">Rp 100.000.000</td></tr>
+      </tbody></table></div>
+
+    <div class="sect"><h2>Invoices gathered</h2><span class="mute">into 1031803 Contract in Progress</span></div>
+    <div class="card"><table>
+      <thead><tr><th style="width:150px">Invoice date</th><th>Invoice</th><th style="width:240px">Settled by</th><th class="r" style="width:200px">Amount</th></tr></thead>
+      <tbody>
+        <tr><td>30 Apr 2026</td><td><span class="mono">RBS-2604-01</span><span class="line2">Pembongkaran dan struktur</span></td><td>Advance</td><td class="r num">Rp 85.000.000</td></tr>
+        <tr><td>31 May 2026</td><td><span class="mono">RBS-2605-01</span><span class="line2">Dinding, lantai, plafon</span></td><td>Advance</td><td class="r num">Rp 70.000.000</td></tr>
+        <tr><td>30 Jun 2026</td><td><span class="mono">RBS-2606-01</span><span class="line2">Instalasi listrik</span></td><td>Advance</td><td class="r num">Rp 45.000.000</td></tr>
+        <tr><td>31 Jul 2026</td><td><span class="mono">RBS-2607-01</span><span class="line2">AC split 6 unit</span></td><td>Advance</td><td class="r num">Rp 40.000.000</td></tr>
+        <tr><td>31 Aug 2026</td><td><span class="mono">RBS-2608-01</span><span class="line2">Rak dan display toko</span></td><td>Advance Rp 60.000.000<span class="line2">+ Rp 15.000.000 owed</span></td><td class="r num">Rp 75.000.000</td></tr>
+        <tr><td>30 Sep 2026</td><td><span class="mono">RBS-2609-01</span><span class="line2">Finishing dan cat</span></td><td><span style="color:var(--warn-fg)">Owed · Rp 40.000.000</span></td><td class="r num">Rp 40.000.000</td></tr>
+      </tbody></table></div>
+  </main>
+
+  <!-- 3 · close and split -->
+  <main class="page hidden" id="close">
+    <div class="crumb">Finance · Assets · Renovasi Toko Cikupa</div>
+    <div class="head">
+      <div><h1>Close and split</h1>
+        <p class="sub">Rp 355.000.000 waits in Contract in Progress. Say where every rupiah goes.</p></div>
+    </div>
+    <div class="split">
+      <div class="card">
+        <div class="srow h"><span>Into</span><span>What</span><span>Life</span><span class="r">Amount</span><span></span></div>
+        <div id="rows"></div>
+        <div style="padding:12px 16px;border-top:1px solid var(--hairline)"><button class="btn ghost" id="add">+ Add a line</button></div>
+        <div class="left"><span>Left to place</span><b class="num" id="left">Rp 0</b></div>
+      </div>
+      <div class="side">
+        <div class="card">
+          <div style="font-weight:500;color:var(--ink);margin-bottom:10px">The entry it posts · 30 Sep 2026</div>
+          <table class="je" id="je"></table>
+          <p class="note">New assets go into the Fixed Asset Register with their category and life, and start depreciating next month. Expense lines hit this month's profit and loss.</p>
+          <button class="btn primary" id="post" style="width:100%;justify-content:center;margin-top:16px">Close the project</button>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const fmt=n=>'Rp '+Math.round(n).toLocaleString('id-ID');
+const go=id=>{for(const s of ['list','project','close'])document.getElementById(s).classList.toggle('hidden',s!==id);document.querySelectorAll('.proto button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.go===id));scrollTo(0,0)};
+document.addEventListener('click',e=>{const t=e.target.closest('[data-go]');if(t)go(t.dataset.go)});
+const TOTAL=355000000;
+const KINDS={asset:'New asset',expense:'Expense'};
+const WHAT={asset:['Bangunan Tambahan','Instalasi Mekanikal Elektrikal','Air Conditioner','FFE Toko dan Gudang','FFE Interior'],expense:['Biaya Perbaikan Bangunan','Biaya Kebersihan (Cleaning)','Miscellaneous Expences']};
+const LIFE={'Bangunan Tambahan':'20 years','Instalasi Mekanikal Elektrikal':'8 years','Air Conditioner':'4 years','FFE Toko dan Gudang':'4 years','FFE Interior':'4 years'};
+let rows=[{k:'asset',w:'Bangunan Tambahan',a:200000000},{k:'asset',w:'Instalasi Mekanikal Elektrikal',a:45000000},{k:'asset',w:'Air Conditioner',a:40000000},{k:'asset',w:'FFE Toko dan Gudang',a:55000000},{k:'expense',w:'Biaya Perbaikan Bangunan',a:15000000}];
+function draw(){
+  const box=document.getElementById('rows');box.innerHTML='';
+  rows.forEach((r,i)=>{
+    const d=document.createElement('div');d.className='srow';
+    d.innerHTML=`<select data-i="${i}" data-f="k">${Object.entries(KINDS).map(([v,l])=>`<option value="${v}"${v===r.k?' selected':''}>${l}</option>`).join('')}</select>
+      <select data-i="${i}" data-f="w">${WHAT[r.k].map(w=>`<option${w===r.w?' selected':''}>${w}</option>`).join('')}</select>
+      <span class="mute">${r.k==='asset'?(LIFE[r.w]||'—'):'This month'}</span>
+      <input class="amt" data-i="${i}" data-f="a" value="${r.a.toLocaleString('id-ID')}">
+      <button class="x" data-del="${i}" aria-label="Remove line">×</button>`;
+    box.appendChild(d)});
+  const used=rows.reduce((s,r)=>s+r.a,0),left=TOTAL-used;
+  const L=document.getElementById('left');L.textContent=fmt(left);L.className='num '+(left===0?'ok':'bad');
+  document.getElementById('post').disabled=left!==0;
+  const je=document.getElementById('je');
+  je.innerHTML=rows.map(r=>`<tr><td>${r.k==='asset'?r.w:r.w}<span class="line2">${r.k==='asset'?'Fixed asset':'Expense'}</span></td><td class="r num">${fmt(r.a)}</td><td></td></tr>`).join('')
+    +`<tr><td>Contract in Progress<span class="line2">1031803</span></td><td></td><td class="r num">${fmt(used)}</td></tr>`
+    +`<tr class="t"><td>Total</td><td class="r num">${fmt(used)}</td><td class="r num">${fmt(used)}</td></tr>`;
+}
+document.addEventListener('change',e=>{const i=e.target.dataset.i;if(i===undefined)return;const f=e.target.dataset.f;
+  if(f==='k'){rows[i].k=e.target.value;rows[i].w=WHAT[e.target.value][0]}
+  else if(f==='w')rows[i].w=e.target.value;
+  else rows[i].a=Number(e.target.value.replace(/\D/g,''))||0;draw()});
+document.addEventListener('click',e=>{const d=e.target.closest('[data-del]');if(d){rows.splice(+d.dataset.del,1);draw()}});
+document.getElementById('add').onclick=()=>{rows.push({k:'expense',w:WHAT.expense[0],a:0});draw()};
+draw();
+</script>
+</body>
+</html>

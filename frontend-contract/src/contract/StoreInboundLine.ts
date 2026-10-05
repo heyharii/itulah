@@ -4,7 +4,7 @@
  * One SKU of a received delivery. `received` counts manifest units booked;
  * `extra` counts tags of this SKU read that were not on the manifest.
  */
-export type StoreInboundLine = { sku_code: string,
+export type StoreInboundLine = { sku_code: string, 
 /**
  * From the resident catalogue, when this shop holds the SKU.
  */

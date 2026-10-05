@@ -23,8 +23,8 @@ export type Tone = NonNullable<PillProps["tone"]>
 /// costs no second round trip to head office.
 export function useTeam(scope: StoreScope) {
   return useQuery({
-    queryKey: hrKeys.team(scope.id),
-    queryFn: ({ signal }) => teamAt(scope.id, signal),
+    queryKey: hrKeys.team(scope.unit_id),
+    queryFn: ({ signal }) => teamAt(scope.unit_id, signal),
   })
 }
 
@@ -119,6 +119,6 @@ export function dayStatus(input: {
 export function usePendingSwaps(scope: StoreScope) {
   return useQuery({
     queryKey: hrKeys.swaps(),
-    queryFn: ({ signal }) => pendingSwapsAt(scope.id, signal),
+    queryFn: ({ signal }) => pendingSwapsAt(scope.unit_id, signal),
   })
 }

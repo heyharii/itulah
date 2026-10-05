@@ -36,7 +36,7 @@ use super::banking::claim_bank_line;
 use super::ledger::resolve_account_code;
 use super::poster::{post, reverse, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
-use crate::cloud::domain::{giro_may_move, GiroState};
+use crate::cloud::domain::{giro_may_move, giro_may_unclear, GiroState};
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -82,9 +82,24 @@ pub struct GiroRow {
     pub cleared_on: Option<NaiveDate>,
     pub rejected_reason: Option<String>,
     pub rejected_on: Option<NaiveDate>,
+    /// Set when the payment that wrote it was reversed before it cleared
+    /// (0712).
+    pub voided_reason: Option<String>,
+    pub voided_on: Option<NaiveDate>,
     pub recorded_by: String,
     pub recorded_at: DateTime<Utc>,
     pub settled_by: Option<String>,
+    /// How many times a clearing of this giro was taken back — Batal Cair, or
+    /// a bounce after clearing (0705). Zero for almost every giro.
+    pub times_uncleared: i64,
+    /// For a bounced giro: the payment or cash document that settled what it
+    /// did not (0705). Both empty while the bounce is still waiting for one.
+    pub replaced_by_payment_id: Option<Uuid>,
+    pub replaced_by_document_id: Option<Uuid>,
+    pub replaced_by: Option<String>,
+    /// The number of the payment or cash document that replaced it — what a
+    /// person looks for on the board, where `replaced_by` is who did it.
+    pub replacement_number: Option<String>,
 }
 
 /// `$1` is always the day being asked about, and NULL means today. Every query
@@ -96,7 +111,14 @@ const GIRO_COLUMNS: &str = "g.giro_id, g.direction, g.number, g.bank, g.unit_id,
      (COALESCE($1::date, CURRENT_DATE) - g.due_date)::bigint AS days_overdue,
      g.supplier_payment_id, g.cash_document_id,
      g.issue_entry_id, g.clearing_entry_id, g.cleared_line_id, g.cleared_on,
-     g.rejected_reason, g.rejected_on, g.recorded_by, g.recorded_at, g.settled_by,
+     g.rejected_reason, g.rejected_on, g.voided_reason, g.voided_on, g.recorded_by, g.recorded_at, g.settled_by,
+     g.replaced_by_payment_id, g.replaced_by_document_id, g.replaced_by,
+     COALESCE((SELECT rp.payment_number FROM supplier_payment rp
+                WHERE rp.payment_id = g.replaced_by_payment_id),
+              (SELECT rd.number FROM cash_document rd
+                WHERE rd.document_id = g.replaced_by_document_id)) AS replacement_number,
+     (SELECT count(*) FROM giro_unclearing u WHERE u.giro_id = g.giro_id)::bigint
+         AS times_uncleared,
      p.payment_number,
      d.number AS cash_document_number,
      COALESCE(d.party_name, (
@@ -133,10 +155,17 @@ fn to_giro(row: &sqlx::postgres::PgRow) -> Result<GiroRow, AppError> {
         cleared_line_id: row.try_get("cleared_line_id")?,
         cleared_on: row.try_get("cleared_on")?,
         rejected_reason: row.try_get("rejected_reason")?,
+        voided_reason: row.try_get("voided_reason")?,
+        voided_on: row.try_get("voided_on")?,
         rejected_on: row.try_get("rejected_on")?,
         recorded_by: row.try_get("recorded_by")?,
         recorded_at: row.try_get("recorded_at")?,
         settled_by: row.try_get("settled_by")?,
+        times_uncleared: row.try_get("times_uncleared")?,
+        replaced_by_payment_id: row.try_get("replaced_by_payment_id")?,
+        replaced_by_document_id: row.try_get("replaced_by_document_id")?,
+        replaced_by: row.try_get("replaced_by")?,
+        replacement_number: row.try_get("replacement_number")?,
     })
 }
 
@@ -588,6 +617,12 @@ pub async fn giro_reject(
         ));
     }
     let mut tx = pool.begin().await?;
+    // A giro the bank took and then returned unpaid (Tolak after Cair, 0705):
+    // the clearing is taken back first, and the bounce then goes exactly the
+    // way a bounce of a giro that never cleared goes.
+    if current_status(&mut tx, giro_id).await? == GiroState::Cleared {
+        undo_clearing(&mut tx, giro_id, rejected_on, reason, true, actor).await?;
+    }
     let row = take_for_move(&mut tx, giro_id, GiroState::Rejected).await?;
     let number: String = row.try_get("number")?;
     let bank: String = row.try_get("bank")?;
@@ -625,6 +660,17 @@ pub async fn giro_reject(
         .bind(format!("giro {number} {bank} rejected: {reason}"))
         .execute(&mut *tx)
         .await?;
+        // The bills it paid are owed again: without this the Payment Ledger
+        // kept them settled while the ledger had the payable back, and the
+        // next payment of the same bill settled nothing (CONTROL_AP, 1 Oct).
+        super::payment_ledger::ple_delink(
+            &mut tx,
+            "PAYMENT",
+            &payment_id.to_string(),
+            &format!("giro {number} {bank} rejected: {reason}"),
+            actor,
+        )
+        .await?;
     }
     if let (Some(document_id), Some(mirror)) = (document_id, mirror.as_ref()) {
         sqlx::query(
@@ -635,6 +681,32 @@ pub async fn giro_reject(
         .bind(mirror.entry_id)
         .execute(&mut *tx)
         .await?;
+        // A BKK voucher paid by this giro settled bills with it (0711): the
+        // bounce reverses the whole voucher, so its bills are open again.
+        let has_lines: bool =
+            sqlx::query_scalar("SELECT has_lines FROM cash_document WHERE document_id = $1")
+                .bind(document_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        if has_lines {
+            let why = format!("giro {number} {bank} rejected: {reason}");
+            super::voucher::voucher_undo_settlement(
+                &mut tx,
+                document_id,
+                mirror.entry_id,
+                &why,
+                actor,
+            )
+            .await?;
+            super::payment_ledger::ple_delink(
+                &mut tx,
+                "CASH_DOC",
+                &document_id.to_string(),
+                &why,
+                actor,
+            )
+            .await?;
+        }
     }
 
     sqlx::query(
@@ -646,6 +718,353 @@ pub async fn giro_reject(
     .bind(giro_id)
     .bind(reason)
     .bind(rejected_on)
+    .bind(actor)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    giro_read(pool, giro_id).await
+}
+
+/// Tear up the giro a reversed document wrote (0712).
+///
+/// Called from inside the reversal's own transaction, before the mirror is
+/// written, with the document that is being taken back — a cash document or a
+/// supplier payment. A document paid some other way has no giro and nothing
+/// happens. A giro still on the board (ISSUED, DELIVERED, DUE) becomes VOIDED:
+/// the reversal already takes the amount off `giro_outstanding`, so no entry
+/// is written here. One the bank has CLEARED refuses the whole reversal — the
+/// money has left, and un-clearing it (Batal Cair) or recording the refund is
+/// a decision somebody has to make on purpose. One already REJECTED or VOIDED
+/// has nothing left to do.
+pub(super) async fn giro_void_for(
+    tx: &mut Transaction<'_, Postgres>,
+    supplier_payment_id: Option<Uuid>,
+    cash_document_id: Option<Uuid>,
+    voided_on: NaiveDate,
+    reason: &str,
+    actor: &str,
+) -> Result<(), AppError> {
+    let row = sqlx::query(
+        "SELECT giro_id, number, bank, status FROM giro
+          WHERE ($1::uuid IS NOT NULL AND supplier_payment_id = $1)
+             OR ($2::uuid IS NOT NULL AND cash_document_id = $2)
+          FOR UPDATE",
+    )
+    .bind(supplier_payment_id)
+    .bind(cash_document_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some(row) = row else {
+        return Ok(());
+    };
+    let giro_id: Uuid = row.try_get("giro_id")?;
+    let number: String = row.try_get("number")?;
+    let bank: String = row.try_get("bank")?;
+    let stored: String = row.try_get("status")?;
+    let state = GiroState::parse(&stored)
+        .ok_or_else(|| AppError::Conflict(format!("giro {number} has an unknown status")))?;
+    match state {
+        GiroState::Issued | GiroState::Delivered | GiroState::Due => {
+            sqlx::query(
+                "UPDATE giro
+                    SET status='VOIDED', voided_on=$2, voided_reason=$3,
+                        settled_by=$4, settled_at=now()
+                  WHERE giro_id=$1",
+            )
+            .bind(giro_id)
+            .bind(voided_on)
+            .bind(reason)
+            .bind(actor)
+            .execute(&mut **tx)
+            .await?;
+            Ok(())
+        }
+        GiroState::Cleared => Err(AppError::Conflict(format!(
+            "giro {number} at {bank} has already cleared, so the money has left the bank; \
+             un-clear it first (Batal Cair) or record the refund as its own document"
+        ))),
+        GiroState::Rejected | GiroState::Voided => Ok(()),
+    }
+}
+
+/// The state a giro is in, locked for the rest of the transaction.
+async fn current_status(
+    tx: &mut Transaction<'_, Postgres>,
+    giro_id: Uuid,
+) -> Result<GiroState, AppError> {
+    let stored: String = sqlx::query_scalar("SELECT status FROM giro WHERE giro_id = $1 FOR UPDATE")
+        .bind(giro_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound("giro".into()))?;
+    GiroState::parse(&stored)
+        .ok_or_else(|| AppError::Validation(format!("'{stored}' is not a giro state")))
+}
+
+/// Take a clearing back: reverse its entry into an open period, release the
+/// statement line it claimed, write down that it happened, and put the giro
+/// back on `giro_outstanding` as DUE.
+///
+/// The giro row's clearing columns go back to empty — 0117 ties them to
+/// CLEARED — so `giro_unclearing` is where "it was once cleared, on this
+/// line, by this entry" is kept.
+async fn undo_clearing(
+    tx: &mut Transaction<'_, Postgres>,
+    giro_id: Uuid,
+    undone_on: NaiveDate,
+    reason: &str,
+    then_rejected: bool,
+    actor: &str,
+) -> Result<(), AppError> {
+    let row = sqlx::query(
+        "SELECT number, bank, status, clearing_entry_id, cleared_on, cleared_line_id
+           FROM giro WHERE giro_id = $1 FOR UPDATE",
+    )
+    .bind(giro_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| AppError::NotFound("giro".into()))?;
+    let number: String = row.try_get("number")?;
+    let bank: String = row.try_get("bank")?;
+    let stored: String = row.try_get("status")?;
+    let from = GiroState::parse(&stored)
+        .ok_or_else(|| AppError::Validation(format!("'{stored}' is not a giro state")))?;
+    giro_may_unclear(from).map_err(|why| AppError::Conflict(format!("giro {number}: {why}")))?;
+    let clearing_entry_id: Uuid = row.try_get::<Option<Uuid>, _>("clearing_entry_id")?.ok_or_else(|| {
+        AppError::Conflict(format!("giro {number} is cleared but names no clearing entry"))
+    })?;
+    let cleared_on: NaiveDate = row
+        .try_get::<Option<NaiveDate>, _>("cleared_on")?
+        .ok_or_else(|| AppError::Conflict(format!("giro {number} is cleared but names no day")))?;
+    let cleared_line_id: Option<Uuid> = row.try_get("cleared_line_id")?;
+    if undone_on < cleared_on {
+        return Err(AppError::Validation(format!(
+            "giro {number} cleared on {cleared_on}; it cannot be taken back on {undone_on},              before it happened"
+        )));
+    }
+
+    // Reversed by id, into the period `undone_on` falls in: a clearing in a
+    // month that has since closed is answered in the open month, never by
+    // reopening the closed one.
+    let mirror = reverse(
+        tx,
+        clearing_entry_id,
+        undone_on,
+        &format!("giro {number} {bank} clearing taken back: {reason}"),
+        actor,
+    )
+    .await?;
+
+    if let Some(line_id) = cleared_line_id {
+        sqlx::query(
+            "UPDATE bank_line_claim
+                SET released_by = $2, released_at = now()
+              WHERE line_id = $1 AND claim_kind = 'GIRO_CLEAR' AND released_at IS NULL",
+        )
+        .bind(line_id)
+        .bind(actor)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    sqlx::query(
+        "INSERT INTO giro_unclearing
+             (giro_id, clearing_entry_id, reversal_entry_id, cleared_on, cleared_line_id,
+              undone_on, reason, then_rejected, undone_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+    )
+    .bind(giro_id)
+    .bind(clearing_entry_id)
+    .bind(mirror.entry_id)
+    .bind(cleared_on)
+    .bind(cleared_line_id)
+    .bind(undone_on)
+    .bind(reason)
+    .bind(then_rejected)
+    .bind(actor)
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query(
+        "UPDATE giro
+            SET status = 'DUE', clearing_entry_id = NULL, cleared_on = NULL,
+                cleared_line_id = NULL, settled_by = NULL, settled_at = NULL
+          WHERE giro_id = $1",
+    )
+    .bind(giro_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Batal Cair: the clearing was wrong — the wrong statement line, a day early,
+/// the wrong giro — and is taken back. The giro is outstanding again, DUE,
+/// and can be cleared properly.
+pub async fn giro_unclear(
+    pool: &PgPool,
+    giro_id: Uuid,
+    undone_on: NaiveDate,
+    reason: &str,
+    actor: &str,
+) -> Result<GiroRow, AppError> {
+    let reason = reason.trim();
+    if reason.is_empty() {
+        return Err(AppError::Validation(
+            "taking a clearing back needs a reason; the bank balance moves by it, and the next              person to read the statement will ask why"
+                .into(),
+        ));
+    }
+    let mut tx = pool.begin().await?;
+    undo_clearing(&mut tx, giro_id, undone_on, reason, false, actor).await?;
+    tx.commit().await?;
+    giro_read(pool, giro_id).await
+}
+
+/// What a screen sends to take a clearing back.
+#[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct UnclearGiroRequest {
+    /// The day the clearing is taken back on — into an open month.
+    pub on: NaiveDate,
+    pub reason: String,
+}
+
+/// What settled the debt a bounced giro did not: exactly one of the two.
+#[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ReplaceGiroRequest {
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub payment_id: Option<Uuid>,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub cash_document_id: Option<Uuid>,
+}
+
+/// Say what replaced a bounced giro (7Soft's Tolakan, 0705).
+///
+/// The bounce itself already reopened what the giro was meant to settle — a
+/// supplier payment goes to REVERSED and its bills are owed again. This only
+/// records which later document settled them, so the bounce report can follow
+/// every rejected giro to its end. A replacement for a supplier payment's giro
+/// must settle at least one of the same bills; one for a cash document's must
+/// be a posted cash document in the same direction.
+pub async fn giro_replace(
+    pool: &PgPool,
+    giro_id: Uuid,
+    request: &ReplaceGiroRequest,
+    actor: &str,
+) -> Result<GiroRow, AppError> {
+    let mut tx = pool.begin().await?;
+    let row = sqlx::query(
+        "SELECT number, direction, status, supplier_payment_id, cash_document_id,
+                replaced_by_payment_id, replaced_by_document_id
+           FROM giro WHERE giro_id = $1 FOR UPDATE",
+    )
+    .bind(giro_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| AppError::NotFound("giro".into()))?;
+    let number: String = row.try_get("number")?;
+    let status: String = row.try_get("status")?;
+    if status != "REJECTED" {
+        return Err(AppError::Conflict(format!(
+            "giro {number} is {}; only a bounced giro is replaced",
+            status.to_lowercase()
+        )));
+    }
+    let already: Option<Uuid> = row
+        .try_get::<Option<Uuid>, _>("replaced_by_payment_id")?
+        .or(row.try_get("replaced_by_document_id")?);
+    if already.is_some() {
+        return Err(AppError::Conflict(format!(
+            "giro {number} has already been replaced"
+        )));
+    }
+    match (request.payment_id, request.cash_document_id) {
+        (Some(replacement), None) => {
+            let original: Option<Uuid> = row.try_get("supplier_payment_id")?;
+            let Some(original) = original else {
+                return Err(AppError::Validation(format!(
+                    "giro {number} was written on a cash document; replace it with a cash                      document"
+                )));
+            };
+            let replacement_status: Option<String> =
+                sqlx::query_scalar("SELECT status FROM supplier_payment WHERE payment_id = $1")
+                    .bind(replacement)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+            match replacement_status.as_deref() {
+                Some("POSTED") => {}
+                Some(other) => {
+                    return Err(AppError::Validation(format!(
+                        "the replacing payment is {}, not posted",
+                        other.to_lowercase()
+                    )))
+                }
+                None => return Err(AppError::NotFound("supplier payment".into())),
+            }
+            let shares_a_bill: bool = sqlx::query_scalar(
+                "SELECT EXISTS (
+                     SELECT 1 FROM supplier_payment_allocation a
+                      JOIN supplier_payment_allocation b ON b.invoice_id = a.invoice_id
+                     WHERE a.payment_id = $1 AND b.payment_id = $2)",
+            )
+            .bind(original)
+            .bind(replacement)
+            .fetch_one(&mut *tx)
+            .await?;
+            if !shares_a_bill {
+                return Err(AppError::Validation(format!(
+                    "the replacing payment settles none of the bills giro {number} was written                      for"
+                )));
+            }
+        }
+        (None, Some(replacement)) => {
+            if row.try_get::<Option<Uuid>, _>("cash_document_id")?.is_none() {
+                return Err(AppError::Validation(format!(
+                    "giro {number} was written on a supplier payment; replace it with a payment"
+                )));
+            }
+            let direction: String = row.try_get("direction")?;
+            let replacement_row = sqlx::query(
+                "SELECT status, kind FROM cash_document WHERE document_id = $1",
+            )
+            .bind(replacement)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| AppError::NotFound("cash document".into()))?;
+            let replacement_status: String = replacement_row.try_get("status")?;
+            let kind: String = replacement_row.try_get("kind")?;
+            if replacement_status != "POSTED" {
+                return Err(AppError::Validation(format!(
+                    "the replacing cash document is {}, not posted",
+                    replacement_status.to_lowercase()
+                )));
+            }
+            let expected = if direction == "OUT" { "PAY" } else { "RECEIVE" };
+            if kind != expected {
+                return Err(AppError::Validation(format!(
+                    "giro {number} moved money {}; its replacement has to as well",
+                    if direction == "OUT" { "out" } else { "in" }
+                )));
+            }
+        }
+        _ => {
+            return Err(AppError::Validation(
+                "name exactly one replacement: a payment_id or a cash_document_id".into(),
+            ))
+        }
+    }
+    sqlx::query(
+        "UPDATE giro
+            SET replaced_by_payment_id = $2, replaced_by_document_id = $3,
+                replaced_by = $4, replaced_at = now()
+          WHERE giro_id = $1",
+    )
+    .bind(giro_id)
+    .bind(request.payment_id)
+    .bind(request.cash_document_id)
     .bind(actor)
     .execute(&mut *tx)
     .await?;

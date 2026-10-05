@@ -102,7 +102,6 @@ export function GeneralLedger() {
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search memo"
             className="pl-8"
           />
         </div>

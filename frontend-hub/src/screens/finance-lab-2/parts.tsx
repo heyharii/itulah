@@ -1,5 +1,4 @@
 import { money } from "@/lib/format"
-import { useStackLabels } from "@/lib/stack-table"
 import { cn } from "@/lib/utils"
 
 /// The pieces every screen in this module shares.
@@ -79,66 +78,9 @@ export function CardRow({ children }: { children: React.ReactNode }) {
   return <div className="grid gap-2.5 md:grid-cols-3">{children}</div>
 }
 
-/// A dense table in the shape ERPNext's datatable has: hairline rules, no
-/// zebra, numbers right and tabular.
-export function Grid({ children }: { children: React.ReactNode }) {
-  // Stacks on a phone rather than scrolling sideways (`useStackLabels`).
-  const table = useStackLabels()
-  return (
-    <div className="overflow-x-auto">
-      <table
-        ref={table}
-        className="mini-stack w-full border-collapse text-[0.875rem]"
-      >
-        {children}
-      </table>
-    </div>
-  )
-}
-
-export function Th({
-  children,
-  align,
-  width,
-}: {
-  children?: React.ReactNode
-  align?: "right"
-  width?: string
-}) {
-  return (
-    <th
-      style={width === undefined ? undefined : { width }}
-      className={cn(
-        "border-b border-hairline-2 px-2 py-1.5 text-[0.875rem] font-medium whitespace-nowrap text-mute",
-        align === "right" ? "text-right" : "text-left"
-      )}
-    >
-      {children}
-    </th>
-  )
-}
-
-export function Td({
-  children,
-  align,
-  className,
-}: {
-  children?: React.ReactNode
-  align?: "right"
-  className?: string
-}) {
-  return (
-    <td
-      className={cn(
-        "border-b border-hairline px-2 py-2 align-top text-text",
-        align === "right" ? "text-right tabular-nums" : "text-left",
-        className
-      )}
-    >
-      {children}
-    </td>
-  )
-}
+/// One table for all of Finance: the same heading row, 52px rows and frame
+/// as `DataTable`, from `finance-final/parts`.
+export { Grid, Td, Th } from "@/screens/finance-final/parts"
 
 /// What a candidate agreed on, in the server's own words.
 ///
@@ -152,18 +94,18 @@ export function Reasons({ reasons }: { reasons: readonly string[] }) {
     return <span className="text-[0.875rem] text-mute">no stated reason</span>
   }
   return (
-    <span className="flex flex-wrap gap-1">
-      {reasons.map((reason) => (
+    <span className="flex flex-wrap gap-x-1 text-[0.875rem]">
+      {reasons.map((reason, index) => (
         <span
           key={reason}
           className={cn(
-            "rounded-full border px-1.5 py-px text-[0.875rem]",
             reason.startsWith("amount matches") ||
               reason === "reference matches"
-              ? "border-ok-fg/30 bg-ok-bg text-ok-fg"
-              : "border-hairline-2 text-body"
+              ? "text-ok-fg"
+              : "text-mute"
           )}
         >
+          {index > 0 && <span className="text-mute">· </span>}
           {reason}
         </span>
       ))}

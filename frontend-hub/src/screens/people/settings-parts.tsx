@@ -14,7 +14,7 @@ export function FormSheet({
   title,
   id,
   error,
-  saveLabel = "Save",
+  saveLabel = "Submit",
   saving,
   canSave,
   onSave,

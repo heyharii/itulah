@@ -30,11 +30,10 @@
 //! it, and the one thing this lane cannot afford is being told the import would
 //! be fine by something that is not the import.
 //!
-//! It costs one thing, and it is worth naming: `journal_entry_number_seq` is a
-//! sequence, so a rehearsal consumes entry numbers that the rolled-back
-//! transaction never uses. Journal numbering has always had that property —
-//! every failed posting anywhere in the system does the same — and the
-//! alternative is a rehearsal that does not exercise the poster.
+//! Journal numbers come from the `JOURNAL_ENTRY` series (0701), whose counter
+//! is taken inside the posting's transaction — so a rehearsal that rolls back
+//! gives its entry numbers back too, and the run that follows it is numbered
+//! exactly as the rehearsal was.
 //!
 //! # The shapes these imports read
 //!

@@ -48,7 +48,8 @@ fn stamp(value: DateTime<Utc>) -> String {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct OpenShiftRequest {
-    /// Which till. One terminal, one drawer — two shifts open on the same one
+    /// Which seat — `KASIR-1` … `KASIR-N`, head office's number of them
+    /// ([`seat_ids`]). One seat, one drawer: two shifts open at the same one
     /// would each believe the other's cash was theirs.
     pub terminal_id: String,
     pub opening_float_minor: i64,
@@ -72,6 +73,11 @@ pub struct CashMovementRequest {
     #[serde(default)]
     pub supervisor: Option<Supervisor>,
     pub idempotency_key: String,
+    /// Set by the router, never by the caller: the person signed in is a
+    /// supervisor or an admin, who may act on a drawer that is not theirs.
+    #[serde(skip)]
+    #[cfg_attr(feature = "ts", ts(skip))]
+    pub supervising: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -91,6 +97,63 @@ pub struct CloseShiftRequest {
     #[serde(default)]
     pub actor_id: String,
     pub idempotency_key: String,
+    /// Set by the router, never by the caller: see [`CashMovementRequest`].
+    #[serde(skip)]
+    #[cfg_attr(feature = "ts", ts(skip))]
+    pub supervising: bool,
+}
+
+/// Take a seat somebody else is holding, and open your own drawer at it.
+///
+/// No approval: the person arriving takes the seat. The shift they end is
+/// closed with nothing declared — its holder took their money out and counts
+/// it themselves (`count_shift`), never the person arriving, who has only their
+/// own float in the drawer.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct TakeOverRequest {
+    pub terminal_id: String,
+    /// The float the person arriving counts in. A new shift always starts
+    /// from its own float.
+    pub opening_float_minor: i64,
+    #[serde(default)]
+    pub actor_id: String,
+    pub idempotency_key: String,
+}
+
+/// What a take-over did: the shift it ended, when the seat was held, and the
+/// shift it opened.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct TakeOverOutcome {
+    pub ended: Option<ShiftReport>,
+    pub shift: ShiftReport,
+}
+
+/// One seat at the counter, and who holds it now.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct TillSeat {
+    /// `KASIR-1`. What a shift and a receipt carry.
+    pub terminal_id: String,
+    /// `Kasir 1`. What a person reads.
+    pub label: String,
+    /// False for a seat that is no longer in head office's number but still
+    /// has a drawer open — it is listed so the drawer can be closed, and no
+    /// new shift opens at it.
+    pub current: bool,
+    pub shift_id: Option<String>,
+    pub held_by: Option<String>,
+    pub held_since: Option<String>,
+}
+
+/// The shifts that are one person's to deal with: the drawer they hold now,
+/// and the ones somebody took over from them that they have not counted yet.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct MyShifts {
+    pub open: Option<ShiftReport>,
+    pub uncounted: Vec<ShiftReport>,
 }
 
 /// One line of a drawer count: this many pieces of this denomination.
@@ -134,11 +197,24 @@ pub struct CashMovementView {
 pub struct ShiftReport {
     pub shift_id: String,
     pub terminal_id: String,
+    /// `Kasir 1` for a seat; the id itself for a till from before seats.
+    #[serde(default)]
+    pub terminal_label: String,
     pub status: String,
     pub opened_by: String,
     pub opened_at: String,
     pub closed_by: Option<String>,
     pub closed_at: Option<String>,
+    /// The day this shift trades for, in the store's time: the date it opened.
+    /// Every sale rung on it carries the same day, past midnight included.
+    #[serde(default)]
+    pub business_date: Option<String>,
+    /// Who took the seat, when that is how the shift ended. It is then closed
+    /// with nothing declared until its holder counts (`counted_at`).
+    #[serde(default)]
+    pub taken_over_by: Option<String>,
+    #[serde(default)]
+    pub counted_at: Option<String>,
     pub opening_float_minor: i64,
     pub sale_count: i64,
     #[cfg_attr(feature = "ts", ts(type = "number | null"))]
@@ -194,10 +270,154 @@ const CASH_KINDS: [&str; 5] = ["OPENING_FLOAT", "DROP", "PAYOUT", "PICKUP", "COR
 pub const STORE_NOT_OPEN_YET: &str =
     "This store is not open yet — head office opens it from the hub.";
 
-/// Open the drawer for the day.
+// ════════════════════════════════════════════════════════════════════════════
+// The seats
+// ════════════════════════════════════════════════════════════════════════════
+
+/// What every seat's id starts with: `KASIR-1`.
+pub const SEAT_PREFIX: &str = "KASIR-";
+
+/// The seats this store has — head office's number of them, from the site
+/// profile (`site_profile::KnownSite::till_count`). One until head office has
+/// said, so a node that has not heard still trades at one counter.
+pub fn seat_ids(connection: &Connection) -> Vec<String> {
+    let count = super::site_profile::own(connection)
+        .and_then(|site| site.till_count)
+        .unwrap_or(1);
+    (1..=count).map(|n| format!("{SEAT_PREFIX}{n}")).collect()
+}
+
+/// `Kasir 1` for `KASIR-1`; any other id — a till from before seats — as it is.
+pub fn seat_label(terminal_id: &str) -> String {
+    match terminal_id.strip_prefix(SEAT_PREFIX) {
+        Some(number) if !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()) => {
+            format!("Kasir {number}")
+        }
+        _ => terminal_id.to_string(),
+    }
+}
+
+/// Refuse a seat head office has not given this store. A machine sits at a
+/// seat; naming a new one is not how a store gets another.
+fn require_seat(connection: &Connection, terminal: &str) -> Result<(), EdgeError> {
+    let seats = seat_ids(connection);
+    if seats.iter().any(|seat| seat == terminal) {
+        return Ok(());
+    }
+    Err(EdgeError::Validation(if seats.is_empty() {
+        "this store has no till seats; head office sets how many it has".into()
+    } else {
+        format!(
+            "{terminal} is not a till seat of this store; it has {}",
+            seats.iter().map(|seat| seat_label(seat)).collect::<Vec<_>>().join(", ")
+        )
+    }))
+}
+
+/// The open shift this person holds, at any seat.
+pub fn open_shift_of(connection: &Connection, actor: &str) -> Result<Option<String>, EdgeError> {
+    connection
+        .query_row(
+            "SELECT id FROM cash_shift WHERE opened_by=?1 AND status='OPEN'
+              ORDER BY opened_at DESC, id LIMIT 1",
+            [actor.trim()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(db)
+}
+
+/// Refuse a person who already holds a drawer somewhere else. One person, one
+/// drawer: two would split their takings between counts nobody can reconcile.
+fn require_free_person(
+    connection: &Connection,
+    actor: &str,
+    terminal: &str,
+) -> Result<(), EdgeError> {
+    let held: Option<(String, String)> = connection
+        .query_row(
+            "SELECT id, terminal_id FROM cash_shift WHERE opened_by=?1 AND status='OPEN'
+              ORDER BY opened_at DESC, id LIMIT 1",
+            [actor.trim()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(db)?;
+    match held {
+        None => Ok(()),
+        Some((_, seat)) if seat == terminal => Err(EdgeError::Conflict(format!(
+            "{actor} already holds {}",
+            seat_label(&seat)
+        ))),
+        Some((_, seat)) => Err(EdgeError::Conflict(format!(
+            "{actor} still holds {}; close that drawer before taking another seat",
+            seat_label(&seat)
+        ))),
+    }
+}
+
+/// The store's own date at `at`: the day a shift opened then trades for.
+fn local_date(connection: &Connection, at: DateTime<Utc>) -> String {
+    let offset = chrono::Duration::minutes(i64::from(
+        super::site_profile::utc_offset_minutes(connection),
+    ));
+    (at + offset).date_naive().to_string()
+}
+
+/// Every seat and who holds it. Seats beyond head office's number that still
+/// have a drawer open — the number went down, or a till from before seats —
+/// are listed after, so the drawer can be closed.
+pub fn seats(connection: &Connection) -> Result<Vec<TillSeat>, EdgeError> {
+    let mut open: Vec<(String, String, String, String)> = {
+        let mut statement = connection
+            .prepare(
+                "SELECT terminal_id, id, opened_by, opened_at FROM cash_shift
+                  WHERE status='OPEN' ORDER BY opened_at, id",
+            )
+            .map_err(db)?;
+        let rows = statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+            .map_err(db)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db)?
+    };
+    let mut seats = Vec::new();
+    for seat in seat_ids(connection) {
+        let held = open
+            .iter()
+            .position(|(terminal, ..)| *terminal == seat)
+            .map(|index| open.remove(index));
+        seats.push(TillSeat {
+            label: seat_label(&seat),
+            terminal_id: seat,
+            current: true,
+            shift_id: held.as_ref().map(|held| held.1.clone()),
+            held_by: held.as_ref().map(|held| held.2.clone()),
+            held_since: held.map(|held| held.3),
+        });
+    }
+    for (terminal, shift_id, held_by, held_since) in open {
+        seats.push(TillSeat {
+            label: seat_label(&terminal),
+            terminal_id: terminal,
+            current: false,
+            shift_id: Some(shift_id),
+            held_by: Some(held_by),
+            held_since: Some(held_since),
+        });
+    }
+    Ok(seats)
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Opening, taking over, counting
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Open the drawer at a seat.
 ///
-/// The unique index does the refusing rather than a read-then-write: two
-/// cashiers pressing "open" at the same second is exactly the race a check in
+/// Refuses a seat head office has not given the store, a seat somebody else
+/// holds (that is [`take_over`]), and a person who already holds a drawer. The
+/// unique index on one open shift per seat still does the final refusing: two
+/// people pressing "open" at the same second is exactly the race a check in
 /// application code loses.
 pub fn open_shift(
     tx: &Transaction<'_>,
@@ -205,15 +425,79 @@ pub fn open_shift(
     now: DateTime<Utc>,
 ) -> Result<ShiftReport, EdgeError> {
     let terminal = request.terminal_id.trim();
+    check_opening(tx, terminal, request.opening_float_minor, &request.actor_id)?;
+    if let Some(existing) = open_shift_id(tx, terminal)? {
+        return Err(EdgeError::Conflict(format!(
+            "{} is held by another shift ({existing}); take it over to sit there",
+            seat_label(terminal)
+        )));
+    }
+    insert_shift(
+        tx,
+        terminal,
+        request.actor_id.trim(),
+        request.opening_float_minor,
+        &request.idempotency_key,
+        now,
+    )
+}
+
+/// Take a seat from whoever holds it and open your own drawer there.
+///
+/// No approval, on the owner's word: the person arriving takes the seat. The
+/// shift they end closes with its expectation computed now and nothing
+/// declared; its holder has taken their money out and counts it themselves
+/// ([`count_shift`]). A free seat is simply opened.
+pub fn take_over(
+    tx: &Transaction<'_>,
+    request: &TakeOverRequest,
+    now: DateTime<Utc>,
+) -> Result<TakeOverOutcome, EdgeError> {
+    let terminal = request.terminal_id.trim();
+    let actor = request.actor_id.trim();
+    check_opening(tx, terminal, request.opening_float_minor, actor)?;
+    let ended = match open_shift_id(tx, terminal)? {
+        Some(held) => {
+            let running = report(tx, &held)?;
+            tx.execute(
+                "UPDATE cash_shift
+                    SET status='CLOSED', closed_by=?2, closed_at=?3,
+                        expected_cash_minor=?4, taken_over_by=?2
+                  WHERE id=?1 AND status='OPEN'",
+                params![held, actor, stamp(now), running.expected_cash_minor],
+            )
+            .map_err(db)?;
+            Some(report(tx, &held)?)
+        }
+        None => None,
+    };
+    let shift = insert_shift(
+        tx,
+        terminal,
+        actor,
+        request.opening_float_minor,
+        &request.idempotency_key,
+        now,
+    )?;
+    Ok(TakeOverOutcome { ended, shift })
+}
+
+/// What opening and taking over both refuse.
+fn check_opening(
+    tx: &Transaction<'_>,
+    terminal: &str,
+    opening_float_minor: i64,
+    actor: &str,
+) -> Result<(), EdgeError> {
     if terminal.is_empty() {
         return Err(EdgeError::Validation("terminal_id is required".into()));
     }
-    if request.opening_float_minor < 0 {
+    if opening_float_minor < 0 {
         return Err(EdgeError::Validation(
             "opening float cannot be negative".into(),
         ));
     }
-    if request.actor_id.trim().is_empty() {
+    if actor.trim().is_empty() {
         return Err(EdgeError::Validation("actor_id is required".into()));
     }
     // A store trades from the day head office opens it (postgres 0630), and
@@ -224,24 +508,32 @@ pub fn open_shift(
     if !crate::edge::site_profile::own_store_is_open(tx) {
         return Err(EdgeError::Conflict(STORE_NOT_OPEN_YET.into()));
     }
-    if let Some(existing) = open_shift_id(tx, terminal)? {
-        return Err(EdgeError::Conflict(format!(
-            "terminal {terminal} already has an open shift ({existing})"
-        )));
-    }
+    require_seat(tx, terminal)?;
+    require_free_person(tx, actor, terminal)
+}
 
+fn insert_shift(
+    tx: &Transaction<'_>,
+    terminal: &str,
+    actor: &str,
+    opening_float_minor: i64,
+    idempotency_key: &str,
+    now: DateTime<Utc>,
+) -> Result<ShiftReport, EdgeError> {
     let shift_id = Uuid::new_v4().to_string();
     let opened_at = now;
     tx.execute(
-        "INSERT INTO cash_shift(id,idempotency_key,terminal_id,status,opened_by,opened_at,opening_float_minor)
-         VALUES(?1,?2,?3,'OPEN',?4,?5,?6)",
+        "INSERT INTO cash_shift(id,idempotency_key,terminal_id,status,opened_by,opened_at,
+                                opening_float_minor,business_date)
+         VALUES(?1,?2,?3,'OPEN',?4,?5,?6,?7)",
         params![
             shift_id,
-            request.idempotency_key,
+            idempotency_key,
             terminal,
-            request.actor_id.trim(),
+            actor,
             stamp(opened_at),
-            request.opening_float_minor
+            opening_float_minor,
+            local_date(tx, opened_at)
         ],
     )
     .map_err(db)?;
@@ -249,22 +541,184 @@ pub fn open_shift(
     // The float is a cash movement like any other. Recording it only in the
     // shift row would mean the drawer's arithmetic had two sources, and the
     // one nobody looks at is the one that drifts.
-    if request.opening_float_minor > 0 {
+    if opening_float_minor > 0 {
         tx.execute(
             "INSERT INTO cash_movement(id,idempotency_key,shift_id,kind,amount_minor,reason,actor_id,occurred_at)
              VALUES(?1,?2,?3,'OPENING_FLOAT',?4,'Modal awal',?5,?6)",
             params![
                 Uuid::new_v4().to_string(),
-                format!("{}:float", request.idempotency_key),
+                format!("{idempotency_key}:float"),
                 shift_id,
-                request.opening_float_minor,
-                request.actor_id.trim(),
+                opening_float_minor,
+                actor,
                 stamp(opened_at)
             ],
         )
         .map_err(db)?;
     }
     report(tx, &shift_id)
+}
+
+/// Count a drawer somebody took the seat from.
+///
+/// The shift is already closed — its holder has left the seat — and its
+/// expectation was fixed when it was taken over. What arrives here is what the
+/// holder counted out of it, and only the holder (or a supervisor) says so.
+pub fn count_shift(
+    tx: &Transaction<'_>,
+    shift_id: &str,
+    request: &CloseShiftRequest,
+    now: DateTime<Utc>,
+) -> Result<ShiftReport, EdgeError> {
+    check_declaration(request)?;
+    let (status, holder, declared): (String, String, Option<i64>) = tx
+        .query_row(
+            "SELECT status, opened_by, declared_cash_minor FROM cash_shift WHERE id=?1",
+            [shift_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(db)?
+        .ok_or_else(|| EdgeError::NotFound(format!("shift {shift_id}")))?;
+    if status == "OPEN" {
+        return Err(EdgeError::Conflict(format!(
+            "shift {shift_id} is still open; close it instead"
+        )));
+    }
+    if declared.is_some() {
+        return Err(EdgeError::Conflict(format!(
+            "shift {shift_id} has already been counted"
+        )));
+    }
+    require_holder(&holder, request.actor_id.trim(), request.supervising)?;
+    record_count(tx, shift_id, request)?;
+
+    // Recomputed rather than read: a sale the holder rang offline before the
+    // seat was taken can arrive after, and belongs in this drawer.
+    let running = report(tx, shift_id)?;
+    tx.execute(
+        "UPDATE cash_shift
+            SET declared_cash_minor=?2, expected_cash_minor=?3, variance_minor=?4,
+                close_note=COALESCE(?5, close_note), counted_at=?6
+          WHERE id=?1",
+        params![
+            shift_id,
+            request.declared_cash_minor,
+            running.expected_cash_minor,
+            request.declared_cash_minor - running.expected_cash_minor,
+            request.note.as_deref().map(str::trim),
+            stamp(now)
+        ],
+    )
+    .map_err(db)?;
+    report(tx, shift_id)
+}
+
+/// Refuse anybody but the drawer's holder, unless a supervisor is acting.
+fn require_holder(holder: &str, actor: &str, supervising: bool) -> Result<(), EdgeError> {
+    if supervising || holder == actor {
+        return Ok(());
+    }
+    Err(EdgeError::Forbidden(format!(
+        "this drawer is {holder}'s; only {holder} or a supervisor may act on it"
+    )))
+}
+
+/// The drawer a sale, a checkout or a refund belongs to: the shift of the
+/// person ringing it.
+///
+/// The one that was theirs at `at` (the node's own stamp on the sale), else
+/// the one they hold now. `None` when they hold none, and the sale still
+/// completes: goods that left the shop are a sale whatever the paperwork says,
+/// and refusing one the till had queued would leave stock the shop no longer
+/// has. A till checks the person still holds a seat before it takes money
+/// (`/shifts/mine`), so a sale with no drawer is a till that did not ask.
+///
+/// Never another person's drawer. Before seats, this was the oldest open shift
+/// on the node, which with two counters put one cashier's money in the other's
+/// count.
+pub fn shift_for_sale(
+    connection: &Connection,
+    actor: &str,
+    at: DateTime<Utc>,
+) -> Result<Option<String>, EdgeError> {
+    let at = at.to_rfc3339_opts(SecondsFormat::Micros, true);
+    let then: Option<String> = connection
+        .query_row(
+            "SELECT id FROM cash_shift
+              WHERE opened_by=?1
+                AND julianday(opened_at) <= julianday(?2)
+                AND (closed_at IS NULL OR julianday(?2) < julianday(closed_at))
+              ORDER BY opened_at DESC, id LIMIT 1",
+            params![actor.trim(), at],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(db)?;
+    match then {
+        Some(shift) => Ok(Some(shift)),
+        None => open_shift_of(connection, actor),
+    }
+}
+
+/// The day a sale trades for: its shift's, or the store's own date at `at`
+/// when it was rung with no shift open.
+pub fn business_date_for(
+    connection: &Connection,
+    shift_id: Option<&str>,
+    at: DateTime<Utc>,
+) -> Result<String, EdgeError> {
+    let from_shift: Option<String> = match shift_id {
+        Some(shift_id) => connection
+            .query_row(
+                "SELECT business_date FROM cash_shift WHERE id=?1",
+                [shift_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db)?
+            .flatten(),
+        None => None,
+    };
+    Ok(from_shift.unwrap_or_else(|| local_date(connection, at)))
+}
+
+/// The drawer this person holds, and the ones taken over from them that they
+/// have not counted yet.
+pub fn my_shifts(connection: &Connection, actor: &str) -> Result<MyShifts, EdgeError> {
+    let open = open_shift_of(connection, actor)?
+        .map(|shift| report(connection, &shift))
+        .transpose()?;
+    let ids: Vec<String> = {
+        let mut statement = connection
+            .prepare(
+                "SELECT id FROM cash_shift
+                  WHERE opened_by=?1 AND status='CLOSED' AND declared_cash_minor IS NULL
+                  ORDER BY closed_at, id",
+            )
+            .map_err(db)?;
+        let rows = statement
+            .query_map([actor.trim()], |row| row.get(0))
+            .map_err(db)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db)?
+    };
+    let uncounted = ids
+        .iter()
+        .map(|shift| report(connection, shift))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(MyShifts { open, uncounted })
+}
+
+/// Every drawer open in the store now, oldest first.
+pub fn open_shifts(connection: &Connection) -> Result<Vec<ShiftReport>, EdgeError> {
+    let ids: Vec<String> = {
+        let mut statement = connection
+            .prepare("SELECT id FROM cash_shift WHERE status='OPEN' ORDER BY opened_at, id")
+            .map_err(db)?;
+        let rows = statement.query_map([], |row| row.get(0)).map_err(db)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db)?
+    };
+    ids.iter().map(|shift| report(connection, shift)).collect()
 }
 
 /// The open shift on this terminal, if there is one.
@@ -282,13 +736,13 @@ pub fn open_shift_id(
         .map_err(db)
 }
 
-/// The open shift on ANY terminal of this node.
+/// The oldest open shift on ANY seat of this node.
 ///
-/// A sale does not say which till took it — the request carries no terminal —
-/// so this is how a sale finds its shift. With one till, which is every shop
-/// this system runs in today, there is exactly one answer. With two, the
-/// oldest open shift wins and the ambiguity is worth naming out loud rather
-/// than silently attributing money to the wrong drawer.
+/// Only for a reader asking "is a drawer open here at all" with no seat to
+/// name. It never decides whose drawer money goes in — that is
+/// [`shift_for_sale`], by the person ringing it. Before seats a sale found its
+/// shift through this, which with two counters put one cashier's takings in the
+/// other's count.
 pub fn any_open_shift(connection: &Connection) -> Result<Option<String>, EdgeError> {
     connection
         .query_row(
@@ -323,6 +777,7 @@ pub fn record_cash_movement(
         ));
     }
     require_open(tx, shift_id)?;
+    require_holder(&holder_of(tx, shift_id)?, request.actor_id.trim(), request.supervising)?;
 
     // Money leaving the drawer is the direction somebody steals in. A drop
     // into the safe is money still in the shop; a payout is money gone.
@@ -370,55 +825,13 @@ pub fn close_shift(
     request: &CloseShiftRequest,
     now: DateTime<Utc>,
 ) -> Result<ShiftReport, EdgeError> {
-    if request.declared_cash_minor < 0 {
-        return Err(EdgeError::Validation(
-            "declared cash cannot be negative".into(),
-        ));
-    }
-    if request.actor_id.trim().is_empty() {
-        return Err(EdgeError::Validation("actor_id is required".into()));
-    }
+    check_declaration(request)?;
     require_open(tx, shift_id)?;
-
-    // The sheet, when there is one, must be the figure declared beside it.
-    // A count that says 1,517,000 on top of rows adding to 1,516,000 is two
-    // declarations, and the audit would have to guess which one was meant.
-    if !request.counted.is_empty() {
-        let mut seen = std::collections::HashSet::new();
-        let mut sum: i64 = 0;
-        for line in &request.counted {
-            if line.value_minor <= 0 || line.pieces < 0 {
-                return Err(EdgeError::Validation(
-                    "a counted line needs a positive denomination and a non-negative number of pieces"
-                        .into(),
-                ));
-            }
-            if !seen.insert(line.value_minor) {
-                return Err(EdgeError::Validation(format!(
-                    "denomination {} is counted twice",
-                    line.value_minor
-                )));
-            }
-            sum = line
-                .value_minor
-                .checked_mul(line.pieces)
-                .and_then(|value| sum.checked_add(value))
-                .ok_or_else(|| EdgeError::Validation("the count is too large".into()))?;
-        }
-        if sum != request.declared_cash_minor {
-            return Err(EdgeError::Validation(format!(
-                "the counted lines add up to {sum}, not the {} declared",
-                request.declared_cash_minor
-            )));
-        }
-        for line in request.counted.iter().filter(|line| line.pieces > 0) {
-            tx.execute(
-                "INSERT INTO cash_shift_count(shift_id,value_minor,pieces) VALUES(?1,?2,?3)",
-                params![shift_id, line.value_minor, line.pieces],
-            )
-            .map_err(db)?;
-        }
-    }
+    // Only the person who counted the float in counts the drawer out — or a
+    // supervisor. Anybody else closing it would be declaring money they never
+    // held.
+    require_holder(&holder_of(tx, shift_id)?, request.actor_id.trim(), request.supervising)?;
+    record_count(tx, shift_id, request)?;
 
     let running = report(tx, shift_id)?;
     let variance = request.declared_cash_minor - running.expected_cash_minor;
@@ -426,7 +839,7 @@ pub fn close_shift(
         "UPDATE cash_shift
             SET status='CLOSED', closed_by=?2, closed_at=?3,
                 declared_cash_minor=?4, expected_cash_minor=?5, variance_minor=?6,
-                close_note=?7
+                close_note=?7, counted_at=?3
           WHERE id=?1",
         params![
             shift_id,
@@ -440,6 +853,80 @@ pub fn close_shift(
     )
     .map_err(db)?;
     report(tx, shift_id)
+}
+
+fn check_declaration(request: &CloseShiftRequest) -> Result<(), EdgeError> {
+    if request.declared_cash_minor < 0 {
+        return Err(EdgeError::Validation(
+            "declared cash cannot be negative".into(),
+        ));
+    }
+    if request.actor_id.trim().is_empty() {
+        return Err(EdgeError::Validation("actor_id is required".into()));
+    }
+    Ok(())
+}
+
+/// Write the count sheet, when there is one.
+///
+/// The sheet must be the figure declared beside it. A count that says
+/// 1,517,000 on top of rows adding to 1,516,000 is two declarations, and the
+/// audit would have to guess which one was meant.
+fn record_count(
+    tx: &Transaction<'_>,
+    shift_id: &str,
+    request: &CloseShiftRequest,
+) -> Result<(), EdgeError> {
+    if request.counted.is_empty() {
+        return Ok(());
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut sum: i64 = 0;
+    for line in &request.counted {
+        if line.value_minor <= 0 || line.pieces < 0 {
+            return Err(EdgeError::Validation(
+                "a counted line needs a positive denomination and a non-negative number of pieces"
+                    .into(),
+            ));
+        }
+        if !seen.insert(line.value_minor) {
+            return Err(EdgeError::Validation(format!(
+                "denomination {} is counted twice",
+                line.value_minor
+            )));
+        }
+        sum = line
+            .value_minor
+            .checked_mul(line.pieces)
+            .and_then(|value| sum.checked_add(value))
+            .ok_or_else(|| EdgeError::Validation("the count is too large".into()))?;
+    }
+    if sum != request.declared_cash_minor {
+        return Err(EdgeError::Validation(format!(
+            "the counted lines add up to {sum}, not the {} declared",
+            request.declared_cash_minor
+        )));
+    }
+    for line in request.counted.iter().filter(|line| line.pieces > 0) {
+        tx.execute(
+            "INSERT INTO cash_shift_count(shift_id,value_minor,pieces) VALUES(?1,?2,?3)",
+            params![shift_id, line.value_minor, line.pieces],
+        )
+        .map_err(db)?;
+    }
+    Ok(())
+}
+
+fn holder_of(connection: &Connection, shift_id: &str) -> Result<String, EdgeError> {
+    connection
+        .query_row(
+            "SELECT opened_by FROM cash_shift WHERE id=?1",
+            [shift_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(db)?
+        .ok_or_else(|| EdgeError::NotFound(format!("shift {shift_id}")))
 }
 
 fn require_open(connection: &Connection, shift_id: &str) -> Result<(), EdgeError> {
@@ -463,7 +950,8 @@ pub fn report(connection: &Connection, shift_id: &str) -> Result<ShiftReport, Ed
     let head = connection
         .query_row(
             "SELECT terminal_id,status,opened_by,opened_at,closed_by,closed_at,
-                    opening_float_minor,declared_cash_minor,variance_minor,close_note
+                    opening_float_minor,declared_cash_minor,variance_minor,close_note,
+                    business_date,taken_over_by,counted_at
                FROM cash_shift WHERE id=?1",
             [shift_id],
             |row| {
@@ -478,6 +966,11 @@ pub fn report(connection: &Connection, shift_id: &str) -> Result<ShiftReport, Ed
                     row.get::<_, Option<i64>>(7)?,
                     row.get::<_, Option<i64>>(8)?,
                     row.get::<_, Option<String>>(9)?,
+                    (
+                        row.get::<_, Option<String>>(10)?,
+                        row.get::<_, Option<String>>(11)?,
+                        row.get::<_, Option<String>>(12)?,
+                    ),
                 ))
             },
         )
@@ -603,14 +1096,19 @@ pub fn report(connection: &Connection, shift_id: &str) -> Result<ShiftReport, Ed
             .map_err(db)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(db)?
     };
+    let (business_date, taken_over_by, counted_at) = head.10;
     Ok(ShiftReport {
         shift_id: shift_id.to_string(),
+        terminal_label: seat_label(&head.0),
         terminal_id: head.0,
         status: head.1,
         opened_by: head.2,
         opened_at: head.3,
         closed_by: head.4,
         closed_at: head.5,
+        business_date,
+        taken_over_by,
+        counted_at,
         opening_float_minor: head.6,
         sale_count,
         sales_total_minor,
@@ -1374,7 +1872,7 @@ pub fn shift_fact(
         .query_row(
             "SELECT terminal_id,status,opened_by,opened_at,opening_float_minor,
                     closed_by,closed_at,declared_cash_minor,expected_cash_minor,
-                    variance_minor,close_note
+                    variance_minor,close_note,business_date,taken_over_by,counted_at
                FROM cash_shift WHERE id=?1",
             [shift_id],
             |row| {
@@ -1390,6 +1888,11 @@ pub fn shift_fact(
                     row.get::<_, Option<i64>>(8)?,
                     row.get::<_, Option<i64>>(9)?,
                     row.get::<_, Option<String>>(10)?,
+                    (
+                        row.get::<_, Option<String>>(11)?,
+                        row.get::<_, Option<String>>(12)?,
+                        row.get::<_, Option<String>>(13)?,
+                    ),
                 ))
             },
         )
@@ -1419,6 +1922,7 @@ pub fn shift_fact(
         .collect::<Result<Vec<_>, _>>()
         .map_err(db)?;
 
+    let (business_date, taken_over_by, counted_at) = head.11;
     Ok(serde_json::json!({
         "shift_id": shift_id,
         "site_id": site_id,
@@ -1436,6 +1940,11 @@ pub fn shift_fact(
         "expected_cash_minor": head.8,
         "variance_minor": head.9,
         "close_note": head.10,
+        // The day the shift trades for, and a shift ended by somebody taking
+        // the seat (`0070`): closed, nothing declared until `counted_at`.
+        "business_date": business_date,
+        "taken_over_by": taken_over_by,
+        "counted_at": counted_at,
         "movements": movements,
     }))
 }

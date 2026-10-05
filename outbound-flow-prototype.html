@@ -1,0 +1,706 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Outbound flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;800&display=swap" rel="stylesheet" />
+<style>
+/* Hub tokens (frontend-hub/src/styles/index.css, 28 Sep · E Quiet · airy charcoal). Inter 14, nothing under 14px. */
+:root{--ink:#20242c;--text:#394150;--body:#626b78;--mute:#737c89;--faint:#b9c0c9;--line-ico:#89919d;--canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--soft-3:#f6f6f7;
+  --hairline:#e6e6e9;--hairline-2:#dadade;--hairline-strong:#c6c6cc;--backdrop:#e0e0e4;
+  --accent:#2563eb;--accent-bg:#eff5ff;--ok:#36b827;--ok-fg:#15803d;--ok-bg:#e7f7e3;--warn:#c9892e;--warn-bg:#faeacd;--warn-fg:#b45309;--bad:#d05151;--bad-bg:#fbeaea;--bad-fg:#be123c;
+  --rail:#242526;--rail-2:#303234;--rail-text:#c3c4c7;--rail-mute:#a1a3a8;
+  --r-shell:16px;--r-card:10px;--r-inner:7px;
+  --shadow-soft:0 1px 3px rgb(24 39 60/4%);--shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);--shadow-shell:0 10px 34px rgb(24 39 60/8%);
+  --ease:cubic-bezier(.23,1,.32,1);--ease-drawer:cubic-bezier(.32,.72,0,1)}
+*{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px}
+body{font:14px/20px Inter,system-ui,sans-serif;color:var(--text);background:var(--backdrop);-webkit-font-smoothing:antialiased;padding:16px 16px 40px}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px;letter-spacing:-.02em}
+.num{font-variant-numeric:tabular-nums}
+.mute{color:var(--mute)}.faint{color:var(--faint)}.body{color:var(--body)}.ink{color:var(--ink)}
+.warnt{color:var(--warn-fg)}.badt{color:var(--bad-fg)}
+svg.i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer;flex:none}
+
+/* prototype chrome */
+.top{max-width:98rem;margin:0 auto 12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.top h1{font-size:15px;font-weight:600;color:var(--ink)}
+.top p{color:var(--body);max-width:52rem}
+.lenses{margin-left:auto;display:flex;gap:2px;background:var(--canvas);padding:3px;border-radius:999px;box-shadow:0 0 0 1px var(--hairline);flex-wrap:wrap}
+.lens{border:0;background:none;border-radius:999px;padding:5px 14px;color:var(--body)}
+.lens.on{background:var(--ink);color:#fff;font-weight:500}
+.why{max-width:98rem;margin:14px auto 0;display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.why div{background:var(--canvas);border-radius:var(--r-card);padding:14px 16px;box-shadow:var(--shadow-soft)}
+.why h5{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:4px}.why p{color:var(--body)}
+@media (max-width:900px){.why{grid-template-columns:1fr 1fr}}
+@media (max-width:560px){.why{grid-template-columns:1fr}}
+
+/* shell */
+.shell{max-width:98rem;margin:0 auto;display:flex;height:min(58rem,calc(100vh - 7rem));min-height:42rem;background:var(--canvas);border-radius:var(--r-shell);box-shadow:var(--shadow-shell);overflow:clip;position:relative}
+.nav{width:14.5rem;flex:none;background:var(--rail);color:var(--rail-text);padding:14px 10px;display:flex;flex-direction:column;gap:2px}
+.brand{display:flex;align-items:center;gap:9px;color:#fff;font-weight:600;padding:2px 8px 14px}
+.brand b{width:24px;height:24px;border-radius:7px;background:#fff;color:var(--rail);display:grid;place-items:center;font-weight:700;position:relative}
+.brand b::after{content:"";position:absolute;right:4px;bottom:4px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.nrow{display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;color:var(--rail-text)}
+.nrow.dept{color:#fff;font-weight:500}
+.nrow.sub{padding-left:34px;color:var(--rail-mute)}
+.nrow.sub.on{background:var(--rail-2);color:#fff}
+.nrow svg.i{color:var(--rail-mute)}
+@media (max-width:900px){.nav{display:none}}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}
+.bar{height:48px;flex:none;display:flex;align-items:center;gap:8px;padding:0 20px;border-bottom:1px solid var(--hairline);color:var(--body)}
+.bar b{color:var(--ink);font-weight:500}
+.scroll{flex:1;min-height:0;overflow:auto}
+.page{padding:26px 32px 32px}
+@media (max-width:700px){.page{padding:18px 16px 24px}}
+
+/* page parts */
+.ph{display:flex;align-items:flex-end;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+.ph h2{font-size:22px;line-height:28px;font-weight:600;color:var(--ink);letter-spacing:-.02em}
+.ph .sub{color:var(--body);margin-top:4px}
+.ph .act{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.btn{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 13px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);color:var(--ink);font-weight:500;white-space:nowrap;transition:background .12s,transform .1s}
+.btn:hover{background:var(--soft)}.btn:active{transform:scale(.97)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}.btn.pri:hover{background:#1d4ed8}
+.btn.ghost{border-color:transparent;background:none;color:var(--body)}.btn.ghost:hover{background:var(--soft-2);color:var(--ink)}
+.btn.sm{height:30px;padding:0 11px}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.btn svg.i{color:var(--line-ico)}.btn.pri svg.i{color:#fff}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+.kpi{border:1px solid var(--hairline);border-radius:var(--r-card);padding:12px 14px}
+.kpi span{color:var(--body)}.kpi b{display:block;font-size:22px;line-height:30px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+@media (max-width:700px){.kpis{grid-template-columns:1fr 1fr}}
+.card{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:clip;margin-bottom:18px}
+.chead{display:flex;align-items:center;gap:10px;padding:0 16px;height:52px;border-bottom:1px solid var(--hairline)}
+.chead h4{font-size:15px;font-weight:600;color:var(--ink)}
+table{border-collapse:collapse}
+table.list{width:100%}
+table.list th{font-weight:400;color:var(--body);text-align:left;padding:0 14px;height:40px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+table.list td{padding:0 14px;height:52px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+table.list tr:last-child td{border-bottom:0}
+table.list tbody tr.click{cursor:pointer;transition:background .12s}
+table.list tbody tr.click:hover{background:var(--soft)}
+table.list tbody tr.sel{background:var(--accent-bg)}
+.r{text-align:right!important}.c{text-align:center!important}
+.status{display:inline-flex;align-items:center;gap:7px;color:var(--ink)}
+.status i{width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.status.done i{background:var(--ok)}
+.shopc{display:flex;flex-direction:column;line-height:18px}
+.shopc .mono{color:var(--ink)}
+.shopc span+span{color:var(--mute)}
+.grid .shopc,.srow .shopc{text-align:left}
+
+/* sheet */
+.scrim{position:absolute;inset:0;background:rgb(246 246 247/.55);opacity:0;pointer-events:none;transition:opacity .2s;z-index:5}
+.scrim.on{opacity:1;pointer-events:auto}
+.sheet{position:absolute;top:10px;right:10px;bottom:10px;width:min(64rem,calc(100% - 20px));background:var(--canvas);border-radius:var(--r-shell);box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);display:flex;flex-direction:column;transform:translateX(calc(100% + 24px));transition:transform .42s var(--ease-drawer),width .3s var(--ease);z-index:6}
+.sheet.on{transform:none}
+.sheet.wide{width:min(86rem,calc(100% - 20px))}
+.sheet.mid{width:min(76rem,calc(100% - 20px))}
+.shead{padding:18px 22px 12px;display:flex;gap:12px;align-items:flex-start}
+.shead h3{font-size:20px;line-height:26px;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+.shead .cap{color:var(--body);margin-top:3px}
+.shead .x{margin-left:auto}
+.x{width:36px;height:36px;border:0;background:none;border-radius:8px;display:grid;place-items:center;color:var(--body);flex:none}.x:hover{background:var(--soft-2)}
+.stool{padding:0 22px 12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.sbody{flex:1;min-height:0;overflow:auto;padding:0 22px 18px}
+.sfoot{border-top:1px solid var(--hairline);padding:12px 22px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.search{position:relative;flex:0 1 15rem}
+.search svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--line-ico)}
+.search input{width:100%;height:36px;border:1px solid transparent;border-radius:999px;padding:0 12px 0 32px;background:var(--soft-2);outline:0}
+.search input:hover{border-color:var(--hairline-2)}.search input:focus{border-color:var(--hairline-strong);background:var(--canvas)}
+.sel{height:36px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 10px;background:var(--canvas);color:var(--ink)}
+.sp{flex:1}
+.menu{position:relative}
+.pop{position:absolute;left:0;top:42px;z-index:30;min-width:17rem;background:var(--canvas);border-radius:var(--r-card);box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);padding:5px;display:none;max-height:26rem;overflow:auto}
+.pop.right{left:auto;right:0}
+.pop.on{display:block;animation:pop .16s var(--ease)}
+.pop label,.pop button{display:flex;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:6px;gap:10px;align-items:center;cursor:pointer}
+.pop label:hover,.pop button:hover{background:var(--soft-2)}
+.pop label.off{cursor:default;color:var(--faint)}.pop label.off:hover{background:none}
+.pop label .n{margin-left:auto;color:var(--mute);font-variant-numeric:tabular-nums}
+.pop button span{color:var(--mute)}
+.pop hr{border:0;border-top:1px solid var(--hairline);margin:4px 0}
+@keyframes pop{from{opacity:0;transform:translateY(-4px) scale(.98)}}
+.banner{display:flex;gap:10px;align-items:flex-start;border-radius:var(--r-inner);padding:10px 12px;background:var(--soft);color:var(--text);margin-bottom:12px}
+.banner.warn{background:var(--warn-bg);color:#6b4410}
+.banner.ok{background:var(--ok-bg);color:#14532d}
+
+/* the sheet's table (DemandSheet look) */
+.grid{border:1px solid var(--hairline);border-radius:var(--r-inner);overflow:clip}
+.grid table{width:100%}
+.grid th{height:40px;padding:0 10px;font-weight:400;color:var(--body);text-align:right;border-bottom:1px solid var(--hairline);white-space:nowrap;background:var(--canvas)}
+.grid th:first-child{text-align:left;padding-left:12px}
+.grid td{padding:0 10px;height:44px;border-bottom:1px solid var(--hairline);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.grid td:first-child{text-align:left;padding-left:12px}
+.grid tr:last-child td{border-bottom:0}
+.grid tr.art td{background:var(--soft);height:56px}
+.grid tr.art td.num,.grid tr.art .tot{color:var(--ink);font-weight:500}
+.art1{display:flex;align-items:center;gap:10px;min-width:0}
+.art1 .nm{color:var(--ink);font-weight:500;overflow:hidden;text-overflow:ellipsis}
+.art1 .cd{color:var(--mute)}
+.th{width:36px;height:36px;border-radius:var(--r-inner);flex:none;position:relative;overflow:hidden}
+.th::after{content:"";position:absolute;inset:0;background:linear-gradient(160deg,rgb(255 255 255/.35),rgb(255 255 255/0) 60%)}
+.skuc{display:flex;align-items:center;gap:10px;padding-left:46px}
+.skuc .mono{color:var(--faint)}
+.shopsub{display:flex;align-items:center;gap:10px;padding-left:72px}
+.qty{width:52px;height:30px;border:1px solid transparent;border-radius:var(--r-inner);background:transparent;text-align:center;font-variant-numeric:tabular-nums;outline:0;transition:background .12s,border-color .12s}
+.qty:hover{border-color:var(--hairline-2);background:var(--soft-2)}
+.qty:focus{border-color:var(--hairline-strong);background:var(--canvas)}
+.qty.has{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.qty.over{background:var(--bad-bg);color:var(--bad-fg);font-weight:500}
+.qcell{display:inline-flex;align-items:center;gap:4px;justify-content:flex-end}
+.qcell .of{color:var(--mute);min-width:26px;text-align:left}
+td.z{color:var(--faint)}
+.left.bad{color:var(--bad-fg);font-weight:500}
+
+/* A · matrix */
+.mx{overflow:auto;max-height:100%;border:1px solid var(--hairline);border-radius:var(--r-inner)}
+.mx table{min-width:100%}
+.mx th,.mx td{padding:0 8px;height:44px;border-bottom:1px solid var(--hairline);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;background:var(--canvas)}
+.mx thead th{position:sticky;top:0;z-index:2;font-weight:400;color:var(--body);height:56px;vertical-align:middle}
+.mx thead th .shopc{align-items:flex-end}
+.mx th:first-child,.mx td:first-child{position:sticky;left:0;z-index:1;text-align:left;padding-left:12px;min-width:17rem;max-width:19rem;border-right:1px solid var(--hairline)}
+.mx thead th:first-child{z-index:3}
+.mx tr.art td{background:var(--soft);height:56px}
+.mx tr.art td .tot{color:var(--ink);font-weight:500}
+.mx td.shopcol{min-width:6.5rem}
+.mx tfoot td{position:sticky;bottom:0;z-index:2;background:var(--canvas);border-top:1px solid var(--hairline-strong);border-bottom:0;height:48px;color:var(--ink);font-weight:500}
+.mx tfoot td:first-child{z-index:3}
+.mx th.picked,.mx td.picked{border-right:1px solid var(--hairline)}
+.mx td.left,.mx th.left{border-left:1px solid var(--hairline)}
+.mx .skuc{padding-left:46px}
+
+/* B · shops list */
+.grid tr.shop td{height:56px}
+.grid tr.shop.off td{color:var(--faint)}
+.grid tr.shop.off .mono{color:var(--faint)}
+.grid tr.shop.clickable{cursor:pointer}
+.grid tr.shop.clickable:hover td{background:var(--soft)}
+.grid tr.shop.openrow td{background:var(--soft)}
+.chev{width:28px;height:28px;border:0;background:none;border-radius:6px;display:inline-grid;place-items:center;color:var(--line-ico);transition:transform .2s var(--ease)}
+.chev.on{transform:rotate(90deg)}
+.grid tr.detail>td{padding:0;background:var(--soft-3);height:auto}
+.inner{padding:8px 12px 12px 44px}
+.inner table{width:100%;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-inner);border-collapse:separate;border-spacing:0;overflow:hidden}
+.inner td{height:52px}
+.inner th{height:36px}
+
+/* D · two pane */
+.split{display:flex;gap:16px;height:100%;min-height:0}
+.shoplist{width:18rem;flex:none;border:1px solid var(--hairline);border-radius:var(--r-inner);display:flex;flex-direction:column;overflow:hidden}
+.shoplist .hd{display:flex;align-items:center;gap:10px;height:44px;padding:0 12px;border-bottom:1px solid var(--hairline);color:var(--body)}
+.shoplist .ls{flex:1;overflow:auto}
+.srow{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--hairline);cursor:pointer;transition:background .12s}
+.srow:hover{background:var(--soft)}
+.srow.on{background:var(--accent-bg);box-shadow:inset 3px 0 0 var(--accent)}
+.srow.off{cursor:default;color:var(--faint)}.srow.off .mono{color:var(--faint)}.srow.off:hover{background:none}
+.srow .shopc{flex:1;min-width:0}
+.srow .n{text-align:right;font-variant-numeric:tabular-nums;line-height:18px}
+.pane{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
+.pane .phd{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.pane .phd h4{font-size:15px;font-weight:600;color:var(--ink)}
+.pane .grid{overflow:auto}
+@media (max-width:760px){.split{flex-direction:column}.shoplist{width:auto;max-height:14rem}}
+
+.toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,20px);background:var(--ink);color:#fff;padding:10px 16px;border-radius:999px;opacity:0;transition:all .25s var(--ease);z-index:50}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+
+/* flow strip */
+.flow{max-width:98rem;margin:0 auto 12px;display:flex;gap:6px;flex-wrap:wrap}
+.flow button{display:flex;align-items:center;gap:8px;border:0;background:var(--canvas);border-radius:999px;padding:6px 14px 6px 6px;color:var(--body);box-shadow:0 0 0 1px var(--hairline)}
+.flow button b{width:22px;height:22px;border-radius:50%;background:var(--soft-2);display:grid;place-items:center;font-weight:600;color:var(--body);font-size:14px}
+.flow button.on{background:var(--ink);color:#fff}.flow button.on b{background:#fff;color:var(--ink)}
+.flow .arr{align-self:center;color:var(--faint)}
+.nrow.sub{cursor:pointer}.nrow.sub:hover{color:#fff}
+.status.wait i{background:var(--warn)}.status.gone i{background:var(--mute)}
+.sheet.narrow{width:min(52rem,calc(100% - 20px))}
+/* scan */
+.reader{display:flex;align-items:center;gap:16px;border:1px solid var(--hairline);border-radius:var(--r-card);padding:16px 18px;margin-bottom:16px}
+.pulse{width:44px;height:44px;border-radius:50%;background:var(--soft-2);display:grid;place-items:center;color:var(--body);flex:none;position:relative}
+.pulse.on{background:var(--accent-bg);color:var(--accent)}
+.pulse.on::after{content:"";position:absolute;inset:0;border-radius:50%;box-shadow:0 0 0 0 rgb(37 99 235/.35);animation:ring 1.1s var(--ease) infinite}
+@keyframes ring{to{box-shadow:0 0 0 14px rgb(37 99 235/0)}}
+@media (prefers-reduced-motion:reduce){.pulse.on::after{animation:none}}
+.reader .big{font-size:28px;line-height:34px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.grid tr.miss td{background:#fffaf0}.grid tr.extra td{background:#fff6f6}
+.diff{font-weight:500}
+.grid td{height:52px}
+/* paper */
+.paperwrap{position:fixed;inset:0;background:rgb(32 36 44/.55);z-index:40;display:none;flex-direction:column}
+.paperwrap.on{display:flex;animation:fade .2s var(--ease)}
+@keyframes fade{from{opacity:0}}
+.pbar{display:flex;align-items:center;gap:10px;padding:12px 20px;background:var(--canvas);border-bottom:1px solid var(--hairline)}
+.pbar h4{font-size:15px;font-weight:600;color:var(--ink)}
+.pages{flex:1;overflow:auto;padding:28px 16px 60px;display:flex;flex-direction:column;align-items:center;gap:24px}
+.paper{background:#fff;box-shadow:0 8px 30px rgb(0 0 0/.25);color:#111;font:14px/19px Inter,system-ui,sans-serif;padding:34px 36px;position:relative}
+.paper.a5{width:560px;min-height:790px}.paper.a4{width:760px;min-height:1075px;padding:44px 48px}.paper.label{width:380px;height:570px;padding:22px}
+.paper h1{font-size:24px;letter-spacing:.02em;font-weight:700}
+.paper .hdr{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:14px;margin-bottom:14px}
+.paper .kv{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;margin-bottom:16px}
+.paper .kv span{color:#555}
+.paper table{width:100%;border-collapse:collapse}
+.paper th{text-align:left;border-bottom:1.5px solid #111;padding:6px 6px;font-weight:600}
+.paper td{border-bottom:1px solid #ccc;padding:6px 6px}
+.paper .r{text-align:right}
+.paper tfoot td{border-bottom:0;border-top:1.5px solid #111;font-weight:700}
+.paper .note{margin-top:16px;color:#444}
+.paper .sign{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:40px;text-align:center}
+.paper .sign div{border-top:1px solid #111;padding-top:6px;margin-top:70px}
+.paper .mono{font-size:14px;color:#111}
+.paper .blank{display:inline-block;min-width:180px;border-bottom:1px dotted #777}
+.qr{width:96px;height:96px;flex:none}
+.label .shop{font-size:54px;line-height:58px;font-weight:800;letter-spacing:-.01em;font-family:"JetBrains Mono",monospace}
+
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>Outbound · after the pack</h1>
+  <p>New pack → scan the carton with RFID → seal, and the packing list prints → Shipments: surat jalan made from packing lists → Dispatch: put surat jalan on a truck, and they print with plate and driver. Everything here is clickable.</p>
+  
+</div>
+<div class="flow" id="flow"></div>
+
+<div class="shell">
+  <nav class="nav">
+    <div class="brand"><b>C</b>Central</div>
+    <div class="nrow dept"><svg class="i" viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4"/></svg>Operations</div>
+    <div class="nrow sub" style="cursor:default">Receiving</div>
+    <div class="nrow sub" style="cursor:default">Printing</div>
+    <div class="nrow sub" style="cursor:default">Picking</div>
+    <div id="navrows"></div>
+  </nav>
+  <div class="main">
+    <div class="bar" id="crumb"></div>
+    <div class="scroll"><div class="page" id="page"></div></div>
+    <div class="scrim" id="scrim"></div>
+    <aside class="sheet narrow" id="sheet"></aside>
+  </div>
+</div>
+<div class="why" id="why"></div>
+<div class="paperwrap" id="paper"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s)
+const ico={
+  x:'<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  plus:'<svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  print:'<svg class="i" viewBox="0 0 24 24"><path d="M6 9V3h12v6M6 18H4v-7h16v7h-2"/><rect x="6" y="14" width="12" height="7"/></svg>',
+  rfid:'<svg class="i" viewBox="0 0 24 24" style="width:22px;height:22px"><path d="M5 12a7 7 0 0 1 14 0M8 12a4 4 0 0 1 8 0"/><circle cx="12" cy="12" r="1.3"/><path d="M12 13v7"/></svg>',
+  truck:'<svg class="i" viewBox="0 0 24 24"><path d="M3 6h11v10H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></svg>',
+}
+const n=v=>Number(v).toLocaleString('en-US')
+const now=()=>{const t=new Date();return String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0')}
+
+/* ---------- data ---------- */
+const SHOPS={'BDG-01':['Bandung Dago','Jl. Ir. H. Juanda 112, Bandung'],'BDG-02':['Bandung Buah Batu','Jl. Buah Batu 201, Bandung'],'JKT-03':['Jakarta Kemang','Jl. Kemang Raya 18, Jakarta Selatan'],
+  'JKT-07':['Jakarta Kelapa Gading','Jl. Boulevard Raya QA2/9, Jakarta Utara'],'SMG-01':['Semarang Pandanaran','Jl. Pandanaran 77, Semarang'],'SBY-02':['Surabaya Tunjungan','Jl. Tunjungan 45, Surabaya'],
+  'YGY-01':['Yogyakarta Kaliurang','Jl. Kaliurang Km 5, Sleman'],'MLG-01':['Malang Ijen','Jl. Ijen 30, Malang'],'BGR-01':['Bogor Pajajaran','Jl. Pajajaran 60, Bogor']}
+const SKU={
+  'KMJ-OXF-NAV-M':['Kemeja Oxford Slim','Navy','M'],'KMJ-OXF-NAV-L':['Kemeja Oxford Slim','Navy','L'],'KMJ-OXF-WHI-XL':['Kemeja Oxford Slim','White','XL'],
+  'KOS-BSC-BLA-S':['Kaos Basic Crew','Black','S'],'KOS-BSC-BLA-L':['Kaos Basic Crew','Black','L'],'KOS-BSC-GRE-M':['Kaos Basic Crew','Grey','M'],
+  'BLS-LNN-SAG-M':['Blus Linen Kerah','Sage','M'],'CHN-TPR-KHA-32':['Celana Chino Tapered','Khaki','32'],'ROK-PLS-MOC-AS':['Rok Plisket Midi','Mocca','AS'],'HDA-ZIP-MAR-8':['Hoodie Anak Zip','Maroon','8']}
+const CODES=Object.keys(SKU)
+let seed=5;const rnd=()=>{seed=(seed*16807)%2147483647;return(seed-1)/2147483646}
+function linesFor(k){const pick=[...CODES].sort(()=>rnd()-.5).slice(0,k);return pick.map(c=>({sku:c,qty:1+Math.floor(rnd()*4)}))}
+const pcs=c=>c.lines.reduce((t,l)=>t+l.qty,0)
+
+/// What each shop is owed and what the picking area holds — the New pack's input.
+const PACK_SHOPS=['BDG-01','BDG-02','JKT-03','JKT-07','SMG-01','YGY-01']
+const OWED={},PICKED={}
+for(const c of CODES){let sum=0;for(const s of PACK_SHOPS)if(rnd()<.55){const q=1+Math.floor(rnd()*3);OWED[s+'|'+c]=q;sum+=q}PICKED[c]=Math.round(sum*(.6+rnd()*.7))}
+const owed=(s,c)=>OWED[s+'|'+c]||0
+const skusOf=s=>CODES.filter(c=>owed(s,c)>0)
+const readyAlone=s=>skusOf(s).reduce((t,c)=>t+Math.min(owed(s,c),PICKED[c]),0)
+const packable=s=>readyAlone(s)>0
+
+const K=(no,shop,state,extra={})=>({no:`KL-260929-0${no}`,shop,lines:linesFor(4+Math.floor(rnd()*4)),state,scenario:'match',sealed:null,by:'Maya',...extra})
+let CARTONS=[
+  K(143,'BGR-01','scan',{scenario:'extra'}),K(142,'SBY-02','scan',{scenario:'missing'}),
+  K(140,'YGY-01','sealed',{sealed:'11:58'}),K(139,'SBY-02','sealed',{sealed:'11:40'}),K(138,'SBY-02','sealed',{sealed:'11:31'}),
+  K(136,'MLG-01','sealed',{sealed:'10:50'}),K(135,'MLG-01','sealed',{sealed:'10:44'}),
+  K(134,'SMG-01','sealed',{sealed:'10:12'}),K(133,'SMG-01','sealed',{sealed:'10:05'}),
+  K(132,'JKT-03','sealed',{sealed:'08:51'}),K(131,'JKT-03','sealed',{sealed:'08:47'}),K(130,'BGR-01','sealed',{sealed:'08:30'})]
+const CT=no=>CARTONS.find(c=>c.no===no)
+/// A shipment (surat jalan) is Ready to dispatch, then In transit, then Received.
+let DNS=[
+  {no:'SJ-260929-0022',shop:'SBY-02',cartons:['KL-260929-0138','KL-260929-0139'],at:'11:45',sent:null,plate:null,driver:null,got:null},
+  {no:'SJ-260929-0021',shop:'MLG-01',cartons:['KL-260929-0135','KL-260929-0136'],at:'11:02',sent:null,plate:null,driver:null,got:null},
+  {no:'SJ-260929-0020',shop:'SMG-01',cartons:['KL-260929-0133','KL-260929-0134'],at:'10:20',sent:'10:31',plate:'H 8812 KC',driver:'Slamet',got:null},
+  {no:'SJ-260929-0019',shop:'JKT-03',cartons:['KL-260929-0131','KL-260929-0132'],at:'09:02',sent:'09:24',plate:'B 9021 TXA',driver:'Asep Hidayat',got:null},
+  {no:'SJ-260929-0018',shop:'BGR-01',cartons:['KL-260929-0130'],at:'08:58',sent:'09:24',plate:'B 9021 TXA',driver:'Asep Hidayat',got:{at:'11:05',koli:1}}]
+const DN=no=>DNS.find(d=>d.no===no)
+let nextKoli=144,nextDN=23
+
+/* ---------- state ---------- */
+let truck={plate:'B 9133 KXA',driver:'Dedi Kurniawan'},sendFocus=null
+let screen='packing',sheet=null,scan=null,dispPick=new Set(),sendPick=new Set(),listShow='transit'
+let focus=null,q={},done={},needle='',pop=null
+const dnStatus=d=>!d.sent?['Ready to dispatch','']:d.got?(d.got.koli<d.cartons.length?[`Received ${d.got.at} · ${d.cartons.length-d.got.koli} carton short`,'wait']:[`Received ${d.got.at}`,'done']):['In transit','']
+const looseByShop=()=>{const m={};CARTONS.filter(c=>c.state==='sealed'&&!DNS.some(d=>d.cartons.includes(c.no))).forEach(c=>(m[c.shop]=m[c.shop]||[]).push(c));return m}
+const dnPcs=d=>d.cartons.reduce((t,k)=>t+pcs(CT(k)),0)
+const shopCell=s=>`<span class="ink">${SHOPS[s][0]}</span> <span class="mono mute">${s}</span>`
+
+/* ---------- chrome ---------- */
+const STEPS=[['1','Pack','packing'],['2','Scan RFID','packing'],['3','Packing list','packing'],['4','Shipment','dn'],['5','Dispatch','dispatch']]
+function chrome(){
+  $('#flow').innerHTML=STEPS.map(([k,l,s],i)=>`${i?'<span class="arr">›</span>':''}<button class="${s===screen?'on':''}" data-go="${s}"><b>${k}</b>${l}</button>`).join('')
+  const rows=[['packing','Packing'],['dn','Shipments'],['dispatch','Dispatch']]
+  $('#navrows').innerHTML=rows.map(([s,l])=>`<div class="nrow sub ${screen===s?'on':''}" data-go="${s}">${l}</div>`).join('')
+  $('#crumb').innerHTML=`Operations <span class="faint">/</span> <b>${rows.find(r=>r[0]===screen)[1]}</b>`
+  const W={
+    packing:[['New pack, one shop at a time','New pack opens on the first shop with picks ready, filled with its fair share. Pack takes you straight to the scan of that carton.'],
+      ['Scan before seal','The carton is swept with RFID at the arch or with a handheld, and the reads are set against what was packed. A missing piece can be sealed short; an extra or unknown tag must come out first.'],
+      ['The packing list is what was read','Seal prints the packing list (A5, inside the carton, Qty only) and the sticker (on the lid), built from the tags that were read.'],
+      ['Then the next shop','After a seal, "Pack next shop" opens New pack on the next shop. A carton left unscanned stays in the list as Not sealed, with a Scan button.']],
+    dn:[['Shipment = surat jalan','A shipment gathers one shop\'s sealed cartons. It prints as the SURAT JALAN; in English it is a Shipment, as in the backend.'],
+      ['Shops left, cartons right','New shipment opens every shop that has sealed cartons. Pick a shop, check its cartons, untick one that stays behind.'],
+      ['Made here, printed at Dispatch','Create makes the surat jalan (number and packing lists), one per shop, as Ready to dispatch. It prints at Dispatch, once plate and driver are known.'],
+      ['One per shop','Several shops are done in one go: one shipment per shop with anything ticked.']],
+    dispatch:[['Pick the shipments for this truck','Dispatch lists the Ready shipments. Tick the ones going on this truck, fill in plate and driver.'],
+      ['Printed with the truck','Dispatch prints each surat jalan with plate and driver filled in, for the driver to carry and sign.'],
+      ['In transit, then Received','A dispatched shipment is In transit until the shop scans its surat jalan QR. A missing carton shows as short.'],
+      ['No loading scan','What is ticked is what left. There is no separate loading or yard step.']],
+  }
+  $('#why').innerHTML=W[screen].map(([h,p])=>`<div><h5>${h}</h5><p>${p}</p></div>`).join('')
+}
+
+/* ---------- screens ---------- */
+function status(label,cls){return`<span class="status ${cls}"><i></i>${label}</span>`}
+function renderPage(){chrome();$('#page').innerHTML=screen==='packing'?pagePacking():screen==='dn'?pageDN():pageDispatch()}
+function pagePacking(){
+  const wait=CARTONS.filter(c=>c.state==='scan'),sealed=CARTONS.filter(c=>c.state==='sealed')
+  const anyReady=PACK_SHOPS.some(packable)
+  return`<div class="ph"><div><h2>Packing</h2><div class="sub">Pack for a shop, scan the carton with RFID, and seal. The packing list prints on seal.</div></div>
+    <div class="act"><button class="btn pri" data-newpack ${anyReady?'':'disabled'}>${ico.plus}New pack</button></div></div>
+  <div class="kpis"><div class="kpi"><span>Shops ready to pack</span><b>${n(PACK_SHOPS.filter(packable).length)}</b></div><div class="kpi"><span>Not sealed</span><b>${n(wait.length)}</b></div>
+    <div class="kpi"><span>Sealed today</span><b>${n(sealed.length)}</b></div><div class="kpi"><span>Pieces sealed</span><b>${n(sealed.reduce((t,c)=>t+pcs(c),0))}</b></div></div>
+  <div class="card"><div class="chead"><h4>Cartons</h4></div>
+  <table class="list"><thead><tr><th>Carton</th><th>Shop</th><th class="r">Pieces</th><th>Sealed</th><th></th></tr></thead><tbody>
+  ${[...wait,...sealed].map(c=>`<tr class="click" data-${c.state==='scan'?'scan':'carton'}="${c.no}"><td class="mono ink">${c.no}</td><td>${shopCell(c.shop)}</td><td class="r num">${n(pcs(c))}</td>
+      <td class="num">${c.sealed||'<span class="mute">Not sealed</span>'}</td>
+      <td class="r" style="width:130px">${c.state==='scan'?`<button class="btn pri sm" data-scan="${c.no}">Scan</button>`:`<button class="btn ghost sm" data-paper="list:${c.no}">Packing list</button>`}</td></tr>`).join('')}
+  </tbody></table></div>`
+}
+function pageDN(){
+  const lb=looseByShop(),loose=Object.values(lb).flat()
+  return`<div class="ph"><div><h2>Shipments</h2><div class="sub">Sealed cartons gathered per shop. A shipment prints as the surat jalan.</div></div>
+    <div class="act"><button class="btn pri" data-newship ${loose.length?'':'disabled'}>${ico.plus}New shipment</button></div></div>
+  <div class="kpis"><div class="kpi"><span>Sealed cartons not on a shipment</span><b>${n(loose.length)}</b></div><div class="kpi"><span>Ready to dispatch</span><b>${n(DNS.filter(d=>!d.sent).length)}</b></div>
+    <div class="kpi"><span>Shipments today</span><b>${n(DNS.length)}</b></div><div class="kpi"><span>Pieces on shipments</span><b>${n(DNS.reduce((t,d)=>t+dnPcs(d),0))}</b></div></div>
+  <div class="card"><div class="chead"><h4>Shipments</h4></div>
+  <table class="list"><thead><tr><th>Shipment</th><th>Shop</th><th class="r">Cartons</th><th class="r">Pieces</th><th>Status</th><th></th></tr></thead><tbody>
+  ${DNS.map(d=>{const[l,c]=dnStatus(d);return`<tr class="click" data-dn="${d.no}"><td class="mono ink">${d.no}</td><td>${shopCell(d.shop)}</td>
+    <td class="r num">${d.cartons.length}</td><td class="r num">${n(dnPcs(d))}</td><td>${status(l,c)}</td>
+    <td class="r" style="width:110px"><button class="btn ghost sm" data-paper="sj:${d.no}">${d.sent?`${ico.print}Print`:'Preview'}</button></td></tr>`}).join('')}
+  </tbody></table></div>`
+}
+function pageDispatch(){
+  const ready=DNS.filter(d=>!d.sent),sent=DNS.filter(d=>d.sent),shown=sent.filter(d=>listShow==='all'||(listShow==='transit'?!d.got:!!d.got))
+  return`<div class="ph"><div><h2>Dispatch</h2><div class="sub">Put ready shipments on a truck. Each is in transit until the shop scans its surat jalan.</div></div>
+    <div class="act"><button class="btn pri" data-disp ${ready.length?'':'disabled'}>${ico.truck}Dispatch</button></div></div>
+  <div class="kpis"><div class="kpi"><span>Ready to dispatch</span><b>${n(ready.length)}</b></div><div class="kpi"><span>In transit</span><b>${n(sent.filter(d=>!d.got).length)}</b></div>
+    <div class="kpi"><span>Received today</span><b>${n(sent.filter(d=>d.got).length)}</b></div><div class="kpi"><span>Cartons on the road</span><b>${n(sent.filter(d=>!d.got).reduce((t,d)=>t+d.cartons.length,0))}</b></div></div>
+  <div class="card"><div class="chead"><h4>Dispatched</h4><div class="sp"></div>
+    <select class="sel" data-show style="width:12rem"><option value="transit" ${listShow==='transit'?'selected':''}>In transit</option><option value="got" ${listShow==='got'?'selected':''}>Received</option><option value="all" ${listShow==='all'?'selected':''}>All</option></select></div>
+  ${shown.length?`<table class="list"><thead><tr><th>Shipment</th><th>Shop</th><th class="r">Cartons</th><th>Truck</th><th>Dispatched</th><th>Status</th></tr></thead><tbody>
+  ${shown.map(d=>{const[l,c]=dnStatus(d);return`<tr class="click" data-dn="${d.no}"><td class="mono ink">${d.no}</td><td>${shopCell(d.shop)}</td><td class="r num">${d.cartons.length}</td>
+    <td>${d.plate} <span class="mute">· ${d.driver}</span></td><td class="num">${d.sent}</td><td>${status(l,c)}</td></tr>`}).join('')}
+  </tbody></table>`:`<div style="padding:18px 16px" class="mute">${listShow==='transit'?'Nothing is in transit.':'Nothing here yet.'}</div>`}</div>`
+}
+/* ---------- sheets ---------- */
+function openSheet(s){sheet=s;renderSheet()}
+function closeSheet(){sheet=null;scan=null;pop=null;renderSheet()}
+function renderSheet(){
+  const el=$('#sheet');$('#scrim').classList.toggle('on',!!sheet);el.classList.toggle('on',!!sheet)
+  el.classList.toggle('mid',!!sheet&&(sheet[0]==='pack'||sheet[0]==='ship'));el.classList.toggle('narrow',!sheet||(sheet[0]!=='pack'&&sheet[0]!=='ship'))
+  if(!sheet)return
+  const[k,id]=sheet
+  el.innerHTML=k==='pack'?sheetPack():k==='scan'?sheetScan(id):k==='carton'?sheetCarton(id):k==='dn'?sheetDN(id):k==='ship'?sheetShip():k==='disp'?sheetDisp():''
+  if(k==='pack')syncPack()
+  el.querySelectorAll('[data-mixed]').forEach(i=>i.indeterminate=true)
+}
+function head(title,cap,id){return`<div class="shead"><div><h3>${title}${id?` <span class="mono mute" style="font-weight:400;font-size:15px;margin-left:8px">${id}</span>`:''}</h3>${cap?`<div class="cap">${cap}</div>`:''}</div><button class="x" data-close>${ico.x}</button></div>`}
+function artCell(sku){const[a,c,s]=SKU[sku];return`<div><div class="ink">${a} · ${c} · ${s}</div><div class="mono faint">${sku}</div></div>`}
+
+/* New pack: shop rail + one shop's sheet (option D) */
+function set(s,c,v){const k=s+'|'+c;if(v>0)q[k]=v;else delete q[k]}
+function dropShop(s){for(const k of Object.keys(q))if(k.startsWith(s+'|'))delete q[k]}
+const draft=s=>Object.entries(q).reduce((t,[k,v])=>t+(k.startsWith(s+'|')?v:0),0)
+function fairShop(s,all){dropShop(s);for(const c of skusOf(s)){const o=owed(s,c),T=PACK_SHOPS.reduce((t,x)=>t+owed(x,c),0);set(s,c,all||T<=PICKED[c]?Math.min(o,PICKED[c]):Math.min(o,Math.round(o*PICKED[c]/T)))}}
+function openPack(shop){focus=shop||PACK_SHOPS.find(s=>packable(s))||null;if(focus&&!draft(focus))fairShop(focus);needle='';pop=null;openSheet(['pack'])}
+function sheetPack(){
+  const list=PACK_SHOPS.filter(s=>skusOf(s).length||done[s]),ready=list.filter(packable)
+  const f=focus,ks=f?skusOf(f).filter(c=>{const w=needle.trim().toLowerCase();return!w||c.toLowerCase().includes(w)||SKU[c][0].toLowerCase().includes(w)}):[]
+  const others=c=>PACK_SHOPS.filter(x=>x!==f&&owed(x,c)>0).length
+  const short=c=>PACK_SHOPS.reduce((t,x)=>t+owed(x,c),0)>PICKED[c]&&PICKED[c]>0&&others(c)>0
+  const rail=`<div class="shoplist"><div class="hd"><span class="ink" style="font-weight:500">Shops</span><span class="sp"></span><span class="mute num">${ready.length} to go</span></div>
+    <div class="ls">${list.map(s=>{const ok=packable(s),d=done[s]
+      const right=d&&!ok?`<span class="status done"><i></i>Packed</span>`:ok?`<span data-t="rail:${s}"></span>`:'<span>Pick first</span>'
+      return`<div class="srow ${s===f?'on':''} ${ok||d?'':'off'}" ${ok?`data-focus="${s}"`:''}><div class="shopc"><span class="mono">${s}</span><span>${SHOPS[s][0]}</span></div><div class="n">${right}</div></div>`}).join('')}</div></div>`
+  const pane=!f?`<div class="banner ok">Every shop with picks ready is packed.</div>`:`
+      <div class="phd"><div><h4><span class="mono">${f}</span> · ${SHOPS[f][0]}</h4><div class="mute">${n(readyAlone(f))} pieces ready</div></div>
+        <div class="sp"></div><div class="search"><input data-needle placeholder="Find an article or SKU" value="${needle}" style="padding-left:12px"></div>
+        <div class="menu"><button class="btn ghost" data-pop="fill">Fill ▾</button>
+          <div class="pop right ${pop==='fill'?'on':''}" style="min-width:21rem">
+            <button data-dfill="fair"><div><div class="ink">Its fair share</div><span>Short SKUs leave room for the other shops</span></div></button>
+            <button data-dfill="all"><div><div class="ink">Everything it can take</div><span>Up to what is owed and picked</span></div></button></div></div></div>
+      <div class="grid"><table><thead><tr><th>Article</th><th style="width:6rem">Picked</th><th style="width:7rem;text-align:center">Pack</th></tr></thead><tbody>
+      ${ks.map(c=>`<tr><td><div style="display:flex;align-items:center;gap:10px">${artCell(c)}${short(c)?`<span class="warnt">${others(c)} other ${others(c)===1?'shop wants':'shops want'} it</span>`:''}</div></td>
+        <td class="${PICKED[c]?'':'z'}">${n(PICKED[c])}</td><td class="c"><input class="qty" inputmode="numeric" data-k="${f}|${c}" value="${q[f+'|'+c]||''}" title="Up to ${Math.min(owed(f,c),PICKED[c])}"></td></tr>`).join('')||'<tr><td colspan="3" class="mute">Nothing matches.</td></tr>'}
+      </tbody></table></div>`
+  return head('New pack','One shop at a time. Pack, scan the carton, seal, then the next shop.')+`<div class="sbody" style="padding-top:4px"><div class="split">${rail}<div class="pane">${pane}</div></div></div><div class="sfoot" id="foot"></div>`
+}
+function syncPack(){
+  const el=$('#sheet');if(!sheet||sheet[0]!=='pack')return
+  el.querySelectorAll('input[data-k]').forEach(i=>{const[s,c]=i.dataset.k.split('|'),v=q[i.dataset.k]||0;i.classList.toggle('has',v>0);i.classList.toggle('over',v>Math.min(owed(s,c),PICKED[c]))})
+  el.querySelectorAll('[data-t]').forEach(e=>{const s=e.dataset.t.slice(5),d=draft(s),r=readyAlone(s)
+    e.innerHTML=d?`<span class="ink" style="font-weight:500">${n(d)}</span>${d<r?`<span class="mute"> / ${n(r)}</span>`:''}`:`<span class="mute">${n(r)}</span>`})
+  const f=focus,lines=f?Object.keys(q).filter(k=>k.startsWith(f+'|')&&q[k]>0):[],p=f?draft(f):0
+  const bad=lines.some(k=>{const[s,c]=k.split('|');return q[k]>Math.min(owed(s,c),PICKED[c])})
+  $('#foot').innerHTML=`<span class="mute">${lines.length?`${n(lines.length)} lines · ${n(p)} pieces`:'Nothing entered yet'}${bad?'<span class="badt"> · more than can go in</span>':''}</span><div class="sp"></div>
+    ${lines.length?'<button class="btn ghost" data-clear>Clear</button>':''}<button class="btn pri" data-dopack ${!lines.length||bad?'disabled':''}>Pack ${f||''}</button>`
+}
+/// Pack makes the carton and goes straight to its scan: the packer is standing at it.
+function doPack(){
+  const f=focus,lines=Object.entries(q).filter(([k,v])=>k.startsWith(f+'|')&&v>0).map(([k,v])=>({sku:k.split('|')[1],qty:v}))
+  for(const l of lines){OWED[f+'|'+l.sku]-=l.qty;if(!OWED[f+'|'+l.sku])delete OWED[f+'|'+l.sku];PICKED[l.sku]-=l.qty}
+  dropShop(f);done[f]=true
+  const c={no:`KL-260929-0${nextKoli++}`,shop:f,lines,state:'scan',scenario:'match',sealed:null,by:'Maya',fromPack:true}
+  CARTONS.unshift(c);renderPage();scan={no:c.no,phase:'idle'};openSheet(['scan',c.no])
+}
+
+/// What a sweep reads, by scenario: everything, two short, or one piece and one tag too many.
+function sweep(c){
+  const read=c.lines.map(l=>({sku:l.sku,qty:l.qty,read:l.qty}))
+  let extra=[],unknown=0
+  if(c.scenario==='missing'){const l=read.find(x=>x.qty>=2)||read[0];l.read=l.qty-2<0?0:l.qty-2}
+  if(c.scenario==='extra'){extra=[{sku:CODES.find(x=>!c.lines.some(l=>l.sku===x)),read:1}];unknown=1}
+  return{read,extra,unknown}
+}
+function sheetScan(no){
+  const c=CT(no),planned=pcs(c)
+  const readers=`<select class="sel" data-reader style="width:14rem"><option>Arch · Bench 2</option><option>Handheld · H-03</option></select>`
+  let body='',foot=''
+  if(!scan||scan.no!==no||scan.phase==='idle'){
+    body=`<div class="reader"><div class="pulse">${ico.rfid}</div><div style="flex:1"><div class="ink" style="font-weight:500">Put the carton under the arch, or sweep it with the handheld</div><div class="mute">${n(planned)} pieces planned for <span class="mono">${c.shop}</span> ${SHOPS[c.shop][0]}</div></div>${readers}</div>
+      ${planTable(c)}`
+    foot=`<span class="mute">Not sealed yet. The packing list prints after the scan.</span><div class="sp"></div><button class="btn pri" data-sweep="${no}">${ico.rfid.replace('width:22px;height:22px','')}Start scan</button>`
+  }else if(scan.phase==='reading'){
+    body=`<div class="reader"><div class="pulse on">${ico.rfid}</div><div style="flex:1"><div class="big" id="readcount">0</div><div class="mute">tags read · keep the carton still</div></div>${readers}</div>${planTable(c)}`
+    foot=`<span class="mute">Reading…</span><div class="sp"></div><button class="btn" data-stopscan>Stop</button>`
+  }else{
+    const o=sweep(c),read=o.read.reduce((t,l)=>t+l.read,0),miss=planned-read,extraN=o.extra.reduce((t,l)=>t+l.read,0)
+    const bad=extraN||o.unknown
+    const rows=[...o.extra.map(l=>({...l,qty:0,kind:'extra'})),...o.read.map(l=>({...l,kind:l.read<l.qty?'miss':'ok'}))].sort((a,b)=>(a.kind==='ok')-(b.kind==='ok'))
+    body=`<div class="reader"><div class="pulse" style="${bad?'background:var(--bad-bg);color:var(--bad-fg)':miss?'background:var(--warn-bg);color:var(--warn-fg)':'background:var(--ok-bg);color:var(--ok-fg)'}">${ico.rfid}</div>
+      <div style="flex:1"><div class="big">${n(read+extraN+o.unknown)} <span style="font-size:15px;font-weight:400" class="body">tags read of ${n(planned)} planned</span></div>
+      <div class="${bad?'badt':miss?'warnt':''}" style="${bad||miss?'':'color:var(--ok-fg)'}">${bad?`${extraN?`${extraN} piece does not belong in this carton`:''}${extraN&&o.unknown?' · ':''}${o.unknown?`${o.unknown} unknown tag`:''}. Take ${extraN+o.unknown===1?'it':'them'} out and scan again.`:miss?`${miss} pieces were not read. Add them and scan again, or seal with the ${read} that were.`:'Everything planned was read, and nothing else.'}</div></div></div>
+      <div class="grid"><table><thead><tr><th>Article</th><th style="width:6rem">Pack</th><th style="width:6rem">Read</th><th style="width:9rem"></th></tr></thead><tbody>
+      ${rows.map(l=>`<tr class="${l.kind==='ok'?'':l.kind}"><td>${artCell(l.sku)}</td><td>${l.kind==='extra'?'<span class="faint">—</span>':l.qty}</td><td class="ink" style="font-weight:500">${l.read}</td>
+        <td class="diff ${l.kind==='extra'?'badt':l.kind==='miss'?'warnt':'mute'}">${l.kind==='extra'?'Not on this carton':l.kind==='miss'?`${l.qty-l.read} missing`:''}</td></tr>`).join('')}
+      ${o.unknown?`<tr class="extra"><td><div class="ink">Unknown tag</div><div class="mono faint">E280 6894 0000 5012 7F3A</div></td><td><span class="faint">—</span></td><td class="ink" style="font-weight:500">1</td><td class="diff badt">Not ours</td></tr>`:''}
+      </tbody></table></div>`
+    foot=bad?`<span class="badt">Cannot seal while something extra is inside.</span><div class="sp"></div><button class="btn pri" data-rescan="${no}">Scan again</button>`
+      :miss?`<span class="mute">The ${miss} missing go back to Picked if you seal short.</span><div class="sp"></div><button class="btn" data-sealshort="${no}">Seal with ${read} pieces</button><button class="btn pri" data-rescan="${no}">Scan again</button>`
+      :`<span class="mute">${n(read)} pieces · packing list and sticker print on seal</span><div class="sp"></div><button class="btn pri" data-seal="${no}">${ico.print}Seal and print packing list</button>`
+  }
+  return head('Scan carton',null,no)+`<div class="sbody" style="padding-top:4px">${body}</div><div class="sfoot">${foot}</div>`
+}
+function planTable(c){return`<div class="grid"><table><thead><tr><th>Article</th><th style="width:6rem">Pack</th><th style="width:6rem">Read</th></tr></thead><tbody>
+  ${c.lines.map(l=>`<tr><td>${artCell(l.sku)}</td><td>${l.qty}</td><td class="faint" data-readrow>—</td></tr>`).join('')}</tbody></table></div>`}
+function sheetCarton(no){
+  const c=CT(no),d=DNS.find(x=>x.cartons.includes(no)),nextShop=PACK_SHOPS.find(s=>packable(s)&&!done[s])
+  return head(c.shop+' · '+SHOPS[c.shop][0],null,no)+`<div class="sbody" style="padding-top:4px">
+    ${sheet[2]==='fresh'?`<div class="banner ok">Sealed. The packing list and sticker went to the bench printer: the list inside, the sticker on the lid.</div>`:''}
+    <div class="grid" style="margin-bottom:16px"><table><tbody>
+      <tr><td class="body">Shop</td><td style="text-align:left">${shopCell(c.shop)}</td></tr>
+      <tr><td class="body">Pieces</td><td style="text-align:left" class="ink">${n(pcs(c))} · read by RFID</td></tr>
+      <tr><td class="body">Sealed</td><td style="text-align:left">${c.sealed} · ${c.by}</td></tr>
+      ${d?`<tr><td class="body">Surat jalan</td><td style="text-align:left"><span class="mono">${d.no}</span></td></tr>`:''}</tbody></table></div>
+    <div class="grid"><table><thead><tr><th>Article</th><th style="width:6rem">Pieces</th></tr></thead><tbody>${c.lines.map(l=>`<tr><td>${artCell(l.sku)}</td><td class="ink">${l.qty}</td></tr>`).join('')}</tbody></table></div></div>
+    <div class="sfoot"><button class="btn" data-paper="list:${no}">${ico.print}Packing list</button><button class="btn" data-paper="label:${no}">${ico.print}Sticker</button><div class="sp"></div>
+      ${sheet[2]==='fresh'&&c.fromPack?(nextShop?`<button class="btn pri" data-nextpack="${nextShop}">Pack next shop · ${nextShop}</button>`:`<button class="btn pri" data-go="dn">Go to Shipments</button>`):''}</div>`
+}
+function sheetDN(no){
+  const d=DN(no),[l,c]=dnStatus(d)
+  return head(d.shop+' · '+SHOPS[d.shop][0],null,no)+`<div class="sbody" style="padding-top:4px">
+    <div class="grid" style="margin-bottom:16px"><table><tbody>
+      <tr><td class="body">Status</td><td style="text-align:left">${status(l,c)}</td></tr>
+      <tr><td class="body">Truck</td><td style="text-align:left">${d.plate?`${d.plate} · ${d.driver}`:'<span class="mute">Not dispatched yet</span>'}</td></tr>
+      <tr><td class="body">Dispatched</td><td style="text-align:left">${d.sent||'<span class="mute">—</span>'}</td></tr></tbody></table></div>
+    <div class="grid"><table><thead><tr><th>Carton</th><th>Pieces</th><th></th></tr></thead><tbody>
+    ${d.cartons.map(k=>`<tr><td class="mono ink">${k}</td><td>${n(pcs(CT(k)))}</td><td style="width:9rem"><button class="btn ghost sm" data-paper="list:${k}">Packing list</button></td></tr>`).join('')}</tbody></table></div>
+    ${d.sent&&!d.got?'<div class="mute" style="margin-top:10px">Received when the shop scans the surat jalan QR. "Shop scans" is a demo of that.</div>':''}</div>
+    <div class="sfoot"><button class="btn" data-paper="sj:${no}">${ico.print}Print surat jalan</button><div class="sp"></div>${!d.sent?'':d.got?'':`<button class="btn" data-arrive="${no}">Shop scans (demo)</button>`}</div>`
+}
+/// New shipment: the shops on the left, the chosen shop's cartons on the right —
+/// the same rail as New pack. Every sealed carton starts ticked.
+function sheetShip(){
+  const lb=looseByShop(),shops=Object.keys(lb),all=Object.values(lb).flat(),pick=all.filter(c=>sendPick.has(c.no))
+  if(!lb[sendFocus])sendFocus=shops[0]
+  const f=sendFocus,mine=lb[f]||[],onF=mine.filter(c=>sendPick.has(c.no)).length
+  const going=shops.filter(x=>lb[x].some(c=>sendPick.has(c.no)))
+  const F='width:100%;height:47px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 12px;font-size:15px;outline:0'
+  const rail=`<div class="shoplist"><div class="hd"><span class="ink" style="font-weight:500">Shops</span><span class="sp"></span><span class="mute">${going.length} going</span></div>
+    <div class="ls">${shops.map(x=>{const on=lb[x].filter(c=>sendPick.has(c.no)).length,t=lb[x].length
+      return`<div class="srow ${x===f?'on':''}" data-sendfocus="${x}"><div class="shopc"><span class="ink" style="font-family:Inter">${SHOPS[x][0]}</span><span class="mono">${x}</span></div>
+        <div class="n">${on===0?'<span class="faint">—</span>':`<span class="ink" style="font-weight:500">${on}</span>${on<t?`<span class="mute"> / ${t}</span>`:''}<span class="mute"> ${t===1?'list':'lists'}</span>`}</div></div>`}).join('')}</div></div>`
+  const pane=`<div class="pane">
+      <div class="phd"><div><h4>${SHOPS[f][0]} <span class="mono mute" style="font-weight:400">${f}</span></h4><div class="mute">${onF?'One surat jalan from the packing lists ticked below.':'Not on this truck.'}</div></div></div>
+      <div class="grid"><table><thead><tr><th style="width:44px"><input type="checkbox" data-sendshop="${f}" ${onF===mine.length?'checked':''} ${onF&&onF<mine.length?'data-mixed':''}></th><th style="text-align:left">Packing list</th><th>Pieces</th><th>Sealed</th><th style="width:9rem"></th></tr></thead><tbody>
+      ${mine.map(c=>`<tr class="click" data-sendrow="${c.no}"><td><input type="checkbox" data-sendkoli="${c.no}" ${sendPick.has(c.no)?'checked':''}></td>
+        <td style="text-align:left" class="mono ${sendPick.has(c.no)?'ink':'faint'}">${c.no}</td><td class="${sendPick.has(c.no)?'':'faint'}">${n(pcs(c))}</td><td class="num">${c.sealed}</td>
+        <td><button class="btn ghost sm" data-paper="list:${c.no}">View</button></td></tr>`).join('')}
+      </tbody></table></div></div>`
+  return head('New shipment','A surat jalan is made from packing lists. Choose a shop, tick its packing lists; each shop becomes one surat jalan.')+`<div class="sbody" style="padding-top:4px;display:flex;flex-direction:column;gap:18px">
+    <div class="split" style="min-height:17rem">${rail}${pane}</div></div>
+    <div class="sfoot"><span class="mute">${pick.length?`${going.length} surat jalan · ${pick.length} ${pick.length===1?'packing list':'packing lists'} · ${n(pick.reduce((t,c)=>t+pcs(c),0))} pieces`:'Nothing ticked'}</span><div class="sp"></div>
+      <button class="btn pri" data-doship ${pick.length?'':'disabled'}>${going.length>1?`Create ${going.length} surat jalan`:'Create surat jalan'}</button></div>`
+}
+/// Dispatch: which ready shipments go on this truck, and which truck.
+function sheetDisp(){
+  const ready=DNS.filter(d=>!d.sent),pick=ready.filter(d=>dispPick.has(d.no)),all=ready.length&&pick.length===ready.length
+  const F='width:100%;height:47px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 12px;font-size:15px;outline:0'
+  return head('Dispatch','One dispatch is one trip: one truck, one driver. Tick the surat jalan going on it.')+`<div class="sbody" style="padding-top:4px;display:flex;flex-direction:column;gap:18px">
+    <div class="grid"><table><thead><tr><th style="width:44px"><input type="checkbox" data-dispall ${all?'checked':''}></th><th style="text-align:left">Surat jalan</th><th style="text-align:left">Shop</th><th>Cartons</th><th>Pieces</th></tr></thead><tbody>
+    ${ready.map(d=>`<tr class="click" data-disprow="${d.no}"><td><input type="checkbox" data-dispdn="${d.no}" ${dispPick.has(d.no)?'checked':''}></td><td class="mono ink" style="text-align:left">${d.no}</td><td style="text-align:left">${shopCell(d.shop)}</td><td>${d.cartons.length}</td><td>${n(dnPcs(d))}</td></tr>`).join('')}
+    </tbody></table></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <label><div class="body" style="margin-bottom:6px">Plate</div><input id="plate" value="${truck.plate}" style="${F}"></label>
+      <label><div class="body" style="margin-bottom:6px">Driver</div><input id="driver" value="${truck.driver}" style="${F}"></label></div></div>
+    <div class="sfoot"><span class="mute">${pick.length?`1 trip · ${pick.length} surat jalan · ${pick.reduce((t,d)=>t+d.cartons.length,0)} cartons`:'Nothing ticked'}</span><div class="sp"></div>
+      <button class="btn pri" data-dodisp ${pick.length?'':'disabled'}>${ico.print}Dispatch and print surat jalan</button></div>`
+}
+/* ---------- paper ---------- */
+function qr(seedStr){let h=0;for(const ch of seedStr)h=(h*31+ch.charCodeAt(0))>>>0;const N=25;let r='';const f=(x,y)=>(x<7&&y<7)||(x>=N-7&&y<7)||(x<7&&y>=N-7)
+  for(let y=0;y<N;y++)for(let x=0;x<N;x++){let on
+    if(f(x,y)){const lx=x%(N-7)<7?x%(N-7):x,ly=y%(N-7)<7?y%(N-7):y,a=Math.min(lx,6-lx,ly,6-ly);on=a!==1}
+    else{h=(h*1103515245+12345)>>>0;on=(h>>16)&1}
+    if(on)r+=`<rect x="${x}" y="${y}" width="1" height="1"/>`}
+  return`<svg class="qr" viewBox="0 0 ${N} ${N}" shape-rendering="crispEdges">${r}</svg>`}
+function paperList(no){const c=CT(no);return`<div class="paper a5"><div class="hdr"><div><h1>PACKING LIST</h1><div style="margin-top:4px">Gudang Pusat · Central</div></div>${qr(no)}</div>
+  <div class="kv"><span>No. koli</span><b class="mono">${no}</b><span>Toko</span><b>${c.shop} · ${SHOPS[c.shop][0]}</b><span>Tanggal</span><div>29 September 2026, ${c.sealed||now()}</div><span>Dikemas</span><div>${c.by}</div></div>
+  <table><thead><tr><th>No</th><th>Artikel</th><th>Warna / Ukuran</th><th>SKU</th><th class="r">Qty</th></tr></thead><tbody>
+  ${c.lines.map((l,i)=>`<tr><td>${i+1}</td><td>${SKU[l.sku][0]}</td><td>${SKU[l.sku][1]} / ${SKU[l.sku][2]}</td><td class="mono">${l.sku}</td><td class="r">${l.qty}</td></tr>`).join('')}</tbody>
+  <tfoot><tr><td colspan="4">Total</td><td class="r">${pcs(c)} pcs</td></tr></tfoot></table></div>`}
+function paperLabel(no){const c=CT(no);return`<div class="paper label"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="color:#555">KEPADA</div><div class="shop">${c.shop}</div><div style="font-size:18px;font-weight:600">${SHOPS[c.shop][0]}</div></div></div>
+  <div style="margin:18px 0;border-top:2px solid #111"></div><div style="display:flex;gap:16px;align-items:center">${qr(no).replace('class="qr"','class="qr" style="width:150px;height:150px"')}<div><div style="color:#555">No. koli</div><div class="mono" style="font-weight:600">${no}</div><div style="margin-top:10px;color:#555">Isi</div><div style="font-size:22px;font-weight:700">${pcs(c)} pcs</div></div></div>
+  <div style="position:absolute;left:22px;right:22px;bottom:20px;border-top:1px solid #111;padding-top:8px;display:flex;justify-content:space-between"><span>Gudang Pusat</span><span>29/09/2026</span></div></div>`}
+function paperSJ(no){const d=DN(no),r=d.plate?d:null,tk=d.cartons.reduce((t,k)=>t+pcs(CT(k)),0)
+  return`<div class="paper a4"><div class="hdr"><div><div style="font-weight:700;font-size:16px">Gudang Pusat · Central</div><div style="color:#555">Jl. Soekarno-Hatta 590, Bandung</div></div><div style="text-align:right"><h1>SURAT JALAN</h1><div class="mono" style="font-weight:600;margin-top:4px">${no}</div></div></div>
+  <div style="display:flex;justify-content:space-between;gap:24px;margin-bottom:18px"><div class="kv" style="margin:0"><span>Kepada</span><b>${d.shop} · ${SHOPS[d.shop][0]}</b><span>Alamat</span><div>${SHOPS[d.shop][1]}</div><span>Tanggal</span><div>29 September 2026</div>
+    <span>Kendaraan</span><div>${r?r.plate:'<span class="blank"></span>'}</div><span>Pengemudi</span><div>${r?r.driver:'<span class="blank"></span>'}</div></div>${qr(no).replace('class="qr"','class="qr" style="width:110px;height:110px"')}</div>
+  <table><thead><tr><th style="width:44px">No</th><th>No. koli / packing list</th><th class="r">Jumlah</th></tr></thead><tbody>
+  ${d.cartons.map((k,i)=>`<tr><td>${i+1}</td><td class="mono">${k}</td><td class="r">${pcs(CT(k))} pcs</td></tr>`).join('')}</tbody>
+  <tfoot><tr><td></td><td>${d.cartons.length} koli</td><td class="r">${tk} pcs</td></tr></tfoot></table>
+  <div class="note">Rincian isi setiap koli ada pada packing list di dalam koli. Mohon periksa jumlah koli dan kondisi segel saat menerima.</div>
+  <div class="sign"><div>Dibuat oleh</div><div>Pengemudi</div><div>Diterima oleh</div></div></div>`}
+function showPaper(spec){
+  const[k,ids]=spec.split(':'),list=ids.split(',')
+  const pages=k==='list'?list.map(paperList):k==='label'?list.map(paperLabel):list.map(paperSJ)
+  const title=k==='list'?'Packing list':k==='label'?'Carton sticker':'Surat jalan'
+  $('#paper').innerHTML=`<div class="pbar"><h4>${title}</h4><span class="mute">${k==='sj'?'A4 · 2 copies (driver, shop)':k==='list'?'A5 · goes inside the carton':'100 × 150 mm label · on the lid'}${list.length>1?` · ${list.length} pages`:''}</span><div class="sp"></div>
+    <button class="btn pri" data-printnow="${title}">${ico.print}Print</button><button class="x" data-closepaper>${ico.x}</button></div><div class="pages">${pages.join('')}</div>`
+  $('#paper').classList.add('on')
+}
+
+/* ---------- events ---------- */
+function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('on');clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove('on'),2400)}
+function go(s){screen=s;closeSheet();renderPage();$('.scroll').scrollTop=0}
+let timer=null
+function startSweep(no){
+  scan={no,phase:'reading'};renderSheet()
+  const c=CT(no),o=sweep(c),target=o.read.reduce((t,l)=>t+l.read,0)+o.extra.reduce((t,l)=>t+l.read,0)+o.unknown
+  const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;let i=0;clearInterval(timer)
+  timer=setInterval(()=>{i=Math.min(target,i+Math.ceil(target/12));const e=$('#readcount');if(e)e.textContent=i;if(i>=target||reduce){clearInterval(timer);setTimeout(()=>{if(scan?.no===no){scan.phase='done';renderSheet()}},reduce?0:350)}},90)
+}
+function seal(no,short){
+  const c=CT(no)
+  if(short){const o=sweep(c);c.lines=o.read.filter(l=>l.read>0).map(l=>({sku:l.sku,qty:l.read}))}
+  c.state='sealed';c.sealed=now();scan=null;sheet=['carton',no,'fresh']
+  toast(`${no} sealed · packing list and sticker printing`);renderPage();renderSheet()
+}
+function makeShipments(){
+  const lb=looseByShop(),t=now()
+  const made=Object.keys(lb).filter(x=>lb[x].some(c=>sendPick.has(c.no))).map(x=>{const no=`SJ-260929-00${nextDN++}`;DNS.unshift({no,shop:x,cartons:lb[x].filter(c=>sendPick.has(c.no)).map(c=>c.no),at:t,sent:null,plate:null,driver:null,got:null});return no})
+  sendPick.clear();toast(`${made.length} surat jalan ready to dispatch`);closeSheet();renderPage()
+}
+function dispatch(){
+  const t=now();truck={plate:$('#plate').value,driver:$('#driver').value}
+  const list=DNS.filter(d=>!d.sent&&dispPick.has(d.no));list.forEach(d=>{d.sent=t;d.plate=truck.plate;d.driver=truck.driver})
+  dispPick.clear();listShow='transit';toast(`${truck.plate} dispatched · ${list.length} surat jalan in transit`);closeSheet();renderPage();showPaper('sj:'+list.map(d=>d.no).join(','))
+}
+document.addEventListener('click',e=>{
+  const t=e.target,q_=s=>t.closest(s)
+  if(q_('[data-closepaper]')){$('#paper').classList.remove('on');return}
+  if(q_('[data-printnow]')){toast(`${q_('[data-printnow]').dataset.printnow} sent to the printer`);$('#paper').classList.remove('on');return}
+  if(t.closest('#paper'))return
+  let el
+  if(el=q_('[data-paper]')){e.stopPropagation();showPaper(el.dataset.paper);return}
+  if(el=q_('[data-go]')){e.preventDefault();go(el.dataset.go);return}
+  if(q_('[data-close]')||t.id==='scrim'){clearInterval(timer);closeSheet();return}
+  if(q_('[data-newpack]')){openPack();return}
+  if(el=q_('[data-nextpack]')){openPack(el.dataset.nextpack);return}
+  if(el=q_('[data-pop]')){pop=pop?null:el.dataset.pop;renderSheet();return}
+  if(el=q_('[data-dfill]')){fairShop(focus,el.dataset.dfill==='all');pop=null;renderSheet();return}
+  if(q_('[data-clear]')){dropShop(focus);renderSheet();return}
+  if(q_('[data-dopack]')){doPack();return}
+  if(el=q_('[data-focus]')){focus=el.dataset.focus;if(!draft(focus))fairShop(focus);renderSheet();return}
+  if(el=q_('[data-scan]')){scan={no:el.dataset.scan,phase:'idle'};openSheet(['scan',el.dataset.scan]);return}
+  if(el=q_('[data-sweep]')){startSweep(el.dataset.sweep);return}
+  if(q_('[data-stopscan]')){clearInterval(timer);scan.phase='idle';renderSheet();return}
+  if(el=q_('[data-rescan]')){CT(el.dataset.rescan).scenario='match';startSweep(el.dataset.rescan);return}
+  if(el=q_('[data-seal]')){seal(el.dataset.seal,false);return}
+  if(el=q_('[data-sealshort]')){seal(el.dataset.sealshort,true);return}
+  if(el=q_('[data-carton]')){openSheet(['carton',el.dataset.carton]);return}
+  if(q_('[data-mkdn]')){const lb=looseByShop(),made=[];for(const s of dnPick){const no=`SJ-260929-00${nextDN++}`;DNS.unshift({no,shop:s,cartons:lb[s].map(c=>c.no),at:now(),sent:null,got:null});made.push(no)}
+    dnPick.clear();renderPage();openSheet(['mkdn',made]);return}
+  if(q_('[data-newship]')){sendPick=new Set(Object.values(looseByShop()).flat().map(c=>c.no));sendFocus=Object.keys(looseByShop())[0];openSheet(['ship']);return}
+  if(q_('[data-doship]')){makeShipments();return}
+  if(el=q_('[data-disp]')){dispPick=new Set(el.dataset.disp?[el.dataset.disp]:DNS.filter(d=>!d.sent).map(d=>d.no));if(el.dataset.disp)screen='dispatch',renderPage();openSheet(['disp']);return}
+  if(q_('[data-dodisp]')){dispatch();return}
+  if(!t.matches('input[type=checkbox]')&&(el=q_('[data-disprow]'))){truck={plate:$('#plate').value,driver:$('#driver').value};const x=el.dataset.disprow;dispPick.has(x)?dispPick.delete(x):dispPick.add(x);renderSheet();return}
+  if(el=q_('[data-sendfocus]')){sendFocus=el.dataset.sendfocus;renderSheet();return}
+  if(el=q_('[data-arrive]')){const d=DN(el.dataset.arrive);d.got={at:now(),koli:d.cartons.length};renderPage();renderSheet();return}
+  if(t.matches('input[type=checkbox]'))return
+  if(el=q_('[data-dnrow]')){const s=el.dataset.dnrow;dnPick.has(s)?dnPick.delete(s):dnPick.add(s);renderPage();return}
+  if(el=q_('[data-sendrow]')){if($('#plate'))truck={plate:$('#plate').value,driver:$('#driver').value};const s=el.dataset.sendrow;sendPick.has(s)?sendPick.delete(s):sendPick.add(s);renderSheet();return}
+  if(el=q_('[data-dn]')){openSheet(['dn',el.dataset.dn]);return}
+  if(pop&&!t.closest('.pop')){pop=null;renderSheet()}
+})
+document.addEventListener('change',e=>{
+  const t=e.target
+  if(t.matches('[data-dnall]')){const s=Object.keys(looseByShop());t.checked?s.forEach(x=>dnPick.add(x)):dnPick.clear();renderPage()}
+  if(t.matches('[data-dnshop]')){t.checked?dnPick.add(t.dataset.dnshop):dnPick.delete(t.dataset.dnshop);renderPage()}
+  if(t.matches('[data-dispall]')){truck={plate:$('#plate').value,driver:$('#driver').value};const x=DNS.filter(d=>!d.sent).map(d=>d.no);t.checked?x.forEach(v=>dispPick.add(v)):dispPick.clear();renderSheet()}
+  if(t.matches('[data-dispdn]')){truck={plate:$('#plate').value,driver:$('#driver').value};t.checked?dispPick.add(t.dataset.dispdn):dispPick.delete(t.dataset.dispdn);renderSheet()}
+  if(t.matches('[data-sendall]')){const s=Object.values(looseByShop()).flat().map(c=>c.no);t.checked?s.forEach(x=>sendPick.add(x)):sendPick.clear();renderSheet()}
+  if(t.matches('[data-sendshop],[data-sendkoli]')&&$('#plate'))truck={plate:$('#plate').value,driver:$('#driver').value}
+  if(t.matches('[data-sendshop]')){looseByShop()[t.dataset.sendshop].forEach(c=>t.checked?sendPick.add(c.no):sendPick.delete(c.no));renderSheet()}
+  if(t.matches('[data-sendkoli]')){t.checked?sendPick.add(t.dataset.sendkoli):sendPick.delete(t.dataset.sendkoli);renderSheet()}
+  if(t.matches('[data-show]')){listShow=t.value;renderPage()}
+})
+document.addEventListener('input',e=>{
+  const t=e.target
+  if(t.matches('input[data-k]')){const d=t.value.replace(/\D/g,'');t.value=d;const[s,c]=t.dataset.k.split('|');set(s,c,d===''?0:+d);syncPack();return}
+  if(t.matches('[data-needle]')){needle=t.value;const pos=t.selectionStart;renderSheet();const i=$('#sheet [data-needle]');if(i){i.focus();i.setSelectionRange(pos,pos)}}
+})
+document.addEventListener('focusin',e=>{if(e.target.matches('input[data-k]'))e.target.select()})
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){if($('#paper').classList.contains('on'))$('#paper').classList.remove('on');else if(sheet){clearInterval(timer);closeSheet()}}
+  if(e.key==='Enter'&&e.target.matches('input[data-k]')){const all=[...document.querySelectorAll('#sheet input[data-k]')];const nx=all[all.indexOf(e.target)+1];if(nx){nx.focus();e.preventDefault()}}
+})
+renderPage()
+
+</script>
+</body>
+</html>

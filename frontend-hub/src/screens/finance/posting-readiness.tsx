@@ -89,7 +89,6 @@ export function PostingReadinessScreen() {
           <Input
             value={needle}
             onChange={(event) => setNeedle(event.target.value)}
-            placeholder="Search role or source"
             className="h-8 w-56"
           />
         }

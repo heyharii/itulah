@@ -14,7 +14,16 @@ category_name: string,
  * the category, never stored on the request: the map is one row per
  * category and a copy here would be a second answer to the same question.
  */
-account_code: string, item: string, quantity: string | null, needed_by: string | null, estimated_cost_minor: number | null, 
+account_code: string, item: string, 
+/**
+ * As the shop typed it: "2 rim", "5 dus".
+ */
+quantity: string | null, 
+/**
+ * The same, read against the units master (0655): "2" and RIM. Null
+ * when the text is not a number and a unit the master knows.
+ */
+quantity_value: string | null, unit_code: string | null, needed_by: string | null, estimated_cost_minor: number | null, 
 /**
  * The purchase order number, present only once the request is ORDERED.
  */

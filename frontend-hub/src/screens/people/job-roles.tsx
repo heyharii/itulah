@@ -54,9 +54,9 @@ function RolesTab() {
   return (
     <>
       <p className="mb-3.5 text-[0.875rem] text-body">
-        Every job role a person can be invited as, and the sections of this
-        app each one may see. OWNER and ADMIN see every section regardless of
-        what is ticked here — that bypass is not editable.
+        Every job role a person can be invited as, and the sections of this app
+        each one may see. OWNER and ADMIN see every section regardless of what
+        is ticked here — that bypass is not editable.
       </p>
       <Card className="overflow-hidden">
         {queryState(roleList, {
@@ -111,8 +111,7 @@ function RolesTab() {
       <RoleSheet
         key={role.value ?? "none"}
         role={
-          (roleList.data ?? []).find((item) => item.code === role.value) ??
-          null
+          (roleList.data ?? []).find((item) => item.code === role.value) ?? null
         }
         open={role.value !== undefined}
         onClose={role.close}
@@ -220,7 +219,7 @@ function RoleSheet({
             pending={save.isPending}
             onClick={() => save.mutate()}
           >
-            {save.isPending ? "Saving…" : "Save"}
+            {save.isPending ? "Submitting…" : "Submit"}
           </Button>
         </div>
       }
@@ -230,7 +229,10 @@ function RoleSheet({
       ) : (
         <div className="flex flex-col gap-3.5">
           <Field label="Name" required>
-            <Input value={name} onChange={(event) => setName(event.target.value)} />
+            <Input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
           </Field>
           <Field label="Description" hint="One line, shown on the invite form.">
             <Input
@@ -238,7 +240,10 @@ function RoleSheet({
               onChange={(event) => setDescription(event.target.value)}
             />
           </Field>
-          <Field label="Rung" hint="Where this role stands on the CASHIER / SUPERVISOR / ADMIN ladder.">
+          <Field
+            label="Rung"
+            hint="Where this role stands on the CASHIER / SUPERVISOR / ADMIN ladder."
+          >
             <Select value={rung} onChange={(next) => setRung(next as Role)}>
               {RUNGS.map((option) => (
                 <option key={option} value={option}>

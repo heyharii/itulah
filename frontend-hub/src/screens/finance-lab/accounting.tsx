@@ -119,7 +119,6 @@ export function Journals() {
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search"
             className="pl-8"
           />
         </div>
@@ -378,18 +377,10 @@ function JournalEntrySheet({
             </Select>
           </Field>
           <Field label="Posting date" className="min-w-[9rem]">
-            <Input
-              value={on}
-              onChange={(e) => setOn(e.target.value)}
-              placeholder="2026-08-01"
-            />
+            <Input value={on} onChange={(e) => setOn(e.target.value)} />
           </Field>
           <Field label="Memo" required className="min-w-[14rem] flex-1">
-            <Input
-              value={memo}
-              onChange={(e) => setMemo(e.target.value)}
-              placeholder="Why this entry exists"
-            />
+            <Input value={memo} onChange={(e) => setMemo(e.target.value)} />
           </Field>
         </div>
 
@@ -563,7 +554,6 @@ export function Adjustments() {
                 <Input
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
-                  placeholder="Why it is being reversed"
                   className="min-w-[14rem] flex-1"
                 />
                 <Button
@@ -701,7 +691,7 @@ export function AccrualsDeferrals() {
             "Unit",
             "Owned by",
             "Direction",
-            "Due / started",
+            "Due / Started",
             ">Balance",
             "",
           ]}

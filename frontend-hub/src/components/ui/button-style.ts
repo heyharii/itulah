@@ -49,12 +49,18 @@ export const button = cva(
         // 32, from `--spacing-control` — the one height every control in a
         // toolbar agrees on. `sm` exists only for controls inside a table row.
         // Under a finger every size grows to something a thumb can land
-        // on (40, 36, 40) — the desk's 32/28 stay dense for a mouse. The
+        // on (44, 40, 44: Apple's least) — the desk's 32/28 stay dense for a mouse. The
         // pointer decides, not the width: an iPad is wide and still touched.
         default:
-          "h-control px-2.5 text-control pointer-coarse:h-10 pointer-coarse:px-3.5 [&_svg]:size-4",
-        sm: "h-[1.75rem] px-2 text-meta pointer-coarse:h-9 pointer-coarse:px-3 [&_svg]:size-3.5",
-        icon: "size-control pointer-coarse:size-10 [&_svg]:size-4",
+          "h-control px-2.5 text-control pointer-coarse:h-11 pointer-coarse:px-4 [&_svg]:size-4",
+        sm: "h-[1.75rem] px-2 text-meta pointer-coarse:h-10 pointer-coarse:px-3.5 [&_svg]:size-3.5",
+        // 44 — a form's own button, beside 44px fields (the sign-in first,
+        // 2026-09-28). A size rather than a class passed in, because `h-*`
+        // from outside cannot beat `h-control`: `cn` does not know the custom
+        // spacing names, so both classes stay and the stylesheet's order
+        // picks the 32.
+        lg: "h-[2.75rem] px-4 text-[0.9375rem] [&_svg]:size-[1.125rem]",
+        icon: "size-control pointer-coarse:size-11 [&_svg]:size-4",
       },
     },
     defaultVariants: { variant: "ghost", size: "default" },

@@ -18,6 +18,7 @@ import { rupiah } from "@/screens/executive/format"
 import { Figure, Figures, Head, ReportPage } from "@/screens/executive/parts"
 import { usePlaces } from "@/screens/executive/places"
 import { useReportScope } from "@/screens/executive/scope"
+import { SupplierName } from "@/screens/procurement/supplier-name"
 
 /// Tim & aset — how many people each place has, what is broken, what is due
 /// for upkeep, and which agreements run out in the next thirty days.
@@ -90,9 +91,7 @@ export function ExecutivePeople() {
 
   /// A GA row belongs to a site, an HR row to a unit: each is here when it is
   /// at the shop the report is narrowed to, or in the unit owning it.
-  const here = <
-    T extends { site_id?: string | null; unit_id?: string | null },
-  >(
+  const here = <T extends { site_id?: string | null; unit_id?: string | null }>(
     row: T
   ) => {
     if (scope.store === undefined) return true
@@ -159,10 +158,10 @@ export function ExecutivePeople() {
                 <MiniTable
                   head={[
                     "Lokasi",
-                    "Karyawan aktif",
-                    "Perbaikan terbuka",
-                    "Perawatan jatuh tempo",
-                    "Tagihan bulan ini",
+                    "Karyawan Aktif",
+                    "Perbaikan Terbuka",
+                    "Perawatan Jatuh Tempo",
+                    "Tagihan Bulan Ini",
                   ]}
                   style={{ minWidth: "38rem" }}
                 >
@@ -268,7 +267,12 @@ export function ExecutivePeople() {
                             {row.objek_name ?? row.contract_type_name}
                           </span>
                           <span className="block text-[0.875rem] text-mute">
-                            {row.counterparty_name ?? row.supplier_name ?? "—"}
+                            {row.counterparty_name ?? (
+                              <SupplierName
+                                code={row.supplier_id}
+                                name={row.supplier_name}
+                              />
+                            )}
                           </span>
                         </MiniCell>
                         <MiniCell align="right">

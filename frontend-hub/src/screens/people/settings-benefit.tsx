@@ -161,7 +161,7 @@ function EditSheet({
         <SheetFooter
           onCancel={onClose}
           onSave={() => save.mutate()}
-          saveLabel="Save"
+          saveLabel="Submit"
           pending={save.isPending}
           disabled={
             from === "" ||

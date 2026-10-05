@@ -107,7 +107,7 @@ function NotificationPanel() {
           <p className="p-6 text-center text-xs text-muted-foreground">
             {notifications.isPending
               ? "Loading…"
-              : "Nothing has needed your attention yet. Price queries from a warehouse and deliveries waiting to be named will appear here."}
+              : "Nothing has needed your attention yet. Price queries from the Gudang and deliveries waiting to be named will appear here."}
           </p>
         ) : (
           <ul>

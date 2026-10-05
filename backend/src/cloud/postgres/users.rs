@@ -125,7 +125,7 @@ pub async fn authenticate_user(
     let row = sqlx::query(
         "SELECT u.id,u.username,u.display_name,u.password_hash,u.role,u.active,
                 u.auth_version,u.login_blocked_until,
-                u.role_code,r.name AS role_name,r.flow_roles,r.sections,r.read_only
+                u.role_code,r.name AS role_name,r.flow_roles,r.sections,r.read_only,r.unit_reach
          FROM app_user u LEFT JOIN job_role r ON r.code=u.role_code
          WHERE u.username=$1",
     )
@@ -216,20 +216,23 @@ pub struct SessionUser {
 }
 
 /// The job role on a row that selected `role_code`, `role_name`,
-/// `flow_roles`, `sections` and `read_only` (a `LEFT JOIN job_role`). A row
-/// with no role behind it — which the foreign key forbids — grants nothing.
+/// `flow_roles`, `sections`, `read_only` and `unit_reach` (a `LEFT JOIN
+/// job_role`). A row with no role behind it — which the foreign key forbids —
+/// grants nothing, and reaches only its own posting.
 pub fn job_grant_of(row: &sqlx::postgres::PgRow) -> Result<JobGrant, AppError> {
     let code: Option<String> = row.try_get("role_code")?;
     let name: Option<String> = row.try_get("role_name")?;
     let flow_roles: Option<Vec<String>> = row.try_get("flow_roles")?;
     let sections: Option<Vec<String>> = row.try_get("sections")?;
     let read_only: Option<bool> = row.try_get("read_only")?;
+    let unit_reach: Option<String> = row.try_get("unit_reach")?;
     Ok(JobGrant::from_stored(
         code.unwrap_or_default(),
         name.unwrap_or_default(),
         &flow_roles.unwrap_or_default(),
         sections.unwrap_or_default(),
         read_only.unwrap_or(true),
+        unit_reach.as_deref().unwrap_or("OWN"),
     ))
 }
 
@@ -257,17 +260,20 @@ pub async fn create_session_tx(
     let token = security::random_token();
     let csrf_token = security::random_token();
     let expires_at = Utc::now() + Duration::minutes(ttl_minutes.max(1));
-    // One user, one device (migration 0395): this sign-in ends every other
-    // live session of the account, in the same transaction that opens it, so
-    // two sign-ins racing each other cannot both survive.
-    sqlx::query(
-        "UPDATE auth_session
-            SET revoked_at = now(), revoked_reason = 'SIGNED_IN_ELSEWHERE'
-          WHERE user_id = $1 AND revoked_at IS NULL",
-    )
-    .bind(user_id)
-    .execute(&mut **transaction)
-    .await?;
+    // One user, one device (migration 0395), when switched on: this sign-in
+    // ends every other live session of the account, in the same transaction
+    // that opens it, so two sign-ins racing each other cannot both survive.
+    // Off for now — see `security::one_device_sign_in`.
+    if security::one_device_sign_in() {
+        sqlx::query(
+            "UPDATE auth_session
+                SET revoked_at = now(), revoked_reason = 'SIGNED_IN_ELSEWHERE'
+              WHERE user_id = $1 AND revoked_at IS NULL",
+        )
+        .bind(user_id)
+        .execute(&mut **transaction)
+        .await?;
+    }
     sqlx::query(
         "INSERT INTO auth_session
              (session_id,token_sha256,csrf_token_sha256,user_id,auth_version,expires_at)
@@ -298,7 +304,7 @@ pub async fn authenticate_session(
 ) -> Result<SessionUser, AppError> {
     let row = sqlx::query(
         "SELECT s.session_id,s.csrf_token_sha256,u.username,u.display_name,u.role,
-                u.role_code,r.name AS role_name,r.flow_roles,r.sections,r.read_only
+                u.role_code,r.name AS role_name,r.flow_roles,r.sections,r.read_only,r.unit_reach
          FROM auth_session s
          JOIN app_user u ON u.id=s.user_id
          LEFT JOIN job_role r ON r.code=u.role_code
@@ -455,6 +461,9 @@ pub struct UserRow {
     pub created_at: DateTime<Utc>,
     /// Null for an account nobody has ever signed in to.
     pub last_login_at: Option<DateTime<Utc>>,
+    /// Set while too many wrong passwords keep this login locked out; the
+    /// console shows it and offers Unlock ([`unlock_user`]).
+    pub login_blocked_until: Option<DateTime<Utc>>,
     /// Null in all five together: a machine account, or a login HR has not
     /// finished the paperwork for. The console says which rather than leaving a
     /// blank column to be read as a bug.
@@ -625,6 +634,8 @@ const USER_MAX_LIMIT: i64 = 1_000;
 const USER_ROWS: &str = "
     SELECT u.id, u.username, u.display_name, u.role, u.active, u.created_by,
            u.created_at, u.last_login_at,
+           CASE WHEN u.login_blocked_until > now() THEN u.login_blocked_until
+           END AS login_blocked_until,
            u.employee_id, e.code AS employee_code, e.status AS employee_status,
            p.full_name AS employee_name,
            a.unit_id, unit.name AS unit_name,
@@ -770,6 +781,7 @@ pub async fn list_users(pool: &PgPool, scope: UserScope) -> Result<UserList, App
                 created_by: row.try_get("created_by")?,
                 created_at: row.try_get("created_at")?,
                 last_login_at: row.try_get("last_login_at")?,
+                login_blocked_until: row.try_get("login_blocked_until")?,
                 employee_id: row.try_get("employee_id")?,
                 employee_code: row.try_get("employee_code")?,
                 employee_status: row.try_get("employee_status")?,
@@ -969,6 +981,25 @@ pub async fn set_user_active(
         .await?;
     tx.commit().await?;
     Ok(json!({ "id": user_id, "username": username, "active": active }))
+}
+
+/// Lift a lockout that wrong passwords put on a login, before it runs out on
+/// its own. The counters go with it, so the next wrong password starts a
+/// fresh count rather than locking again at once.
+pub async fn unlock_user(pool: &PgPool, user_id: Uuid) -> Result<Value, AppError> {
+    let row = sqlx::query(
+        "UPDATE app_user
+            SET failed_login_count=0,failed_login_window_started_at=NULL,
+                login_blocked_until=NULL,updated_at=now()
+          WHERE id=$1
+      RETURNING username",
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("user".into()))?;
+    let username: String = row.get("username");
+    Ok(json!({ "id": user_id, "username": username, "unlocked": true }))
 }
 
 pub async fn change_password(

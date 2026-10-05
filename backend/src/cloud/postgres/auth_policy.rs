@@ -156,7 +156,7 @@ pub async fn relay_subject(
 ) -> Result<RelaySubject, AppError> {
     let row = sqlx::query(
         "SELECT u.username, u.display_name, u.role, a.edge_role,
-                u.role_code, r.name AS role_name, r.flow_roles, r.sections, r.read_only
+                u.role_code, r.name AS role_name, r.flow_roles, r.sections, r.read_only, r.unit_reach
            FROM app_user u
            JOIN edge_identity_assignment a ON a.user_id = u.id
            LEFT JOIN job_role r ON r.code = u.role_code
@@ -1146,13 +1146,15 @@ async fn site_profiles(
         // a node can use, and it is what the centre cuts the same day with.
         //
         // `opened` is the unit's (0630): a site's tills trade once head
-        // office has opened the unit that owns it.
+        // office has opened the unit that owns it. `till_count` is the
+        // site's (0714): how many seats its counter has.
         "SELECT s.id, s.kind, s.code, s.name, site_business_timezone(s.id) AS timezone,
                 (EXTRACT(EPOCH FROM ($1::timestamptz AT TIME ZONE site_business_timezone(s.id))
                                   - ($1::timestamptz AT TIME ZONE 'UTC')) / 60)::int
                     AS utc_offset_minutes,
                 s.id IS NOT DISTINCT FROM head_office_site_id() AS is_head_office,
-                u.opened_at IS NOT NULL AS opened
+                u.opened_at IS NOT NULL AS opened,
+                s.till_count
            FROM site s
            LEFT JOIN unit u ON u.id = s.unit_id
           ORDER BY s.id",
@@ -1172,6 +1174,7 @@ async fn site_profiles(
             timezone: row.try_get("timezone")?,
             utc_offset_minutes: row.try_get("utc_offset_minutes")?,
             opened: Some(row.try_get("opened")?),
+            till_count: u32::try_from(row.try_get::<i32, _>("till_count")?).ok(),
         };
         if profile.site_id == node.site_id.as_str() {
             own = Some(profile.clone());

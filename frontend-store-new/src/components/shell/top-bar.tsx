@@ -47,7 +47,7 @@ export function TopBar({ onOpenNav }: { onOpenNav?: () => void }) {
 
       {/* A phone has room for one line: the screen's name, under the module's. */}
       <div className="flex min-w-0 flex-1 flex-col justify-center md:hidden">
-        <span className="text-[0.6875rem] leading-none font-medium text-mute">
+        <span className="text-meta leading-none font-medium text-mute">
           {module.label}
         </span>
         <h1 className="truncate text-[1rem] leading-tight font-semibold text-ink">
@@ -57,7 +57,7 @@ export function TopBar({ onOpenNav }: { onOpenNav?: () => void }) {
 
       <nav
         aria-label="Breadcrumb"
-        className="flex min-w-0 flex-1 items-center gap-2 text-[0.8125rem] font-medium max-md:hidden"
+        className="flex min-w-0 flex-1 items-center gap-2 text-nav font-medium max-md:hidden"
       >
         <Link
           to={module.home as never}
@@ -99,8 +99,8 @@ export function TopBar({ onOpenNav }: { onOpenNav?: () => void }) {
         <SyncChip />
         <Link
           to={"/news" as never}
-          title="Kabar from head office"
-          aria-label="Kabar"
+          title="Discuss with head office"
+          aria-label="Discuss"
           aria-current={module.id === "news" ? "page" : undefined}
           className={cn(
             "grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-text pointer-coarse:size-tap",
@@ -159,7 +159,7 @@ function SyncChip() {
     <Link
       to={"/node/sync" as never}
       title="Sync with head office"
-      className="inline-flex h-8 items-center gap-2 rounded-inner px-2.5 text-[0.8125rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink"
+      className="inline-flex h-8 items-center gap-2 rounded-inner px-2.5 text-nav font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink"
     >
       {health === null ? (
         <RefreshCw className="size-[0.875rem] stroke-[1.7] text-line-ico" />

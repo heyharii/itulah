@@ -29,6 +29,7 @@
 //! screens by somebody who decided to.
 
 use super::auth::Principal;
+use super::scope::Scope;
 use crate::cloud::{
     application::{AppError, AppState},
     postgres::{
@@ -164,8 +165,17 @@ pub struct FeedQuery {
 /// Head office's queue, grouped by area.
 pub async fn attention(
     State(state): State<AppState>,
+    scope: Scope,
     Query(query): Query<FeedQuery>,
 ) -> Result<Json<AttentionFeed>, AppError> {
+    // The whole fleet's queue is head office's. A caller bounded to one unit
+    // reads their own shop's queue at `/attention/store/{site}`.
+    if !scope.is_everywhere() {
+        return Err(AppError::Forbidden(
+            "the fleet's attention queue is head office's; read your own store's queue instead"
+                .into(),
+        ));
+    }
     Ok(Json(
         infrastructure::attention_list(&state.db, query.limit.unwrap_or(200)).await?,
     ))
@@ -174,9 +184,11 @@ pub async fn attention(
 /// One shop's queue: only what that shop can act on.
 pub async fn attention_for_store(
     State(state): State<AppState>,
+    scope: Scope,
     Path(site_id): Path<String>,
     Query(query): Query<FeedQuery>,
 ) -> Result<Json<AttentionFeed>, AppError> {
+    scope.require_site(&state, &site_id).await?;
     Ok(Json(
         infrastructure::attention_for_store(&state.db, &site_id, query.limit.unwrap_or(200))
             .await?,

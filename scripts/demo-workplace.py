@@ -5,8 +5,8 @@
 
 The demo people are the ones `demo-seed.sh` hires: Rina (head office HR, who is
 `development` on an auth-disabled rig), Nina and Yusuf at the DC, Maya and Dian
-at store-01. The threads point at things that exist in the demo — SUP-001,
-SUP-002 and their supplier items — so a click on a subject lands somewhere.
+at store-01. The threads point at things that exist in the demo — 0001,
+0002 and their supplier items — so a click on a subject lands somewhere.
 
 The writing is `seed-workplace.py`'s: same tables, same `collaboration_event`
 rows, same uuid5 ids, and the same reason it is SQL (on an auth-disabled node
@@ -35,7 +35,7 @@ DEV = next((sys.argv[i + 1] for i, arg in enumerate(sys.argv[:-1]) if arg == "--
 #  attachment slugs)
 THREADS = [
     (
-        "demo-sup001-leadtime", "supplier", "SUP-001", "PT Garmen Nusantara",
+        "demo-sup001-leadtime", "supplier", "0001", "PT Garmen Nusantara",
         "Lead time PT Garmen Nusantara untuk kemeja — 14 atau 21 hari?",
         "open", ["pemasok", "lead-time"], "yusuf", 30,
         [
@@ -53,7 +53,7 @@ THREADS = [
         ["yusuf", "maya", "nina", DEV], ["yusuf"], [],
     ),
     (
-        "demo-receiving-count", "supplier", "SUP-001", "Penerimaan DC",
+        "demo-receiving-count", "supplier", "0001", "Penerimaan DC",
         "Hitungan penerimaan beda dengan surat jalan — siapa yang verifikasi?",
         "resolved", ["penerimaan", "prosedur"], "nina", 50,
         [

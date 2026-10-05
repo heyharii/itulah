@@ -107,7 +107,6 @@ export function FileCorrectionSheet({
         <Field label="Employee" required>
           <PickOne
             label="Employee"
-            placeholder="Choose…"
             choices={people}
             value={employee}
             onChange={setEmployee}
@@ -158,7 +157,6 @@ export function FileCorrectionSheet({
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            placeholder="lupa absen, terlihat di CCTV"
           />
         </Field>
         {file.isError && <Banner tone="bad">{file.error.message}</Banner>}

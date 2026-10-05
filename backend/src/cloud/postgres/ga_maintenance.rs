@@ -1905,10 +1905,16 @@ async fn create_replacement_asset(
     .await?
     .ok_or_else(|| AppError::NotFound("asset".into()))?;
 
-    let number: i64 = sqlx::query("SELECT nextval('fixed_asset_number_seq') AS n")
-        .fetch_one(&mut **tx)
-        .await?
-        .try_get("n")?;
+    // Numbered from the same series as every other asset (0701), in the books
+    // of the unit whose site the old one stood at.
+    let unit = super::sites::unit_of_site(&mut **tx, &old.try_get::<String, _>("site_id")?).await?;
+    let number = super::number_series::next_number(
+        &mut **tx,
+        super::number_series::FIXED_ASSET,
+        today,
+        Some(&unit),
+    )
+    .await?;
     let new_asset_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO fixed_asset
@@ -1918,7 +1924,7 @@ async fn create_replacement_asset(
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,1,'REGISTERED',$13,now())",
     )
     .bind(new_asset_id)
-    .bind(format!("AST-{number:06}"))
+    .bind(&number)
     .bind(old.try_get::<String, _>("name")?)
     .bind(old.try_get::<String, _>("category_code")?)
     .bind(old.try_get::<String, _>("site_id")?)

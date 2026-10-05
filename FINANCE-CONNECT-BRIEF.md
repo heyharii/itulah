@@ -97,7 +97,7 @@ keseimbangan per site + uji.
    `net_minor` padahal akrual memakai gross → perbaiki setelah Tahap 3.
 5. Agen akhir bulan (penyusutan, cadangan, prepaid) hanya jalan bila `INVENTORY_FINANCE_AUTOMATION_ENABLED`
    (default false). Jangan ubah default produksi; tampilkan status flag ini di readiness/overview Finance
-   dan aktifkan di `.env.example` dev dengan komentar.
+   dan aktifkan di `cloud.env.example` dev dengan komentar.
 
 ## Tahap 2 — Sales/POS (keputusan pemilik 25 Sep)
 

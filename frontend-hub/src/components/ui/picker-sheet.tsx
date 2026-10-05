@@ -126,7 +126,6 @@ export function PickerSheet({
                 if (first) pick(first.value)
               }}
               enterKeyHint={multiple ? "enter" : "done"}
-              placeholder="Search"
               aria-label={`Search ${title}`}
               className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-mute"
             />
@@ -214,6 +213,7 @@ export function BottomSheet({
   action,
   onBack,
   icon,
+  tone = "light",
   children,
 }: {
   open: boolean
@@ -226,8 +226,14 @@ export function BottomSheet({
   onBack?: () => void
   /// Before the title — an app's icon on its sheet.
   icon?: React.ReactNode
+  /// `dark` for a sheet that is navigation rather than a question: a
+  /// department's screens, drawn in the charcoal the desk's column is
+  /// (2026-09-28), so moving between screens looks the same on every glass.
+  /// Pickers keep the default — a choice is part of the page it is made on.
+  tone?: "light" | "dark"
   children: React.ReactNode
 }) {
+  const dark = tone === "dark"
   return (
     <Drawer.Root open={open} onOpenChange={onOpenChange}>
       <Drawer.VirtualKeyboardProvider>
@@ -244,6 +250,7 @@ export function BottomSheet({
             <Drawer.Popup
               className={cn(
                 "flex max-h-[min(85dvh,calc(100dvh-var(--drawer-keyboard-inset,0px)-0.75rem))] w-full flex-col rounded-t-sheet border-t border-hairline bg-canvas pb-[env(safe-area-inset-bottom)] shadow-float outline-none",
+                dark && "border-rail-hair bg-rail text-rail-text",
                 // Up from the bottom edge on the iOS sheet curve, back down
                 // it faster. The finger's drag is `--drawer-swipe-movement-y`
                 // on `transform`, apart from the enter/exit on `translate`, so
@@ -264,7 +271,12 @@ export function BottomSheet({
               {/* The grip: says "this can be pulled down" before anybody
                   tries, which is the only way a gesture gets found. */}
               <div aria-hidden className="flex justify-center pt-2.5 pb-1">
-                <span className="h-1 w-9 rounded-full bg-hairline-strong" />
+                <span
+                  className={cn(
+                    "h-1 w-9 rounded-full bg-hairline-strong",
+                    dark && "bg-rail-3"
+                  )}
+                />
               </div>
               <div className="flex shrink-0 items-center justify-between gap-3 px-4 pt-1 pb-2">
                 <span className="flex min-w-0 items-center gap-2">
@@ -273,13 +285,21 @@ export function BottomSheet({
                       type="button"
                       aria-label="Back"
                       onClick={onBack}
-                      className="-ml-2 grid size-tap shrink-0 place-items-center rounded-full text-line-ico active:bg-soft-2"
+                      className={cn(
+                        "-ml-2 grid size-tap shrink-0 place-items-center rounded-full text-line-ico active:bg-soft-2",
+                        dark && "text-rail-mute active:bg-rail-2"
+                      )}
                     >
                       <ChevronLeft className="size-5" />
                     </button>
                   )}
                   {icon}
-                  <Drawer.Title className="truncate text-[1rem] font-semibold text-ink">
+                  <Drawer.Title
+                    className={cn(
+                      "truncate text-[1rem] font-semibold text-ink",
+                      dark && "text-rail-ink"
+                    )}
+                  >
                     {title}
                   </Drawer.Title>
                 </span>

@@ -114,7 +114,7 @@ private fun OpenShift(busy: Boolean, onOpen: (Long) -> Unit) {
         Spacer(Modifier.height(10.dp))
         OutlinedTextField(
             value = float,
-            onValueChange = { float = it },
+            onValueChange = { float = it.filter { c -> c.isDigit() } },
             label = { Text("Modal awal") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -149,7 +149,7 @@ private fun CashMovement(busy: Boolean, onMovement: (String, Long, String) -> Un
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(
             value = amount,
-            onValueChange = { amount = it },
+            onValueChange = { amount = it.filter { c -> c.isDigit() } },
             label = { Text("Jumlah") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -194,7 +194,7 @@ private fun CloseShift(busy: Boolean, onClose: (Long, String?) -> Unit) {
         Spacer(Modifier.height(10.dp))
         OutlinedTextField(
             value = counted,
-            onValueChange = { counted = it },
+            onValueChange = { counted = it.filter { c -> c.isDigit() } },
             label = { Text("Hasil hitungan") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),

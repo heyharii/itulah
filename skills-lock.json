@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "ui-recording-timeline": {
+      "source": "rauchg/skills",
+      "sourceType": "github",
+      "skillPath": "skills/ui-recording-timeline/SKILL.md",
+      "computedHash": "87a25add471c153d253a07a5cf4fb6308b739b0cbe5cecdb3daf6318ef9f2f10"
+    }
+  }
+}

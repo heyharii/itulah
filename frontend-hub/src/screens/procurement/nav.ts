@@ -7,10 +7,15 @@ import {
   PackageSearch,
   Percent,
   ShoppingCart,
-  Warehouse,
+  Undo2,
 } from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
+import {
+  useBuyingWaiting,
+  useOpenReturns,
+  useOrdersAwaitingReview,
+} from "@/screens/procurement/badges"
 
 /// This module's row in the sidebar and the sub-items under it.
 /// Owned by the module, composed by `lib/navigation.ts` — so adding a screen
@@ -27,18 +32,14 @@ import type { AppModule } from "@/lib/navigation"
 /// not navigation — it made one job look like eight, and the four filed under
 /// "Master data" were read once a month while taking up half the panel.
 ///
-/// **Suppliers came back** on 2026-09-12, reversing its move to Master data on
-/// 2026-09-03. That module has since been renamed after the record it holds —
-/// Articles — and the four lists under it are the words an article is
-/// described with. A supplier is not one of those; it is a party the company
-/// transacts with, which is this module's subject. The old path is declared on
-/// the item as `moved`, so every link anybody has sent still opens the screen.
+/// **Suppliers is in Procurement only** (the owner, 2026-10-05). It had joined
+/// the Master menu on 2026-10-04 ("master supplier, master articles, dan semua
+/// master") and now stays where the buyer buys. The Master menu keeps the
+/// article words — Divisions, Tags, Sizes, Colours. The screen's code is in
+/// `procurement/`; `/master/suppliers` redirects to `/procurement/suppliers`.
 ///
-/// **Article setups arrived with it.** A setup turns a delivery that came in
-/// under no article into one, and a delivery is a purchase: the trigger and
-/// its three sheets sat in Articles' header until 2026-09-12, where they were
-/// the one operational act on a master-data screen. They are mounted on the
-/// order book now — see `SetupTrigger` and `SetupSheets` in `setups.tsx`.
+/// Article setups are not here: since 2026-10-02 they are their own page,
+/// Merchandise › New articles — see `SetupWorkspace` in `setups.tsx`.
 ///
 /// The other four paths stay declared here, and that is what keeps them routed,
 /// linkable and findable in ⌘K. `hidden` only means "not a sub-item": each of
@@ -53,8 +54,11 @@ import type { AppModule } from "@/lib/navigation"
 ///    from the button in the order book's header and from the basket.
 ///  - **Catalogue** is the only screen that creates a supplier item. Sourcing
 ///    browses what it makes; it cannot make one.
-///  - **Destinations** answers "where may a delivery land", parked at the user's
-///    request until it has a better home.
+///
+/// **Destinations found its home** on 2026-10-04: the Master menu is the
+/// better home it was parked waiting for, so the row shows there now
+/// (`/master/destinations`; the old path redirects — see `moved` on the item
+/// in `master/nav.ts`).
 ///
 /// Deleting them is a decision about capability, not about a sidebar, so it is
 /// not made here.
@@ -69,6 +73,9 @@ export const procurementNav: AppModule = {
   // `home` so old links and bookmarks land on a screen.
   home: "/procurement/orders",
   base: "/procurement",
+  // Drawn on the module's row while it is folded: both rows' numbers together.
+  useCount: useBuyingWaiting,
+  badge: "warn",
   sections: [
     {
       items: [
@@ -76,22 +83,39 @@ export const procurementNav: AppModule = {
           path: "/procurement/orders",
           label: "Purchase orders",
           icon: ClipboardList,
+          // Orders whose count is waiting for the buyer's review.
+          useCount: useOrdersAwaitingReview,
+          badge: "warn",
         },
         {
+          // Procurement only (the owner, 2026-10-05): the supplier master lives
+          // where the buyer buys. The Master menu no longer lists it, and its
+          // old path lands here, search parameters and all.
           path: "/procurement/suppliers",
           label: "Suppliers",
           icon: Building2,
-          // Every link to it anybody has sent, every bookmark, and the two
-          // screens that deep-link a supplier from an item.
           moved: ["/master/suppliers"],
         },
         {
           // In the sidebar as of 2026-09-13, on the owner's instruction: it is
-          // part of Buying, and a screen reachable only from one button on one
+          // part of Procurement, and a screen reachable only from one button on one
           // other screen is a screen most people never learn exists.
           path: "/procurement/sourcing",
           label: "Sourcing",
           icon: PackageSearch,
+        },
+        {
+          // Fourth primary row, owner's menu of 2026-09-28: goods a supplier
+          // sent that are going back out the same door — a buying question,
+          // not a warehouse one, so it sits with the order book rather than
+          // with Operations' own returns rows. Pre-filters the allotment book
+          // to `RETURN_TO_SUPPLIER` — see `screens/allotment/returns.tsx`.
+          path: "/procurement/returns",
+          label: "Return to supplier",
+          icon: Undo2,
+          // Returns to a supplier that are still open.
+          useCount: useOpenReturns,
+          badge: "warn",
         },
         {
           // Raising orders from documents — Excel, PDF, photographs — instead
@@ -120,12 +144,6 @@ export const procurementNav: AppModule = {
           path: "/procurement/catalogue",
           label: "Catalogue",
           icon: Package,
-          hidden: true,
-        },
-        {
-          path: "/procurement/destinations",
-          label: "Destinations",
-          icon: Warehouse,
           hidden: true,
         },
       ],

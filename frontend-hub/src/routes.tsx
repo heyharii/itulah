@@ -7,7 +7,7 @@ import {
 } from "@tanstack/react-router"
 
 import { AppShell } from "@/components/shell/app-shell"
-import { allNavItems, asides, modules } from "@/lib/navigation"
+import { allNavItems, asides, landingPath, modules } from "@/lib/navigation"
 import { validateSheetSearch } from "@/lib/sheets"
 import { Placeholder } from "@/screens/placeholder"
 import type { ScreenMap } from "@/screens/registry"
@@ -114,7 +114,7 @@ const indexRoute = createRoute({
     // the first module, as it always has. Asked of the window rather than of
     // the layout hook because this runs before anything renders.
     const phone = window.matchMedia("(width < 48rem)").matches
-    throw redirect({ to: phone ? "/apps" : modules[0].home })
+    throw redirect({ to: phone ? "/apps" : landingPath })
   },
 })
 

@@ -23,6 +23,19 @@ pub const CSRF_COOKIE: &str = "inventory_csrf";
 /// hand-written sync keys while still accepting other safe encodings.
 pub const MIN_SYNC_KEY_LENGTH: usize = 32;
 
+/// Whether a sign-in ends the account's other live sessions — one user, one
+/// device (Postgres 0395, SQLite 0053).
+///
+/// Off unless `INVENTORY_ONE_DEVICE_SIGN_IN=true`. The owner switched it off
+/// for now (2026-09-29): while the hub is being built, the same account is
+/// signed in from a browser and a test pane at once, and each sign-in was
+/// pushing the other out. Read here, once for both runtimes, so the head
+/// office and a node cannot disagree about it.
+pub fn one_device_sign_in() -> bool {
+    std::env::var("INVENTORY_ONE_DEVICE_SIGN_IN")
+        .is_ok_and(|value| value.trim().eq_ignore_ascii_case("true"))
+}
+
 pub fn random_token() -> String {
     let mut bytes = [0u8; 32];
     OsRng.fill_bytes(&mut bytes);

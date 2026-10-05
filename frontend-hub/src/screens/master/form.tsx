@@ -21,6 +21,7 @@ import {
 } from "@/lib/queries/articles"
 import { listTerms, vocabularyKeys } from "@/lib/queries/vocabulary"
 import { ColourPicker } from "@/screens/master/colour-picker"
+import { UnitsSection, type UnitsDraft } from "@/screens/master/units-section"
 import { useIdempotencyKey } from "@/screens/procurement/shared"
 import { ApiError } from "@itulah/contract/client"
 import type { ArticleConsequence, CatalogueVocabulary } from "@itulah/contract"
@@ -45,6 +46,23 @@ interface ArticleDraft {
   active: boolean
   tags: string[]
   colours: ArticleColourwayInput[]
+  units: UnitsDraft
+}
+
+/// Whether two unit lists say the same thing, order aside — a merchandiser
+/// removing a row and adding it back is not a change worth sending.
+function sameUnits(
+  a: readonly { unitCode: string; factor: string }[],
+  b: readonly { unitCode: string; factor: string }[]
+): boolean {
+  if (a.length !== b.length) return false
+  const key = (row: { unitCode: string; factor: string }) =>
+    `${row.unitCode}\u0000${row.factor.trim()}`
+  const sorted = (rows: readonly { unitCode: string; factor: string }[]) =>
+    rows.map(key).sort()
+  const left = sorted(a)
+  const right = sorted(b)
+  return left.every((one, index) => one === right[index])
 }
 
 export function ArticleForm({
@@ -131,11 +149,22 @@ export function ArticleForm({
     return perDigit
   }, [article.skus])
 
+  const settledUnits: UnitsDraft = {
+    stockUnit: article.stock_unit_code,
+    purchaseUnit: article.purchase_unit_code ?? "",
+    salesUnit: article.sales_unit_code ?? "",
+    units: article.units.map((one) => ({
+      unitCode: one.unit_code,
+      factor: one.factor,
+    })),
+  }
+
   const save = useMutation({
     // Wrapped rather than passed by reference: v5 hands a mutation context as
     // the second argument, which is not the `AbortSignal` the fetcher expects.
-    mutationFn: (draft: ArticleDraft) =>
-      updateArticle(
+    mutationFn: (draft: ArticleDraft) => {
+      const unitsChanged = !sameUnits(draft.units.units, settledUnits.units)
+      return updateArticle(
         article.article_code,
         {
           name: draft.name.trim(),
@@ -146,10 +175,36 @@ export function ArticleForm({
           tags: draft.tags,
           active: draft.active,
           colours: draft.colours,
+          // Only the fields that actually moved — a stock-unit PATCH is
+          // refused once the article has stock, and sending it unchanged
+          // every save would trip that refusal for no reason.
+          stock_unit_code:
+            draft.units.stockUnit !== settledUnits.stockUnit
+              ? draft.units.stockUnit
+              : undefined,
+          purchase_unit_code:
+            draft.units.purchaseUnit !== settledUnits.purchaseUnit
+              ? draft.units.purchaseUnit === ""
+                ? null
+                : draft.units.purchaseUnit
+              : undefined,
+          sales_unit_code:
+            draft.units.salesUnit !== settledUnits.salesUnit
+              ? draft.units.salesUnit === ""
+                ? null
+                : draft.units.salesUnit
+              : undefined,
+          units: unitsChanged
+            ? draft.units.units.map((one) => ({
+                unit_code: one.unitCode,
+                factor: one.factor.trim() === "" ? null : one.factor.trim(),
+              }))
+            : undefined,
         },
         article.version,
         idempotency.key
-      ),
+      )
+    },
     onSuccess: () => {
       // `all` is a prefix of both the record's key and every list key, so one
       // invalidation reaches the sheet and the catalogue behind it. A renamed
@@ -185,6 +240,7 @@ export function ArticleForm({
         colour_digit: way.colour_digit,
         colour_code: way.colour_code,
       })),
+      units: settledUnits,
     } as ArticleDraft,
     onSubmit: ({ value }) => save.mutate(value),
   })
@@ -325,7 +381,6 @@ export function ArticleForm({
               value={field.state.value}
               onBlur={field.handleBlur}
               onChange={(event) => field.handleChange(event.target.value)}
-              placeholder="https://…"
             />
           </Field>
         )}
@@ -411,6 +466,16 @@ export function ArticleForm({
         )}
       </form.Field>
 
+      <form.Field name="units">
+        {(field) => (
+          <UnitsSection
+            value={field.state.value}
+            onChange={field.handleChange}
+            disabled={save.isPending}
+          />
+        )}
+      </form.Field>
+
       {/* Not a `<Field>`: that wraps its children in a `<label>`, and a label
           around a two-button group hands every click to the first button. */}
       <form.Field name="active">
@@ -451,7 +516,7 @@ export function ArticleForm({
                 ))}
               </ul>
               <p className="mt-1.5 text-[0.875rem] text-warn-fg">
-                Their products are worked out when they start, so they will be
+                Their articles are worked out when they start, so they will be
                 worked out against this article as it is then.
               </p>
             </div>
@@ -498,10 +563,10 @@ export function ArticleForm({
                 onClick={guarded ? () => setAccepted(true) : undefined}
               >
                 {save.isPending
-                  ? "Saving…"
+                  ? "Submitting…"
                   : accepted && scheduled.length > 0
-                    ? "Save anyway"
-                    : "Save"}
+                    ? "Submit anyway"
+                    : "Submit"}
               </Button>
             )
           }}

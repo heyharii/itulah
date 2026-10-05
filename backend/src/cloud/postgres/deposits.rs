@@ -623,10 +623,13 @@ pub async fn record_deposit(
 
     let deposit_id = Uuid::new_v4();
     let mut tx = pool.begin().await?;
-    let number: i64 = sqlx::query("SELECT nextval('store_deposit_number_seq') AS n")
-        .fetch_one(&mut *tx)
-        .await?
-        .try_get("n")?;
+    let number = super::number_series::next_number(
+        &mut tx,
+        super::number_series::STORE_DEPOSIT,
+        request.banked_on,
+        Some(unit),
+    )
+    .await?;
     sqlx::query(
         "INSERT INTO store_deposit
            (deposit_id, deposit_number, unit_id, drawer_account_code, drawer_category_code,
@@ -635,7 +638,7 @@ pub async fn record_deposit(
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
     )
     .bind(deposit_id)
-    .bind(format!("DP-{number:08}"))
+    .bind(&number)
     .bind(unit)
     .bind(drawer)
     .bind(drawer_category.as_deref())

@@ -13,10 +13,10 @@ import type { StoreInboundDelivery, StoreInboundLine } from "@itulah/contract"
 
 // ── The reads ───────────────────────────────────────────────────────────────
 
-/// How often the screen asks again. The handheld submits from the stockroom
-/// and nobody at the desk presses anything, so the result has to arrive on its
-/// own — and a quarter of a minute is about how long it takes to walk from the
-/// stockroom to the back office.
+/// How often the screen asks again. A count taken at another till in this
+/// shop submits on its own, with nobody at this desk pressing anything, so
+/// the result has to arrive on its own poll — and a quarter of a minute is
+/// about how long it takes to walk from the stockroom to the back office.
 export const INBOUND_POLL_MS = 15_000
 
 /// Every delivery the node knows of, in transit and received, in one read.
@@ -61,9 +61,9 @@ export type Verdict = {
   readonly label: string
 }
 
-/// The delivery's state in one pill. Short outranks over when a count is both:
-/// a missing garment is one somebody has to go and look for, an extra one is
-/// only a question for the sender.
+/// The delivery's state in one pill: received, or received short. Extras are
+/// not a state of their own — they read in the Result column — so a count
+/// with no missing garment is simply Received.
 export function verdictOf(delivery: StoreInboundDelivery): Verdict {
   if (delivery.status === "IN_TRANSIT") {
     return { tone: "info", label: "In transit" }
@@ -71,9 +71,8 @@ export function verdictOf(delivery: StoreInboundDelivery): Verdict {
   const result = delivery.result
   if (result === null) return { tone: "ok", label: "Received" }
   if (result.missing_units > 0)
-    return { tone: "bad", label: "Received · short" }
-  if (result.extra_units > 0) return { tone: "warn", label: "Received · over" }
-  return { tone: "ok", label: "Received · complete" }
+    return { tone: "bad", label: "Received short" }
+  return { tone: "ok", label: "Received" }
 }
 
 /// The result, but ONLY for a received delivery.

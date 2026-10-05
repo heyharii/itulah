@@ -5,6 +5,10 @@
 /// `fingerprint` beside it, which is about signing in to a till.
 pub mod attendance;
 pub mod auth;
+/// The one command line both node roles share: run, enroll, stage-code,
+/// diagnose, the Windows service commands. `bin/store.rs` and `bin/dc.rs` are
+/// three-line wrappers that name their role.
+pub mod cli;
 pub mod contracts;
 /// The machines enrolled to this node: a till joining by code and a
 /// supervisor's yes, printers recorded once, and all of it reported upward.
@@ -49,6 +53,7 @@ pub mod rfid;
 /// display code, clock — so nothing here reads them off an id.
 pub mod site_profile;
 pub mod sqlite;
+pub mod store_returns;
 pub mod sync;
 pub mod till;
 pub mod zpl;

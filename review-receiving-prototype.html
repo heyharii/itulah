@@ -1,0 +1,67 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Review Count — Side Sheet</title><style>:root{color-scheme:light dark}body{margin:0;background:light-dark(#e9ecf2,#151820);font-family:system-ui,sans-serif}button,select,label{cursor:pointer}
+#receiving-prototype #receiving-pending.short{color:var(--red)}
+</style></head><body><div id="receiving-prototype">
+<style>
+#receiving-prototype{font-family:Inter,system-ui,sans-serif;font-size:13px;color:light-dark(#252a34,#ebedf3);color-scheme:light dark;--paper:light-dark(#fff,#20232b);--line:light-dark(#e5e7ec,#3c414b);--muted:light-dark(#737b8a,#abb3c2);--soft:light-dark(#f6f7fa,#292e37);--blue:light-dark(#245eef,#8eafff);--amber:light-dark(#976009,#ffd08a);--red:light-dark(#b73a51,#ff9caf);max-width:900px;margin-left:auto}
+#receiving-prototype *{box-sizing:border-box}#receiving-prototype .window{background:var(--paper);border-left:1px solid var(--line);min-height:100dvh;display:flex;flex-direction:column}#receiving-prototype .head{padding:22px 24px 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}#receiving-prototype h2{font-size:19px;font-weight:600;margin:0 0 5px}#receiving-prototype .muted{color:var(--muted);font-size:12px}#receiving-prototype .content{padding:20px 24px}#receiving-prototype .meta{display:flex;gap:40px;margin-bottom:20px}#receiving-prototype .numbers{display:grid;grid-template-columns:repeat(4,1fr);padding:13px 0;margin:0 0 20px;border-bottom:1px solid var(--line);gap:16px}#receiving-prototype .numbers strong{font-size:16px;font-weight:600;display:block;margin-top:5px}#receiving-prototype .toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:5px}#receiving-prototype button,#receiving-prototype select{font:inherit;color:inherit;background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:8px 10px}#receiving-prototype .row{display:grid;grid-template-columns:minmax(140px,1.5fr) 90px 90px 110px;gap:14px;padding:14px 0;border-bottom:1px solid var(--line);align-items:center}#receiving-prototype .header{font-size:12px;color:var(--muted);padding:10px 0}#receiving-prototype .num{text-align:right;font-variant-numeric:tabular-nums}#receiving-prototype .name{font-weight:500}#receiving-prototype .badge{font-size:12px;font-weight:500}#receiving-prototype .extra{color:var(--amber)}#receiving-prototype .short{color:var(--red)}#receiving-prototype .action{font-size:12px}#receiving-prototype .action select{width:100%;padding:7px 8px}#receiving-prototype .summary{margin-top:20px;padding:14px 16px;background:var(--soft);border-radius:8px}#receiving-prototype .summary h3{font-size:12px;font-weight:500;color:var(--muted);margin:0 0 10px}#receiving-prototype #receiving-summary{display:flex;flex-wrap:wrap;gap:12px 26px}#receiving-prototype .summary-line{display:flex;gap:7px;font-size:12px}#receiving-prototype .summary-line strong{font-weight:600}#receiving-prototype .footer{margin-top:auto;padding:16px 24px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:14px}#receiving-prototype .footer>div{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}#receiving-prototype #receiving-pending{width:100%;text-align:right}#receiving-prototype [hidden]{display:none!important}#receiving-prototype .primary{background:var(--blue);color:light-dark(#fff,#152347);border-color:var(--blue)}#receiving-prototype button:disabled{opacity:.45}#receiving-prototype .scenario{position:absolute;top:24px;left:24px;display:flex;flex-direction:column;gap:8px;width:190px}#receiving-prototype .success{font-size:12px;padding-top:12px}#receiving-prototype input{accent-color:var(--blue)}
+@media(max-width:1150px){#receiving-prototype .scenario{position:static;width:auto;flex-direction:row;align-items:center;padding:10px 24px;background:var(--soft)}#receiving-prototype .window{min-height:calc(100dvh - 55px)}}
+@media(max-width:700px){#receiving-prototype .head,#receiving-prototype .content,#receiving-prototype .footer{padding:14px}#receiving-prototype .row{grid-template-columns:minmax(100px,1.5fr) 48px 48px 76px;gap:8px;padding:10px 0}#receiving-prototype .action{grid-column:1/-1;display:flex;justify-content:flex-end}#receiving-prototype .action select{width:150px}#receiving-prototype .meta{gap:20px;margin-bottom:12px}#receiving-prototype .numbers{gap:8px;margin-bottom:12px}#receiving-prototype .numbers strong{font-size:14px}#receiving-prototype .footer>div{flex-direction:column;align-items:flex-end;gap:4px}#receiving-prototype .scenario{padding:10px 14px}}
+
+#receiving-prototype .return-row{padding:9px 0;border-bottom:1px solid var(--line);background:var(--soft)}
+#receiving-prototype .return-label{padding-left:16px;color:var(--muted);font-size:12px}
+#receiving-prototype .total-row{border-bottom:0;padding:16px 0;font-weight:600}
+#receiving-prototype .total-note{grid-column:1/-1;font-weight:400;font-size:12px;color:var(--muted);margin-top:-6px}
+</style>
+<div class="scenario"><label for="receiving-scenario">Prototype scenario</label><select id="receiving-scenario" class="cursor-interaction"><option value="mixed">Excess & shortage</option><option value="extra">Excess only</option><option value="short">Shortage only</option><option value="balanced">Equal excess & shortage</option><option value="zero">Some items not delivered</option><option value="matched">All matched</option></select></div>
+<div class="window">
+<div class="head"><div><h2>Review Count</h2><div class="muted">PO-021026-001</div></div><span class="muted">Receiving review</span></div>
+<div class="content"><div class="meta"><div><div class="muted">Supplier</div>Indorama, PT</div><div><div class="muted">Counted by</div>Rina Kusuma · 02 Oct, 09:13</div></div>
+
+<div class="toolbar"><span id="receiving-count"></span><label><input type="checkbox" id="receiving-hide"> Hide matched items</label></div>
+<div class="row header"><span>Item</span><span class="num">Ordered</span><span class="num">Counted</span><span class="num">Difference</span></div>
+<div id="receiving-rows"></div>
+<div id="receiving-total" class="row total-row" aria-live="polite"></div>
+<div id="receiving-result" aria-live="polite"></div>
+</div>
+<div class="footer"><button type="button" id="receiving-recount" class="cursor-interaction">Recount</button><div><span id="receiving-pending" class="muted"></span><button type="button" id="receiving-partial" class="primary cursor-interaction">Partial Receive</button><button type="button" id="receiving-close" class="cursor-interaction">Close Short</button><button type="button" id="receiving-submit" class="primary cursor-interaction">Confirm Receipt</button></div></div>
+</div>
+</div>
+<script>
+(()=>{
+const root=document.getElementById('receiving-prototype');
+const names=[['Long Sleeve Shirt','Men · Basic · Shirt',400],['Long Dress','Women · Dress',200],['Chino Trousers','Men · Trousers',300],['Linen Blouse','Women · Blouse',100]];
+const scenarios={mixed:[400,500,240,80],extra:[400,500,300,140],short:[400,160,240,80],balanced:[400,280,240,80],zero:[400,500,0,80],matched:[400,200,300,100]};
+let state={scenario:'mixed',hide:false,choices:{}};
+function restore(saved){if(saved&&scenarios[saved.scenario])state={scenario:saved.scenario,hide:!!saved.hide,choices:saved.choices||{}}}
+restore(window.openai?.widgetState?.modelContent);
+const q=s=>root.querySelector(s),fmt=n=>n.toLocaleString('en-US');
+function save(){window.openai?.setWidgetState({modelContent:state,privateContent:null})?.catch(()=>{})}
+function render(){
+q('#receiving-scenario').value=state.scenario;q('#receiving-hide').checked=state.hide;
+const rows=names.map((x,i)=>({name:x[0],desc:x[1],ordered:x[2],counted:scenarios[state.scenario][i],i}));
+let ordered=0,counted=0,extra=0,short=0,accepted=0,closed=0,waiting=0,pending=0;
+rows.forEach(r=>{ordered+=r.ordered;counted+=r.counted;extra+=Math.max(0,r.counted-r.ordered);short+=Math.max(0,r.ordered-r.counted);accepted+=Math.min(r.ordered,r.counted);if(r.counted<r.ordered)pending++});
+const differing=rows.filter(r=>r.counted!==r.ordered).length;
+q('#receiving-count').textContent='';
+q('#receiving-rows').innerHTML=rows.filter(r=>!state.hide||r.counted!==r.ordered).map(r=>{let d=r.counted-r.ordered;return `<div class="row"><div><div class="name">${r.name}</div><div class="muted">${r.desc}</div></div><span class="num">${fmt(r.ordered)}</span><span class="num">${fmt(r.counted)}</span><span class="num"><span class="badge ${d>0?'extra':d<0?'short':''}">${d>0?'+'+fmt(d)+' pcs':d<0?'−'+fmt(-d)+' pcs':'✓ Matched'}</span></span></div>${d>0?`<div class="row return-row"><span class="return-label">↳ Return to supplier</span><span></span><span class="num muted">−${fmt(d)}</span><span></span></div>`:''}`}).join('');
+q('#receiving-total').innerHTML=`<span style="font-weight:400;color:var(--muted)">Total ordered</span><span></span><span class="num" style="font-weight:400">${fmt(ordered)} pcs</span><span></span><span>Total received</span><span></span><span class="num">${fmt(accepted)} pcs</span><span></span>${extra?`<span style="font-weight:400">Total return to supplier</span><span></span><span class="num" style="font-weight:400">${fmt(extra)} pcs</span><span></span>`:''}`;
+q('#receiving-submit').hidden=short>0;q('#receiving-partial').hidden=short===0;q('#receiving-close').hidden=short===0;
+q('#receiving-pending').classList.toggle('short',short>0);
+q('#receiving-pending').textContent=short?`${fmt(short)} pcs short · applies to all short items`:'Ready to confirm';q('#receiving-result').innerHTML='';
+}
+q('#receiving-scenario').addEventListener('change',e=>{state.scenario=e.target.value;state.choices={};render();save()});
+q('#receiving-hide').addEventListener('change',e=>{state.hide=e.target.checked;render();save()});
+function submit(mode){
+const values=scenarios[state.scenario];let shortage=0,excess=0;
+names.forEach((r,i)=>{shortage+=Math.max(0,r[2]-values[i]);excess+=Math.max(0,values[i]-r[2])});
+q('#receiving-result').innerHTML=`<div class="success">✓ ${mode==='partial'?`Partial receipt confirmed. ${fmt(shortage)} pcs remain open for delivery.`:mode==='close'?`Receipt confirmed. ${fmt(shortage)} pcs closed short; no further delivery expected.`:'Receipt confirmed.'}${excess?` ${fmt(excess)} excess pcs must be returned to the supplier.`:''} Prototype only.</div>`;
+state.submission=mode;save();
+}
+q('#receiving-partial').addEventListener('click',()=>submit('partial'));
+q('#receiving-close').addEventListener('click',()=>submit('close'));
+q('#receiving-submit').addEventListener('click',()=>submit('confirm'));
+q('#receiving-recount').addEventListener('click',()=>{state.choices={};render();q('#receiving-result').innerHTML='<div class="success">Recount requested. Review the quantities before submitting.</div>';save()});
+window.addEventListener('openai:set_globals',e=>{let saved=e.detail?.globals?.widgetState?.modelContent;if(saved){restore(saved);render()}});
+render();
+})();
+</script></body></html>

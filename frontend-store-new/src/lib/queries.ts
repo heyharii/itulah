@@ -1,11 +1,9 @@
 import { node } from "@/lib/api"
 import type {
   CatalogRow,
-  DestinationDemand,
   MovementView,
-  OutstandingLine,
-  PickRequest,
-  PickResult,
+  SkuStock,
+  StoreInboundCountRequest,
   StoreInboundDetail,
   StoreInboundList,
   StoreOffers,
@@ -181,6 +179,13 @@ export function fetchPools(signal?: AbortSignal): Promise<PoolsAnswer> {
   return node.get<PoolsAnswer>("/api/v1/inventory/pools", { signal })
 }
 
+/// Every SKU's spendable units here, split floor / warehouse.
+export const skuStockKey = () => ["inventory", "sku-stock"] as const
+
+export function fetchSkuStock(signal?: AbortSignal): Promise<SkuStock> {
+  return node.get<SkuStock>("/api/v1/inventory/sku-stock", { signal })
+}
+
 export const movementsKey = (limit: number) =>
   ["inventory", "movements", limit] as const
 
@@ -199,10 +204,11 @@ export async function fetchMovements(
 // ─────────────────────────────────────────────────────────────────────────────
 // Deliveries on their way here, and what arrived
 //
-// Read only. Receiving is the RFID handheld's job and nothing in this app
-// writes a delivery — so there is no write to invalidate these, and the screen
-// polls instead: the handheld finishes a sweep in the stockroom and the result
-// has to reach the back office without anybody pressing anything.
+// Mostly read: the list still polls on its own, because a count made from a
+// handheld sweeping the stockroom (or another till in this shop) should show
+// up here without anybody pressing anything. `receiveInboundByCount` below is
+// this file's one write against a delivery — a blind count per SKU, with no
+// reader required (owner, 29 Sep 2026).
 
 /// Its own `inbound` namespace rather than under `inventory`: every move and
 /// sale invalidates that prefix, and none of them changes a delivery.
@@ -237,60 +243,22 @@ export function fetchInboundDelivery(
   )
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Sending goods out: a return to the Gudang, or a transfer to another shop
-//
-// The same pick, koli, surat jalan and lorry the Gudang uses for its own
-// outbound — one path for every site, served by the same handlers
-// (`edge/http.rs`'s `store_router`, mounted under `/api/v1/store/outbound`
-// rather than the Gudang's `/api/v1/dc`). This shop only picks; koli, sealing
-// and dispatch stay a DC's job today.
-
-export const destinationsKey = () => ["outbound", "destinations"] as const
-
-export const outstandingKey = (destinationStoreId: string) =>
-  ["outbound", "outstanding", destinationStoreId] as const
-
-/// Every site this shop still owes something to — the send screen's queue.
-export function fetchDestinations(
+/// `POST /api/v1/store/inbound/{delivery_id}/receive-count` — receive without
+/// a reader (owner, 29 Sep 2026): a blind count per SKU, scanned or typed,
+/// booked exactly as a handheld's sweep would be. This is the one write this
+/// file makes against a delivery — see `receiveInboundByCount`'s caller in
+/// `screens/stock/delivery-sheet.tsx` for why receiving no longer needs the
+/// handheld.
+export function receiveInboundByCount(
+  deliveryId: string,
+  request: StoreInboundCountRequest,
   signal?: AbortSignal,
-): Promise<DestinationDemand[]> {
-  return node
-    .get<{ items: DestinationDemand[] }>(
-      "/api/v1/store/outbound/destinations",
-      {
-        signal,
-      },
-    )
-    .then((body) => body.items)
-}
-
-/// What can honestly go to one destination right now: what it still has
-/// coming, what is off this shop's racks, and the smaller of the two.
-export function fetchOutstanding(
-  destinationStoreId: string,
-  signal?: AbortSignal,
-): Promise<OutstandingLine[]> {
-  return node
-    .get<{
-      lines: OutstandingLine[]
-    }>(
-      `/api/v1/store/outbound/destinations/${encodeURIComponent(destinationStoreId)}/outstanding`,
-      { signal },
-    )
-    .then((body) => body.lines)
-}
-
-/// Pick a quantity off one of this shop's three places. The server assigns it
-/// to accepted allotment lines in FIFO order — there is no line or EPC to
-/// choose, the same as a DC's quantity-only pick.
-export function pick(
-  request: PickRequest,
-  signal?: AbortSignal,
-): Promise<PickResult> {
-  return node.post<PickResult>("/api/v1/store/outbound/picks", request, {
-    signal,
-  })
+): Promise<StoreInboundDetail> {
+  return node.post<StoreInboundDetail>(
+    `/api/v1/store/inbound/${encodeURIComponent(deliveryId)}/receive-count`,
+    request,
+    { signal },
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -2,8 +2,8 @@
 //!
 //! # The shape of it
 //!
-//! A delivery has been counted and a second person has accepted the count, so
-//! the goods exist — as a quantity of an article, sitting in `unidentified`.
+//! A delivery has been counted and the count has been accepted, so the
+//! goods exist — as a quantity of an article, sitting in `unidentified`.
 //! They cannot be picked or sold, because there is nothing yet to pick BY.
 //!
 //! Head office opens a setup session against that receipt, names the article,
@@ -91,6 +91,38 @@ pub struct NewSetupSession {
     pub created_by: String,
 }
 
+/// One article of a delivery line being split into several: its own
+/// colourways and its own share of the pieces.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct NewSetupPart {
+    pub colours: Vec<NewSetupColour>,
+    pub variants: Vec<NewSetupVariant>,
+}
+
+/// One delivery line set up as several sibling articles at once (0825).
+///
+/// The owner, 2026-10-02: an article with too many variants for one article is
+/// split into peers — the same name, division, tags and price, each with its
+/// own freshly minted code and its own SKUs. There is no parent article. Every
+/// part becomes an ordinary session, all opened in one transaction, so a line
+/// is still set up exactly once: either every part opens or none does.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct NewSplitSetup {
+    pub receipt_line_id: Uuid,
+    pub article_name: String,
+    pub division_code: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub image_url: Option<String>,
+    pub currency: String,
+    pub articles: Vec<NewSetupPart>,
+    pub created_by: String,
+}
+
+/// Parts of one split, at most — one per letter the form names them by.
+const MAX_SPLIT_ARTICLES: usize = 26;
+
 #[derive(Clone, Debug, Serialize)]
 pub struct SetupSessionSummary {
     pub session_id: Uuid,
@@ -161,6 +193,151 @@ pub async fn create_setup_session(
     pool: &PgPool,
     request: &NewSetupSession,
 ) -> Result<Uuid, AppError> {
+    let total = validate_setup_request(request)?;
+
+    let mut tx = pool.begin().await?;
+    let line = lock_waiting_line(&mut tx, request.receipt_line_id).await?;
+    let receipt_quantity = line.matched_quantity;
+
+    // The quantities must account for the delivery exactly.
+    if total != receipt_quantity {
+        return Err(AppError::Validation(format!(
+            "the variants account for {total} units but {receipt_quantity} were received \
+             and accepted. Every piece must be accounted for: anything less strands goods \
+             in `unidentified` with no job to rescue them, anything more invents stock"
+        )));
+    }
+    if total > MAX_TAGGING_JOB_UNITS {
+        return Err(AppError::Validation(format!(
+            "a delivery of {total} units exceeds the {MAX_TAGGING_JOB_UNITS} a single \
+             tagging job can carry"
+        )));
+    }
+
+    let session_id = insert_setup_session(&mut tx, request, &line, total).await?;
+    tx.commit().await?;
+    Ok(session_id)
+}
+
+/// Open one delivery line as several sibling articles, in one transaction.
+///
+/// Each part is checked exactly as a single session is, and becomes one: its
+/// own minted code, its own colour digits, its own share of the pieces. The
+/// shares must add up to what was matched, and a colour x size may be in one
+/// part only — the owner's rule: the same garment is one SKU of one article.
+/// Returns the sessions in the order the parts were given, which is also the
+/// order their codes were minted in.
+pub async fn create_split_setup(
+    pool: &PgPool,
+    request: &NewSplitSetup,
+) -> Result<Vec<Uuid>, AppError> {
+    if request.articles.is_empty() {
+        return Err(AppError::Validation(
+            "a split needs at least one article".into(),
+        ));
+    }
+    if request.articles.len() > MAX_SPLIT_ARTICLES {
+        return Err(AppError::Validation(format!(
+            "a delivery line can be split into at most {MAX_SPLIT_ARTICLES} articles; {} were given",
+            request.articles.len()
+        )));
+    }
+    let parts: Vec<NewSetupSession> = request
+        .articles
+        .iter()
+        .map(|part| NewSetupSession {
+            receipt_line_id: request.receipt_line_id,
+            // Always minted: a split makes new articles, it never adds to one.
+            article_code: None,
+            article_name: request.article_name.clone(),
+            division_code: request.division_code.clone(),
+            tags: request.tags.clone(),
+            image_url: request.image_url.clone(),
+            currency: request.currency.clone(),
+            colours: part.colours.clone(),
+            variants: part.variants.clone(),
+            created_by: request.created_by.clone(),
+        })
+        .collect();
+    let letter = |index: usize| char::from(b'A' + index as u8);
+
+    let mut totals = Vec::with_capacity(parts.len());
+    let mut owner: std::collections::HashMap<(String, String), usize> =
+        std::collections::HashMap::new();
+    for (index, part) in parts.iter().enumerate() {
+        totals.push(validate_setup_request(part)?);
+        let colour_of: std::collections::HashMap<&str, String> = part
+            .colours
+            .iter()
+            .map(|colour| {
+                (
+                    colour.colour_digit.trim(),
+                    colour.colour_code.trim().to_uppercase(),
+                )
+            })
+            .collect();
+        for variant in &part.variants {
+            let colour = colour_of
+                .get(variant.colour_digit.trim())
+                .cloned()
+                .unwrap_or_default();
+            let size = variant.size_code.trim().to_string();
+            let key = (colour, size);
+            match owner.get(&key).copied() {
+                Some(first) if first != index => {
+                    return Err(AppError::Validation(format!(
+                        "colour {} size {} is in article {} and article {}; \
+                         a SKU belongs to one article",
+                        key.0,
+                        key.1,
+                        letter(first),
+                        letter(index)
+                    )));
+                }
+                Some(_) => {}
+                None => {
+                    owner.insert(key, index);
+                }
+            }
+        }
+    }
+    let mut total = 0i64;
+    for part_total in &totals {
+        total = total
+            .checked_add(*part_total)
+            .ok_or_else(|| AppError::Validation("the declared quantities overflow".into()))?;
+    }
+
+    let mut tx = pool.begin().await?;
+    let line = lock_waiting_line(&mut tx, request.receipt_line_id).await?;
+    let receipt_quantity = line.matched_quantity;
+    if total != receipt_quantity {
+        return Err(AppError::Validation(format!(
+            "the articles account for {total} units but {receipt_quantity} were received \
+             and accepted. Every piece must be accounted for, in one article or another"
+        )));
+    }
+    for (index, part_total) in totals.iter().enumerate() {
+        if *part_total > MAX_TAGGING_JOB_UNITS {
+            return Err(AppError::Validation(format!(
+                "article {} has {part_total} units, more than the {MAX_TAGGING_JOB_UNITS} \
+                 a single tagging job can carry",
+                letter(index)
+            )));
+        }
+    }
+
+    let mut sessions = Vec::with_capacity(parts.len());
+    for (part, part_total) in parts.iter().zip(&totals) {
+        sessions.push(insert_setup_session(&mut tx, part, &line, *part_total).await?);
+    }
+    tx.commit().await?;
+    Ok(sessions)
+}
+
+/// The checks that need nothing but the request. Returns the pieces it
+/// declares.
+fn validate_setup_request(request: &NewSetupSession) -> Result<i64, AppError> {
     if request.article_name.trim().is_empty() {
         return Err(AppError::Validation("the article needs a name".into()));
     }
@@ -194,76 +371,6 @@ pub async fn create_setup_session(
         )));
     }
 
-    let mut tx = pool.begin().await?;
-
-    // What was received, and where. Reading it here rather than trusting the
-    // caller means a session can only ever be opened against real goods.
-    let receipt = sqlx::query(
-        "SELECT r.quantity, r.matched_quantity, r.excess_quantity,
-                l.article_code, o.destination_site_id
-         FROM goods_receipt_line r
-         JOIN purchase_order_line l ON l.po_line_id = r.po_line_id
-         JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
-         WHERE r.receipt_line_id = $1",
-    )
-    .bind(request.receipt_line_id)
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or_else(|| {
-        AppError::Validation(format!(
-            "no accepted delivery line {}: goods must be received before they can be identified",
-            request.receipt_line_id
-        ))
-    })?;
-
-    // The MATCHED quantity, not everything that came off the lorry. Goods
-    // beyond what the order had outstanding are in the warehouse and are not
-    // yet the company's to name, price and put a label on — a buyer has still
-    // to say whether they are being kept or sent back.
-    //
-    // It is the quantity and not the whole line that waits: a delivery of 105
-    // against an order of 100 gives 100 the company certainly bought, and
-    // holding those up because five it did not buy shared the pallet would be
-    // a control nobody asked for.
-    let receipt_quantity: i64 = receipt.get("matched_quantity");
-    let excess_quantity: i64 = receipt.get("excess_quantity");
-    if receipt_quantity <= 0 {
-        return Err(AppError::Validation(format!(
-            "every piece on delivery line {} arrived beyond what the order had outstanding \
-             ({excess_quantity} of them); a buyer decides whether they are kept before they \
-             can be identified",
-            request.receipt_line_id
-        )));
-    }
-    // The supplier's own code, kept for traceability and never used as an
-    // identity. It arrived on the order; it says what the supplier calls the
-    // thing, not what it is.
-    let supplier_article_code: String = receipt.get("article_code");
-    let destination_site_id: String = receipt.get("destination_site_id");
-
-    // Ours is minted here — or reused, when head office says this delivery is
-    // more of something we already sell.
-    let article_code = match request.article_code.as_deref().map(str::trim) {
-        None | Some("") => mint_article_code_tx(&mut tx).await?,
-        Some(existing) => {
-            validate_article_code(existing).map_err(AppError::Validation)?;
-            let known: Option<String> =
-                sqlx::query_scalar("SELECT article_code FROM article WHERE article_code = $1")
-                    .bind(existing)
-                    .fetch_optional(&mut *tx)
-                    .await?;
-            // Attaching to an article that does not exist would create it with
-            // a code nothing minted, which is the hole this whole rule exists
-            // to close.
-            known.ok_or_else(|| {
-                AppError::Validation(format!(
-                    "no article {existing}: leave the code empty to mint a new one, \
-                     or give the code of an article that already exists"
-                ))
-            })?
-        }
-    };
-
     // Every variant must name a colour the session declared, and the
     // quantities must account for the delivery exactly.
     let declared: std::collections::HashSet<&str> = request
@@ -293,19 +400,121 @@ pub async fn create_setup_session(
             .checked_add(variant.quantity)
             .ok_or_else(|| AppError::Validation("the declared quantities overflow".into()))?;
     }
-    if total != receipt_quantity {
+    Ok(total)
+}
+
+/// What a session needs to know about the delivery line it is opened against.
+struct WaitingLine {
+    matched_quantity: i64,
+    supplier_article_code: String,
+    destination_site_id: String,
+}
+
+/// Read the delivery line a setup is for, locked, and refuse one that already
+/// has an identity.
+///
+/// The lock is what makes "set up once" hold now that a line may carry several
+/// sessions (0825): two people pressing at once queue here, and the second
+/// finds the first one's sessions.
+async fn lock_waiting_line(
+    tx: &mut Transaction<'_, Postgres>,
+    receipt_line_id: Uuid,
+) -> Result<WaitingLine, AppError> {
+    // What was received, and where. Reading it here rather than trusting the
+    // caller means a session can only ever be opened against real goods.
+    let receipt = sqlx::query(
+        "SELECT r.quantity, r.matched_quantity, r.excess_quantity,
+                l.article_code, o.destination_site_id
+         FROM goods_receipt_line r
+         JOIN purchase_order_line l ON l.po_line_id = r.po_line_id
+         JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
+         WHERE r.receipt_line_id = $1
+         FOR UPDATE OF r",
+    )
+    .bind(receipt_line_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| {
+        AppError::Validation(format!(
+            "no accepted delivery line {}: goods must be received before they can be identified",
+            receipt_line_id
+        ))
+    })?;
+
+    // The MATCHED quantity, not everything that came off the lorry. Goods
+    // beyond what the order had outstanding are in the warehouse and are not
+    // yet the company's to name, price and put a label on — a buyer has still
+    // to say whether they are being kept or sent back.
+    //
+    // It is the quantity and not the whole line that waits: a delivery of 105
+    // against an order of 100 gives 100 the company certainly bought, and
+    // holding those up because five it did not buy shared the pallet would be
+    // a control nobody asked for.
+    let receipt_quantity: i64 = receipt.get("matched_quantity");
+    let excess_quantity: i64 = receipt.get("excess_quantity");
+    if receipt_quantity <= 0 {
         return Err(AppError::Validation(format!(
-            "the variants account for {total} units but {receipt_quantity} were received \
-             and accepted. Every piece must be accounted for: anything less strands goods \
-             in `unidentified` with no job to rescue them, anything more invents stock"
+            "every piece on delivery line {} arrived beyond what the order had outstanding \
+             ({excess_quantity} of them); a buyer decides whether they are kept before they \
+             can be identified",
+            receipt_line_id
         )));
     }
-    if total > MAX_TAGGING_JOB_UNITS {
+    // The supplier's own code, kept for traceability and never used as an
+    // identity. It arrived on the order; it says what the supplier calls the
+    // thing, not what it is.
+    let supplier_article_code: String = receipt.get("article_code");
+    let destination_site_id: String = receipt.get("destination_site_id");
+
+    let already: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM article_setup_session WHERE receipt_line_id = $1)",
+    )
+    .bind(receipt_line_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    if already {
         return Err(AppError::Validation(format!(
-            "a delivery of {total} units exceeds the {MAX_TAGGING_JOB_UNITS} a single \
-             tagging job can carry"
+            "delivery line {receipt_line_id} has already been set up"
         )));
     }
+
+    Ok(WaitingLine {
+        matched_quantity: receipt_quantity,
+        supplier_article_code,
+        destination_site_id,
+    })
+}
+
+/// Write one session, its tags, colourways and variants, for `quantity`
+/// pieces of the line — all of it, or this article's share of a split.
+async fn insert_setup_session(
+    tx: &mut Transaction<'_, Postgres>,
+    request: &NewSetupSession,
+    line: &WaitingLine,
+    quantity: i64,
+) -> Result<Uuid, AppError> {
+    // Ours is minted here — or reused, when head office says this delivery is
+    // more of something we already sell.
+    let article_code = match request.article_code.as_deref().map(str::trim) {
+        None | Some("") => mint_article_code_tx(tx).await?,
+        Some(existing) => {
+            validate_article_code(existing).map_err(AppError::Validation)?;
+            let known: Option<String> =
+                sqlx::query_scalar("SELECT article_code FROM article WHERE article_code = $1")
+                    .bind(existing)
+                    .fetch_optional(&mut **tx)
+                    .await?;
+            // Attaching to an article that does not exist would create it with
+            // a code nothing minted, which is the hole this whole rule exists
+            // to close.
+            known.ok_or_else(|| {
+                AppError::Validation(format!(
+                    "no article {existing}: leave the code empty to mint a new one, \
+                     or give the code of an article that already exists"
+                ))
+            })?
+        }
+    };
 
     let session_id = Uuid::new_v4();
     sqlx::query(
@@ -318,28 +527,18 @@ pub async fn create_setup_session(
     .bind(session_id)
     .bind(request.receipt_line_id)
     .bind(&article_code)
-    .bind(&supplier_article_code)
-    .bind(receipt_quantity)
-    .bind(&destination_site_id)
+    .bind(&line.supplier_article_code)
+    .bind(quantity)
+    .bind(&line.destination_site_id)
     .bind(request.article_name.trim())
     .bind(request.division_code.trim())
     .bind(&request.image_url)
     .bind(request.currency.trim().to_uppercase())
     .bind(request.created_by.trim())
-    .execute(&mut *tx)
-    .await
-    .map_err(|error| {
-        // The UNIQUE on receipt_line_id is the guard that stops one delivery
-        // line being given two identities.
-        if is_unique_violation(&error) {
-            AppError::Validation(format!(
-                "delivery line {} has already been set up",
-                request.receipt_line_id
-            ))
-        } else {
-            AppError::from(error)
-        }
-    })?;
+    .execute(&mut **tx)
+    .await?;
+    // A line set up twice is refused before this, in `lock_waiting_line`: the
+    // UNIQUE on receipt_line_id that used to do it is gone with 0825.
 
     // Tags come from the vocabulary, so a word nobody has defined is refused
     // here rather than quietly filed under a spelling that does not exist.
@@ -350,7 +549,7 @@ pub async fn create_setup_session(
         )
         .bind(session_id)
         .bind(tag.trim())
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .map_err(|error| {
             AppError::Validation(format!("tag {tag:?} is not in the tag vocabulary: {error}"))
@@ -373,7 +572,7 @@ pub async fn create_setup_session(
         let offered: bool =
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM colour WHERE code = $1 AND active)")
                 .bind(&code)
-                .fetch_one(&mut *tx)
+                .fetch_one(&mut **tx)
                 .await?;
         if !offered {
             return Err(AppError::Validation(format!(
@@ -388,7 +587,7 @@ pub async fn create_setup_session(
         .bind(session_id)
         .bind(digit.to_string())
         .bind(&code)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .map_err(|error| {
             if is_unique_violation(&error) {
@@ -414,7 +613,7 @@ pub async fn create_setup_session(
         .bind(variant.size_code.trim())
         .bind(variant.quantity)
         .bind(variant.base_price_minor)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .map_err(|error| {
             if is_unique_violation(&error) {
@@ -428,7 +627,6 @@ pub async fn create_setup_session(
         })?;
     }
 
-    tx.commit().await?;
     Ok(session_id)
 }
 
@@ -594,12 +792,14 @@ const SETUP_TAX_CATEGORY: &str = "STANDARD";
 
 /// Mint the identity and send the tagging job down.
 ///
-/// Returns the job that was created and the command that carries it.
+/// Returns the job that was created and the command that carries it — none
+/// when the cloud runs the Gudang itself (DC-CLOUD-NATIVE.md): then there is
+/// nobody to send it to, and the job's goods are stocked here instead.
 pub async fn issue_setup_session(
     pool: &PgPool,
     session_id: Uuid,
     issued_by: &str,
-) -> Result<(Uuid, Uuid), AppError> {
+) -> Result<(Uuid, Option<Uuid>), AppError> {
     if issued_by.trim().is_empty() {
         return Err(AppError::Validation(
             "issuing a setup session must name who did it".into(),
@@ -636,18 +836,27 @@ pub async fn issue_setup_session(
     // The DC that owns this site's inventory is the one that will do the
     // tagging. Resolving it here means an unroutable job is refused at the
     // desk rather than vanishing.
-    let target: Option<String> = sqlx::query_scalar(
-        "SELECT origin_id FROM sync_origin_credential
-         WHERE site_id = $1 AND inventory_enabled AND node_role = 'DC'",
-    )
-    .bind(&destination_site_id)
-    .fetch_optional(&mut *tx)
-    .await?;
-    let Some(target) = target else {
-        return Err(AppError::Validation(format!(
-            "no registered DC owns site '{destination_site_id}'; \
-             there is nobody to send this tagging job to"
-        )));
+    //
+    // When the cloud runs the Gudang (DC-CLOUD-NATIVE.md) there is no DC node
+    // to resolve: the job is the cloud's own work, read from `tagging_job` by
+    // `cloud::dc::tagging`, and `target` stays None.
+    let target: Option<String> = if crate::cloud::dc::common::hosted() {
+        None
+    } else {
+        let target: Option<String> = sqlx::query_scalar(
+            "SELECT origin_id FROM sync_origin_credential
+             WHERE site_id = $1 AND inventory_enabled AND node_role = 'DC'",
+        )
+        .bind(&destination_site_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(target) = target else {
+            return Err(AppError::Validation(format!(
+                "no registered DC owns site '{destination_site_id}'; \
+                 there is nobody to send this tagging job to"
+            )));
+        };
+        Some(target)
     };
 
     // --- Mint the article, if this is its first delivery -------------------
@@ -872,15 +1081,34 @@ pub async fn issue_setup_session(
         "lines": job_lines,
     });
 
-    let command_id = issue_command_tx(
-        &mut tx,
-        COMMAND_TAGGING_JOB_ACTIVATE,
-        &payload,
-        issued_by.trim(),
-        None,
-        std::slice::from_ref(&target),
-    )
-    .await?;
+    let command_id = match &target {
+        Some(target) => Some(
+            issue_command_tx(
+                &mut tx,
+                COMMAND_TAGGING_JOB_ACTIVATE,
+                &payload,
+                issued_by.trim(),
+                None,
+                std::slice::from_ref(target),
+            )
+            .await?,
+        ),
+        // The cloud-run Gudang (DC-CLOUD-NATIVE.md): no command. The same
+        // check a command gets at the desk (every EPC decodes back to its
+        // line's SKU), then what a DC server does when the job arrives — the
+        // delivery's pieces become one unit per EPC on the Gudang's racks.
+        None => {
+            crate::cloud::domain::parse_tagging_job(&payload).map_err(AppError::Validation)?;
+            crate::cloud::dc::tagging::stock_issued_job_tx(
+                &mut tx,
+                job_id,
+                issued_by.trim(),
+                issued_at,
+            )
+            .await?;
+            None
+        }
+    };
 
     sqlx::query("UPDATE tagging_job SET command_id = $2 WHERE job_id = $1")
         .bind(job_id)
@@ -913,7 +1141,20 @@ pub async fn unidentified_receipts(pool: &PgPool) -> Result<Vec<Value>, AppError
                 g.receipt_number, g.supplier_id, g.invoice_number,
                 COALESCE((SELECT array_agg(t.tag_code ORDER BY t.tag_code)
                           FROM purchase_order_line_tag t
-                          WHERE t.po_line_id = l.po_line_id), '{}')::text[] AS tags
+                          WHERE t.po_line_id = l.po_line_id), '{}')::text[] AS tags,
+                -- What one piece cost: the price agreed when THIS delivery was
+                -- accepted, or the order's own for a receipt from before that
+                -- was kept (0178). Per piece either way (0656).
+                COALESCE(r.agreed_unit_price_minor, l.unit_price_minor) AS purchase_price_minor,
+                l.base_price_minor, l.markup_bps,
+                COALESCE((SELECT jsonb_agg(jsonb_build_object(
+                                     'colour_code', v.colour_code,
+                                     'size_code', v.size_code,
+                                     'quantity', v.quantity,
+                                     'base_price_minor', v.base_price_minor)
+                                 ORDER BY v.colour_code, v.size_code)
+                          FROM purchase_order_line_variant v
+                          WHERE v.po_line_id = l.po_line_id), '[]'::jsonb) AS variants
          FROM goods_receipt_line r
          JOIN goods_receipt g ON g.receipt_id = r.receipt_id
          JOIN purchase_order_line l ON l.po_line_id = r.po_line_id
@@ -955,6 +1196,14 @@ pub async fn unidentified_receipts(pool: &PgPool) -> Result<Vec<Value>, AppError
                 "image_url": row.get::<Option<String>, _>("image_url"),
                 "site_id": row.get::<String, _>("destination_site_id"),
                 "po_number": row.get::<String, _>("po_number"),
+                // The pricing the buyer decided on the order (0398), for the
+                // form to start from: cost per piece, the markup over it, the
+                // selling price, and the SKU split with each one's own price
+                // where it is not the base. All presets, like the rest.
+                "purchase_price_minor": row.get::<i64, _>("purchase_price_minor"),
+                "base_price_minor": row.get::<Option<i64>, _>("base_price_minor"),
+                "markup_bps": row.get::<Option<i32>, _>("markup_bps"),
+                "variants": row.get::<Value, _>("variants"),
             })
         })
         .collect())

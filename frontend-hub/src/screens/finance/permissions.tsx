@@ -89,13 +89,12 @@ export function Permissions() {
     <PageContent>
       <PageHeader
         crumb="Finance · Settings"
-        title="Role permissions"
-        sub="The least role that may call a route, on top of the built-in rules. The longest matching path wins; removing an override restores the built-in rule."
+        title="Rung permissions"
+        sub="The least rung that may call a route, on top of the built-in rules. The longest matching path wins; removing an override restores the built-in rule."
         actions={
           <Input
             value={needle}
             onChange={(event) => setNeedle(event.target.value)}
-            placeholder="Search path"
             className="h-8 w-56"
           />
         }
@@ -118,7 +117,7 @@ export function Permissions() {
                     <tr>
                       <Th>Method</Th>
                       <Th>Path prefix</Th>
-                      <Th>Least role</Th>
+                      <Th>Least rung</Th>
                       <Th>Note</Th>
                       <Th>Set</Th>
                       <Th />
@@ -193,7 +192,7 @@ export function Permissions() {
               className="font-mono"
             />
           </Field>
-          <Field label="Least role">
+          <Field label="Least rung">
             <Select value={role} onChange={setRole}>
               {ROLES.map((one) => (
                 <option key={one} value={one}>
@@ -215,7 +214,7 @@ export function Permissions() {
               disabled={!prefix.trim().startsWith("/api/")}
               onClick={() => add.mutate()}
             >
-              {add.isPending ? "Saving…" : "Save override"}
+              {add.isPending ? "Submitting…" : "Submit"}
             </Button>
           </div>
         </Card>

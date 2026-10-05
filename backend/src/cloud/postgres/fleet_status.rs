@@ -17,7 +17,7 @@
 //! office knows by itself it reads from its own tables: the command lane
 //! (`sync_command_delivery` past `sync_command_cursor.acked_seq`), the
 //! outbox acks (`sync_ingest_watermark`), the terminals it registers
-//! (`device_register`), and its own jobs (`fleet_job_beat`, 0640).
+//! (`device_register`), and its own jobs (`job_definition`, 0703).
 //!
 //! [`evaluate_fleet`] turns all of that into parts, live, for the reads; the
 //! once-a-minute [`fleet_sweep`] writes the same parts down (0638) so each
@@ -423,37 +423,13 @@ pub async fn fleet_alerts_enabled(executor: impl sqlx::PgExecutor<'_>) -> Result
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Job beats (0640)
+// Job beats (0640, kept in `job_definition` since 0703)
 // ════════════════════════════════════════════════════════════════════════════
 
 pub const JOB_SYNC_APPLY: &str = "sync_apply";
 pub const JOB_POSTINGS: &str = "postings";
 pub const JOB_PUSH: &str = "push";
 pub const JOB_BRIEF: &str = "brief";
-
-/// A head-office loop finished a pass. Never fails the loop: a beat that
-/// cannot be written is logged and forgotten.
-pub async fn fleet_job_beat(pool: &PgPool, job: &str, error: Option<&str>) {
-    let error = error.map(|text| text.chars().take(500).collect::<String>());
-    let result = sqlx::query(
-        "INSERT INTO fleet_job_beat (job, last_run_at, last_ok_at, last_error, last_error_at)
-         VALUES ($1, now(), CASE WHEN $2::text IS NULL THEN now() END, $2,
-                 CASE WHEN $2::text IS NOT NULL THEN now() END)
-         ON CONFLICT (job) DO UPDATE SET
-             last_run_at = EXCLUDED.last_run_at,
-             last_ok_at = COALESCE(EXCLUDED.last_ok_at, fleet_job_beat.last_ok_at),
-             last_error = COALESCE(EXCLUDED.last_error, fleet_job_beat.last_error),
-             last_error_at = COALESCE(EXCLUDED.last_error_at, fleet_job_beat.last_error_at),
-             runs = fleet_job_beat.runs + 1",
-    )
-    .bind(job)
-    .bind(error)
-    .execute(pool)
-    .await;
-    if let Err(error) = result {
-        tracing::debug!(%error, job, "a job beat was not written down");
-    }
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 // Parts
@@ -708,6 +684,7 @@ pub fn command_label(command_type: &str, hint: Option<&str>) -> String {
         "purchase.order.activate" => with("Purchase order"),
         "purchase.order.revise" => format!("{} (revised)", with("Purchase order")),
         "purchase.order.cancel" => format!("{} (cancelled)", with("Purchase order")),
+        "purchase.order.line.close" => format!("{} (line closed short)", with("Purchase order")),
         "purchase.price_amendment.decided" => "Price amendment decision".to_owned(),
         "tagging.job.activate" => "Tagging job".to_owned(),
         wire::COMMAND_DEVICE_STATUS_SET => "Device switched on or off".to_owned(),
@@ -1468,7 +1445,8 @@ struct JobBeat {
 
 async fn job_beats(pool: &PgPool) -> Result<HashMap<String, JobBeat>, AppError> {
     let rows = sqlx::query(
-        "SELECT job, last_run_at, last_ok_at, last_error, last_error_at FROM fleet_job_beat",
+        "SELECT job, last_run_at, last_ok_at, last_error, last_error_at
+           FROM job_definition WHERE last_run_at IS NOT NULL",
     )
     .fetch_all(pool)
     .await?;

@@ -1,41 +1,40 @@
-import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { FileText, Upload } from "lucide-react"
+import { Plus, X } from "lucide-react"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { SavedDialog } from "@/components/ui/dialog"
 import { DataTable } from "@/components/ui/data-table"
-import { Checkbox, Field, Input, Money, Select } from "@/components/ui/field"
-import { FilterPanel } from "@/components/ui/filter-panel"
-import { Kpi, KpiStrip } from "@/components/ui/kpi"
-import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
-import { Toolbar } from "@/components/ui/segmented"
-import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState, Problem, Receipt } from "@/components/ui/states"
+import { Input, Select } from "@/components/ui/field"
+import { IntakeHeader } from "@/screens/operations/intake/header"
+import { ROOMY } from "@/screens/operations/roomy"
+import { TwoLines } from "@/screens/operations/two-lines"
+import {
+  SupplierName,
+  useSupplierName,
+} from "@/screens/procurement/supplier-name"
+import { Sheet } from "@/components/ui/sheet"
+import { EmptyState, Problem } from "@/components/ui/states"
 import { dc } from "@/lib/api"
 import { wholeProduct } from "@/lib/decimal"
-import { useFilters } from "@/lib/filters"
-import { clock, count, money, variance } from "@/lib/format"
-import { keys } from "@/lib/operations/keys"
-import { queryState } from "@/lib/query-state"
-import { cn } from "@/lib/utils"
-import { useEdgeActor, useEdgeNodeIdentity } from "@/lib/edge-session"
-import { setBenchActor, useBenchActor } from "@/lib/operations/bench"
-import { useSheet } from "@/lib/sheets"
-import { tableSetup, type TableSetup } from "@/lib/table"
+import { count, label } from "@/lib/format"
 import {
-  closeLineShort,
+  procurementKeys,
   purchaseOrderDetail,
   purchaseOrderPage,
 } from "@/lib/queries/procurement"
+import { keys } from "@/lib/operations/keys"
+import { queryState } from "@/lib/query-state"
+import { cn } from "@/lib/utils"
+import { useEdgeActor } from "@/lib/edge-session"
+import { useSheet } from "@/lib/sheets"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { idempotencyKey } from "@itulah/contract/client"
 import type {
-  InvoiceDocumentView,
   PurchaseCountAwaitingVerification,
   PurchaseWorkLine,
 } from "@itulah/contract"
@@ -55,14 +54,14 @@ import type {
 ///      never shows the ordered quantity: a count taken while looking at the
 ///      number it is supposed to produce confirms the paperwork and proves
 ///      nothing. The delivery document is opened underneath, not by hand.
-///   2. **Verify** — the button an order wears once something on it is
-///      counted. This one *does* show what was ordered, because a verifier is
-///      comparing rather than counting, and accepting is the moment the goods
-///      first exist as stock.
+///   2. **Review** — not here. Whoever raised the PO reviews the count, from
+///      Procurement › Purchase orders (`procurement/count-review.tsx`). This list
+///      only says that a count is in and waiting for them.
 ///
-/// The node refuses a verification by whoever took the count. That is a
-/// database constraint, not a policy — two people, or nothing moves.
-interface OrderRow {
+/// Whoever raised the PO may count it too, and one person may count and accept
+/// (owner, 2026-10-05): which of the two a caller may do is a permission, not
+/// two names. An exact count is received at once, whoever took it.
+export interface OrderRow {
   readonly po_number: string
   readonly supplier_id: string
   readonly supplier_name: string | null
@@ -70,34 +69,36 @@ interface OrderRow {
   readonly lines: readonly PurchaseWorkLine[]
   /// Counts on this order waiting for a second pair of eyes.
   readonly awaiting: readonly PurchaseCountAwaitingVerification[]
-  /// Pieces already accepted into stock against it.
-  readonly received: number
 }
 
 export function Receiving() {
   const counting = useSheet("delivery")
-  const verifying = useSheet("verify")
   const [sorting, setSorting] = useState<SortingState>([
     { id: "po_number", desc: false },
   ])
 
-  // `useSheet` hands back a fresh object every render, so the two openers can
-  // not be memo dependencies: columns built from them would be rebuilt on
-  // every render, and a table rebuilt on every render is one that loses what
-  // the user was doing to it. The buttons read the current pair out of a ref
+  // `useSheet` hands back a fresh object every render, so the opener can not
+  // be a memo dependency: columns built from it would be rebuilt on every
+  // render, and a table rebuilt on every render is one that loses what the
+  // user was doing to it. The button reads the current one out of a ref
   // instead, and the columns are built once.
-  const openers = useRef({ count: counting.open, verify: verifying.open })
+  const openers = useRef({ count: counting.open })
   useEffect(() => {
-    openers.current = { count: counting.open, verify: verifying.open }
+    openers.current = { count: counting.open }
   })
 
   const work = useQuery({
     queryKey: keys.purchaseWork(),
     queryFn: ({ signal }) => dc.purchaseWork(signal),
+    // New orders arrive while the page is open: look again while it is seen.
+    refetchInterval: 10_000,
+    refetchOnWindowFocus: true,
   })
   const queue = useQuery({
     queryKey: keys.verifyQueue(),
     queryFn: ({ signal }) => dc.countsAwaitingVerification(signal),
+    refetchInterval: 10_000,
+    refetchOnWindowFocus: true,
   })
 
   // One row per order, built from the two lists the node answers with. The
@@ -112,7 +113,6 @@ export function Receiving() {
         byOrder.set(line.po_number, {
           ...found,
           lines: [...found.lines, line],
-          received: found.received + line.received_stock_units,
         })
       } else {
         byOrder.set(line.po_number, {
@@ -121,7 +121,6 @@ export function Receiving() {
           supplier_name: line.supplier_name,
           lines: [line],
           awaiting: [],
-          received: line.received_stock_units,
         })
       }
     }
@@ -133,7 +132,6 @@ export function Receiving() {
         supplier_name: found?.supplier_name ?? null,
         lines: found?.lines ?? [],
         awaiting: [...(found?.awaiting ?? []), waiting],
-        received: found?.received ?? 0,
       })
     }
     return [...byOrder.values()]
@@ -142,12 +140,18 @@ export function Receiving() {
   const columns = useMemo<ColumnDef<TableSetup, OrderRow>[]>(
     () => [
       {
+        id: "no",
+        header: "No.",
+        size: 70,
+        enableSorting: false,
+        meta: { align: "right", priority: 2, card: "hide" },
+        cell: ({ row }) => <span className="text-mute">{row.index + 1}</span>,
+      },
+      {
         accessorKey: "po_number",
-        header: "Order",
-        size: 150,
-        // The bay has no search box, so this is how somebody with a docket in
-        // their hand reaches the one order on it.
-        meta: { filter: { kind: "text", label: "Order" } },
+        header: "PO",
+        size: 190,
+        meta: { card: "id" },
         cell: ({ row }) => (
           <span className="font-mono text-id text-ink">
             {row.original.po_number}
@@ -157,95 +161,66 @@ export function Receiving() {
       {
         accessorKey: "supplier_id",
         header: "Supplier",
-        size: 220,
-        // Picked by code rather than by name, because the code is what this
-        // column holds: one lorry brings several orders from one supplier, and
-        // "everything Acme still owes us" is the morning's work in one clause.
-        // The name is on the row and in the picker's second line.
-        meta: { filter: { kind: "option", label: "Supplier" } },
-        cell: ({ row }) => (
-          <span className="min-w-0">
-            <span className="block truncate font-medium text-ink">
-              {row.original.supplier_name ?? row.original.supplier_id}
-            </span>
-            <span className="block truncate font-mono text-[0.875rem] text-mute">
-              {row.original.supplier_id}
-            </span>
-          </span>
-        ),
+        size: 300,
+        meta: { card: "title", grow: 300 },
+        cell: ({ row }) => {
+          // The buyer sent a count back: their reason, under the supplier.
+          const reason = row.original.lines.find(
+            (line) => line.recount_reason !== null
+          )?.recount_reason
+          return (
+            <>
+              <span className="block truncate font-medium text-ink">
+                <SupplierName
+                  code={row.original.supplier_id}
+                  name={row.original.supplier_name}
+                />
+              </span>
+              {reason ? (
+                <span className="mt-1 block truncate text-body">
+                  {`“${reason}”`}
+                </span>
+              ) : null}
+            </>
+          )
+        },
       },
       {
-        id: "lines",
+        // How many articles the order still owes — never how many pieces:
+        // the count is blind, and an ordered quantity on the list would hand
+        // the checker the number the count is meant to produce.
+        id: "items",
         accessorFn: (row: OrderRow) => row.lines.length,
-        header: "Lines owed",
-        size: 110,
-        // No filter: how many lines an order has is how big it is, and size is
-        // a question a header click answers. Nobody stands at a bay asking for
-        // orders with between four and nine lines.
-        meta: { align: "right" },
+        header: "Items",
+        size: 100,
+        meta: { align: "right", card: "metric" },
         cell: ({ row }) => count(row.original.lines.length),
       },
       {
-        accessorKey: "received",
-        header: "Already in",
-        size: 110,
-        // "is 0" is an order nobody has touched, which is not the same as one
-        // with nothing waiting to be verified — a part-counted order shows a
-        // figure here and an empty queue beside it.
-        meta: {
-          align: "right",
-          filter: { kind: "number", label: "Already in", unit: "pcs" },
-        },
-        cell: ({ row }) =>
-          row.original.received === 0 ? (
-            <span className="text-mute">—</span>
-          ) : (
-            count(row.original.received)
-          ),
-      },
-      {
-        id: "state",
-        accessorFn: (row: OrderRow) => row.awaiting.length,
-        header: "Waiting on",
-        size: 170,
-        // Counted rather than worded, so the clause that matters is "more than
-        // 0" — every order where goods are counted and not yet stock. That is
-        // the queue for the second pair of eyes, and it is a different list
-        // from the one this screen opens on.
-        meta: {
-          filter: { kind: "number", label: "Counts to verify", unit: "counts" },
-        },
-        cell: ({ row }) =>
-          row.original.awaiting.length > 0 ? (
-            <Pill tone="warn">
-              {count(row.original.awaiting.length)} to verify
-            </Pill>
-          ) : (
-            <span className="text-mute">a checker</span>
-          ),
-      },
-      {
-        // The button the whole screen is for, and deliberately the last thing
-        // on the row: a person reads the order left to right and the verb is
-        // where their eye stops.
         id: "action",
         header: "",
-        size: 150,
-        meta: { align: "right" },
+        size: 220,
+        meta: { card: "status", align: "right" },
         cell: ({ row }) => {
           const order = row.original
-          const toVerify = order.awaiting.length > 0
+          // Counted: the Gudang is done, the buyer has it to review.
+          if (order.awaiting.length > 0) {
+            return (
+              <span className="text-body tabular-nums">
+                {`Counted ${count(order.awaiting.reduce((sum, one) => sum + one.counted_quantity, 0))} pcs`}
+              </span>
+            )
+          }
+          const again = order.lines.some((line) => line.recount_reason !== null)
           return (
             <Button
               variant="primary"
-              size="sm"
               onClick={(event) => {
                 event.stopPropagation()
-                if (toVerify) openers.current.verify(order.po_number)
-                else openers.current.count(order.po_number)
+                openers.current.count(order.po_number)
               }}
             >
-              {toVerify ? "Verify" : "Count receive"}
+              {again ? "Count again" : "Count receive"}
             </Button>
           )
         },
@@ -254,73 +229,40 @@ export function Receiving() {
     []
   )
 
-  const filters = useFilters(columns)
-
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns: filters.columns,
+        columns,
         getRowId: (row: OrderRow) => row.po_number,
-        state: { columnFilters: filters.columnFilters, sorting },
+        state: { sorting },
         onSortingChange: setSorting,
       }),
-      [rows, filters.columns, filters.columnFilters, sorting]
+      [rows, columns, sorting]
     )
   )
 
-  const toVerify = rows.filter((row) => row.awaiting.length > 0).length
-  const owedLines = rows.reduce((total, row) => total + row.lines.length, 0)
-
   return (
     <PageContent>
-      <PageHeader
-        crumb="Operations"
-        title="Receiving"
-        sub="Orders this DC is still owed. Count what arrived, then somebody else accepts it."
-      />
-
-      <KpiStrip className="grid-cols-2 xl:grid-cols-3">
-        <Kpi label="Orders open" value={count(rows.length)} />
-        <Kpi label="Lines owed" value={count(owedLines)} />
-        <Kpi
-          label="Waiting for a verifier"
-          value={count(toVerify)}
-          delta={toVerify > 0 ? "goods are not stock yet" : "nothing pending"}
-          tone={toVerify > 0 ? "down" : "flat"}
-        />
-      </KpiStrip>
-
-      {/* The strip above counts the whole bay and goes on doing so; a clause
-          here only changes which orders are listed below it. */}
-      <Toolbar>
-        <FilterPanel model={filters} table={table} />
-      </Toolbar>
+      <IntakeHeader tab="orders" />
 
       <Card className="overflow-hidden">
         {queryState(work, {
           loading: "Reading the orders…",
           render: () =>
             rows.length === 0 ? (
-              <EmptyState>
-                This DC is owed nothing. An order appears here the moment head
-                office raises one against this node.
-              </EmptyState>
+              <EmptyState>Nothing to count.</EmptyState>
             ) : (
               <DataTable<OrderRow>
                 table={table}
                 touch
-                onRowClick={(row) =>
-                  row.awaiting.length > 0
-                    ? verifying.open(row.po_number)
-                    : counting.open(row.po_number)
-                }
-                isSelected={(row) =>
-                  row.po_number === counting.value ||
-                  row.po_number === verifying.value
-                }
-                className="max-h-[calc(100vh-20rem)]"
+                onRowClick={(row) => {
+                  if (row.awaiting.length === 0) counting.open(row.po_number)
+                }}
+                isSelected={(row) => row.po_number === counting.value}
+                pageScroll
+                className={ROOMY}
               />
             ),
         })}
@@ -331,14 +273,29 @@ export function Receiving() {
         open={counting.value !== undefined}
         onClose={counting.close}
       />
-      <VerifySheet
-        order={rows.find((row) => row.po_number === verifying.value) ?? null}
-        open={verifying.value !== undefined}
-        onClose={verifying.close}
-      />
     </PageContent>
   )
 }
+
+/// The count sheet's four tracks — item, the amounts, the total, and what of
+/// it is not the ordered article — shared by its header and every row so the
+/// columns hold. The amounts track is a fixed width, not `auto`: each row is
+/// its own grid, and an `auto` track sized itself to whatever that row held,
+/// so the header's "Counted" sat over nothing. 15.25rem is one amount's
+/// controls: the figure (5rem), the unit (7rem) and the remove slot (2.25rem),
+/// with their two gaps.
+///
+/// On a phone the three do not fit beside each other: the item and its total
+/// share the first line, and the amounts take the whole of the line under it.
+const COUNT_ROW =
+  "grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-2 px-4 sm:grid-cols-[minmax(0,1fr)_17rem_7rem]"
+
+/// A column heading as every hub table sets one (`DataTable`): sentence case,
+/// medium, the quiet body colour — not the old mono micro-caps.
+const COUNT_HEAD = "text-eyebrow font-medium whitespace-nowrap text-body"
+
+/// One amount of a count, in one unit.
+type CountPart = { quantity: string; unit: string }
 
 /// Counting an order, blind.
 ///
@@ -351,7 +308,7 @@ export function Receiving() {
 /// counts hang off; it just is not a thing anybody has to remember to create
 /// before the goods can be written down. An open document for the same
 /// supplier is reused, because a lorry is one arrival with one invoice.
-function CountSheet({
+export function CountSheet({
   order,
   open,
   onClose,
@@ -362,10 +319,50 @@ function CountSheet({
 }) {
   const actor = useEdgeActor()
   const client = useQueryClient()
-  const [quantities, setQuantities] = useState<Record<string, string>>({})
-  /// The unit each line is being counted in. Unset is the unit the order was
-  /// placed in, or pieces — the counter may switch (owner, 2026-09-26).
-  const [countUnits, setCountUnits] = useState<Record<string, string>>({})
+  const supplierName = useSupplierName()
+  // Under each article: its division and tags, as the order shows them. Read
+  // from head office's copy of the order; where that is not reachable the
+  // article's code stands in.
+  const poNumber = order?.po_number ?? null
+  const book = useQuery({
+    queryKey: procurementKeys.ordersPage({ q: poNumber ?? "" }),
+    queryFn: ({ signal }) => purchaseOrderPage({ q: poNumber ?? "" }, signal),
+    enabled: open && poNumber !== null,
+  })
+  const headOffice = book.data?.rows.find((one) => one.po_number === poNumber)
+  const kinds = useQuery({
+    queryKey: procurementKeys.order(headOffice?.purchase_order_id ?? ""),
+    queryFn: ({ signal }) =>
+      purchaseOrderDetail(headOffice!.purchase_order_id, signal),
+    enabled: headOffice !== undefined,
+  })
+  const kindOf = (line: { po_line_id: string; article_code: string }) => {
+    const found = kinds.data?.lines.find(
+      (one) => one.po_line_id === line.po_line_id
+    )
+    if (found === undefined) return line.article_code
+    return [
+      found.division_code === null
+        ? "Unclassified"
+        : label(found.division_code),
+      ...found.tags.map((tag) => label(tag)),
+    ].join(" \u00b7 ")
+  }
+  /// What has been written for each line: one amount or several, each in a
+  /// unit the item can be counted in — "10 KODI + 50 PCS" is one count
+  /// (the owner, 2026-09-29). Unset is one empty amount in the unit the order
+  /// was placed in, or pieces; the counter may switch (owner, 2026-09-26).
+  const [parts, setParts] = useState<Record<string, CountPart[]>>({})
+  /// What the counter writes as not matching the order, per line, in pieces:
+  /// cartons where the supplier's picker put another colour, model or
+  /// article. Part of the count, never of the acceptance — at review these
+  /// pieces go back to the supplier on a purchase return.
+  /// Pieces of the whole delivery that are not what was ordered: ONE total
+  /// (the owner, 2026-10-04), not a figure on every line.
+  const [wrongText, setWrongText] = useState("")
+  /// The unit that figure is written in — "20 KODI" — one of the units the
+  /// delivery's lines can be counted in. Empty is pieces.
+  const [wrongUnit, setWrongUnit] = useState("")
 
   const receipts = useQuery({
     queryKey: keys.receipts(),
@@ -390,13 +387,17 @@ function CountSheet({
       entries: {
         line: string
         quantity: number
+        wrong: number
         unit: string | null
         unitQuantity: string | null
       }[]
     ) => {
       const supplier = order!.supplier_id
+      // Only a receipt still being unloaded: one that already carries the
+      // supplier's invoice belongs to an earlier delivery, and counting this
+      // order into it paired the new goods with the old invoice.
       const existing = (receipts.data ?? (await dc.goodsReceipts())).find(
-        (row) => row.supplier_id === supplier
+        (row) => row.supplier_id === supplier && row.invoice_number === null
       )
       const receiptId =
         existing?.receipt_id ??
@@ -418,6 +419,7 @@ function CountSheet({
           receipt_id: receiptId,
           po_line_id: entry.line,
           counted_quantity: entry.quantity,
+          wrong_quantity: entry.wrong,
           counted_unit_code: entry.unit,
           counted_unit_quantity: entry.unitQuantity,
           actor_id: actor,
@@ -426,1169 +428,465 @@ function CountSheet({
       }
       return entries.length
     },
-    onSuccess: () => {
-      setQuantities({})
-      setCountUnits({})
+    onSuccess: (sent) => {
+      setParts({})
+      setWrongText("")
+      setWrongUnit("")
       minted.current.clear()
       void client.invalidateQueries({ queryKey: keys.verifyQueue() })
       void client.invalidateQueries({ queryKey: keys.receipts() })
       void client.invalidateQueries({ queryKey: keys.purchaseWork() })
+      // Done is said once, in the receipt dialog over the list, and the sheet
+      // goes: a count sent is not a form to keep looking at (owner,
+      // 2026-10-02). This component stays mounted between openings, so the
+      // state survives the close.
+      setSentCount(
+        `Count sent · ${count(sent)} ${sent === 1 ? "line" : "lines"}`
+      )
+      onClose()
     },
   })
 
-  /// The unit a line is being counted in, and pieces in one of it.
-  const unitOf = (line: OrderRow["lines"][number]) => {
+  /// The count the sheet sent, held in the receipt dialog until it is read.
+  const [sentCount, setSentCount] = useState<string | null>(null)
+
+  // The count sent for one order is not the next one's banner.
+  const { reset } = record
+  useEffect(() => reset(), [poNumber, reset])
+
+  type Line = OrderRow["lines"][number]
+  /// The units a line may be counted in, the one it starts in, and the one
+  /// its totals are printed in — the article's stock unit, PCS for nearly
+  /// everything and for lines sent before the centre said which.
+  const unitsOf = (line: Line) => {
     const units = line.count_units ?? []
-    const code =
-      countUnits[line.po_line_id] ??
-      line.order_unit_code ??
-      units[0]?.code ??
-      "PCS"
-    const factor = units.find((one) => one.code === code)?.factor ?? "1"
-    return { code, factor, units }
+    const stock = units.find((one) => one.is_stock)?.code ?? "PCS"
+    const first = line.order_unit_code ?? units[0]?.code ?? stock
+    return { units, stock, first }
   }
-  /// What a typed count comes to in pieces — exactly, so 9.5 KODI is 190.
-  const piecesTyped = (line: OrderRow["lines"][number]) => {
-    const typed = (quantities[line.po_line_id] ?? "").trim()
-    if (typed === "") return null
-    return wholeProduct(typed, unitOf(line).factor)
+  const factorOf = (line: Line, code: string) =>
+    unitsOf(line).units.find((one) => one.code === code)?.factor ?? "1"
+  const partsOf = (line: Line): CountPart[] =>
+    parts[line.po_line_id] ?? [{ quantity: "", unit: unitsOf(line).first }]
+  const writeParts = (line: Line, next: CountPart[]) =>
+    setParts((current) => ({ ...current, [line.po_line_id]: next }))
+  /// Another amount, in the first unit the line is not already counted in —
+  /// pieces first, because "and fifty loose" is what a second amount almost
+  /// always is.
+  const addPart = (line: Line) => {
+    const { units, stock } = unitsOf(line)
+    const used = new Set(partsOf(line).map((part) => part.unit))
+    const unit =
+      [stock, ...units.map((one) => one.code)].find(
+        (code) => !used.has(code)
+      ) ?? stock
+    writeParts(line, [...partsOf(line), { quantity: "", unit }])
   }
-  const entries = (order?.lines ?? []).flatMap((line) => {
-    const typed = (quantities[line.po_line_id] ?? "").trim()
-    if (typed === "") return []
-    const quantity = piecesTyped(line)
-    if (quantity === null || quantity <= 0) return []
-    const unit = unitOf(line)
-    const inUnit = unit.factor !== "1"
-    return [
-      {
-        line: line.po_line_id,
-        quantity,
-        unit: inUnit ? unit.code : null,
-        unitQuantity: inUnit ? typed.replace(",", ".") : null,
-      },
-    ]
-  })
-
-  return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => !next && onClose()}
-      id={order?.po_number}
-      title={order?.supplier_name ?? order?.supplier_id ?? "Order"}
-      footer={
-        order !== null && (
-          <div className="flex items-center gap-3">
-            <span className="text-[0.875rem] text-mute">
-              {entries.length === 0
-                ? "Nothing written down yet"
-                : `${count(entries.length)} of ${count(order.lines.length)} lines`}
-            </span>
-            <div className="flex-1" />
-            <Button
-              variant="primary"
-              pending={record.isPending}
-              disabled={entries.length === 0}
-              onClick={() => record.mutate(entries)}
-            >
-              {record.isPending ? "Recording…" : "Record the count"}
-            </Button>
-          </div>
-        )
-      }
-    >
-      {order === null ? (
-        <EmptyState>
-          Nothing is owed on that order any more. It has been received.
-        </EmptyState>
-      ) : (
-        <div className="flex flex-col gap-5">
-          <Banner tone="info">
-            Write down what is physically on the pallet. You are not shown what
-            was ordered — somebody else compares the two, and cannot be you.
-          </Banner>
-
-          <div className="flex flex-col gap-2.5">
-            {order.lines.map((line) => (
-              <div
-                key={line.po_line_id}
-                className="flex flex-wrap items-center gap-3 rounded-inner border border-hairline px-3.5 py-3"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium text-ink">
-                    {line.article_name}
-                  </span>
-                  <span className="block truncate font-mono text-[0.875rem] text-mute">
-                    {line.article_code} · line {line.line_number}
-                  </span>
-                </span>
-                {line.received_stock_units > 0 && (
-                  <Pill tone="ok">{count(line.received_stock_units)} in</Pill>
-                )}
-                <Input
-                  className="w-24 text-center text-[1.0625rem] font-semibold"
-                  inputMode="decimal"
-                  autoComplete="off"
-                  placeholder="0"
-                  aria-label={`Counted ${unitOf(line).code} of ${line.article_code}`}
-                  value={quantities[line.po_line_id] ?? ""}
-                  onChange={(event) =>
-                    setQuantities((current) => ({
-                      ...current,
-                      [line.po_line_id]: event.target.value,
-                    }))
-                  }
-                />
-                {/* Any unit the item can be counted in; the pieces it comes
-                    to are shown beside it, and a count that is not a whole
-                    number of pieces is refused before it is sent. */}
-                {unitOf(line).units.length > 1 ? (
-                  <Select
-                    aria-label={`Unit counted for ${line.article_code}`}
-                    value={unitOf(line).code}
-                    onChange={(code) =>
-                      setCountUnits((current) => ({
-                        ...current,
-                        [line.po_line_id]: code,
-                      }))
-                    }
-                    className="w-32"
-                  >
-                    {unitOf(line).units.map((one) => (
-                      <option key={one.code} value={one.code}>
-                        {one.label}
-                      </option>
-                    ))}
-                  </Select>
-                ) : (
-                  <span className="w-12 text-[0.875rem] text-body">pcs</span>
-                )}
-                {unitOf(line).factor !== "1" &&
-                  (quantities[line.po_line_id] ?? "").trim() !== "" && (
-                    <span
-                      className={cn(
-                        "w-24 text-right text-[0.875rem] tabular-nums",
-                        piecesTyped(line) === null ? "text-bad" : "text-body"
-                      )}
-                    >
-                      {piecesTyped(line) === null
-                        ? "not whole pcs"
-                        : `= ${count(piecesTyped(line) ?? 0)} pcs`}
-                    </span>
-                  )}
-              </div>
-            ))}
-          </div>
-
-          {record.isSuccess && (
-            <Receipt>
-              {count(record.data)} lines recorded. They are waiting for somebody
-              else to verify — you cannot verify your own count.
-            </Receipt>
-          )}
-          <Problem error={record.error} />
-        </div>
-      )}
-    </Sheet>
-  )
-}
-
-/// The supplier's paper, and the arithmetic that says whether it agrees.
-///
-/// **The verifier's, not the checker's.** The checker is counting garments off
-/// a pallet with the ordered quantity deliberately hidden from them; the
-/// invoice is a price list for the same delivery, and handing it to them is
-/// handing them the answer. It belongs one station along, with the person who
-/// is already comparing.
-///
-/// Three things happen here, in the order a person does them: the page is
-/// **uploaded**, the numbers on it are **typed**, and the total is
-/// **compared** against what the same goods are worth at the agreed price.
-/// The comparison is the point of the other two — a difference does not hold
-/// the delivery, it goes to whoever raised the order.
-function InvoiceBlock({
-  receiptId,
-  counts,
-}: {
-  receiptId: string
-  /// The counts on this delivery that are still waiting, which is what the
-  /// invoice gets compared against.
-  counts: readonly PurchaseCountAwaitingVerification[]
-}) {
-  const actor = useEdgeActor()
-  const client = useQueryClient()
-
-  const receipts = useQuery({
-    queryKey: keys.receipts(),
-    queryFn: ({ signal }) => dc.goodsReceipts(signal),
-  })
-  const receipt = (receipts.data ?? []).find(
-    (row) => row.receipt_id === receiptId
-  )
-
-  const upload = useMutation({
-    mutationFn: (file: File) =>
-      dc.uploadInvoiceDocument(receiptId, file, actor),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: keys.receipts() })
-      void client.invalidateQueries({
-        queryKey: keys.invoiceDocument(receiptId),
-      })
-    },
-  })
-
-  const record = useMutation({
-    mutationFn: (value: { number: string; date: string; totalMinor: string }) =>
-      dc.recordInvoice(receiptId, {
-        receipt_id: receiptId,
-        invoice_number: value.number.trim(),
-        // The day on the supplier's paper, sent as the day. Passing it through
-        // a clock is how a date-only field acquires a timezone: `new Date(day)`
-        // reads a non-ISO value as WIB, and `toISOString()` then files it as
-        // the day before. The column at the centre is a `date`.
-        invoice_date: value.date.trim() === "" ? null : value.date.trim(),
-        invoice_total_minor: Number(value.totalMinor),
-        // The uploaded page IS the reference now. It was a string somebody
-        // typed — a folder name, a shelf — and a reference nobody can follow
-        // is a field that only looks filled in.
-        invoice_document_ref: null,
-        actor_id: actor,
-        // The invoice is money. Recorded twice against one delivery it is a
-        // second liability the supplier never issued.
-        idempotency_key: idempotencyKey(),
-      }),
-    onSuccess: () => {
-      form.reset()
-      void client.invalidateQueries({ queryKey: keys.receipts() })
-    },
-  })
-
-  const form = useForm({
-    defaultValues: { number: "", date: "", totalMinor: "" },
-    onSubmit: ({ value }) => {
-      if (value.number.trim() === "") return
-      record.mutate(value)
-    },
-  })
-
-  // What the goods on this delivery are worth at the price that was agreed
-  // when the order was raised. Lines whose price the order never carried are
-  // counted as unpriced rather than as zero: a missing price is not free
-  // goods, and silently treating it as nothing understates the total the
-  // verifier is comparing against.
-  const priced = counts.filter((row) => row.unit_price_minor !== null)
-  const agreedMinor = priced.reduce(
-    (total, row) => total + row.counted_quantity * (row.unit_price_minor ?? 0),
-    0
-  )
-  const invoicedMinor = receipt?.invoice_total_minor ?? null
-  const difference = invoicedMinor === null ? null : invoicedMinor - agreedMinor
-  // The node files an invoice only against goods somebody has already
-  // accepted (`record_receipt_invoice`: an invoice fact queued ahead of the
-  // first line fact is one the centre can never apply). So the paper is typed
-  // while comparing, and recorded once the first line is in — refusing the
-  // press here, with the reason, instead of letting the node refuse it.
-  const nothingAccepted = (receipt?.accepted_lines ?? 0) === 0
-
-  return (
-    <div className="rounded-inner border border-hairline p-3.5">
-      <div className="mb-3 flex items-baseline justify-between gap-3">
-        <h3 className="text-[0.875rem] font-semibold text-ink">
-          Supplier invoice
-        </h3>
-        <span className="font-mono text-[0.875rem] text-mute">
-          {receipt?.receipt_number}
-        </span>
-      </div>
-
-      {/* The page on the left, what is typed off it on the right. Stacked,
-          these three fields were single lines the width of the whole sheet —
-          a 60rem box for an invoice number is a line the eye loses its place
-          on, and it is the shape the wide sheet had to be tidied out of. */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <div>
-          <InvoicePage
-            receiptId={receiptId}
-            onFile={(file) => upload.mutate(file)}
-            uploading={upload.isPending}
-            uploaded={upload.data ?? null}
-          />
-          <Problem error={upload.error} className="mt-2.5" />
-        </div>
-
-        {receipt?.invoice_number ? (
-          <div>
-            <Facts>
-              <Fact term="Invoice">{receipt.invoice_number}</Fact>
-              <Fact term="Billed">{money(invoicedMinor)}</Fact>
-              <Fact term="Price for what was counted">
-                {money(agreedMinor)}
-              </Fact>
-            </Facts>
-
-            {difference !== null && (
-              <div className="mt-3">
-                <Pill tone={difference === 0 ? "ok" : "bad"}>
-                  {difference === 0
-                    ? "The invoice agrees"
-                    : `${money(Math.abs(difference))} ${difference > 0 ? "over" : "under"} the agreed price`}
-                </Pill>
-              </div>
-            )}
-          </div>
-        ) : (
-          <form
-            className="flex flex-col gap-3"
-            onSubmit={(event) => {
-              event.preventDefault()
-              form.handleSubmit()
-            }}
-          >
-            <p className="text-[0.875rem] text-mute">
-              At the agreed price, what has been counted on this delivery is
-              worth {money(agreedMinor)}. Type what the paper asks for and the
-              two are compared.
-            </p>
-            <form.Field name="number">
-              {(field) => (
-                <Field label="Invoice number" required>
-                  <Input
-                    className="font-mono"
-                    value={field.state.value}
-                    onChange={(event) => field.handleChange(event.target.value)}
-                  />
-                </Field>
-              )}
-            </form.Field>
-            <form.Field name="totalMinor">
-              {(field) => (
-                <Field label="Invoice total" hint="In rupiah, as printed">
-                  <Money
-                    value={field.state.value}
-                    onChange={field.handleChange}
-                  />
-                </Field>
-              )}
-            </form.Field>
-            <form.Field name="date">
-              {(field) => (
-                <Field label="Invoice date">
-                  <Input
-                    type="date"
-                    value={field.state.value}
-                    onChange={(event) => field.handleChange(event.target.value)}
-                  />
-                </Field>
-              )}
-            </form.Field>
-            <div className="flex items-center gap-3">
-              <p className="flex-1 text-[0.875rem] text-mute">
-                {nothingAccepted &&
-                  "Accept the goods first — the invoice is filed against what is in."}
-              </p>
-              <Button
-                variant="primary"
-                type="submit"
-                pending={record.isPending}
-                disabled={nothingAccepted}
-              >
-                {record.isPending ? "Recording…" : "Record the invoice"}
-              </Button>
-            </div>
-            <Problem error={record.error} />
-          </form>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/// The page itself: what is on file, or the control that puts one there.
-///
-/// The bytes are fetched rather than linked. This node authenticates with a
-/// bearer token the client holds, so an `<img src>` or an anchor arrives
-/// without it and is refused.
-///
-/// The object URL is made where it is used and revoked the moment it has been
-/// — on the image's own `load`, and a tick after the tab opens. Not held in
-/// state: an object URL in `useState` is revoked by an effect's cleanup, and
-/// under StrictMode that cleanup runs once before the component is really
-/// mounted, leaving a picture pointing at a URL the browser has already
-/// forgotten.
-function InvoicePage({
-  receiptId,
-  onFile,
-  uploading,
-  uploaded,
-}: {
-  receiptId: string
-  onFile: (file: File) => void
-  uploading: boolean
-  uploaded: InvoiceDocumentView | null
-}) {
-  const page = useQuery({
-    queryKey: keys.invoiceDocument(receiptId),
-    queryFn: ({ signal }) => dc.invoiceDocument(receiptId, signal),
-    // A delivery with no page on file answers 404, which is an answer and not
-    // a failure. Retrying it four times is four requests saying the same
-    // thing.
-    retry: false,
-  })
-
-  const bytes = page.data ?? null
-  const pdf = bytes?.type === "application/pdf"
-
-  const draw = useCallback(
-    (element: HTMLImageElement | null) => {
-      if (element === null || bytes === null) return
-      const url = URL.createObjectURL(bytes)
-      const done = () => URL.revokeObjectURL(url)
-      element.onload = done
-      element.onerror = done
-      element.src = url
-    },
-    [bytes]
-  )
-
-  const openPdf = () => {
-    if (bytes === null) return
-    const url = URL.createObjectURL(bytes)
-    window.open(url, "_blank", "noreferrer")
-    // The tab has the bytes by now; the URL is only the handle it was passed.
-    window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  /// What a line's amounts come to in pieces — exactly, so 9.5 KODI is 190.
+  /// `undefined` while nothing is written; `null` when an amount is not a
+  /// whole number of pieces, which the node would refuse.
+  const piecesOf = (line: Line): number | null | undefined => {
+    const written = partsOf(line).filter((part) => part.quantity.trim() !== "")
+    if (written.length === 0) return undefined
+    let total = 0
+    for (const part of written) {
+      const pieces = wholeProduct(part.quantity, factorOf(line, part.unit))
+      if (pieces === null) return null
+      total += pieces
+    }
+    return total
   }
-
-  return (
-    <div className="flex flex-col gap-2.5">
-      {bytes !== null &&
-        (pdf ? (
-          <Button variant="soft" className="justify-start" onClick={openPdf}>
-            <FileText />
-            The invoice, as a PDF — opens in a tab
-          </Button>
-        ) : (
-          <img
-            ref={draw}
-            alt="The supplier's invoice"
-            className="max-h-[16rem] w-full rounded-inner border border-hairline bg-soft-2 object-contain"
-          />
-        ))}
-
-      <label className="flex min-h-tap cursor-pointer items-center justify-center gap-2 rounded-full border border-dashed border-hairline-2 px-3.5 text-[0.875rem] text-body transition-colors hover:border-hairline-strong hover:bg-soft">
-        <Upload className="size-4 text-line-ico" />
-        {uploading
-          ? "Uploading…"
-          : bytes !== null || uploaded !== null
-            ? "Replace the page"
-            : "Upload the invoice"}
-        <input
-          type="file"
-          accept="image/*,application/pdf"
-          className="sr-only"
-          disabled={uploading}
-          onChange={(event) => {
-            const file = event.target.files?.[0]
-            // Cleared so choosing the same file twice — after a failed upload
-            // — still fires a change.
-            event.target.value = ""
-            if (file !== undefined) onFile(file)
-          }}
-        />
-      </label>
-    </div>
-  )
-}
-
-/// Who is standing at the bay, asked where they are blocked.
-///
-/// The same name `Node → Account` collects, in the one place a person actually
-/// discovers they need it: a verifier who has never opened the node's own
-/// settings has no reason to know that a warehouse with sign-in switched off
-/// needs to be told a name before it will let a count be accepted.
-function NameTheVerifier() {
-  const [name, setName] = useState("")
-  return (
-    <form
-      className="flex flex-wrap items-center gap-2.5 rounded-inner border border-hairline bg-soft px-3.5 py-3"
-      onSubmit={(event) => {
-        event.preventDefault()
-        if (name.trim() !== "") setBenchActor(name)
-      }}
-    >
-      <span className="min-w-[16rem] flex-1 text-[0.875rem] text-body">
-        Sign-in is off on this node, so it writes the name this browser gives
-        it. A count cannot be accepted under the name that took it — say who is
-        verifying and the decisions below work.
-      </span>
-      <Input
-        className="w-[11rem]"
-        placeholder="Your name"
-        aria-label="Who is verifying"
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-      />
-      <Button variant="primary" type="submit" disabled={name.trim() === ""}>
-        That is me
-      </Button>
-    </form>
-  )
-}
-
-/// The verifier's grid, in three classes.
-///
-/// Read-only cells, unlike the order composer's: nothing in this table is
-/// typed, so a cell carries its own padding rather than surrendering it to a
-/// control, and there is no focus ring to draw — the one thing you can put a
-/// caret in is the tick box, which draws its own.
-const HEAD =
-  "border-b border-hairline bg-soft-2 px-3 py-2 text-left font-mono text-eyebrow tracking-[0.04em] text-body uppercase"
-
-const CELL = "px-3 py-2.5 align-middle"
-
-/// Figures line up on the right in tabular digits, because the reason they are
-/// beside each other is to be compared.
-const NUM = "text-right text-[0.875rem] text-body tabular-nums"
-
-/// The verifier's grid — everything the checker was not shown, on one screen.
-///
-/// This used to be one card per count: a pill, five facts, a price box, a
-/// note box and two buttons, repeated down a 27.5rem rail. Five garments off
-/// one lorry was five screens of scrolling, and a verifier's whole job is
-/// comparing lines to each other — which is the one thing a stack of cards a
-/// screen tall each makes impossible. It is a table now, in a sheet wide
-/// enough to hold it.
-///
-/// **What is being verified is the count and the price.** Both are columns.
-/// Who counted it and when are not: they are the same person and the same
-/// half-hour on every line of a delivery, so they were five columns of the
-/// same two answers — they sit above the table, once.
-///
-/// **The verifier types no price.** There was a "price on the invoice" box on
-/// every line, asking somebody holding one piece of paper to key a figure per
-/// garment. The paper's total is recorded once, underneath, and compared
-/// against what the counted goods come to at the agreed price — which is the
-/// same check, done once, by arithmetic rather than by typing.
-///
-/// **Accepting is the moment the goods first exist as stock.** There is still
-/// no field for a quantity of the verifier's own, and the decision is still
-/// per line: the tick in the first column is the per-line consent, and the
-/// footer only commits the ones that were ticked.
-function VerifySheet({
-  order,
-  open,
-  onClose,
-}: {
-  order: OrderRow | null
-  open: boolean
-  onClose: () => void
-}) {
-  const actor = useEdgeActor()
-  const client = useQueryClient()
-  const waiting = order?.awaiting ?? []
-  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
-  const [note, setNote] = useState("")
-
-  // A DC running with sign-in switched off writes whatever `actor_id` it is
-  // given, and what an unnamed browser gives it is `"api"` — the same word the
-  // count was taken under. `CHECK (verified_by <> counted_by)` then refuses
-  // every decision on the sheet, which is the whole of why nothing here could
-  // be accepted or sent back. Naming the person is the fix, and it belongs
-  // where they are stuck rather than three screens away under Node → Account.
-  const where = useEdgeNodeIdentity()
-  const bench = useBenchActor()
-  const unnamed = where.data?.auth === "DISABLED" && bench === null
-
-  // A different order is a different set of counts, and a tick carried over
-  // from the last one is a verifier accepting goods they never looked at. Reset
-  // during render rather than in an effect: an effect would paint the new
-  // order's rows once wearing the last one's ticks, and the frame where a
-  // verifier's ticks are on somebody else's goods is the one frame this screen
-  // cannot afford.
-  const [showing, setShowing] = useState(order?.po_number)
-  // What this sheet has accepted, kept after the order leaves the queue.
-  //
-  // Accepting the last line takes the order off the list of what the DC is
-  // owed, so `order` goes to null in the same refetch — and with it the only
-  // place the supplier's invoice could be recorded. The node will not take the
-  // invoice before a line is accepted, so it has to be possible after.
-  const [settled, setSettled] = useState<{
-    readonly order: OrderRow
-    readonly rows: readonly PurchaseCountAwaitingVerification[]
-  } | null>(null)
-  // Only a *different* order resets the sheet. The order vanishing because
-  // it was just fully accepted is not a different order.
-  if (order !== null && showing !== order.po_number) {
-    setShowing(order.po_number)
-    setPicked(new Set())
-    setNote("")
-    setSettled(null)
-  }
-
-  // Minted once per count and per verb, and kept across a retry. The batch
-  // below is a loop: if the third line fails, the first two are already stock
-  // and already gone from the queue, so the retry that follows resends them —
-  // and only a key that survived the failure makes that second POST harmless.
-  // Keyed by verb as well, because Recount after a failed Accept is a
-  // different decision about the same count, not a repeat of it.
-  const minted = useRef(new Map<string, string>())
-  const keyFor = (subject: string) => {
-    const existing = minted.current.get(subject)
-    if (existing !== undefined) return existing
-    const fresh = idempotencyKey()
-    minted.current.set(subject, fresh)
-    return fresh
-  }
-
-  const decide = useMutation({
-    mutationFn: async (input: {
-      decision: "Accept" | "Recount"
-      rows: readonly PurchaseCountAwaitingVerification[]
-      note: string
-      /// Close what is still owed on these lines once they are accepted —
-      /// the raiser deciding the rest is not coming.
-      closeShort?: boolean
-    }) => {
-      // Sequential, for the same reason the counts are: these writes land in
-      // the same delivery's movement group, and a handful of them racing is a
-      // handful of chances to be told it is not there yet.
-      for (const row of input.rows) {
-        await dc.verifyPurchase({
-          count_id: row.count_id,
-          verifier_actor_id: actor,
-          decision: input.decision,
-          note: input.note.trim() === "" ? null : input.note.trim(),
-          // Never typed here. The invoice's own total is recorded once, on the
-          // delivery, and the comparison is done for the verifier.
-          invoiced_price_minor: null,
-          idempotency_key: keyFor(`${input.decision}:${row.count_id}`),
-        })
-      }
-      if (input.closeShort === true && input.decision === "Accept") {
-        await closeRestShort(input.rows, actor, input.note)
-      }
-      return input.rows.length
-    },
-    onSuccess: (_, input) => {
-      if (input.decision === "Accept" && order !== null) {
-        setSettled((was) => ({
-          order,
-          rows: [
-            ...(was?.order.po_number === order.po_number ? was.rows : []),
-            ...input.rows,
-          ],
-        }))
-      }
-      setPicked(new Set())
-      setNote("")
-      minted.current.clear()
-      // Accepted goods become stock, leave the queue, change the delivery's
-      // accepted tally, and appear in the pools and the ledger.
-      void client.invalidateQueries({ queryKey: keys.verifyQueue() })
-      void client.invalidateQueries({ queryKey: keys.receipts() })
-      void client.invalidateQueries({ queryKey: keys.purchaseWork() })
-      void client.invalidateQueries({ queryKey: keys.pools() })
-      void client.invalidateQueries({ queryKey: ["inventory", "movements"] })
-      void client.invalidateQueries({ queryKey: keys.taggingJobs() })
-    },
-  })
-
-  // A lorry is one arrival with one invoice, and the counts on it all hang
-  // off the one delivery document. They agree in every case the bay produces,
-  // so the first one names the document the paper belongs to.
-  // The invoice is compared against everything counted on the delivery —
-  // what is still waiting and what this sheet has already accepted.
-  const shown = order ?? settled?.order ?? null
-  const invoiced = [
-    ...(settled?.rows ?? []).filter(
-      (row) => !waiting.some((other) => other.count_id === row.count_id)
-    ),
-    ...waiting,
-  ]
-  const receiptId = invoiced[0]?.receipt_id ?? null
-
-  // The two answers that repeat down every line, said once above the table.
-  const counters = [...new Set(waiting.map((row) => row.counted_by))]
-  const latest = waiting.reduce(
-    (newest, row) => (row.counted_at > newest ? row.counted_at : newest),
-    waiting[0]?.counted_at ?? ""
-  )
-
-  // A row is only somebody else's when we know whose the hand on this screen
-  // is. Unnamed, the actor is the placeholder `"api"` — which is also what an
-  // unnamed node writes into `counted_by`, so every row matched and the whole
-  // sheet locked itself with no way out. Not knowing is not the same as being
-  // the counter.
-  const mineToo = (row: PurchaseCountAwaitingVerification) =>
-    !unnamed && row.counted_by === actor
-  /// Somebody else's order. The person who raised a PO verifies its counts
-  /// (owner, 2026-09-26); an order sent before the raiser travelled with it
-  /// names nobody and stays open to any second person.
-  const notMine = (row: PurchaseCountAwaitingVerification) =>
-    !unnamed &&
-    row.raised_by !== null &&
-    row.raised_by !== undefined &&
-    row.raised_by !== actor
-  const locked = (row: PurchaseCountAwaitingVerification) =>
-    mineToo(row) || notMine(row)
-  const decidable = waiting.filter((row) => !locked(row))
-  const raisers = [
-    ...new Set(
-      waiting
-        .map((row) => row.raised_by)
-        .filter((who): who is string => typeof who === "string")
-    ),
-  ]
-  /// Lines on the ticked set still short after this count: what "close
-  /// short" would settle.
-  const shortOnPicked = waiting.filter(
-    (row) =>
-      picked.has(row.count_id) &&
-      row.counted_quantity < row.outstanding_stock_units
-  ).length
-  const chosen = waiting.filter((row) => picked.has(row.count_id))
-
-  const toggle = (countId: string) =>
-    setPicked((was) => {
-      const next = new Set(was)
-      if (next.has(countId)) next.delete(countId)
-      else next.add(countId)
-      return next
-    })
-
-  const totalOrdered = waiting.reduce(
-    (sum, row) => sum + row.expected_stock_units,
-    0
-  )
-  const totalCounted = waiting.reduce(
-    (sum, row) => sum + row.counted_quantity,
-    0
-  )
-  const unpriced = waiting.filter((row) => row.unit_price_minor === null).length
-  const totalValue = waiting.reduce(
-    (sum, row) => sum + row.counted_quantity * (row.unit_price_minor ?? 0),
-    0
-  )
-
-  return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => !next && onClose()}
-      width="table"
-      id={shown?.po_number}
-      title={shown?.supplier_name ?? shown?.supplier_id ?? "Order"}
-      footer={
-        waiting.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2.5">
-            <span className="text-[0.875rem] text-mute">
-              {unnamed
-                ? "Say who is verifying, above"
-                : chosen.length === 0
-                  ? "Tick the lines you have compared"
-                  : `${count(chosen.length)} of ${count(waiting.length)} lines ticked`}
-            </span>
-            <Input
-              className="min-w-[12rem] flex-1"
-              placeholder="Reason, if you are sending it back"
-              aria-label="Reason for a recount"
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-            />
-            <Button
-              variant="soft"
-              pending={decide.isPending}
-              disabled={unnamed || chosen.length === 0 || note.trim() === ""}
-              onClick={() =>
-                decide.mutate({ decision: "Recount", rows: chosen, note })
-              }
-            >
-              Send back to count
-            </Button>
-            {/* Accept what came and stop waiting for the rest. Offered only
-                when a ticked line is short. */}
-            {shortOnPicked > 0 && (
-              <Button
-                variant="soft"
-                pending={decide.isPending}
-                disabled={unnamed || chosen.length === 0}
-                onClick={() =>
-                  decide.mutate({
-                    decision: "Accept",
-                    rows: chosen,
-                    note,
-                    closeShort: true,
-                  })
-                }
-              >
-                Accept & close short
-              </Button>
-            )}
-            <Button
-              variant="primary"
-              pending={decide.isPending}
-              disabled={unnamed || chosen.length === 0}
-              onClick={() =>
-                decide.mutate({ decision: "Accept", rows: chosen, note })
-              }
-            >
-              {decide.isPending
-                ? "Deciding…"
-                : chosen.length === 0
-                  ? "Accept"
-                  : shortOnPicked > 0
-                    ? `Accept ${count(chosen.length)} (partial)`
-                    : `Accept ${count(chosen.length)}`}
-            </Button>
-          </div>
-        )
-      }
-    >
-      {shown === null || (waiting.length === 0 && receiptId === null) ? (
-        <EmptyState>
-          Nothing on this order is waiting for a verifier. Every count has been
-          decided.
-        </EmptyState>
-      ) : (
-        <div className="flex flex-col gap-5">
-          {/* One slot for the comparison, one for the invoice, so the invoice
-              keeps what was typed into it when the last line is accepted and
-              the comparison above it empties. */}
-          {waiting.length === 0 ? (
-            <p className="text-[0.875rem] text-body">
-              Every line on this order is decided. The supplier&rsquo;s invoice
-              is recorded against the delivery below.
-            </p>
-          ) : (
-            <>
-              {/* No banner counting the differences, and none naming your own
-              counts. The Diff column says which lines disagree, on the lines
-              that disagree, and the totals row says what that comes to — a
-              paragraph at the top saying "4 of 4" is the same fact a fourth
-              time, and it pushed the grid it describes off the screen. */}
-              {unnamed && <NameTheVerifier />}
-
-              {/* Who counted, and when. Above the table because they are one
-              answer for the whole delivery: down a column they were the same
-              two facts written five times, in the two widest cells on the
-              row. */}
-              <Facts className="grid-cols-2 sm:grid-cols-4">
-                <Fact term="Counted by">
-                  {counters.length === 1
-                    ? counters[0]
-                    : `${count(counters.length)} people`}
-                </Fact>
-                <Fact term="Counted at">{clock(latest)}</Fact>
-                <Fact term="Raised by">
-                  {raisers.length === 0
-                    ? "—"
-                    : raisers.length === 1
-                      ? raisers[0]
-                      : `${count(raisers.length)} people`}
-                </Fact>
-                <Fact term="Pieces counted">{count(totalCounted)}</Fact>
-              </Facts>
-              {waiting.some(notMine) && (
-                <Banner tone="info">
-                  Only the person who raised a purchase order verifies its
-                  counts. Lines on orders raised by somebody else are shown but
-                  cannot be decided here.
-                </Banner>
-              )}
-
-              {/* The comparison, as a grid. Ordered and Counted are adjacent
-              because the difference between them is the whole question, and
-              Diff is beside them rather than derived in somebody's head. */}
-              <div className="overflow-hidden rounded-inner border border-hairline">
-                {/* Scrolls sideways inside its own box rather than squeezing: six
-                columns of figures have a floor under their width, and the
-                only column that can give is the one holding the garment's
-                name — the one column a person actually reads. */}
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[43rem] table-fixed border-collapse">
-                    <colgroup>
-                      <col className="w-[2.5rem]" />
-                      <col />
-                      <col className="w-[5rem]" />
-                      <col className="w-[5rem]" />
-                      <col className="w-[5.5rem]" />
-                      <col className="w-[7.5rem]" />
-                      <col className="w-[8.5rem]" />
-                    </colgroup>
-                    <thead>
-                      <tr>
-                        <th className={cn(HEAD, "text-center")}>
-                          <Checkbox
-                            label={
-                              <span className="sr-only">Tick every line</span>
-                            }
-                            checked={
-                              decidable.length > 0 &&
-                              decidable.every((row) => picked.has(row.count_id))
-                            }
-                            disabled={decidable.length === 0}
-                            onChange={(next) =>
-                              setPicked(
-                                next
-                                  ? new Set(
-                                      decidable.map((row) => row.count_id)
-                                    )
-                                  : new Set()
-                              )
-                            }
-                          />
-                        </th>
-                        <th className={HEAD}>Item</th>
-                        <th className={cn(HEAD, "text-right")}>Ordered</th>
-                        <th className={cn(HEAD, "text-right")}>Counted</th>
-                        <th className={cn(HEAD, "text-right")}>Diff</th>
-                        <th className={cn(HEAD, "text-right")}>Price</th>
-                        <th className={cn(HEAD, "text-right")}>Value</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {waiting.map((row) => {
-                        const own = locked(row)
-                        return (
-                          // The whole row is the tick's hit area. A 14px box in
-                          // the first column is the smallest target on the sheet,
-                          // and it is the one thing a verifier presses five times
-                          // in a row — the box still shows the state, it is just
-                          // not the only place you can aim.
-                          <tr
-                            key={row.count_id}
-                            onClick={() => !own && toggle(row.count_id)}
-                            className={cn(
-                              "border-t border-hairline transition-colors",
-                              own
-                                ? "opacity-70"
-                                : "cursor-pointer hover:bg-soft"
-                            )}
-                          >
-                            <td
-                              className={cn(CELL, "text-center")}
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              <Checkbox
-                                label={
-                                  <span className="sr-only">
-                                    {`Decide ${row.article_code}`}
-                                  </span>
-                                }
-                                checked={picked.has(row.count_id)}
-                                disabled={own}
-                                onChange={() => toggle(row.count_id)}
-                              />
-                            </td>
-                            <td className={CELL}>
-                              <span className="block truncate font-medium text-ink">
-                                {row.article_name}
-                              </span>
-                              <span className="block truncate font-mono text-[0.875rem] text-mute">
-                                {row.article_code}
-                                {mineToo(row) && " · your count"}
-                                {notMine(row) &&
-                                  ` · raised by ${row.raised_by}`}
-                              </span>
-                            </td>
-                            <td className={cn(CELL, NUM)}>
-                              <InUnit
-                                pieces={row.expected_stock_units}
-                                unit={row.order_unit_code}
-                                quantity={row.order_unit_quantity}
-                              />
-                            </td>
-                            <td className={cn(CELL, NUM, "font-semibold")}>
-                              <InUnit
-                                pieces={row.counted_quantity}
-                                unit={row.counted_unit_code}
-                                quantity={row.counted_unit_quantity}
-                              />
-                            </td>
-                            <td className={cn(CELL, "text-right")}>
-                              {/* Over is not refused: what came beyond the
-                                  order is received and goes back to the
-                                  supplier. Short stays owed unless closed. */}
-                              {row.counted_quantity >
-                              row.outstanding_stock_units ? (
-                                <span className="flex flex-col items-end gap-0.5">
-                                  <Pill tone="warn">
-                                    {variance(
-                                      row.counted_quantity -
-                                        row.outstanding_stock_units
-                                    )}
-                                  </Pill>
-                                  <span className="text-[0.875rem] text-warn-fg">
-                                    Return to supplier
-                                  </span>
-                                </span>
-                              ) : row.counted_quantity <
-                                row.outstanding_stock_units ? (
-                                <span className="flex flex-col items-end gap-0.5">
-                                  <Pill tone="bad">
-                                    {variance(
-                                      row.counted_quantity -
-                                        row.outstanding_stock_units
-                                    )}
-                                  </Pill>
-                                  <span className="text-[0.875rem] text-mute">
-                                    Short
-                                  </span>
-                                </span>
-                              ) : (
-                                <span className="text-mute tabular-nums">
-                                  0
-                                </span>
-                              )}
-                            </td>
-                            <td className={cn(CELL, NUM)}>
-                              {money(row.unit_price_minor)}
-                            </td>
-                            <td className={cn(CELL, NUM, "text-ink")}>
-                              {row.unit_price_minor === null
-                                ? "—"
-                                : money(
-                                    row.counted_quantity * row.unit_price_minor
-                                  )}
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                    {/* The totals the invoice underneath is checked against, on
-                    the same right edge as the figures they add up. */}
-                    <tfoot>
-                      <tr className="border-t border-hairline bg-soft-2">
-                        <td className={CELL} />
-                        <td
-                          className={cn(
-                            CELL,
-                            "font-mono text-eyebrow tracking-[0.04em] text-body uppercase"
-                          )}
-                        >
-                          This delivery
-                        </td>
-                        <td className={cn(CELL, NUM)}>{count(totalOrdered)}</td>
-                        <td className={cn(CELL, NUM, "font-semibold")}>
-                          {count(totalCounted)}
-                        </td>
-                        <td className={cn(CELL, NUM)}>
-                          {variance(totalCounted - totalOrdered)}
-                        </td>
-                        <td className={CELL} />
-                        <td className={cn(CELL, NUM, "font-semibold text-ink")}>
-                          {money(totalValue)}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </div>
-
-              {unpriced > 0 && (
-                <p className="-mt-2.5 text-[0.875rem] text-mute">
-                  {count(unpriced)} of {count(waiting.length)} lines carry no
-                  agreed price, so they add nothing to the value above — it is a
-                  floor, not the whole delivery.
-                </p>
-              )}
-            </>
-          )}
-
-          {/* Directly under the value the goods come to, because "billed" and
-              "worth at the agreed price" are two halves of one sum and a
-              verifier should not have to hold one of them in their head. */}
-          {receiptId !== null && (
-            <InvoiceBlock
-              key={receiptId}
-              receiptId={receiptId}
-              counts={invoiced}
-            />
-          )}
-
-          {decide.isSuccess && (
-            <Receipt>
-              {count(decide.data)} lines decided. Accepted goods are stock from
-              this moment and are waiting to be tagged.
-            </Receipt>
-          )}
-          <Problem error={decide.error} />
-        </div>
-      )}
-    </Sheet>
-  )
-}
-
-/// Close short what is still owed on accepted lines, at head office.
-///
-/// The acceptance is written at the DC and reaches head office as a receipt a
-/// few seconds later; closing short before it lands would record the whole
-/// line as missing. So each line is retried until head office has the receipt
-/// — a refusal saying nothing is outstanding means it is already settled.
-async function closeRestShort(
-  rows: readonly PurchaseCountAwaitingVerification[],
-  actor: string,
-  note: string
-) {
-  const reason =
-    note.trim() === "" ? "Closed short at verification" : note.trim()
-  for (const row of rows) {
-    if (row.counted_quantity >= row.outstanding_stock_units) continue
-    let settled = false
-    for (let attempt = 0; attempt < 20 && !settled; attempt += 1) {
-      const page = await purchaseOrderPage({ q: row.po_number })
-      const order = page.rows.find((one) => one.po_number === row.po_number)
-      const line =
-        order === undefined
-          ? undefined
-          : (await purchaseOrderDetail(order.purchase_order_id)).lines.find(
-              (one) => one.po_line_id === row.po_line_id
-            )
-      // What head office should hold once this count lands: what was
-      // already matched before it, plus this count.
-      const want =
-        line === undefined
-          ? Number.POSITIVE_INFINITY
-          : line.ordered_quantity -
-            row.outstanding_stock_units +
-            row.counted_quantity
-      const landed = line !== undefined && line.received_quantity >= want
-      if (landed) {
-        await closeLineShort(row.po_line_id, actor, reason)
-        settled = true
-      } else {
-        await new Promise((resolve) => setTimeout(resolve, 3000))
+  /// What "not as ordered" comes to for the delivery: `undefined` when nothing
+  /// is written, `null` when what is written is not whole pieces, else the
+  /// number.
+  /// Every unit any line of the delivery can be counted in, once each: the
+  /// delivery's one "not as ordered" figure may be written in any of them.
+  const deliveryUnits = (() => {
+    const seen = new Map<
+      string,
+      { code: string; label: string; factor: string }
+    >()
+    for (const line of order?.lines ?? []) {
+      for (const one of unitsOf(line).units) {
+        if (!seen.has(one.code)) {
+          seen.set(one.code, {
+            code: one.code,
+            label: one.label,
+            factor: one.factor,
+          })
+        }
       }
     }
-    if (!settled)
-      throw new Error(
-        `${row.article_name} was accepted, but head office has not received it yet — close it short from the order once it shows as received.`
-      )
+    return [...seen.values()]
+  })()
+  const wrongFactor =
+    deliveryUnits.find((one) => one.code === wrongUnit)?.factor ?? "1"
+  const wrongValue =
+    wrongText.trim() === ""
+      ? undefined
+      : wholeProduct(wrongText.trim(), wrongFactor)
+  /// Not part of the count: a supplier can send more of the wrong thing than
+  /// of the right one, so there is no ceiling — only whole pieces.
+  const wrongPieces = wrongValue
+  const wrongProblem = "Must be a whole number of pieces"
+  /// The node keeps the figure per counted line, and refuses one larger than
+  /// the line's own count. The delivery's one total is therefore laid onto the
+  /// counted lines in order, each taking what it can hold; the screen only
+  /// ever speaks of the total.
+  const withCount = (order?.lines ?? []).flatMap((line) => {
+    const quantity = piecesOf(line)
+    // A line written as 0 is a count too (owner, 2026-10-05): it says the
+    // supplier did not send it, and puts the shortage in front of the buyer. A
+    // line left blank is not counted at all.
+    return quantity === undefined || quantity === null || quantity < 0
+      ? []
+      : [{ line, quantity }]
+  })
+  /// The node keeps the wrong pieces as a part of the line's stored count
+  /// (`counted_quantity` = ordered article + not as ordered) and sends them
+  /// back to the supplier once the count is confirmed. The delivery's one
+  /// figure rides on the first counted line — or, when only wrong goods came,
+  /// on the order's first line.
+  const wrongTotal = typeof wrongPieces === "number" ? wrongPieces : 0
+  const carrier =
+    withCount.length > 0 || wrongTotal <= 0 || order?.lines[0] === undefined
+      ? withCount
+      : [{ line: order.lines[0], quantity: 0 }]
+  const placed = {
+    rows: carrier.map((one, index) => ({
+      ...one,
+      wrong: index === 0 ? wrongTotal : 0,
+    })),
   }
-}
+  const entries = placed.rows.map(({ line, quantity, wrong }) => {
+    // One amount in a unit other than pieces is kept as it was written
+    // (9.5 KODI); a mix is kept as the pieces it comes to, which is what the
+    // ledger holds either way.
+    const written = partsOf(line).filter((part) => part.quantity.trim() !== "")
+    const only = written.length === 1 ? written[0] : null
+    // The wrong pieces are in the stored count, so a unit amount written for
+    // the right ones alone would no longer add up to it.
+    const inUnit =
+      only !== null && wrong === 0 && factorOf(line, only.unit) !== "1"
+    return {
+      line: line.po_line_id,
+      quantity: quantity + wrong,
+      wrong,
+      unit: inUnit ? only.unit : null,
+      unitQuantity: inUnit ? only.quantity.trim().replace(",", ".") : null,
+    }
+  })
+  /// A total that cannot be sent — not whole, or more than was counted — holds
+  /// the whole submission until it is fixed.
+  const miswritten = wrongPieces === null
 
-/// A quantity said the way it was ordered or counted — "9.5 KODI" — with the
-/// pieces it comes to under it. Pieces alone when that is how it was typed.
-function InUnit({
-  pieces,
-  unit,
-  quantity,
-}: {
-  pieces: number
-  unit: string | null | undefined
-  quantity: string | null | undefined
-}) {
-  if (
-    unit === null ||
-    unit === undefined ||
-    quantity === null ||
-    quantity === undefined
-  )
-    return <>{count(pieces)}</>
+  /// What has been written down so far, by the unit it is kept in — nearly
+  /// always pieces. Beside the lines rather than at the bottom (the owner,
+  /// 2026-09-29): an order of forty lines is counted a screen at a time, and
+  /// the running total has to stay in sight while the list scrolls.
+  const counted = (order?.lines ?? []).flatMap((line) => {
+    const pieces = piecesOf(line)
+    if (pieces === undefined || pieces === null || pieces <= 0) return []
+    return [{ line, pieces, unit: unitsOf(line).stock.toLowerCase() }]
+  })
+  const totals = [...new Set(counted.map((one) => one.unit))].map((unit) => ({
+    unit,
+    pieces: counted
+      .filter((one) => one.unit === unit)
+      .reduce((sum, one) => sum + one.pieces, 0),
+  }))
+
+  /// What the lines come to, as the table's own total row says it.
+  const countedText =
+    totals.length === 0
+      ? "0 pcs"
+      : totals
+          .map(
+            (total) =>
+              `${count(total.pieces)} ${total.pieces === 1 && total.unit === "pcs" ? "pc" : total.unit}`
+          )
+          .join(" + ")
+
   return (
-    <span className="flex flex-col items-end leading-tight">
-      <span>{`${quantity.replace(".", ",")} ${unit}`}</span>
-      <span className="text-[0.875rem] font-normal text-mute">
-        {count(pieces)} pcs
-      </span>
-    </span>
+    <>
+      <Sheet
+        open={open}
+        onOpenChange={(next) => !next && onClose()}
+        id={order?.po_number}
+        title={
+          order === undefined || order === null
+            ? "Order"
+            : supplierName(order.supplier_id, order.supplier_name)
+        }
+        width="table"
+        footer={
+          order !== null && (
+            <div className="flex items-center justify-end gap-3">
+              <Button
+                variant="primary"
+                pending={record.isPending}
+                disabled={entries.length === 0 || miswritten}
+                onClick={() => record.mutate(entries)}
+              >
+                {record.isPending ? "Sending…" : "Submit count"}
+              </Button>
+            </div>
+          )
+        }
+      >
+        {order === null ? (
+          <EmptyState>Nothing to count.</EmptyState>
+        ) : (
+          <div className="flex flex-col gap-5">
+            <div className="flex min-w-0 flex-col gap-4">
+              {/* One grid, header and rows sharing the same three tracks, set
+                the way every hub table is (`Card` + `DataTable`'s heading
+                row): what, what was counted, and what that comes to. */}
+              <Card className="overflow-hidden">
+                <div
+                  className={cn(
+                    COUNT_ROW,
+                    "h-10 items-center border-b border-hairline bg-soft"
+                  )}
+                >
+                  <span className={COUNT_HEAD}>Article</span>
+                  <span className={cn(COUNT_HEAD, "max-sm:hidden")}>
+                    Counted
+                  </span>
+                  <span className={cn(COUNT_HEAD, "text-right")}>
+                    In pieces
+                  </span>
+                </div>
+                <div className="divide-y divide-hairline">
+                  {order.lines.map((line) => {
+                    const { units, stock } = unitsOf(line)
+                    const lineParts = partsOf(line)
+                    const pieces = piecesOf(line)
+                    return (
+                      <div
+                        key={line.po_line_id}
+                        className={cn(COUNT_ROW, "py-3.5")}
+                      >
+                        <TwoLines
+                          top={line.article_name}
+                          bottom={`${kindOf(line)}${line.received_stock_units > 0 ? ` · ${count(line.received_stock_units)} already in` : ""}`}
+                          className="min-h-11"
+                        />
+
+                        <div className="flex flex-col gap-2 max-sm:order-last max-sm:col-span-2">
+                          {lineParts.map((part, index) => (
+                            <div
+                              key={index}
+                              className="flex items-center gap-2"
+                            >
+                              <Input
+                                className="h-11 w-24 text-center font-semibold"
+                                inputMode="decimal"
+                                autoComplete="off"
+                                aria-label={`Counted ${part.unit} of ${line.article_code}`}
+                                value={part.quantity}
+                                onChange={(event) =>
+                                  writeParts(
+                                    line,
+                                    lineParts.map((one, at) =>
+                                      at === index
+                                        ? {
+                                            ...one,
+                                            quantity: event.target.value,
+                                          }
+                                        : one
+                                    )
+                                  )
+                                }
+                              />
+                              {/* Any unit the item can be counted in; an amount
+                              that is not whole pieces is refused before it is
+                              sent. */}
+                              {units.length > 1 ? (
+                                <Select
+                                  aria-label={`Unit counted for ${line.article_code}`}
+                                  value={part.unit}
+                                  onChange={(code) =>
+                                    writeParts(
+                                      line,
+                                      lineParts.map((one, at) =>
+                                        at === index
+                                          ? { ...one, unit: code }
+                                          : one
+                                      )
+                                    )
+                                  }
+                                  className="h-11 w-28"
+                                >
+                                  {units.map((one) => (
+                                    <option key={one.code} value={one.code}>
+                                      {one.label}
+                                    </option>
+                                  ))}
+                                </Select>
+                              ) : (
+                                <span className="w-28 text-[0.875rem] text-body">
+                                  {stock.toLowerCase()}
+                                </span>
+                              )}
+                              {/* The slot stays when there is nothing to remove,
+                              so every row's fields line up. */}
+                              <span className="flex size-11 items-center justify-center">
+                                {lineParts.length > 1 && (
+                                  <Button
+                                    variant="quiet"
+                                    size="sm"
+                                    aria-label="Remove this amount"
+                                    onClick={() =>
+                                      writeParts(
+                                        line,
+                                        lineParts.filter(
+                                          (_, at) => at !== index
+                                        )
+                                      )
+                                    }
+                                  >
+                                    <X />
+                                  </Button>
+                                )}
+                              </span>
+                            </div>
+                          ))}
+                          {units.length > 1 && (
+                            <Button
+                              variant="quiet"
+                              size="sm"
+                              onClick={() => addPart(line)}
+                              className="-ml-2 self-start"
+                            >
+                              <Plus />
+                              Another unit
+                            </Button>
+                          )}
+                        </div>
+
+                        <span
+                          className={cn(
+                            "flex min-h-11 items-center justify-end text-right tabular-nums",
+                            pieces === null
+                              ? "text-[0.875rem] text-bad-fg"
+                              : pieces === undefined
+                                ? "text-mute"
+                                : "font-medium text-ink"
+                          )}
+                        >
+                          {pieces === null
+                            ? "Not whole pieces"
+                            : pieces === undefined
+                              ? "—"
+                              : `${count(pieces)} ${stock.toLowerCase()}`}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* The counted amounts added up — the table's total, in the
+                  same column as each line's own figure. */}
+                <div
+                  className={cn(
+                    COUNT_ROW,
+                    "border-t border-hairline bg-soft py-3.5"
+                  )}
+                >
+                  <span className="flex min-h-11 items-center font-medium text-ink">
+                    Total as Ordered
+                  </span>
+                  <span className="max-sm:hidden" />
+                  <span className="flex min-h-11 items-center justify-end text-right font-medium text-ink tabular-nums">
+                    {countedText}
+                  </span>
+                </div>
+
+                {/* One figure for the whole delivery, not one per line: its
+                  field sits under the counted amounts, in the same column. */}
+                <div
+                  className={cn(
+                    COUNT_ROW,
+                    "border-t border-hairline bg-soft py-3.5"
+                  )}
+                >
+                  <label
+                    htmlFor="not-as-ordered"
+                    className="flex min-h-11 flex-col justify-center"
+                  >
+                    <span className="font-medium text-ink">Not as Ordered</span>
+                    <span className="text-[0.875rem] text-mute">
+                      Damaged or wrong items
+                    </span>
+                  </label>
+                  <div className="flex flex-col gap-2 max-sm:order-last max-sm:col-span-2">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="not-as-ordered"
+                        className="h-11 w-24 text-center font-semibold"
+                        inputMode="decimal"
+                        autoComplete="off"
+                        placeholder="0"
+                        aria-invalid={wrongPieces === null}
+                        value={wrongText}
+                        onChange={(event) => setWrongText(event.target.value)}
+                      />
+                      {deliveryUnits.length > 1 ? (
+                        <Select
+                          aria-label="Unit for not as ordered"
+                          value={wrongUnit}
+                          onChange={(code) => setWrongUnit(code)}
+                          className="h-11 w-28"
+                        >
+                          <option value="">Piece</option>
+                          {deliveryUnits
+                            .filter((one) => one.factor !== "1")
+                            .map((one) => (
+                              <option key={one.code} value={one.code}>
+                                {one.label}
+                              </option>
+                            ))}
+                        </Select>
+                      ) : (
+                        <span className="w-28 text-[0.875rem] text-body">
+                          pieces
+                        </span>
+                      )}
+                      <span className="size-11" />
+                    </div>
+                  </div>
+                  <span
+                    className={cn(
+                      "flex min-h-11 items-center justify-end text-right tabular-nums",
+                      wrongPieces === null
+                        ? "text-[0.875rem] text-bad-fg"
+                        : wrongPieces === undefined || wrongPieces === 0
+                          ? "text-mute"
+                          : "font-medium text-bad-fg"
+                    )}
+                  >
+                    {wrongPieces === null
+                      ? wrongProblem
+                      : wrongPieces === undefined
+                        ? "—"
+                        : `${count(wrongPieces)} pcs`}
+                  </span>
+                </div>
+              </Card>
+
+              <Problem error={record.error} />
+            </div>
+          </div>
+        )}
+      </Sheet>
+      <SavedDialog
+        open={sentCount !== null}
+        onOpenChange={(next) => {
+          if (!next) setSentCount(null)
+        }}
+        title={sentCount ?? ""}
+      />
+    </>
   )
 }

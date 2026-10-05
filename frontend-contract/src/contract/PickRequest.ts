@@ -11,4 +11,16 @@ export type PickRequest = { source_pool_id: string, sku_code: string, quantity: 
  * off a rack without opening a session is ordinary, and refusing it would
  * make the paperwork the point instead of the goods.
  */
-pick_session_id: string | null, };
+pick_session_id: string | null, 
+/**
+ * The shop this pick is for (owner, 29 Sep 2026: one picklist per
+ * shop). When set, the pick is held to what THAT shop is still owed,
+ * less what already waits in the pick area for it. `None` is a pick for
+ * nobody in particular, as every pick used to be.
+ */
+destination_id: string | null, 
+/**
+ * The allotment this pick answers, with `destination_id`: held to that
+ * allotment's lines for that shop as well as to the shop as a whole.
+ */
+allotment_id: string | null, };

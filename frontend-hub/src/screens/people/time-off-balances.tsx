@@ -67,17 +67,11 @@ export function TimeOffBalances() {
         <Input
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search name, code or position"
           className="h-8 w-64"
           aria-label="Search people"
         />
         {units.length > 1 && (
-          <Select
-            value={unit}
-            onChange={setUnit}
-            placeholder="Every unit"
-            className="h-8 w-52"
-          >
+          <Select value={unit} onChange={setUnit} className="h-8 w-52">
             <option value="">Every unit</option>
             {units.map(([id, name]) => (
               <option key={id} value={id}>
@@ -173,7 +167,7 @@ function BalanceSheet({
           head={[
             { label: "Kind", align: "left" },
             "Left",
-            "Waiting on a decision",
+            "Waiting on a Decision",
           ]}
         >
           {rows.map((row) => (

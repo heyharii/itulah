@@ -115,7 +115,10 @@ export function useChatAttachments() {
   /// the limit allows.
   const put = useCallback(
     (files: readonly PendingAttachment[]) => {
-      const room = Math.max(0, MAX_FILES - held.current.length - inFlight.current)
+      const room = Math.max(
+        0,
+        MAX_FILES - held.current.length - inFlight.current
+      )
       const known = new Set(held.current.map((file) => file.file_id))
       const fresh = files.filter((file) => !known.has(file.file_id))
       const back = fresh.slice(0, room)
@@ -136,7 +139,16 @@ export function useChatAttachments() {
     return taken
   }, [setPending])
 
-  return { pending, uploading, problem, setProblem, addFiles, remove, take, put }
+  return {
+    pending,
+    uploading,
+    problem,
+    setProblem,
+    addFiles,
+    remove,
+    take,
+    put,
+  }
 }
 
 export type ChatAttachments = ReturnType<typeof useChatAttachments>
@@ -487,7 +499,11 @@ export function ChatComposer({
             className="absolute bottom-full left-10 z-20 mb-2 w-64 max-w-[calc(100%-3rem)] overflow-hidden rounded-card border border-hairline bg-canvas p-1 shadow-pop"
           >
             {suggestions.map((one, index) => (
-              <li key={one.username} role="option" aria-selected={index === active}>
+              <li
+                key={one.username}
+                role="option"
+                aria-selected={index === active}
+              >
                 <button
                   type="button"
                   // Pressed with the mouse down, so the box keeps its focus and
@@ -509,8 +525,12 @@ export function ChatComposer({
                   ) : (
                     <Avatar name={one.display_name} size="sm" />
                   )}
-                  <span className="min-w-0 flex-1 truncate">{one.display_name}</span>
-                  <span className="shrink-0 text-pill text-mute">@{one.username}</span>
+                  <span className="min-w-0 flex-1 truncate">
+                    {one.display_name}
+                  </span>
+                  <span className="shrink-0 text-pill text-mute">
+                    @{one.username}
+                  </span>
                 </button>
               </li>
             ))}
@@ -553,13 +573,6 @@ export function ChatComposer({
           onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
           onBlur={() => setCaret(null)}
           aria-label={editing !== null ? "Edit message" : "Message"}
-          placeholder={
-            attachments.uploading > 0
-              ? "Uploading…"
-              : editing !== null
-                ? "Edit the message"
-                : "Write a message — @ to mention"
-          }
           className="max-h-40 w-full resize-none overflow-y-auto rounded-inner border border-hairline-2 bg-canvas px-3.5 py-2 text-[0.875rem] leading-normal text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-strong focus:border-hairline-strong"
         />
 
@@ -597,9 +610,13 @@ function ContextBar({
       <span className="shrink-0 text-accent">{icon}</span>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
-          <span className="truncate text-pill font-medium text-accent">{title}</span>
+          <span className="truncate text-pill font-medium text-accent">
+            {title}
+          </span>
           {hint !== undefined && (
-            <span className="shrink-0 text-pill text-mute max-md:hidden">{hint}</span>
+            <span className="shrink-0 text-pill text-mute max-md:hidden">
+              {hint}
+            </span>
           )}
         </div>
         {line !== "" && (

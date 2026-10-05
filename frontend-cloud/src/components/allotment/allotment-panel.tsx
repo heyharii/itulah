@@ -50,7 +50,7 @@ const WHOLE_TABLE = { pageIndex: 0, pageSize: Number.MAX_SAFE_INTEGER }
 /// move it.
 ///
 /// The second question is the one this screen exists for. An Allotment is a
-/// promise against stock that is still sitting in a warehouse, so "what has
+/// promise against stock that is still sitting in the Gudang, so "what has
 /// happened to it" is not a status word — it is seven stage counts, an edge
 /// node that may or may not have answered, and a cancellation that may have
 /// been refused for goods already picked.
@@ -90,9 +90,9 @@ export function AllotmentPanel({ detail }: { detail: Allotment }) {
     },
   })
 
-  /// The one thing typed on this screen. A cancellation without a reason is a
-  /// warehouse being told to give stock back and nobody able to say why, so the
-  /// button stays dead until there are words.
+  /// The one thing typed on this screen. A cancellation without a reason is
+  /// the Gudang being told to give stock back and nobody able to say why, so
+  /// the button stays dead until there are words.
   const form = useForm({
     defaultValues: { reason: "" },
     onSubmit: ({ value }) => {
@@ -444,7 +444,7 @@ export function AllotmentPanel({ detail }: { detail: Allotment }) {
   )
 
   // Nothing on this screen moves stock. Allotting reserves; the picking happens
-  // in the warehouse that holds the goods, against the activation command this
+  // in the Gudang that holds the goods, against the activation command this
   // Allotment sent there. Head office raises it, watches it, and can call it
   // off — that is the whole of what the centre does to an Allotment.
   const ownedByDc = detail.activation_target_origin_id !== null
@@ -483,16 +483,16 @@ export function AllotmentPanel({ detail }: { detail: Allotment }) {
               <span className="font-mono">
                 {detail.activation_target_origin_id}
               </span>
-              . The stages below are that warehouse reporting back.
+              . The stages below are that Gudang reporting back.
             </span>
             <EdgeBadge status={detail.edge_application_status} />
           </>
         ) : (
           // Nobody is registered to pick it. Worth saying plainly rather than
           // leaving the stages at zero and letting somebody wait: this is a
-          // topology problem, not a slow warehouse.
+          // topology problem, not a slow Gudang.
           <span className="text-amber-600">
-            No DC is registered against this source site, so no warehouse has
+            No DC is registered against this source site, so no Gudang has
             been asked to pick it.
           </span>
         )}

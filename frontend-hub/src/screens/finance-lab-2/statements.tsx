@@ -103,7 +103,6 @@ export function StatementScreen({
                 value={from}
                 onChange={setFrom}
                 notAfter={to === "" ? null : to}
-                placeholder="From"
                 label="From date"
                 className="h-8 w-36"
               />
@@ -116,7 +115,6 @@ export function StatementScreen({
             value={to}
             onChange={setTo}
             notBefore={from === "" || kind === "BALANCE_SHEET" ? null : from}
-            placeholder={kind === "BALANCE_SHEET" ? "As at" : "To"}
             label={kind === "BALANCE_SHEET" ? "As at" : "To date"}
             className="h-8 w-36"
           />

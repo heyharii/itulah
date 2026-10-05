@@ -1,8 +1,18 @@
 import {
+  Barcode,
+  ClipboardList,
+  Clock,
+  CreditCard,
+  FolderTree,
   Gauge,
   LineChart,
+  Megaphone,
   RotateCcw,
+  Shirt,
+  Store,
+  Tags,
   TrendingUp,
+  Truck,
   UserRound,
 } from "lucide-react"
 
@@ -42,6 +52,13 @@ import type { AppModule } from "@/lib/navigation"
 /// sheet on Sales, which is where every link that used to point at the
 /// register now goes.
 ///
+/// **Sales by store, division, tag, article, SKU, PO, supplier, campaign and
+/// payment (30 Sep 2026, owner).** The menu now leads on nine readings of the
+/// same question — what did each group sell, and how much of it is still on
+/// the shelves — one screen with a different grouping each time
+/// (`screens/sales/breakdown.tsx`). What used to be Sales by store here became
+/// Store analytics and moved under More; nothing on it changed.
+///
 /// Every old `/storeops/…` URL that still has a screen redirects to it,
 /// carrying its search parameters — see `moved` below and `routes.tsx`. Those
 /// paths are in bookmarks, in notifications and in links people have sent each
@@ -53,31 +70,102 @@ export const salesNav: AppModule = {
   home: "/sales",
   sections: [
     {
+      // Owner's menu of 2026-09-28: the department leads on the estate-wide
+      // reading and its cuts (division, tag, article, SKU, PO, supplier,
+      // campaign, payment), rather than on the
+      // single trading-day list — see the module doc above, written for the
+      // shape this replaces. Sales, Returns, Member and Shop floor moved
+      // under More; none of the four lost anything but their row.
       items: [
-        { path: "/sales", label: "Sales", icon: TrendingUp },
         {
+          path: "/sales",
+          label: "Sales",
+          icon: TrendingUp,
+          more: true,
+        },
+        {
+          path: "/sales/by-store",
+          label: "Sales by store",
+          icon: Store,
+        },
+        {
+          path: "/sales/by-division",
+          label: "Sales by division",
+          icon: FolderTree,
+        },
+        {
+          path: "/sales/by-tag",
+          label: "Sales by tag",
+          icon: Tags,
+        },
+        {
+          path: "/sales/by-article",
+          label: "Sales by article",
+          icon: Shirt,
+        },
+        {
+          path: "/sales/by-sku",
+          label: "Sales by SKU",
+          icon: Barcode,
+        },
+        {
+          path: "/sales/by-po",
+          label: "Sales by PO",
+          icon: ClipboardList,
+        },
+        {
+          path: "/sales/by-supplier",
+          label: "Sales by supplier",
+          icon: Truck,
+        },
+        {
+          path: "/sales/by-campaign",
+          label: "Sales by campaign",
+          icon: Megaphone,
+        },
+        {
+          path: "/sales/by-payment",
+          label: "Sales by payment",
+          icon: CreditCard,
+        },
+        {
+          // One cashier at one seat, drawer open to drawer counted (owner,
+          // 2026-10-01: "sales by session kasir harusnya ada").
+          path: "/sales/by-session",
+          label: "Sales by cashier session",
+          icon: Clock,
+        },
+        {
+          // The store-by-store reading that used to lead the menu: a row per
+          // store with time folded into it. Sales by store now answers the
+          // usual question; this stays for the trend and the Gaining/Losing
+          // ground ranking.
           path: "/sales/analytics",
-          label: "Sales analytics",
+          label: "Store analytics",
           icon: LineChart,
           moved: ["/storeops/sales-analysis"],
+          more: true,
         },
         {
           path: "/sales/returns",
           label: "Returns",
           icon: RotateCcw,
           moved: ["/storeops/returns"],
+          more: true,
         },
         {
           path: "/sales/customer",
           label: "Member",
           icon: UserRound,
           moved: ["/storeops/customer"],
+          more: true,
         },
         {
           path: "/sales/overview",
           label: "Shop floor",
           icon: Gauge,
           moved: ["/storeops"],
+          more: true,
         },
       ],
     },

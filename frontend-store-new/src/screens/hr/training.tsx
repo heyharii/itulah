@@ -10,9 +10,10 @@ import { Stat, StatStrip } from "@/components/ui/stat-strip"
 import { Banner } from "@/components/ui/states"
 import {
   hrKeys,
-  isoDay,
   nominate,
+  recordTrainingAttendance,
   readDate,
+  trainingParticipants,
   trainingPrograms,
   type StoreScope,
 } from "@/lib/queries/hr"
@@ -20,7 +21,11 @@ import { centreState } from "@/screens/hr/centre"
 import { Facts, PersonPicker, Submit } from "@/screens/hr/parts"
 import { personName, useTeam } from "@/screens/hr/words"
 import { HrWorkspace } from "@/screens/hr/workspace"
-import type { EmployeeList, TrainingProgramView } from "@itulah/contract"
+import type {
+  EmployeeList,
+  TrainingParticipantView,
+  TrainingProgramView,
+} from "@itulah/contract"
 
 /// Training, for a shop — the prototype's store Training.
 ///
@@ -29,16 +34,9 @@ import type { EmployeeList, TrainingProgramView } from "@itulah/contract"
 /// puts its people forward. The cost per head is locked here (🔒) as the
 /// prototype locks it — it is booked to manpower development at head office.
 ///
-/// # What this build cannot show
-///
-/// The centre answers a programme with a participant *count* and no names,
-/// and has no route that lists who is on one — so this screen cannot mark
-/// which of the shop's people are already nominated, or record attendance on
-/// the day as the prototype does. A nomination of somebody already on the list
-/// is refused by the centre in its own words.
 export function HrTraining() {
   return (
-    <HrWorkspace sub="The shop nominates its people. Programmes and their cost are head office's.">
+    <HrWorkspace>
       {(scope) => <Training scope={scope} />}
     </HrWorkspace>
   )
@@ -51,10 +49,9 @@ function Training({ scope }: { scope: StoreScope }) {
     queryFn: ({ signal }) => trainingPrograms(signal),
   })
   const [open, setOpen] = useState<TrainingProgramView | null>(null)
-  const today = isoDay(new Date())
 
   return centreState(programs, {
-    loading: "Reading head office's programmes…",
+    loading: "Loading…",
     what: "the training programmes",
     render: (rows) => {
       const upcoming = rows.filter((program) => program.state !== "DONE")
@@ -72,11 +69,11 @@ function Training({ scope }: { scope: StoreScope }) {
             <Stat
               label="Next"
               value={
-                upcoming.find((program) => program.on_date >= today)
+                upcoming.find((program) => !program.attendance_open)
                   ?.on_date === undefined
                   ? "—"
                   : readDate(
-                      upcoming.find((program) => program.on_date >= today)
+                      upcoming.find((program) => !program.attendance_open)
                         ?.on_date ?? "",
                     )
               }
@@ -87,7 +84,7 @@ function Training({ scope }: { scope: StoreScope }) {
             rows={sorted}
             rowKey={(program) => program.id}
             onRowClick={setOpen}
-            empty="Head office has no training programme on the calendar."
+            empty="No programmes scheduled."
             columns={[
               {
                 key: "title",
@@ -97,7 +94,7 @@ function Training({ scope }: { scope: StoreScope }) {
                     <span className="font-medium text-ink">
                       {program.title}
                     </span>
-                    <span className="font-mono text-[0.6875rem] text-mute">
+                    <span className="font-mono text-meta text-mute">
                       {program.id}
                     </span>
                   </span>
@@ -163,7 +160,7 @@ function Training({ scope }: { scope: StoreScope }) {
   })
 }
 
-/// One programme, and nominating one of this shop's people for it.
+/// One programme, this shop's nominees, and their attendance record.
 function ProgramSheet({
   program,
   team,
@@ -177,16 +174,24 @@ function ProgramSheet({
   const [employeeId, setEmployeeId] = useState("")
   const [reason, setReason] = useState("")
   const [done, setDone] = useState<string | null>(null)
+  const roster = useQuery({
+    queryKey: hrKeys.trainingParticipants(program.id),
+    queryFn: ({ signal }) => trainingParticipants(program.id, signal),
+  })
   const put = useMutation({
     mutationFn: () => nominate({ programId: program.id, employeeId, reason }),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: hrKeys.training() })
+      client.invalidateQueries({
+        queryKey: hrKeys.trainingParticipants(program.id),
+      })
       setDone(personName(team, employeeId))
       setEmployeeId("")
       setReason("")
     },
   })
-  const open = program.state !== "DONE"
+  const nominationsOpen = program.state !== "DONE"
+  const attendanceOpen = program.attendance_open
 
   return (
     <PeopleSheet
@@ -202,14 +207,14 @@ function ProgramSheet({
       title={program.title}
       sub={`${readDate(program.on_date, true)} · ${program.place}`}
       status={
-        open ? (
+        nominationsOpen ? (
           <Pill tone="accent">Scheduled</Pill>
         ) : (
           <Pill tone="ok">Done</Pill>
         )
       }
       foot={
-        open ? (
+        nominationsOpen ? (
           <Submit
             label="Nominate"
             pending={put.isPending}
@@ -225,7 +230,10 @@ function ProgramSheet({
           rows={[
             ["Date", readDate(program.on_date, true)],
             ["Where", program.place],
-            ["Participants", `${program.participants} across the company`],
+            [
+              "Participants",
+              `${roster.data?.length ?? program.participants} in this shop`,
+            ],
             [
               "Cost per head",
               "head office's rule · booked to manpower development",
@@ -233,12 +241,55 @@ function ProgramSheet({
           ]}
         />
       </SheetSection>
-      {open ? (
+      <SheetSection title="Participants from this shop">
+        {roster.isPending ? (
+          <p className="text-meta text-body">Loading…</p>
+        ) : roster.isError ? (
+          <Banner tone="bad">
+            {roster.error instanceof Error
+              ? roster.error.message
+              : "The participant list could not be read."}
+          </Banner>
+        ) : roster.data.length === 0 ? (
+          <p className="text-meta text-body">Nobody is nominated yet.</p>
+        ) : (
+          <div className="flex flex-col divide-y divide-hairline">
+            {roster.data.map((participant) => (
+              <div
+                key={participant.employee_id}
+                className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-ink">
+                    {participant.full_name ?? participant.employee_code}
+                    <span className="ml-2 font-mono text-meta text-mute">
+                      {participant.employee_code}
+                    </span>
+                  </span>
+                  <AttendancePill attended={participant.attended} />
+                </div>
+                {attendanceOpen ? (
+                  <ParticipantAttendance
+                    programId={program.id}
+                    participant={participant}
+                  />
+                ) : (
+                  <p className="text-meta text-body">
+                    Attendance opens on {readDate(program.on_date, true)}.
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </SheetSection>
+      {nominationsOpen ? (
         <SheetSection title="Nominate">
           <div className="flex flex-col gap-3">
             {done !== null && <Banner tone="ok">{done} is nominated.</Banner>}
             <PersonPicker
               team={team}
+              exclude={roster.data?.map((participant) => participant.employee_id)}
               value={employeeId}
               onChange={setEmployeeId}
               label="From this shop"
@@ -254,9 +305,82 @@ function ProgramSheet({
         </SheetSection>
       ) : (
         <p className="text-meta text-body">
-          This programme has run; nominations are closed.
+          Nominations closed.
         </p>
       )}
     </PeopleSheet>
+  )
+}
+
+function AttendancePill({ attended }: { attended: boolean | null }) {
+  if (attended === null) return <Pill tone="warn">Not recorded</Pill>
+  return attended ? <Pill tone="ok">Attended</Pill> : <Pill tone="bad">Absent</Pill>
+}
+
+function ParticipantAttendance({
+  programId,
+  participant,
+}: {
+  programId: string
+  participant: TrainingParticipantView
+}) {
+  const client = useQueryClient()
+  const [attended, setAttended] = useState(participant.attended ?? true)
+  const [reason, setReason] = useState("")
+  const record = useMutation({
+    mutationFn: () =>
+      recordTrainingAttendance({
+        programId,
+        employeeId: participant.employee_id,
+        attended,
+        reason,
+      }),
+    onSuccess: (saved) => {
+      client.setQueryData<TrainingParticipantView[]>(
+        hrKeys.trainingParticipants(programId),
+        (rows) => rows?.map((row) =>
+          row.employee_id === saved.employee_id ? saved : row,
+        ),
+      )
+      client.invalidateQueries({ queryKey: hrKeys.training() })
+      setReason("")
+    },
+  })
+  const latest = participant.attendance_history.at(-1)
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-hairline p-3">
+      {latest && (
+        <p className="text-meta text-body">
+          Last recorded by {latest.actor}: {latest.reason}
+        </p>
+      )}
+      <div className="flex flex-wrap items-end gap-2">
+        <Field label="Attendance">
+          <select
+            className="h-10 rounded-lg border border-hairline bg-surface px-3 text-sm text-ink"
+            value={attended ? "attended" : "absent"}
+            onChange={(event) => setAttended(event.target.value === "attended")}
+          >
+            <option value="attended">Attended</option>
+            <option value="absent">Absent</option>
+          </select>
+        </Field>
+        <Field label="Reason" className="min-w-56 flex-1">
+          <Input
+            value={reason}
+            placeholder="Checked against the signed register"
+            onChange={(event) => setReason(event.target.value)}
+          />
+        </Field>
+        <Submit
+          label={participant.attended === null ? "Record" : "Save correction"}
+          pending={record.isPending}
+          disabled={reason.trim() === ""}
+          error={record.error}
+          onSubmit={() => record.mutate()}
+        />
+      </div>
+    </div>
   )
 }

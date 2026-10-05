@@ -3,20 +3,20 @@
 /**
  * A store's return this warehouse received into that store's return pool.
  */
-export type ReturnToInspect = { delivery_id: string,
+export type ReturnToInspect = { delivery_id: string, 
 /**
  * The store it came back from, as its node spells it.
  */
-source_site_id: string, shipment_reference: string | null, received_at: string | null,
+source_site_id: string, shipment_reference: string | null, received_at: string | null, 
 /**
  * The store's return pool here, where the goods stand until inspected.
  */
-return_pool_id: string,
+return_pool_id: string, 
 /**
  * Received into the pool: the manifest's units found, and tags read
  * that no koli held.
  */
-received_units: number, inspected_units: number,
+received_units: number, inspected_units: number, 
 /**
  * Still standing in the return pool, not inspected.
  */

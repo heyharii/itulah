@@ -9,7 +9,23 @@ export default defineConfig({
   plugins: [react()],
   // Tauri points its dev window here; a strict port means a second copy of the
   // dev server cannot quietly take 5411 and leave the window on a stale build.
-  server: { port: 5410, strictPort: true },
+  //
+  // `VITE_API_TARGET` is the web till: the same page opened in a browser tab
+  // from the shop app, with `/api` proxied to the shop's node so every call is
+  // same-origin (`src/web.ts`). Tauri never sets it, and its window still
+  // goes through the shell.
+  server: {
+    port: 5410,
+    strictPort: true,
+    proxy:
+      process.env.VITE_API_TARGET === undefined
+        ? undefined
+        : { "/api": { target: process.env.VITE_API_TARGET, changeOrigin: true } },
+    fs: {
+      // `@epc` and the contract live beside this app, not inside it.
+      allow: [path.resolve(here, "../..")],
+    },
+  },
   clearScreen: false,
   resolve: {
     alias: {

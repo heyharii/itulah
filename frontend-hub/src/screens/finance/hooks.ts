@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 
 import { day, label } from "@/lib/format"
 import {
@@ -15,6 +15,10 @@ import {
 } from "@/lib/queries/finance"
 import { unitLabel } from "@/lib/queries/organisation"
 import { listSuppliers, procurementKeys } from "@/lib/queries/procurement"
+import {
+  findSupplier,
+  withLegalForm,
+} from "@/screens/procurement/supplier-format"
 import {
   categoryFamilyLabel,
   categoryFamilyOrder,
@@ -113,7 +117,8 @@ export function useSuppliers() {
 /// because inventing a label for an id nothing recognises would be worse than
 /// showing the id.
 export function useSupplierName(): (
-  supplierId: string | null | undefined
+  supplierId: string | null | undefined,
+  name?: string | null
 ) => string {
   const suppliers = useSuppliers()
   const bills = useQuery({
@@ -130,14 +135,34 @@ export function useSupplierName(): (
     }
     for (const supplier of suppliers.data ?? []) {
       table.set(supplier.supplier_id, supplier.name)
+      // Bills, advances and payments carry the supplier's CODE in their
+      // `supplier_id`, not the register's uuid — without this a whole AP
+      // screen read "SUP-001, SUP-002".
+      table.set(supplier.supplier_code, supplier.name)
     }
     return table
   }, [bills.data, suppliers.data])
 
-  return (supplierId) =>
-    supplierId === null || supplierId === undefined || supplierId === ""
-      ? "—"
-      : (byId.get(supplierId) ?? supplierId)
+  // `name` is the bare name the row itself carried (a bill's recorded name):
+  // preferred over the register's, but written with the register's legal form.
+  // A row with no id of its own (an accrual) is matched on that bare name.
+  return useCallback(
+    (supplierId: string | null | undefined, name?: string | null) => {
+      const book = suppliers.data ?? []
+      const hasId = supplierId !== null && supplierId !== undefined
+      if ((!hasId || supplierId === "") && (name == null || name === ""))
+        return "—"
+      const found = findSupplier(book, hasId ? supplierId : null, name)
+      const bare =
+        name != null && name !== "" && name !== supplierId
+          ? name
+          : hasId
+            ? (byId.get(supplierId) ?? supplierId)
+            : ""
+      return withLegalForm(bare, found?.legal_form)
+    },
+    [byId, suppliers.data]
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -315,6 +340,18 @@ const MONEY_KEYS: readonly string[] = [
 ]
 
 export function useMoneyAccounts(unitId: string): readonly MoneyAccount[] {
+  return useMoneyAccountChoices(unitId).accounts
+}
+
+/// The same list, and whether it is still being read.
+///
+/// Reading it takes a few seconds on a chart with every unit mapped, and a
+/// field that said "nothing is mapped here" for those seconds was telling the
+/// person to go and fix a mapping that was fine.
+export function useMoneyAccountChoices(unitId: string): {
+  accounts: readonly MoneyAccount[]
+  pending: boolean
+} {
   // What each money role resolves to in this unit's books — resolved by the
   // server, most specific link winning, and not by this browser walking the
   // links.
@@ -324,7 +361,7 @@ export function useMoneyAccounts(unitId: string): readonly MoneyAccount[] {
     enabled: unitId !== "",
     staleTime: 5 * 60 * 1000,
   })
-  return useMemo(() => {
+  const accounts = useMemo(() => {
     if (unitId === "") return []
     return (resolved.data ?? [])
       .filter((row) => MONEY_KEYS.includes(row.role))
@@ -341,6 +378,7 @@ export function useMoneyAccounts(unitId: string): readonly MoneyAccount[] {
           a.account_qualifier.localeCompare(b.account_qualifier)
       )
   }, [resolved.data, unitId])
+  return { accounts, pending: unitId !== "" && resolved.isPending }
 }
 
 /// The value a `<Select>` carries for one of these, and the way back.

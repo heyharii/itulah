@@ -179,7 +179,7 @@ function TaskSheet({
       title={row ? row.label : "New task"}
       id={row?.id}
       error={save.error ?? retire.error}
-      saveLabel="Save task"
+      saveLabel="Submit"
       saving={save.isPending}
       canSave={
         id.trim() !== "" &&
@@ -206,20 +206,14 @@ function TaskSheet({
           value={id}
           readOnly={row !== null}
           onChange={(e) => setId(e.target.value.toLowerCase())}
-          placeholder="laptop"
         />
       </Field>
       <Field label="Task" required>
-        <Input
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          placeholder="Laptop diserahkan"
-        />
+        <Input value={label} onChange={(e) => setLabel(e.target.value)} />
       </Field>
       <Field label="Who does it" required>
         <PickOne
           label="Who does it"
-          placeholder="Choose…"
           choices={OWNER_CHOICES}
           value={owner}
           onChange={setOwner}
@@ -228,7 +222,6 @@ function TaskSheet({
       <Field label="Checklist" required>
         <PickOne
           label="Checklist"
-          placeholder="Choose…"
           choices={CHECKLIST_KINDS}
           value={kind}
           onChange={setKind}

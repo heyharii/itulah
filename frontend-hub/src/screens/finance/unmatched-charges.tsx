@@ -64,7 +64,7 @@ const columns: ColumnDef<TableSetup, CheckoutException>[] = [
   {
     id: "resolved_at",
     accessorFn: (row) => row.resolved_at,
-    header: "Closed at the till",
+    header: "Closed at the Till",
     size: 170,
     cell: ({ row }) => moment(row.original.resolved_at),
   },
@@ -88,7 +88,7 @@ const columns: ColumnDef<TableSetup, CheckoutException>[] = [
         .filter((tender) => tender.status === "SUCCEEDED")
         .map((tender) => tender.external_reference ?? "—")
         .join(", "),
-    header: "Acquirer reference",
+    header: "Acquirer Reference",
     size: 190,
     cell: ({ row }) => {
       const references = row.original.tenders
@@ -103,7 +103,7 @@ const columns: ColumnDef<TableSetup, CheckoutException>[] = [
   {
     id: "actor_id",
     accessorFn: (row) => row.actor_id,
-    header: "On the till",
+    header: "On the Till",
     size: 130,
   },
   {
@@ -307,7 +307,7 @@ function ChargeSheet({
               head={[
                 "Method",
                 { label: "State", align: "left" },
-                { label: "Acquirer reference", align: "left" },
+                { label: "Acquirer Reference", align: "left" },
                 "Amount",
               ]}
             >
@@ -373,7 +373,6 @@ function ChargeSheet({
                 <Input
                   value={who}
                   onChange={(event) => setWho(event.target.value)}
-                  placeholder="A person, by name"
                 />
               </Field>
               <Field label="What happened">
@@ -381,7 +380,6 @@ function ChargeSheet({
                   rows={3}
                   value={note}
                   onChange={(event) => setNote(event.target.value)}
-                  placeholder="The reference you quoted, who you spoke to, what they said."
                 />
               </Field>
               <Button

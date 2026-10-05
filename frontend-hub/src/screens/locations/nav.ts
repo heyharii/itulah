@@ -2,7 +2,7 @@ import { Pin } from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
 
-/// Locations — the places the company operates from.
+/// Sites — the premises the company operates from.
 ///
 /// # Why this is not a new master
 ///
@@ -22,10 +22,10 @@ import type { AppModule } from "@/lib/navigation"
 ///
 /// Migration 0353 settled this: the distribution centre IS head office, kind
 /// `HO`, and a second site for a building would put the same place in the books
-/// twice. A building, a floor or an area is a sub-location.
+/// twice. A building, a floor or an area is a sub-site.
 export const gaLocationsNav: AppModule = {
   id: "ga-locations",
-  label: "Locations",
+  label: "Sites",
   icon: Pin,
   home: "/locations",
   // Live: the list and its hub are written, so the row navigates rather than
@@ -33,5 +33,5 @@ export const gaLocationsNav: AppModule = {
   // has one door and does not unfold — the hub is a sheet raised over this
   // list, not a second screen beside it. Paths and labels unchanged: the
   // screen arrives at the path the menu already claimed.
-  sections: [{ items: [{ path: "/locations", label: "Locations", icon: Pin }] }],
+  sections: [{ items: [{ path: "/locations", label: "Sites", icon: Pin }] }],
 }

@@ -18,8 +18,13 @@ import {
   recordMeterReading,
 } from "@/lib/queries/ga"
 import { uploadDocument } from "@/lib/queries/workplace"
-import { monthLabel, partyOf, siteOf } from "@/screens/contracts/format"
+import {
+  monthLabel,
+  siteOf,
+  useContractParty,
+} from "@/screens/contracts/format"
 import { FinanceMark, StandingPill } from "@/screens/contracts/parts"
+import { BillRequestForm } from "@/screens/ga/bill-request"
 import type {
   GaContractHub,
   GaContractRow,
@@ -35,9 +40,8 @@ import type {
 /// Details is GA's own fact. Bills and Recurring bills are Finance's answers
 /// pointed back at this contract through `contract_id` — read here so the
 /// person renewing the deal can see what it has been costing, and marked
-/// Finance's because the ledger behind them is not this register's. Raising a
-/// bill from here is tahap 6; until then this sheet reads Finance's figures
-/// and acts on GA's half only.
+/// Finance's because the ledger behind them is not this register's. GA sends a
+/// supplier's bill from the Bills tab as a draft; posting it stays Finance's.
 ///
 /// # Usage exists for one group
 ///
@@ -53,6 +57,7 @@ export function ContractHubSheet({
   open: boolean
   onClose: () => void
 }) {
+  const partyName = useContractParty()
   const hub = useQuery({
     queryKey: gaKeys.contract(contractId ?? ""),
     queryFn: ({ signal }) => gaContractHub(contractId ?? "", signal),
@@ -70,7 +75,7 @@ export function ContractHubSheet({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       width="wide"
-      title={hub.data === undefined ? "Contract" : partyOf(hub.data.contract)}
+      title={hub.data === undefined ? "Contract" : partyName(hub.data.contract)}
       id={
         hub.data === undefined
           ? undefined
@@ -175,6 +180,7 @@ export function ContractHubSheet({
 /// when Finance's map has no expense account for this type, every bill under
 /// the contract is a decision Finance has not made yet (brief §4.2).
 function DetailTab({ hub }: { hub: GaContractHub }) {
+  const partyName = useContractParty()
   const contract = hub.contract
 
   // Resolved for the contract's own site; a scope contract (all stores) is
@@ -202,7 +208,7 @@ function DetailTab({ hub }: { hub: GaContractHub }) {
         </h4>
         <Facts>
           <Fact term="Party">
-            {partyOf(contract)}
+            {partyName(contract)}
             {contract.counterparty_name !== null && (
               <span className="text-pill font-normal text-mute">
                 {" "}
@@ -215,9 +221,7 @@ function DetailTab({ hub }: { hub: GaContractHub }) {
             <Fact term="Object">{contract.objek_name}</Fact>
           )}
           <Fact term="Location">{siteOf(contract)}</Fact>
-          <Fact term="Term">
-            {span(contract.starts_on, contract.ends_on)}
-          </Fact>
+          <Fact term="Term">{span(contract.starts_on, contract.ends_on)}</Fact>
           {contract.customer_number !== null && (
             <Fact term="Customer no.">{contract.customer_number}</Fact>
           )}
@@ -275,9 +279,8 @@ function MissingAccountBox({
 
 /// The bills pointed at this contract: Finance's ledger, read.
 ///
-/// The figures read zero today for a reason worth saying in the interface
-/// itself: a bill line can only point at a contract from tahap 6, so an
-/// honest zero beats a column pretending it is empty by accident.
+/// The figures count bills Finance has POSTED against this contract; a bill
+/// GA sent from here shows once it is posted.
 function BillsTab({
   row,
   bills,
@@ -285,8 +288,42 @@ function BillsTab({
   row: GaContractRow
   bills: GaContractHub["bills"]
 }) {
+  const [billing, setBilling] = useState(false)
+  // A contract GA pays (not one the company lets out), with a supplier on it.
+  // A contract over several sites splits its bill per site, which is Finance's
+  // form to do; one site is a single line GA can send.
+  const payable = row.group_code !== "DISEWAKAN" && row.supplier_id !== null
   return (
     <div className="flex flex-col gap-4">
+      {payable &&
+        !billing &&
+        (row.site_id !== null ? (
+          <div>
+            <Button variant="soft" onClick={() => setBilling(true)}>
+              Send bill to Finance
+            </Button>
+          </div>
+        ) : (
+          <p className="text-pill text-mute">
+            This contract covers several sites, so Finance enters its bill and
+            splits it per site.
+          </p>
+        ))}
+      {billing && row.site_id !== null && (
+        <BillRequestForm
+          source={{
+            site_id: row.site_id,
+            supplier_id: row.supplier_id,
+            supplier_name: row.supplier_name,
+            amount_minor: null,
+            memo: row.contract_number ?? row.contract_type_name,
+            contract_id: row.contract_id,
+            period: true,
+          }}
+          onDone={() => setBilling(false)}
+          onCancel={() => setBilling(false)}
+        />
+      )}
       <div className="grid grid-cols-2 gap-3">
         <figure>
           <figcaption className="text-eyebrow font-medium text-body">
@@ -363,9 +400,9 @@ function BillsTab({
       </div>
 
       <p className="text-pill text-mute">
-        Calculated from POSTED bill lines that point to this contract. Until
-        stage 6, no bill line can point here yet, so the figure reads zero.
-        The prepaid period is the bill's own period, not the contract's.
+        Counted from bills Finance has posted against this contract; a bill sent
+        from here shows once Finance posts it. The prepaid period is the bill's
+        own period, not the contract's.
       </p>
     </div>
   )
@@ -533,9 +570,7 @@ function ReadingForm({
           label="Reading month"
           required
           aside={
-            last === undefined
-              ? undefined
-              : `last ${monthLabel(last.period)}`
+            last === undefined ? undefined : `last ${monthLabel(last.period)}`
           }
           problem={problems.period || undefined}
         >
@@ -549,7 +584,6 @@ function ReadingForm({
           <Input
             value={form.unit ?? ""}
             onChange={(event) => set("unit", event.target.value)}
-            placeholder="kWh / m³"
           />
         </Field>
         <Field
@@ -561,7 +595,6 @@ function ReadingForm({
             inputMode="numeric"
             value={form.opening ?? ""}
             onChange={(event) => set("opening", event.target.value)}
-            placeholder={last === undefined ? "0" : String(last.closing)}
           />
         </Field>
         <Field
@@ -585,7 +618,7 @@ function ReadingForm({
       </div>
       <div className="mt-3 flex items-center gap-2">
         <Button variant="primary" pending={save.isPending} onClick={submit}>
-          {save.isPending ? "Saving…" : "Save reading"}
+          {save.isPending ? "Submitting…" : "Submit"}
         </Button>
         <Button variant="ghost" onClick={onCancel}>
           Cancel
@@ -615,7 +648,7 @@ function TemplatesTab({
               "Label",
               { label: "Estimate", align: "right" },
               { label: "Tolerance", align: "right" },
-              { label: "Due day", align: "right" },
+              { label: "Due Day", align: "right" },
               { label: "Status", align: "left" },
             ]}
           >
@@ -623,8 +656,8 @@ function TemplatesTab({
               <MiniRow>
                 <MiniCell colSpan={5}>
                   <span className="text-meta text-mute">
-                    No recurring bills point to this contract yet. Templates
-                    are created by Finance in Recurring bills.
+                    No recurring bills point to this contract yet. Templates are
+                    created by Finance in Recurring bills.
                   </span>
                 </MiniCell>
               </MiniRow>
@@ -654,8 +687,8 @@ function TemplatesTab({
       </div>
       <p className="text-pill text-mute">
         <FinanceMark className="mr-1 align-[0.0625rem]" /> The monthly amount
-        belongs to the recurring bill (Finance); the contract stores the
-        agreed total value, not the monthly figure.
+        belongs to the recurring bill (Finance); the contract stores the agreed
+        total value, not the monthly figure.
       </p>
     </div>
   )
@@ -823,7 +856,7 @@ function AttachForm({
           disabled={file === null}
           onClick={() => save.mutate()}
         >
-          {save.isPending ? "Uploading…" : "Save document"}
+          {save.isPending ? "Submitting…" : "Submit"}
         </Button>
         <Button variant="ghost" onClick={onCancel}>
           Cancel
@@ -885,7 +918,6 @@ function ArchiveForm({
             setProblem("")
             setReason(event.target.value)
           }}
-          placeholder="e.g. Agreement ended, renewed with a new contract"
           onKeyDown={(event) => {
             if (event.key === "Enter") submit()
           }}

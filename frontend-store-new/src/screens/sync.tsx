@@ -99,7 +99,6 @@ export function SyncScreen() {
 
   return (
     <Screen
-      sub="What this shop has recorded, and whether head office has it."
       actions={action}
     >
       {/* No page header on a phone — the bar names the screen — so the one
@@ -126,7 +125,7 @@ export function SyncScreen() {
             />
           </Card>
         ) : (
-          <LoadingState>Reading this node…</LoadingState>
+          <LoadingState>Loading…</LoadingState>
         )
       ) : (
         <Outbox
@@ -166,10 +165,8 @@ function Outbox({
 
       {unsent > 0 && (
         <Banner tone="warn" className="mb-4">
-          {unsent === 1 ? "One sale is" : `${count(unsent)} sales are`} still in
-          this browser and {unsent === 1 ? "has" : "have"} not reached this node
-          — so {unsent === 1 ? "it is" : "they are"} not in the figures below
-          either. They send on their own once the node answers.
+          {unsent === 1 ? "1 sale" : `${count(unsent)} sales`} waiting in this
+          browser. They send once the server answers.
         </Banner>
       )}
 
@@ -256,15 +253,12 @@ function Outbox({
               for a send during a cooldown would only hide the outage. */}
           {cooling && (
             <Banner tone="warn" className="mx-4 mb-3.5">
-              Sending now does not shorten a cooldown. The sender is waiting on
-              purpose, and the wait survives a restart.
+              Cooling down. Sending now won't skip the wait.
             </Banner>
           )}
           {!status.sender_enabled && (
             <Banner tone="warn" className="mx-4 mb-3.5">
-              No upload address is configured on this node. Everything it
-              records is still captured and still durable — but nothing is being
-              sent anywhere, and nobody at head office can see today.
+              No upload address set. Nothing is sent to head office.
             </Banner>
           )}
         </Card>
@@ -343,22 +337,22 @@ const HEALTH: Readonly<
   current: {
     tone: "ok",
     word: "Up to date",
-    says: "Everything this shop has recorded has reached head office.",
+    says: "Everything has reached head office.",
   },
   behind: {
     tone: "info",
     word: "Sending",
-    says: "Waiting to be sent. This is ordinary and clears itself.",
+    says: "Sending. Clears on its own.",
   },
   blocked: {
     tone: "bad",
     word: "Stuck",
-    says: "Not getting through. Somebody needs to look at this.",
+    says: "Not getting through. Needs a look.",
   },
   off: {
     tone: "warn",
     word: "Off",
-    says: "Nothing is being uploaded from this node.",
+    says: "Nothing is being sent.",
   },
 }
 

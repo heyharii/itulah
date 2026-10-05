@@ -3,27 +3,27 @@
 /**
  * One tender reconciliation, as a screen reads it.
  */
-export type TenderReconciliationRow = { recon_id: string,
+export type TenderReconciliationRow = { recon_id: string, 
 /**
  * Whose takings are being proved: the unit, not one of its shops (0609).
  */
-unit_id: string, business_date: string,
+unit_id: string, business_date: string, 
 /**
  * `CASH`, `CARD`, `QRIS` or `VOUCHER`.
  */
-tender_kind: string, terminal_id: string | null,
+tender_kind: string, terminal_id: string | null, 
 /**
  * `OPEN` or `CLOSED`.
  */
-status: string, counted_cash_minor: number | null,
+status: string, counted_cash_minor: number | null, 
 /**
  * What the tills took for this tender that day, across the unit's shops.
  */
-receipts_minor: number, receipt_count: number,
+receipts_minor: number, receipt_count: number, 
 /**
  * What this terminal's slip says it approved.
  */
-batch_minor: number, batch_line_count: number,
+batch_minor: number, batch_line_count: number, 
 /**
  * How many receipts and approvals still have nobody's answer against them.
  * The closing gate, shown before somebody presses it.

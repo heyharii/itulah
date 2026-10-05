@@ -5,41 +5,36 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
-import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { flexRender, useTable } from "@tanstack/react-table"
+import { ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react"
+import { Fragment, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Checkbox, Field, Input, Select } from "@/components/ui/field"
+import { Field, Input, Select } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
-import { Toolbar } from "@/components/ui/segmented"
+import { Pill, Status } from "@/components/ui/pill"
+import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
-import { SubTabs } from "@/components/ui/sub-tabs"
+import {
+  Banner,
+  EmptyState,
+  LoadMore,
+  type Pageable,
+} from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
 import { count, day, moment } from "@/lib/format"
-import {
-  deleteRole,
-  SECTION_LABEL,
-  SECTIONS,
-  roleHint,
-  roleKeys,
-  sectionsOf,
-  updateRole,
-  useRoles,
-  type JobRole,
-  type SectionCode,
-} from "@/lib/queries/invitations"
+import { useRoles } from "@/lib/queries/invitations"
 import {
   createUser,
   resetUserPassword,
   setUserActive,
+  unlockUser,
   setUserRole,
   systemKeys,
   usersPage,
@@ -52,6 +47,7 @@ import { useCanWrite } from "@/lib/session"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
+import { cn } from "@/lib/utils"
 import { InviteSheet } from "@/screens/people/invite-sheet"
 import { Secret } from "@/screens/system/shared"
 import { saying } from "@/screens/system/units"
@@ -74,24 +70,17 @@ import type { Role } from "@itulah/contract"
 /// read-only information, in `<NodeAccess>` below — a fact worth knowing, not
 /// a field to fill in.
 
-type Tab = "users" | "roles"
-
-const TABS: readonly { value: Tab; label: string }[] = [
-  { value: "users", label: "Users" },
-  { value: "roles", label: "Roles" },
-]
-
+/// Job roles moved to HR › Job roles on 2026-09-29 (owner: a job role is an HR
+/// thing, and System holds only the accounts).
 export function Users() {
-  const [tab, setTab] = useState<Tab>("users")
   return (
     <PageContent>
       <PageHeader
         crumb="System"
-        title="Users & roles"
-        sub="Who can sign in at the centre, what each of them may do, and the roles that answer that."
+        title="Users"
+        sub="Who can sign in at the centre, and as which job role. Job roles themselves are kept in HR."
       />
-      <SubTabs tabs={TABS} value={tab} onChange={(next) => setTab(next as Tab)} />
-      {tab === "users" ? <UsersTab /> : <RolesTab />}
+      <UsersTab />
     </PageContent>
   )
 }
@@ -110,13 +99,13 @@ const SORTS: Record<string, string> = {
 const STATE_WORD: Readonly<Record<string, string>> = {
   ACTIVE: "Active",
   LEFT_OPEN: "Left, still open",
-  DISABLED: "Suspended",
+  DISABLED: "Blocked",
 }
 
 const FIELDS: FilterField[] = [
   {
     column: "role",
-    label: "Role",
+    label: "Job Role",
     spec: { kind: "option", single: true, operators: ["isAnyOf"] },
   },
   {
@@ -136,6 +125,64 @@ const FIELDS: FilterField[] = [
   },
 ]
 
+/// How the register is split apart — by store unless somebody picks another
+/// fact to compare across accounts (owner, 2026-09-29: accounts are handed
+/// out per store, so that is how the list is read).
+type GroupBy = "none" | "place" | "record" | "role"
+
+const GROUP_OPTIONS: readonly { value: GroupBy; label: string }[] = [
+  { value: "place", label: "Store" },
+  { value: "role", label: "Job role" },
+  { value: "record", label: "Record" },
+  { value: "none", label: "No grouping" },
+]
+
+interface UserGroup {
+  readonly key: string
+  readonly label: string
+  readonly rows: UserRow[]
+  /// The catch-all bucket ("No store", "Nobody — machine or
+  /// unbound") sorts after every named one rather than wherever its label
+  /// would otherwise fall alphabetically.
+  readonly fallback: boolean
+}
+
+/// Buckets the rows already loaded into this page into named groups. Client
+/// side, over whatever pages are in memory — the register is read a page or
+/// two at a time regardless, and a further page just joins its group once it
+/// arrives.
+function groupUsers(rows: readonly UserRow[], by: GroupBy): UserGroup[] {
+  if (by === "none") {
+    return [{ key: "all", label: "", rows: [...rows], fallback: false }]
+  }
+
+  const buckets = new Map<string, UserGroup>()
+  for (const row of rows) {
+    const [key, label, fallback] =
+      by === "place"
+        ? row.unit_id === null
+          ? (["none", "No store", true] as const)
+          : ([row.unit_id, row.unit_name ?? row.unit_id, false] as const)
+        : by === "record"
+          ? row.employee_id === null
+            ? (["none", "Nobody — machine or unbound", true] as const)
+            : (["has", "Has an employment record", false] as const)
+          : ([row.role_code, row.role_name, false] as const)
+
+    const bucket = buckets.get(key)
+    if (bucket) bucket.rows.push(row)
+    else buckets.set(key, { key, label, rows: [row], fallback })
+  }
+
+  return [...buckets.values()].sort((a, b) =>
+    a.fallback !== b.fallback
+      ? a.fallback
+        ? 1
+        : -1
+      : a.label.localeCompare(b.label)
+  )
+}
+
 function scopeFromFilters(filters: readonly Filter[]): {
   role?: string
   state?: string
@@ -153,60 +200,41 @@ function scopeFromFilters(filters: readonly Filter[]): {
 
 const columns: ColumnDef<TableSetup, UserRow>[] = [
   {
+    // Who, then the login under it — one column, not three that each said a
+    // version of the same name (owner, 2026-09-29: "masih ga rapi").
     accessorKey: "username",
-    header: "Username",
-    size: 150,
+    header: "Person",
+    size: 240,
     cell: ({ row }) => (
-      <span className="font-mono text-id text-body">
-        {row.original.username}
+      <span className="block min-w-0 leading-tight">
+        <span className="block truncate font-medium text-ink">
+          {row.original.employee_name ?? row.original.display_name}
+        </span>
+        <span className="block truncate text-[0.875rem] text-mute">
+          <span className="font-mono">{row.original.username}</span>
+          {row.original.employee_id === null && " · no employee record"}
+        </span>
       </span>
     ),
   },
   {
-    accessorKey: "display_name",
-    header: "Person",
+    id: "job_role",
+    // A grant made by hand before access followed role and unit
+    // (`derived: false`) is said quietly beside the role — the exception
+    // somebody should notice, without a coloured tag on every row.
+    accessorFn: (row) => row.role_name,
+    header: "Job Role",
     size: 200,
     enableSorting: false,
     cell: ({ row }) => (
-      <span className="font-medium text-ink">{row.original.display_name}</span>
-    ),
-  },
-  {
-    id: "person",
-    accessorFn: (row) => row.employee_name ?? row.employee_code ?? "",
-    header: "Employment record",
-    size: 190,
-    enableSorting: false,
-    cell: ({ row }) =>
-      row.original.employee_id === null ? (
-        <span className="text-mute">Nobody — machine or unbound</span>
-      ) : (
-        <span className="text-ink">
-          {row.original.employee_name ?? row.original.employee_code}
-          {row.original.unit_name && (
-            <span className="text-mute"> · {row.original.unit_name}</span>
-          )}
-        </span>
-      ),
-  },
-  {
-    id: "job_role",
-    // The job role — OWNER, FINANCE, STORE_MANAGER and the rest — in place of
-    // the bare rung this column used to show. A row with a grant somebody
-    // made by hand before access followed role and unit (`derived: false`)
-    // carries a second, quieter tag — the exception this list is for
-    // somebody to notice, without opening the sheet to find it.
-    accessorFn: (row) => row.role_name,
-    header: "Job role",
-    size: 190,
-    enableSorting: false,
-    cell: ({ row }) => (
-      <span className="flex flex-wrap items-center gap-1">
-        <Tag tone={row.original.role === "ADMIN" ? "accent" : "neutral"}>
+      <span className="block leading-tight">
+        <span className="block truncate text-ink">
           {row.original.role_name}
-        </Tag>
+        </span>
         {row.original.nodes.some((node) => !node.derived) && (
-          <Tag tone="warn">Legacy access</Tag>
+          <span className="block truncate text-[0.875rem] text-warn-fg">
+            Legacy access
+          </span>
         )}
       </span>
     ),
@@ -218,29 +246,31 @@ const columns: ColumnDef<TableSetup, UserRow>[] = [
         ? "Left, still open"
         : row.active
           ? "Active"
-          : "Suspended",
+          : "Blocked",
     header: "State",
-    size: 130,
+    size: 150,
     enableSorting: false,
     cell: ({ row }) =>
       row.original.active && row.original.employee_status === "TERMINATED" ? (
-        <Pill tone="bad">Left, still open</Pill>
+        <Status tone="bad">Left, still open</Status>
+      ) : row.original.active && row.original.login_blocked_until ? (
+        <Status tone="warn">Locked</Status>
+      ) : row.original.active ? (
+        <Status tone="ok">Active</Status>
       ) : (
-        <Pill tone={row.original.active ? "ok" : "bad"}>
-          {row.original.active ? "Active" : "Suspended"}
-        </Pill>
+        <Status tone="bad">Blocked</Status>
       ),
   },
   {
     id: "last_login",
     accessorFn: (row) =>
       row.last_login_at === null ? 0 : Date.parse(row.last_login_at),
-    header: "Last sign-in",
+    header: "Last Sign-in",
     size: 140,
     meta: { align: "right" },
     cell: ({ row }) =>
       row.original.last_login_at === null ? (
-        <span className="font-medium text-warn-fg">Never</span>
+        <span className="text-mute">Never</span>
       ) : (
         day(row.original.last_login_at)
       ),
@@ -265,6 +295,7 @@ function UsersTab() {
   ])
 
   const filters = useFilterState(FIELDS)
+  const [groupBy, setGroupBy] = useState<GroupBy>("place")
 
   const needle = useDebounced(query.trim(), 400)
   const scope = useMemo<UserScope>(() => {
@@ -335,6 +366,8 @@ function UsersTab() {
     )
   )
 
+  const groups = useMemo(() => groupUsers(rows, groupBy), [rows, groupBy])
+
   return (
     <>
       <Banner tone="info" className="mb-3.5">
@@ -350,10 +383,14 @@ function UsersTab() {
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search"
           className="h-8 w-48"
         />
         <FilterPanel model={model} />
+        <Segmented
+          options={GROUP_OPTIONS}
+          value={groupBy}
+          onChange={setGroupBy}
+        />
         <Toolbar.Spacer />
         {head && (
           <span className="text-[0.875rem] text-mute tabular-nums">
@@ -372,20 +409,22 @@ function UsersTab() {
         )}
       </Toolbar>
 
-      <Card className="overflow-hidden">
-        {queryState(users, {
-          loading: "Loading the accounts…",
-          render: () =>
-            rows.length === 0 ? (
-              needle !== "" || filters.filters.length > 0 ? (
+      {queryState(users, {
+        loading: "Loading the accounts…",
+        render: () =>
+          rows.length === 0 ? (
+            <Card className="overflow-hidden">
+              {needle !== "" || filters.filters.length > 0 ? (
                 <EmptyState>Nobody matches what you asked for.</EmptyState>
               ) : (
                 <EmptyState>
                   There are no accounts on this node yet. Nobody can sign in
                   until one is created.
                 </EmptyState>
-              )
-            ) : (
+              )}
+            </Card>
+          ) : groupBy === "none" ? (
+            <Card className="overflow-hidden">
               <DataTable<UserRow>
                 table={table}
                 more={users}
@@ -393,9 +432,19 @@ function UsersTab() {
                 isSelected={(row) => row.username === user.value}
                 className="max-h-[calc(100vh-22rem)]"
               />
-            ),
-        })}
-      </Card>
+            </Card>
+          ) : (
+            <Card className="overflow-hidden">
+              <GroupedDataTable
+                table={table}
+                groups={groups}
+                onRowClick={(row) => user.open(row.username)}
+                isSelected={(row) => row.username === user.value}
+                more={users}
+              />
+            </Card>
+          ),
+      })}
 
       <UserSheet
         key={user.value ?? "none"}
@@ -408,6 +457,176 @@ function UsersTab() {
       <AddUserSheet open={adding} onClose={() => setAdding(false)} />
       <InviteSheet open={invite.isOpen} onClose={invite.close} />
     </>
+  )
+}
+
+/// The register, grouped — ONE table, so column widths stay identical across
+/// groups. `DataTable` has no grouped-row model (nothing in
+/// `components/ui/data-table.tsx` mentions "group"), so this draws its own
+/// `<table>` around the SAME `useTable` instance the flat list uses: the
+/// header row is rendered once, and each group is a full-width divider row
+/// followed by that group's rows, pulled from `table.getRowModel().rows` in
+/// group order rather than from a second table. Row rendering is a plain
+/// subset of what `DataTable`'s own `Row` does — this screen never
+/// virtualises or shrinks to a phone card, so it does not need that
+/// machinery, but the cell markup matches it (same padding, same hover and
+/// selection tint) so a grouped table reads as the same table, not a
+/// different component wearing its clothes.
+function GroupedDataTable({
+  table,
+  groups,
+  onRowClick,
+  isSelected,
+  more,
+}: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  table: any
+  groups: readonly UserGroup[]
+  onRowClick: (row: UserRow) => void
+  isSelected: (row: UserRow) => boolean
+  more?: Pageable
+}) {
+  const byUsername = useMemo(
+    () =>
+      new Map(
+        (table as ReturnType<typeof useTable<TableSetup, UserRow>>)
+          .getRowModel()
+          .rows.map((row) => [row.original.username, row])
+      ),
+    [table]
+  )
+  const columnCount = (
+    table as ReturnType<typeof useTable<TableSetup, UserRow>>
+  ).getAllLeafColumns().length
+
+  return (
+    <div className="max-h-[calc(100vh-22rem)] min-h-0 overflow-auto">
+      <table className="w-full border-collapse text-cell">
+        <thead>
+          {(table as ReturnType<typeof useTable<TableSetup, UserRow>>)
+            .getHeaderGroups()
+            .map((group) => (
+              <tr key={group.id}>
+                {group.headers.map((header) => {
+                  const sortable = header.column.getCanSort()
+                  const sorted = header.column.getIsSorted()
+                  const align = header.column.columnDef.meta?.align
+                  return (
+                    <th
+                      key={header.id}
+                      aria-sort={
+                        !sortable
+                          ? undefined
+                          : sorted === "asc"
+                            ? "ascending"
+                            : sorted === "desc"
+                              ? "descending"
+                              : "none"
+                      }
+                      className={cn(
+                        "sticky top-0 z-10 bg-soft",
+                        "border-b border-hairline",
+                        "h-10 px-3.5 py-0 text-eyebrow font-medium whitespace-nowrap text-body normal-case",
+                        align === "right" ? "text-right" : "text-left"
+                      )}
+                    >
+                      {header.isPlaceholder ? null : sortable ? (
+                        <button
+                          type="button"
+                          onClick={() => header.column.toggleSorting()}
+                          className={cn(
+                            "inline-flex items-center gap-1 transition-colors hover:text-ink",
+                            align === "right" && "flex-row-reverse"
+                          )}
+                        >
+                          {flexRender(
+                            header.column.columnDef.header,
+                            header.getContext()
+                          )}
+                          {sorted === "asc" ? (
+                            <ChevronUp className="size-3 text-ink" />
+                          ) : sorted === "desc" ? (
+                            <ChevronDown className="size-3 text-ink" />
+                          ) : (
+                            <ChevronsUpDown className="size-3 text-faint" />
+                          )}
+                        </button>
+                      ) : (
+                        flexRender(
+                          header.column.columnDef.header,
+                          header.getContext()
+                        )
+                      )}
+                    </th>
+                  )
+                })}
+              </tr>
+            ))}
+        </thead>
+        <tbody>
+          {groups.map((group) => (
+            <Fragment key={group.key}>
+              <tr>
+                <td
+                  colSpan={columnCount}
+                  className="border-b border-hairline bg-soft px-3.5 pt-4 pb-2 text-[0.875rem]"
+                >
+                  <span className="font-semibold text-ink">{group.label}</span>
+                  <span className="ml-2 text-mute tabular-nums">
+                    {count(group.rows.length)}
+                  </span>
+                </td>
+              </tr>
+              {group.rows.map((original) => {
+                const row = byUsername.get(original.username)
+                if (row === undefined) return null
+                const selected = isSelected(original)
+                return (
+                  <tr
+                    key={row.id}
+                    onClick={() => onRowClick(original)}
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault()
+                        onRowClick(original)
+                      }
+                    }}
+                    data-selected={selected || undefined}
+                    aria-current={selected || undefined}
+                    className={cn(
+                      "h-row cursor-pointer border-b border-hairline last:border-b-0",
+                      "outline-none focus-visible:bg-accent-bg/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent",
+                      selected ? "bg-accent-bg" : "hover:bg-soft"
+                    )}
+                  >
+                    {row.getVisibleCells().map((cell) => {
+                      const align = cell.column.columnDef.meta?.align
+                      return (
+                        <td
+                          key={cell.id}
+                          className={cn(
+                            "px-3.5 py-2.5 whitespace-nowrap text-text",
+                            align === "right" && "text-right",
+                            align === "center" && "text-center"
+                          )}
+                        >
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext()
+                          )}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })}
+            </Fragment>
+          ))}
+        </tbody>
+      </table>
+      {more !== undefined && <LoadMore query={more} />}
+    </div>
   )
 }
 
@@ -433,14 +652,16 @@ function NodeAccess({ user }: { user: UserRow }) {
       : user.node_reach === "EVERY"
         ? `Every server — ${user.role_name}`
         : user.nodes
-              .filter((row) => row.derived)
-              .map((row) => row.label ?? row.site_name ?? row.origin_id)
-              .join(", ") || "This unit's server";
+            .filter((row) => row.derived)
+            .map((row) => row.label ?? row.site_name ?? row.origin_id)
+            .join(", ") || "This unit's server"
 
   return (
     <div className="flex flex-col gap-1.5">
       <p className="text-[0.875rem] text-ink">
-        {user.node_reach === "UNIT" ? `${summary} — ${user.role_name}` : summary}
+        {user.node_reach === "UNIT"
+          ? `${summary} — ${user.role_name}`
+          : summary}
       </p>
       {legacy.length > 0 && (
         <div className="mt-1 flex flex-col gap-1.5">
@@ -460,7 +681,7 @@ function NodeAccess({ user }: { user: UserRow }) {
                 {row.edge_role}
               </Tag>
               <Pill tone={row.active ? "ok" : "bad"}>
-                {row.active ? "Active" : "Suspended"}
+                {row.active ? "Active" : "Blocked"}
               </Pill>
               <Tag>Legacy</Tag>
             </div>
@@ -502,6 +723,11 @@ function UserSheet({
     onSuccess: () => void invalidate(),
   })
 
+  const unlock = useMutation({
+    mutationFn: () => unlockUser(user!.id),
+    onSuccess: () => void invalidate(),
+  })
+
   const reset = useMutation({
     mutationFn: () => resetUserPassword(user!.id, { new_password: password }),
     onSuccess: () => {
@@ -510,7 +736,8 @@ function UserSheet({
     },
   })
 
-  const failure = changeRole.error ?? changeActive.error ?? reset.error
+  const failure =
+    changeRole.error ?? changeActive.error ?? unlock.error ?? reset.error
 
   return (
     <Sheet
@@ -530,7 +757,7 @@ function UserSheet({
         <div className="flex flex-col gap-5">
           <div className="flex items-center gap-2">
             <Pill tone={user.active ? "ok" : "bad"}>
-              {user.active ? "Active" : "Suspended"}
+              {user.active ? "Active" : "Blocked"}
             </Pill>
             <Tag tone={user.role === "ADMIN" ? "accent" : "neutral"}>
               {user.role_name}
@@ -581,7 +808,7 @@ function UserSheet({
               Job role
             </h4>
             <div className="flex items-end gap-2.5">
-              <Field label="Role" className="flex-1">
+              <Field label="Job Role" className="flex-1">
                 <Select
                   value={chosen}
                   disabled={!canWrite}
@@ -601,7 +828,7 @@ function UserSheet({
                   disabled={chosen === user.role_code || chosen === ""}
                   onClick={() => changeRole.mutate()}
                 >
-                  {changeRole.isPending ? "Saving…" : "Save role"}
+                  {changeRole.isPending ? "Submitting…" : "Submit"}
                 </Button>
               )}
             </div>
@@ -613,20 +840,47 @@ function UserSheet({
                 <h4 className="mb-2 text-card-title font-semibold text-ink">
                   Access
                 </h4>
+                {/* Locked by wrong passwords: it lifts by itself at the time
+                    shown, or now. Suspending is the blacklist — it signs the
+                    person out everywhere, at the centre and at every store
+                    server, until somebody restores it. */}
+                {user.active && user.login_blocked_until && (
+                  <div className="mb-3 flex flex-wrap items-center gap-3 rounded-inner bg-warn-bg px-3.5 py-2.5">
+                    <span className="min-w-0 flex-1 text-[0.875rem] text-warn-fg">
+                      Locked after too many wrong passwords, until{" "}
+                      {moment(user.login_blocked_until)}.
+                    </span>
+                    <Button
+                      size="sm"
+                      pending={unlock.isPending}
+                      onClick={() => unlock.mutate()}
+                    >
+                      {unlock.isPending ? "Unlocking…" : "Unlock now"}
+                    </Button>
+                  </div>
+                )}
                 {user.active ? (
-                  <Button
-                    variant="danger"
-                    pending={changeActive.isPending}
-                    onClick={() => changeActive.mutate(false)}
-                  >
-                    {changeActive.isPending ? "Suspending…" : "Suspend account"}
-                  </Button>
+                  <div className="flex flex-col items-start gap-1.5">
+                    <Button
+                      variant="danger"
+                      pending={changeActive.isPending}
+                      onClick={() => changeActive.mutate(false)}
+                    >
+                      {changeActive.isPending ? "Blocking…" : "Block sign-in"}
+                    </Button>
+                    <p className="text-[0.875rem] text-mute">
+                      Signs them out now, here and at every store server, and
+                      keeps them out until the account is restored.
+                    </p>
+                  </div>
                 ) : (
                   <Button
                     pending={changeActive.isPending}
                     onClick={() => changeActive.mutate(true)}
                   >
-                    {changeActive.isPending ? "Restoring…" : "Restore account"}
+                    {changeActive.isPending
+                      ? "Restoring…"
+                      : "Allow sign-in again"}
                   </Button>
                 )}
               </div>
@@ -745,7 +999,7 @@ function AddUserSheet({
                 disabled={!ready}
                 onClick={() => form.handleSubmit()}
               >
-                {add.isPending ? "Creating…" : "Create"}
+                {add.isPending ? "Submitting…" : "Submit"}
               </Button>
             )}
           </form.Subscribe>
@@ -814,7 +1068,7 @@ function AddUserSheet({
         <form.Field name="role">
           {(field) => (
             <Field
-              label="Role"
+              label="Rung"
               hint="At the centre. Access at a store server is now derived from job role and unit."
             >
               <Select
@@ -833,270 +1087,6 @@ function AddUserSheet({
 
         {add.isError && <Banner tone="bad">{saying(add.error)}</Banner>}
       </form>
-    </Sheet>
-  )
-}
-
-// ── roles ────────────────────────────────────────────────────────────────
-
-function RolesTab() {
-  const roleList = useRoles()
-  const canWrite = useCanWrite()
-  const role = useSheet("role")
-
-  return (
-    <>
-      <p className="mb-3.5 text-[0.875rem] text-body">
-        Every job role a person can be invited as, and the sections of this
-        app each one may see. OWNER and ADMIN see every section regardless of
-        what is ticked here — that bypass is not editable.
-      </p>
-      <Card className="overflow-hidden">
-        {queryState(roleList, {
-          loading: "Loading roles…",
-          render: () =>
-            (roleList.data ?? []).length === 0 ? (
-              <EmptyState>No role is seeded on this node yet.</EmptyState>
-            ) : (
-              <div className="divide-y divide-hairline">
-                {(roleList.data ?? []).map((item) => (
-                  <button
-                    key={item.code}
-                    type="button"
-                    onClick={() => canWrite && role.open(item.code)}
-                    disabled={!canWrite}
-                    className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-soft disabled:cursor-default disabled:hover:bg-transparent"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <b className="font-medium text-ink">{item.name}</b>
-                        <span className="font-mono text-id text-mute">
-                          {item.code}
-                        </span>
-                        {item.builtin && <Tag>Built in</Tag>}
-                      </div>
-                      {roleHint(item) && (
-                        <p className="mt-0.5 truncate text-meta text-body">
-                          {roleHint(item)}
-                        </p>
-                      )}
-                    </div>
-                    <span className="shrink-0 text-meta text-mute">
-                      {item.rung} · {item.holders}{" "}
-                      {item.holders === 1 ? "holder" : "holders"}
-                    </span>
-                    <div className="flex max-w-64 shrink-0 flex-wrap justify-end gap-1">
-                      {sectionsOf(item.sections).length === 0 ? (
-                        <span className="text-meta text-mute">No sections</span>
-                      ) : (
-                        sectionsOf(item.sections).map((section) => (
-                          <Tag key={section}>{SECTION_LABEL[section]}</Tag>
-                        ))
-                      )}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            ),
-        })}
-      </Card>
-
-      <RoleSheet
-        key={role.value ?? "none"}
-        role={
-          (roleList.data ?? []).find((item) => item.code === role.value) ??
-          null
-        }
-        open={role.value !== undefined}
-        onClose={role.close}
-      />
-    </>
-  )
-}
-
-const RUNGS: readonly Role[] = ["CASHIER", "SUPERVISOR", "ADMIN"]
-
-const NODE_REACH: readonly { value: string; label: string; hint: string }[] = [
-  { value: "NONE", label: "No server", hint: "Signs in at the centre only." },
-  {
-    value: "UNIT",
-    label: "This unit's server",
-    hint: "The store or gudang server the person is posted to.",
-  },
-  { value: "EVERY", label: "Every server", hint: "Head office roles only." },
-]
-
-function RoleSheet({
-  role,
-  open,
-  onClose,
-}: {
-  role: JobRole | null
-  open: boolean
-  onClose: () => void
-}) {
-  const client = useQueryClient()
-  const [name, setName] = useState(role?.name ?? "")
-  const [rung, setRung] = useState<Role>(role?.rung ?? "CASHIER")
-  const [description, setDescription] = useState(role?.description ?? "")
-  const [readOnly, setReadOnly] = useState(role?.read_only ?? false)
-  const [nodeReach, setNodeReach] = useState(role?.node_reach ?? "NONE")
-  const [flowRoles, setFlowRoles] = useState(
-    (role?.flow_roles ?? []).join(", ")
-  )
-  const [sections, setSections] = useState<readonly SectionCode[]>(
-    sectionsOf(role?.sections)
-  )
-
-  const invalidate = () => client.invalidateQueries({ queryKey: roleKeys.all })
-
-  const save = useMutation({
-    mutationFn: () =>
-      updateRole(role!.code, {
-        name: name.trim(),
-        rung,
-        sections: [...sections],
-        description: description.trim(),
-        read_only: readOnly,
-        node_reach: nodeReach,
-        flow_roles: flowRoles
-          .split(",")
-          .map((one) => one.trim())
-          .filter((one) => one !== ""),
-      }),
-    onSuccess: () => {
-      void invalidate()
-      onClose()
-    },
-  })
-
-  const remove = useMutation({
-    mutationFn: () => deleteRole(role!.code),
-    onSuccess: () => {
-      void invalidate()
-      onClose()
-    },
-  })
-
-  function toggle(section: SectionCode) {
-    setSections((prev) =>
-      prev.includes(section)
-        ? prev.filter((one) => one !== section)
-        : [...prev, section]
-    )
-  }
-
-  return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => !next && onClose()}
-      id={role?.code}
-      title={role ? `${role.name} — ${role.code}` : "Role"}
-      footer={
-        <div className="flex items-center gap-2">
-          {role && !role.builtin && (
-            <Button
-              variant="danger"
-              pending={remove.isPending}
-              disabled={role.holders > 0}
-              onClick={() => remove.mutate()}
-            >
-              {remove.isPending ? "Deleting…" : "Delete"}
-            </Button>
-          )}
-          <span className="flex-1" />
-          <Button variant="quiet" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            pending={save.isPending}
-            onClick={() => save.mutate()}
-          >
-            {save.isPending ? "Saving…" : "Save"}
-          </Button>
-        </div>
-      }
-    >
-      {role === null ? (
-        <p className="text-meta text-body">That role is no longer listed.</p>
-      ) : (
-        <div className="flex flex-col gap-3.5">
-          <Field label="Name" required>
-            <Input value={name} onChange={(event) => setName(event.target.value)} />
-          </Field>
-          <Field label="Description" hint="One line, shown on the invite form.">
-            <Input
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-            />
-          </Field>
-          <Field label="Rung" hint="Where this role stands on the CASHIER / SUPERVISOR / ADMIN ladder.">
-            <Select value={rung} onChange={(next) => setRung(next as Role)}>
-              {RUNGS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field
-            label="Store servers"
-            hint="Which servers a holder signs in at, derived from their unit."
-          >
-            <Select value={nodeReach} onChange={setNodeReach}>
-              {NODE_REACH.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Checkbox
-            label="Read only"
-            hint="Every write button is hidden for this role, everywhere."
-            checked={readOnly}
-            onChange={setReadOnly}
-          />
-          <Field
-            label="Sections"
-            hint="Which parts of the sidebar this role sees. OWNER and ADMIN see every one regardless."
-          >
-            <div className="grid grid-cols-2 gap-2">
-              {SECTIONS.map((section) => (
-                <Checkbox
-                  key={section}
-                  label={SECTION_LABEL[section]}
-                  checked={sections.includes(section)}
-                  onChange={() => toggle(section)}
-                />
-              ))}
-            </div>
-          </Field>
-          <Field
-            label="Flow roles"
-            hint="Comma separated. The stages of a workflow this role may perform."
-          >
-            <Input
-              value={flowRoles}
-              onChange={(event) => setFlowRoles(event.target.value)}
-            />
-          </Field>
-          {role.builtin ? (
-            <p className="text-meta text-mute">
-              Built in — it can be edited but not deleted.
-            </p>
-          ) : role.holders > 0 ? (
-            <p className="text-meta text-mute">
-              {role.holders} {role.holders === 1 ? "person" : "people"} hold
-              this role — give them another one before deleting it.
-            </p>
-          ) : null}
-          {(save.isError || remove.isError) && (
-            <Banner tone="bad">{saying(save.error ?? remove.error)}</Banner>
-          )}
-        </div>
-      )}
     </Sheet>
   )
 }

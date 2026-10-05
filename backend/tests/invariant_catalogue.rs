@@ -43,7 +43,11 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 const ACTOR: &str = "ana";
-const HO: &str = "dc";
+/// Head office's UNIT id — the books are keyed by unit since 0605, and 0600
+/// creates exactly this one on every database (`INSERT INTO unit … 'ho'`).
+/// `site.id` is a premises and is a different thing: `dc` on the seeded
+/// database, `ho-gudang` on one opened through the hub.
+const HO: &str = "ho";
 const STORE: &str = "store-01";
 
 /// Rules the fixture below gives no data to, and why. Every one of them is
@@ -401,7 +405,7 @@ async fn books(pool: &PgPool) {
         vec![
             PostingLine::debit("affiliate_receivable", STORE, 100_000)
                 .with_qualifier("PEMBIAYAAN")
-                .with_counter_site(HO),
+                .with_counter_unit(HO),
             PostingLine::credit("cash", STORE, 100_000),
         ],
     )
@@ -410,7 +414,7 @@ async fn books(pool: &PgPool) {
         pool,
         &cloud::DescribeBankAccountRequest {
             ledger_account_code: "1005".into(),
-            site_id: HO.into(),
+            unit_id: HO.into(),
             bank_code: Some("BCA".into()),
             bank_name: String::new(),
             account_no: "8880012345".into(),
@@ -431,7 +435,7 @@ async fn books(pool: &PgPool) {
             PostingLine::debit("bank_giro", HO, 100_000).with_qualifier("BCA"),
             PostingLine::credit("affiliate_payable", HO, 100_000)
                 .with_qualifier("PEMBIAYAAN")
-                .with_counter_site(STORE),
+                .with_counter_unit(STORE),
         ],
     )
     .await;
@@ -450,7 +454,7 @@ async fn books(pool: &PgPool) {
     // A shop's promotion spend under a STOP budget. Nothing in the estate
     // writes `budget` — it is set by hand today — so neither does this.
     sqlx::query(
-        "INSERT INTO budget (budget_id, site_id, account_code, period_start, period_end,
+        "INSERT INTO budget (budget_id, unit_id, account_code, period_start, period_end,
                              amount_minor, on_exceed, effective_from, set_by)
          VALUES ($1, $2, '6006', '2026-09-01', '2026-09-30', 1000000, 'STOP', '2026-09-01', $3)",
     )
@@ -793,7 +797,7 @@ async fn money(pool: &PgPool) {
         RedeemPointsRequest {
             customer_id: "M-INV".into(),
             points: 200,
-            voucher_value_minor: 20_000,
+            voucher_value_minor: 200,
             actor_id: ACTOR.into(),
             idempotency_key: "invariant-points".into(),
             expires_at: None,

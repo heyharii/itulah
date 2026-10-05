@@ -147,7 +147,7 @@ export function SalesOverview() {
         {items.length === 0 ? (
           <EmptyState>Everything is banked and settled.</EmptyState>
         ) : (
-          <Table head={["Item", "Store", "Why it is here", ">Amount", ""]}>
+          <Table head={["Item", "Store", "Why It Is Here", ">Amount", ""]}>
             {items.map((i) => (
               <Row key={i.id} tone={i.tone}>
                 <Cell>
@@ -271,7 +271,7 @@ export function ReceivablesOverview() {
         {items.length === 0 ? (
           <EmptyState>Everything is on schedule.</EmptyState>
         ) : (
-          <Table head={["Item", "Unit", "Why it is here", ">Amount", ""]}>
+          <Table head={["Item", "Unit", "Why It Is Here", ">Amount", ""]}>
             {items.map((i) => (
               <Row key={i.id} tone={i.tone}>
                 <Cell>
@@ -432,7 +432,7 @@ export function Receivables() {
               "Kind",
               "Account",
               "Oldest",
-              ">Recovers monthly",
+              ">Recovers Monthly",
               ">Balance",
               "",
             ]}
@@ -627,7 +627,7 @@ function LoanSchedule({ loan }: { loan: StaffLoan }) {
           No deduction is set, so nothing will come back on its own.
         </p>
       ) : (
-        <Table head={["Payroll month", ">Deduction", ">Balance after"]}>
+        <Table head={["Payroll Month", ">Deduction", ">Balance After"]}>
           {Array.from({ length: Math.min(months, 12) }, (_, i) => {
             const d = new Date(start.getFullYear(), start.getMonth() + i, 1)
             const take = Math.min(loan.instalment, left - loan.instalment * i)

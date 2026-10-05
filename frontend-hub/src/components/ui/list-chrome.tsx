@@ -26,6 +26,7 @@ import { count } from "@/lib/format"
 import { usePanelDock } from "@/lib/layout"
 import { useSheet } from "@/lib/sheets"
 import { toast } from "@/lib/toast"
+import { columnName } from "@/components/ui/column-name"
 import { cn } from "@/lib/utils"
 import {
   operatorsFor,
@@ -259,7 +260,6 @@ export function DockedFilters({
           <input
             value={needle}
             onChange={(event) => setNeedle(event.target.value)}
-            placeholder="Search"
             aria-label="Search fields"
             className="h-9 min-w-0 flex-1 bg-transparent text-[0.875rem] text-ink outline-none placeholder:text-mute"
           />
@@ -441,7 +441,6 @@ function FieldRow({
                   value={needle}
                   onChange={(event) => setNeedle(event.target.value)}
                   onKeyDown={(event) => event.stopPropagation()}
-                  placeholder={`Search ${field.label.toLowerCase()}`}
                   aria-label={`Search ${field.label}`}
                   className="min-w-0 flex-1 bg-transparent py-1 text-[0.875rem] text-ink outline-none placeholder:text-mute"
                 />
@@ -609,9 +608,7 @@ export function SavedViews({
 
   return (
     <div className="mt-1 flex flex-col gap-2 border-t border-hairline pt-3">
-      <h5 className="text-[0.875rem] font-semibold tracking-[0.06em] text-body uppercase">
-        Saved views
-      </h5>
+      <h5 className="text-[0.875rem] font-semibold text-body">Saved views</h5>
 
       {views.length > 0 && (
         <ul className="flex flex-col gap-px">
@@ -648,7 +645,6 @@ export function SavedViews({
           value={name}
           onChange={(event) => setName(event.target.value)}
           onKeyDown={(event) => event.key === "Enter" && save()}
-          placeholder="View name"
           aria-label="Name this view"
           className="h-[2.125rem] min-w-0 flex-1 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.875rem] text-ink outline-none placeholder:text-mute focus:border-accent"
         />
@@ -713,7 +709,7 @@ export function ExportCsv<Row>({
         }
       }}
       className={cn(
-        "inline-flex h-[2.125rem] items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink disabled:opacity-60",
+        "inline-flex h-control items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink disabled:opacity-60",
         className
       )}
     >
@@ -726,10 +722,17 @@ export function ExportCsv<Row>({
 export function ColumnsMenu({
   table,
   className,
+  label = "Columns",
+  extra,
 }: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly table: any
   readonly className?: string
+  /// The button's word. "View" on a screen whose menu also carries other
+  /// view switches (see `extra`).
+  readonly label?: string
+  /// Other view controls, drawn above the column ticks.
+  readonly extra?: React.ReactNode
 }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const columns = table.getAllLeafColumns().filter((column: any) => {
@@ -741,12 +744,12 @@ export function ColumnsMenu({
     <Menu.Root>
       <Menu.Trigger
         className={cn(
-          "inline-flex h-[2.125rem] items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink",
+          "inline-flex h-control items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink",
           className
         )}
       >
         <Columns3 className="size-3.5 stroke-[1.7]" />
-        Columns
+        {label}
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Positioner
@@ -761,6 +764,7 @@ export function ColumnsMenu({
               POP_MOTION
             )}
           >
+            {extra}
             <span className="block px-2 pt-1 pb-1.5 text-eyebrow font-semibold tracking-[0.05em] text-mute uppercase">
               Columns
             </span>
@@ -781,7 +785,7 @@ export function ColumnsMenu({
                   <span className="grid w-3.5 shrink-0 place-items-center text-accent">
                     {on && <Check className="size-3.5" />}
                   </span>
-                  {String(column.columnDef.header)}
+                  {columnName(column)}
                 </Menu.Item>
               )
             })}
@@ -867,7 +871,7 @@ export function ViewPicker({
     <Menu.Root>
       <Menu.Trigger
         className={cn(
-          "inline-flex h-8 items-center gap-2 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.875rem] font-medium text-text shadow-soft transition-colors hover:bg-soft-2",
+          "inline-flex h-control items-center gap-2 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.875rem] font-medium text-text shadow-soft transition-colors hover:bg-soft-2",
           className
         )}
       >
@@ -1015,7 +1019,7 @@ export function SortMenu({
   const current = sorting[0]
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const by = columns.find((column: any) => column.id === current?.id)
-  const label = by === undefined ? "Sort" : String(by.columnDef.header)
+  const label = by === undefined ? "Sort" : columnName(by)
 
   return (
     <Menu.Root>
@@ -1023,7 +1027,7 @@ export function SortMenu({
         aria-label={`Sort by ${label}`}
         title={`Sort by ${label}`}
         className={cn(
-          "inline-flex h-[2.125rem] items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink",
+          "inline-flex h-control items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink",
           className
         )}
       >
@@ -1070,7 +1074,7 @@ export function SortMenu({
                         <ArrowUp className="size-3.5" />
                       ))}
                   </span>
-                  {String(column.columnDef.header)}
+                  {columnName(column)}
                 </Menu.Item>
               )
             })}
@@ -1121,7 +1125,7 @@ export function ChoiceMenu({
     <Menu.Root>
       <Menu.Trigger
         className={cn(
-          "inline-flex h-[2.125rem] items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink",
+          "inline-flex h-control items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink",
           className
         )}
       >
@@ -1304,7 +1308,7 @@ export function ListOptionsSheet({
         "Default")
       : by === undefined
         ? "Default"
-        : String(by.columnDef.header)
+        : columnName(by)
 
   const narrowing = model.filters.length
   const title =
@@ -1500,9 +1504,7 @@ export function ListOptionsSheet({
                     }
                     className={cn(ROW, on && "font-medium")}
                   >
-                    <span className="flex-1">
-                      {String(column.columnDef.header)}
-                    </span>
+                    <span className="flex-1">{columnName(column)}</span>
                     {on &&
                       (current.desc ? (
                         <ArrowDown className="size-4 text-accent" />
@@ -1697,7 +1699,6 @@ function SheetFieldOptions({
               }
             }}
             enterKeyHint="done"
-            placeholder="Search"
             aria-label={`Search ${field.label}`}
             className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-mute"
           />

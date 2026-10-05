@@ -13,6 +13,7 @@
 /// retried a sale would be a wrapper that sold something twice.
 
 import { edge, signedEdge, type EdgeReply } from "@/edge"
+import type { MyShifts, TakeOverOutcome, TillSeat } from "@itulah/contract"
 
 // ── identity ────────────────────────────────────────────────────────────
 
@@ -520,6 +521,51 @@ export const closeShift = (
   edge<Record<string, unknown>>(
     "POST",
     `/api/v1/store/shifts/${encodeURIComponent(shiftId)}/close`,
+    body,
+  )
+
+/// `GET /api/v1/store/tills` — the seats this store has, `KASIR-1` … `KASIR-N`,
+/// and who holds each. A machine is not a till; a person picks a seat from
+/// this list when they sign in, so this is what the seat picker draws.
+export const tillSeats = () => edge<TillSeat[]>("GET", "/api/v1/store/tills")
+
+/// `GET /api/v1/store/shifts/mine` — `MyShifts { open, uncounted }` for the
+/// signed-in person: the drawer they hold now, and the ones somebody took over
+/// from them that they still owe a count. Unlike `activeShift`, which is "any
+/// open shift on the node", this is right with several seats open at once.
+export const myShifts = () => edge<MyShifts>("GET", "/api/v1/store/shifts/mine")
+
+/// `POST /api/v1/store/shifts/take-over` — `TakeOverRequest { terminal_id,
+/// opening_float_minor, actor_id, idempotency_key }` → `TakeOverOutcome`.
+///
+/// One call for sitting at any seat: a free seat just opens (`ended` comes back
+/// null), a held one ends its holder's shift first. No approval either way —
+/// the person arriving always counts in their own float, and the previous
+/// holder counts what they took out later (`countShift`).
+export const takeOver = (body: {
+  terminal_id: string
+  opening_float_minor: number
+  actor_id: string
+  idempotency_key: string
+}) => edge<TakeOverOutcome>("POST", "/api/v1/store/shifts/take-over", body)
+
+/// `POST /api/v1/store/shifts/{id}/count` — the same body as a close
+/// (`CloseShiftRequest`), for a shift that is already closed with nothing
+/// declared: one that somebody took over. Blind like the close, and only the
+/// person who held it (or a supervisor) may count it.
+export const countShift = (
+  shiftId: string,
+  body: {
+    declared_cash_minor: number
+    counted?: readonly { value_minor: number; pieces: number }[]
+    note: string | null
+    actor_id: string
+    idempotency_key: string
+  },
+) =>
+  edge<Record<string, unknown>>(
+    "POST",
+    `/api/v1/store/shifts/${encodeURIComponent(shiftId)}/count`,
     body,
   )
 

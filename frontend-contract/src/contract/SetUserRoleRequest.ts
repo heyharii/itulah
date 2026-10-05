@@ -6,9 +6,9 @@ import type { Role } from "./Role";
  * person's role AT an Edge lives on their Edge assignment, because a
  * supervisor at head office can be an ordinary cashier at the till.
  */
-export type SetUserRoleRequest = {
+export type SetUserRoleRequest = { 
 /**
- * The job role (0633) — what a role change is now. The rung follows it, 
+ * The job role (0633) — what a role change is now. The rung follows it,
  * and so do the servers the person signs in at (0635).
  */
 role_code?: string, 

@@ -40,7 +40,7 @@ export function Organisation() {
   return (
     <PageContent>
       <PageHeader
-        crumb="System"
+        crumb="Master"
         title="Units"
         sub="Head office and the stores — who owns which premises, and who is in charge of each."
       />
@@ -60,7 +60,7 @@ export function Organisation() {
                     <th className="px-3 py-2 font-medium">Kind</th>
                     <th className="px-3 py-2 font-medium">Premises</th>
                     <th className="px-3 py-2 text-right font-medium">Staff</th>
-                    <th className="px-3 py-2 font-medium">Person in charge</th>
+                    <th className="px-3 py-2 font-medium">Person in Charge</th>
                     <th className="px-3 py-2" />
                   </tr>
                 </thead>
@@ -97,7 +97,7 @@ export function Organisation() {
                           ? "—"
                           : unit.sites.map((site) => site.name).join(", ")}
                       </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-body">
+                      <td className="px-3 py-2 text-right text-body tabular-nums">
                         {count(unit.headcount)}
                       </td>
                       <td className="px-3 py-2">
@@ -239,7 +239,10 @@ function PicSheet({
           </Select>
         </Field>
 
-        <Field label="From" hint="The first day they are in charge. Today when left blank.">
+        <Field
+          label="From"
+          hint="The first day they are in charge. Today when left blank."
+        >
           <Input
             type="date"
             value={validFrom}
@@ -251,7 +254,6 @@ function PicSheet({
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            placeholder="New store manager"
           />
         </Field>
 

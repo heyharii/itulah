@@ -4,4 +4,10 @@ import type { TaggingWorkLine } from "./TaggingWorkLine";
 /**
  * A tagging job as the warehouse sees it: what to print, and how many.
  */
-export type TaggingWorkJob = { job_id: string, article_code: string, article_name: string, image_url: string | null, total_quantity: number, issued_at: string, lines: Array<TaggingWorkLine>, };
+export type TaggingWorkJob = { job_id: string, article_code: string, article_name: string, image_url: string | null, total_quantity: number, issued_at: string, 
+/**
+ * The purchase order the goods came in on, its supplier, and when the
+ * delivery was counted — so Printing lists labels by PO. `None` for a
+ * job raised before the node kept its delivery line (`0071`).
+ */
+po_number: string | null, supplier_name: string | null, delivered_at: string | null, lines: Array<TaggingWorkLine>, };

@@ -205,7 +205,6 @@ export function LeaveNew() {
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(event) => field.handleChange(event.target.value)}
-                  placeholder="Your manager sees this."
                   rows={3}
                   required
                 />

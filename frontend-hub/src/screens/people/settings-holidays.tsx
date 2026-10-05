@@ -223,7 +223,6 @@ function HolidayFields({
         <Input
           value={draft.name}
           onChange={(event) => onChange({ ...draft, name: event.target.value })}
-          placeholder="Idul Fitri"
         />
       </Field>
       <Field label="Kind">
@@ -264,7 +263,6 @@ function HolidayFields({
                   .filter((unit) => unit !== ""),
               })
             }
-            placeholder="store-07, store-09"
           />
         </Field>
       )}
@@ -485,7 +483,6 @@ function LoadCalendar({
         rows={4}
         value={text}
         onChange={(event) => setText(event.target.value)}
-        placeholder={`2026-01-01, Tahun Baru Masehi, nasional\n2026-03-20, Idulfitri 1447 H, nasional\n2026-03-23, Cuti bersama Idulfitri, cuti bersama\n2026-07-14, Sedekah Bumi, regional, store-04;store-09`}
       />
 
       <div className="flex flex-wrap items-center gap-2">
@@ -642,7 +639,6 @@ function PublishSheet({
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            placeholder="SKB tiga menteri 2026"
           />
         </Field>
       </div>
@@ -680,7 +676,7 @@ function AddSheet({
         <SheetFooter
           onCancel={onClose}
           onSave={() => amend.mutate()}
-          saveLabel="Add it"
+          saveLabel="Submit"
           pending={amend.isPending}
           disabled={!ready}
         />
@@ -693,7 +689,6 @@ function AddSheet({
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            placeholder="SKB revisi"
           />
         </Field>
       </div>
@@ -783,7 +778,6 @@ function HolidaySheet({
               <Input
                 value={reason}
                 onChange={(event) => setReason(event.target.value)}
-                placeholder="SKB revisi"
               />
             </Field>
           )}

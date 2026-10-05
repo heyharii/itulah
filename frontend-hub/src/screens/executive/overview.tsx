@@ -211,7 +211,7 @@ export function ExecutiveOverview() {
                   <MiniTable
                     head={[
                       "Toko",
-                      "Penjualan bersih",
+                      "Penjualan Bersih",
                       "Perubahan",
                       "Kontribusi",
                       "Transaksi",

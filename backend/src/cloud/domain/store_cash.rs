@@ -312,11 +312,15 @@ pub fn remittance_standing(cancelled: bool, lines: &[LineProgress]) -> Remittanc
 
 /// Up to this, the shop's own manager approves. Above it, head office does.
 ///
-/// Five hundred thousand rupiah. A constant rather than a settings column,
-/// because it is a company policy and not a per-shop preference, and a settings
-/// table nobody has a screen for is a number nobody can change anyway. When
-/// there is a screen for it, this becomes its default.
-pub const STORE_EXPENSE_MANAGER_LIMIT_MINOR: i64 = 500_000_00;
+/// Five hundred thousand rupiah — `_minor` in this system is one rupiah
+/// (`settlement_report.rs`), so this is `500_000` and not `500_000_00`. The
+/// edge applies the same policy in the same unit (`edge::petty`), and the two
+/// have to agree or a supervisor approves at the hub what a till refuses.
+/// A constant rather than a settings column, because it is a company policy
+/// and not a per-shop preference, and a settings table nobody has a screen for
+/// is a number nobody can change anyway. When there is a screen for it, this
+/// becomes its default.
+pub const STORE_EXPENSE_MANAGER_LIMIT_MINOR: i64 = 500_000;
 
 /// Which rung has to say yes.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]

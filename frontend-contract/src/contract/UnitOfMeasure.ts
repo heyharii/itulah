@@ -17,6 +17,27 @@ is_base: boolean,
  */
 active: boolean, 
 /**
+ * COUNT, MASS, VOLUME, LENGTH or AREA (ERPNext's UOM Category). A
+ * conversion only joins two units of one category.
+ */
+category: string, 
+/**
+ * ERPNext's "Must be Whole Number": a quantity in this unit is whole.
+ * Only a whole unit can be an article's stock unit, because the ledger
+ * counts in whole numbers.
+ */
+whole_number: boolean, 
+/**
+ * Other spellings that mean this unit on a supplier's paper — "lsn",
+ * "dz" — lower case. The code itself always matches and is not listed.
+ */
+aliases: Array<string>, 
+/**
+ * Pieces in one, walking the conversions ("12" for LUSIN, "1" for the
+ * base). Null when no conversion reaches the base unit.
+ */
+pieces: string | null, 
+/**
  * What a PATCH must quote in `If-Match`.
  */
 version: number, };

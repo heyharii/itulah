@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { auth, cacheKey, edge, edgeAuth, node, setEdgeToken } from "@/lib/api"
 import { forgetPushOnSignOut } from "@/lib/push"
 import type { SectionCode } from "@/lib/queries/invitations"
+import { isTenancySignOut, tenancyQueryKey } from "@/lib/tenancy"
 import { ApiError, type Identity } from "@itulah/contract/client"
 
 /// Who is signed in, asked of the server rather than tracked by hand.
@@ -14,6 +15,7 @@ import { ApiError, type Identity } from "@itulah/contract/client"
 /// `needsSignIn` is an answer, and dressing it as a failure puts an error
 /// message on the login box about the very thing the box fixes.
 export function useIdentity() {
+  const client = useQueryClient()
   return useQuery({
     queryKey: cacheKey.me(),
     queryFn: async ({ signal }): Promise<Identity | null> => {
@@ -21,6 +23,15 @@ export function useIdentity() {
         return await auth.me(signal)
       } catch (error) {
         if (error instanceof ApiError && error.needsSignIn) return null
+        // Sandbox tenancy: nobody has chosen a business yet, or the one this
+        // browser was pointed at is gone. Either reads as "sign in again" —
+        // `App` shows the door or the chooser, never an error screen — and
+        // the tenancy answer is asked again too, since `business_unknown`
+        // means the server just cleared the cookie behind this response.
+        if (error instanceof ApiError && isTenancySignOut(error)) {
+          void client.invalidateQueries({ queryKey: tenancyQueryKey })
+          return null
+        }
         throw error
       }
     },

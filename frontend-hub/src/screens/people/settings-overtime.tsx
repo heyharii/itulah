@@ -127,7 +127,7 @@ export function OvertimeSettings() {
           head={[
             "Component",
             "Counts",
-            { label: "× hourly", align: "right" },
+            { label: "× Hourly", align: "right" },
             "State",
           ]}
         >
@@ -252,7 +252,6 @@ function CapsSheet({
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            placeholder="PP 35/2021 pasal 26 ayat 1"
           />
         </Field>
       </div>
@@ -296,7 +295,6 @@ function WeekSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
         <Field label="Working week" required>
           <PickOne
             label="Working week"
-            placeholder="Choose…"
             choices={WEEKS}
             value={week}
             onChange={setWeek}

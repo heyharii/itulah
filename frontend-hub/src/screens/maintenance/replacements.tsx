@@ -14,6 +14,7 @@ import { useSheet } from "@/lib/sheets"
 import { FinanceMark } from "@/screens/contracts/parts"
 import { ReplacementSheet } from "@/screens/maintenance/hub"
 import { ReplacementStagePill } from "@/screens/maintenance/parts"
+import { SupplierName } from "@/screens/procurement/supplier-name"
 import type { GaMaintenanceFacet, GaReplacementRow } from "@itulah/contract"
 
 /// Replacement — the swaps: one asset replaced by another, with the reason
@@ -29,9 +30,9 @@ import type { GaMaintenanceFacet, GaReplacementRow } from "@itulah/contract"
 ///
 /// # The cost column reads em-dash, and that is honest
 ///
-/// What a swap COST is the bills that point at it, and the bill line that
-/// can point does not exist until tahap 6. The column carries the Finance
-/// mark and waits, the way the contract register's Ditagih does.
+/// What a swap COST is the bills that point at it, and the replacement's row
+/// does not carry that figure back yet. The column carries the Finance mark
+/// and waits rather than showing a zero.
 /// How many replacements one page of the book asks for.
 const PAGE = 100
 
@@ -183,7 +184,7 @@ function ReplacementTable({
                 )}
               </div>
               <span className="min-w-0 truncate text-meta text-body">
-                {row.supplier_name ?? "—"}
+                <SupplierName code={row.supplier_id} name={row.supplier_name} />
               </span>
               <span className="truncate text-right text-meta text-body tabular-nums">
                 —

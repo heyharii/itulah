@@ -143,6 +143,27 @@ pub async fn info(
     ))
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub struct VersionQuery {
+    pub limit: Option<i64>,
+}
+
+/// A record's saved changes, field by field, newest first (0702) — the whole
+/// history, where `info` carries only its tail.
+pub async fn versions(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path((kind, id)): Path<(String, String)>,
+    axum::extract::Query(query): axum::extract::Query<VersionQuery>,
+) -> Result<Json<Vec<infrastructure::RecordVersion>>, AppError> {
+    let kind = kind_of(&kind)?;
+    authorize_record(&state, &principal, kind, &id).await?;
+    Ok(Json(
+        infrastructure::list_record_versions(&state.db, kind, &id, query.limit.unwrap_or(200))
+            .await?,
+    ))
+}
+
 pub async fn comment(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,

@@ -3,4 +3,13 @@
 /**
  * One line of "what this payment is for".
  */
-export type AllocateToBill = { invoice_id: string, amount_minor: number, };
+export type AllocateToBill = { invoice_id: string, 
+/**
+ * How much of the bill this settles, discount included.
+ */
+amount_minor: number, 
+/**
+ * Of that, how much is settled without money: a discount for paying, a
+ * rounding difference (0704). Zero when absent.
+ */
+discount_minor?: number, };

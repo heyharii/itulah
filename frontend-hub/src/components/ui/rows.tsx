@@ -13,6 +13,9 @@ export function Section({
   title,
   actions,
   rule = true,
+  flush = false,
+  quiet = false,
+  tight = false,
   children,
 }: {
   title: React.ReactNode
@@ -22,17 +25,35 @@ export function Section({
   /// has nothing above it to be separated from, so a rule there is just a line
   /// under whatever the sheet opened with. The air stays either way.
   rule?: boolean
+  /// The very first thing in a sheet's body: no rule and no air above it,
+  /// because the sheet's own header already stands there and the gap only
+  /// read as an empty band (the owner, 2026-09-28).
+  flush?: boolean
+  /// A record's own sections, where the table is what is being read: a small
+  /// plain title and no air above, so the table sits close under the facts.
+  quiet?: boolean
+  /// No air above it: the parent already spaces its sections, and the section's
+  /// own would be added on top of it.
+  tight?: boolean
   children: React.ReactNode
 }) {
   return (
     <section
       className={cn(
         "flex flex-col gap-3",
-        rule ? "border-t border-hairline pt-5" : "pt-7"
+        flush ? "" : rule ? "border-t border-hairline pt-5" : quiet || tight ? "pt-0" : "pt-7"
       )}
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h4 className="text-card-title font-semibold text-ink">{title}</h4>
+        <h4
+          className={
+            quiet
+              ? "text-[0.875rem] font-normal text-mute"
+              : "text-card-title font-semibold text-ink"
+          }
+        >
+          {title}
+        </h4>
         {actions}
       </div>
       {children}
@@ -117,8 +138,9 @@ export function TotalsLadder({
   )
 }
 
-/// The in-card item table. This is the one place mono UPPERCASE micro-caps
-/// belong — full-width list tables use Inter (see `<DataTable>`).
+/// The in-card item table. Its heading reads like every other table's —
+/// sentence case, 14px, quiet by colour (owner, 2 Oct 2026: no uppercase, no
+/// text under 14px, nothing cramped).
 export function MiniTable({
   head,
   children,
@@ -159,7 +181,7 @@ export function MiniTable({
               <th
                 key={label}
                 className={cn(
-                  "pb-1.5 font-mono text-eyebrow tracking-[0.04em] text-body uppercase",
+                  "pb-2.5 text-[0.875rem] font-medium text-body",
                   align === "right"
                     ? "pl-3 text-right"
                     : "pr-2 text-left [&:not(:first-child)]:pl-3"
@@ -206,7 +228,7 @@ export function MiniCell({
     <td
       colSpan={colSpan}
       className={cn(
-        "py-2 text-[0.875rem] text-text",
+        "py-3 text-[0.875rem] text-text",
         // The gap belongs on the left of a right-aligned cell: padding on the
         // right would move the edge every figure in the column lines up on,
         // and two right-aligned cells with no gap at all run their contents
@@ -232,7 +254,7 @@ export function SubHead({
   aside?: React.ReactNode
 }) {
   return (
-    <div className="mb-2 flex items-baseline justify-between gap-2">
+    <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
       <h4 className="text-card-title font-semibold text-ink">{children}</h4>
       {aside && <span className="text-[0.875rem] text-mute">{aside}</span>}
     </div>

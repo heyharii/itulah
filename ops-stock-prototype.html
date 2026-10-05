@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ops stock and count (prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Ops → Stock and Ops → Count. No racks: stock is pools.
+
+   Stock      the pool tree the hub already has at /operations/stock — every
+              number rolls up into Stock — and a Missing tab: pieces a pool
+              should have held that weren't there when someone picked.
+   Count      count tasks for a pool (or articles in it): a missing recount,
+              a cycle count, the opname. Blind — what to count is listed,
+              never how many. The result goes to Inventory; Ops never
+              changes a stock number by hand.
+
+   Hub tokens, 16px root, nothing under 14px, English copy.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f8f9; --soft-2:#f0f0f2; --soft-3:#f6f6f7;
+  --hairline:#e6e6e9; --hairline-2:#dadade; --hairline-strong:#c6c6cc;
+  --rail:#242526; --rail-3:#393b3d; --rail-text:#c3c4c7;
+  --scrim:rgba(246,246,247,.72);
+  --accent:#2563eb; --accent-bg:#eff5ff; --cta:#2563eb; --cta-hover:#1d4ed8;
+  --ok:#36b827; --warn:#c9892e; --bad:#d05151; --bad-fg:#be123c; --info:#2f86d8;
+  --r-card:.75rem; --r-inner:.4375rem;
+  --shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);
+  --shadow-float:0 2px 6px rgb(24 39 60/5%),0 24px 64px rgb(24 39 60/16%);
+}
+*{box-sizing:border-box}
+html{font-size:16px}
+html,body{height:100%;margin:0}
+body{font-family:Inter,system-ui,sans-serif;font-size:15px;color:var(--text);background:var(--soft-3);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:left}
+input{font:inherit;color:var(--ink)}
+svg.lucide{width:17px;height:17px;stroke-width:1.7;flex-shrink:0}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px}
+.shell{display:flex;height:100vh}
+.col{width:68px;background:var(--rail);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:6px;flex-shrink:0}
+.mark{width:30px;height:30px;border-radius:8px;background:#0b0b0b;color:#fff;display:grid;place-items:center;font-weight:600;position:relative;margin-bottom:10px}
+.mark::after{content:"";position:absolute;right:5px;bottom:5px;width:5px;height:5px;border-radius:50%;background:#3b82f6}
+.ci{width:40px;height:40px;border-radius:9px;display:grid;place-items:center;color:var(--rail-text)}
+.ci.on{background:var(--rail-3);color:#fff}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.bar{height:52px;display:flex;align-items:center;gap:8px;padding:0 32px;border-bottom:1px solid var(--hairline);color:var(--body);flex-shrink:0}
+.bar b{color:var(--ink);font-weight:500}
+.bar svg{width:15px;height:15px;color:var(--faint)}
+.page{flex:1;overflow-y:auto}
+.content{max-width:100rem;margin:0 auto;padding:28px 32px 120px}
+h1{margin:0;font-size:28px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+.sub{margin:6px 0 20px;color:var(--body)}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--hairline);margin-bottom:16px}
+.tabs button{height:44px;padding:0 12px;color:var(--body);font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;gap:8px;align-items:center}
+.tabs button.on{color:var(--ink);border-color:var(--ink)}
+.tabs .b{min-width:22px;height:22px;border-radius:11px;background:var(--warn);color:#fff;font-size:14px;font-weight:600;display:grid;place-items:center;padding:0 6px}
+.search{display:flex;align-items:center;gap:12px;height:52px;max-width:40rem;border-radius:10px;background:var(--canvas);border:1px solid var(--hairline-2);padding:0 16px;color:var(--mute);margin-bottom:14px}
+.search:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgb(37 99 235/.12)}
+.search input{flex:1;border:0;outline:none;font-size:17px;background:none;min-width:0}
+.btn{height:40px;padding:0 14px;border-radius:var(--r-inner);border:1px solid var(--hairline-2);background:var(--canvas);color:var(--ink);display:inline-flex;align-items:center;gap:8px;font-weight:500;white-space:nowrap}
+.btn:hover{background:var(--soft)}
+.btn.pri{background:var(--cta);color:#fff;border-color:var(--cta)}
+.btn.pri:hover{background:var(--cta-hover)}
+.btn.sm{height:36px;padding:0 12px}
+.btn:disabled{opacity:.45;cursor:default}
+.card{background:var(--canvas);border-radius:var(--r-card);border:1px solid var(--hairline);overflow:clip}
+table{width:100%;border-collapse:collapse}
+th{height:48px;text-align:left;font-weight:500;color:var(--body);padding:0 16px;border-bottom:1px solid var(--hairline);background:var(--soft);font-size:14px;white-space:nowrap}
+td{height:72px;padding:0 16px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+td.n,th.n{width:56px;color:var(--mute);text-align:right;padding-right:8px}
+td.act,th.act{text-align:right;width:1%}
+td.strong{color:var(--ink);font-weight:500}
+tfoot td{background:var(--soft);font-weight:600;color:var(--ink);border-top:1px solid var(--hairline);border-bottom:0}
+.nm{display:block;color:var(--ink);font-weight:500}
+.sk{display:block;color:var(--mute);font-size:14px}
+.st{display:inline-flex;align-items:center;gap:7px}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.wait{color:var(--mute)}
+/* pool tree + panel */
+.split{display:grid;grid-template-columns:minmax(0,34rem) 1fr;gap:16px;align-items:start}
+.tree tr{cursor:pointer}
+.tree tr:hover td{background:var(--soft)}
+.tree tr.on td{background:var(--accent-bg)}
+.tree td{height:48px}
+.tree .nmw{display:flex;align-items:center;gap:6px}
+.tree .chev{width:18px;color:var(--mute);display:inline-grid;place-items:center}
+.tree .chev svg{width:15px;height:15px;transition:transform 160ms}
+.tree .chev.open svg{transform:rotate(90deg)}
+.tree .zero{color:var(--faint)}
+.tree tr.root td{background:var(--soft-2);font-weight:600}
+.panel{position:sticky;top:20px}
+.watch td{height:72px}
+.watch tr{cursor:pointer}
+.watch tr:hover td{background:var(--soft)}
+.watch tr.root td,.watch tr.root:hover td{background:var(--soft-2)}
+.watch tr.root td{background:var(--soft-2)}
+.seen{color:var(--accent);font-weight:500;font-variant-numeric:tabular-nums}
+.seen:hover{text-decoration:underline}
+.watch .sk{text-align:right}
+.panel .ph{padding:20px 24px 16px;border-bottom:1px solid var(--hairline)}
+.crumb{color:var(--mute);font-size:14px;margin-bottom:4px}
+.panel h2{margin:0;font-size:20px;font-weight:600;color:var(--ink)}
+.big{font-size:34px;font-weight:600;color:var(--ink);letter-spacing:-.02em;margin-top:8px;font-variant-numeric:tabular-nums}
+.big span{font-size:16px;font-weight:400;color:var(--body);margin-left:6px}
+.panel .pb{padding:0}
+.panel .pf{padding:14px 24px;border-top:1px solid var(--hairline);display:flex;gap:8px}
+.panel td{height:52px}
+/* dialog */
+.veil{position:fixed;inset:0;background:var(--scrim);z-index:40;display:flex;align-items:center;justify-content:center;padding:24px}
+.dlg{width:min(60rem,100%);max-height:calc(100vh - 48px);background:var(--canvas);border:1px solid var(--hairline);border-radius:1rem;box-shadow:var(--shadow-float);display:flex;flex-direction:column;overflow:hidden}
+.dlg.small{width:min(30rem,100%)}
+.sh{display:flex;align-items:flex-start;gap:12px;padding:20px 16px 16px 28px;border-bottom:1px solid var(--hairline)}
+.sh .g{flex:1}
+.sh h2{margin:0;font-size:20px;font-weight:600;color:var(--ink)}
+.sh p{margin:4px 0 0;color:var(--body)}
+.ib{width:36px;height:36px;border-radius:var(--r-inner);display:grid;place-items:center;color:var(--line-ico)}
+.ib:hover{background:var(--soft-2)}
+.sb{flex:1;overflow-y:auto;padding:22px 28px}
+.sb td{height:60px}
+.sf{border-top:1px solid var(--hairline);padding:14px 28px;display:flex;gap:10px;align-items:center}
+.sf .g{flex:1;color:var(--body)}
+.fld{display:inline-flex;height:44px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);overflow:hidden;background:var(--canvas)}
+.fld:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgb(37 99 235/.12)}
+.fld input{width:6rem;border:0;outline:none;text-align:right;padding:0 12px;font-size:16px;font-variant-numeric:tabular-nums}
+.fld span{display:flex;align-items:center;padding:0 12px;border-left:1px solid var(--hairline);background:var(--soft);color:var(--body)}
+.field{margin-bottom:14px}
+table.click tbody tr{cursor:pointer}
+.pvw{display:grid;grid-template-columns:1fr 17rem;gap:20px;margin-bottom:20px}
+.stage{background:repeating-linear-gradient(45deg,var(--soft) 0 10px,var(--soft-2,#f3f4f6) 10px 20px);border:1px solid var(--hairline);border-radius:var(--r-card,12px);min-height:17rem;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px}
+.tag{display:block;filter:drop-shadow(0 1px 2px rgb(0 0 0/.08)) drop-shadow(0 6px 16px rgb(0 0 0/.08))}
+.stage .cap{color:var(--mute)}
+.opts .lbl{color:var(--body);margin-bottom:8px}
+.pick{width:100%;display:flex;gap:12px;align-items:flex-start;text-align:left;padding:12px 14px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);margin-bottom:8px}
+.pick:hover{background:var(--soft)}
+.pick.on{border-color:var(--accent);box-shadow:0 0 0 3px rgb(37 99 235/.12)}
+.dotr{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--hairline-2);flex:none;margin-top:2px}
+.pick.on .dotr{border:5px solid var(--accent)}
+.ssel{width:100%;height:44px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 36px 0 12px;font:inherit;color:var(--ink);appearance:none;background:var(--canvas) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23626b78' stroke-width='2' viewBox='0 0 24 24'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center}
+tr.pvrow{cursor:pointer}
+@media (max-height:860px){.stage{min-height:0;padding:16px;gap:8px}.stage .tag{max-width:280px!important}.pvw{margin-bottom:16px}.pick{padding:10px 12px}.opts .lbl{margin-bottom:6px}}
+tr.pvrow:hover td{background:var(--soft)}
+tr.pvrow.on td{background:rgb(37 99 235/.06)}
+table.click tbody tr:hover td{background:var(--soft)}
+.psel{height:36px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 32px 0 10px;font:inherit;color:var(--ink);appearance:none;background:var(--canvas) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' stroke='%23626b78' stroke-width='2' viewBox='0 0 24 24'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 10px center}
+.field label{display:block;color:var(--body);margin-bottom:6px}
+.field input{width:100%;height:48px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 12px;outline:none}
+.field select{width:100%;height:48px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 40px 0 12px;outline:none;background:var(--canvas) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23626b78' stroke-width='2' viewBox='0 0 24 24'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center;appearance:none;font:inherit;color:var(--ink)}
+.field input:focus,.field select:focus{border-color:var(--accent)}
+.addrow{color:var(--accent);font-weight:500;margin-top:12px;display:inline-flex;gap:6px;align-items:center}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#191b20;color:#fff;padding:12px 18px;border-radius:10px;z-index:80;box-shadow:var(--shadow-pop)}
+.proto{position:fixed;left:84px;bottom:16px;z-index:90;background:#191b20;border-radius:12px;padding:4px;box-shadow:var(--shadow-float);font-size:14px}
+.proto .seg{display:flex;background:#2a2c31;border-radius:9px;padding:3px}
+.proto .seg button{height:32px;padding:0 12px;border-radius:6px;color:#a9abb1;white-space:nowrap}
+.proto .seg button.on{background:#fff;color:#191b20;font-weight:500}
+
+/* spacious: every row breathes, and a two-line cell (name over SKU) gets room above and below */
+td{padding-top:14px!important;padding-bottom:14px!important;min-height:64px}
+tbody td{height:72px}
+.tree td{height:52px}
+.nm{line-height:1.4}
+.sk{line-height:1.4;margin-top:4px}
+h1{margin-bottom:20px}
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="col"><span class="mark">C</span><span class="ci"><i data-lucide="house"></i></span><span class="ci"><i data-lucide="package-open"></i></span><span class="ci" id="nPrint"><i data-lucide="printer"></i></span><span class="ci"><i data-lucide="truck"></i></span><span class="ci" id="nStock"><i data-lucide="boxes"></i></span><span class="ci" id="nCount"><i data-lucide="clipboard-list"></i></span></nav>
+  <div class="main">
+    <header class="bar" id="crumb"></header>
+    <div class="page"><div class="content" id="view"></div></div>
+  </div>
+</div>
+<div id="dlg"></div>
+<div class="proto"><div class="seg" id="seg"></div></div>
+
+<script>
+/* ── the pool tree, in the owner's words (as /operations/stock) ─────────── */
+const L=(name,sku,q)=>({name,sku,q});
+const TREE={id:'all',name:'Gudang HO',kids:[
+  {id:'unid',name:'Unidentified',lines:[L('From 280926-007','—',700)]},
+  {id:'unal',name:'Unallotted',lines:[L('Kemeja Oxford Slim · L','20114011104',134),L('Kemeja Linen Relaxed · M','20114048103',96),L('Celana Chino Tapered · 32','20114085132',210),L('Kaos Crew Basic · XXL','20114122106',45)]},
+  {id:'allot',name:'Allotted',kids:[
+    {id:'unpicked',name:'Unpicked',kids:[{id:'up1',name:'Store Kemang',lines:[L('Kemeja Oxford Slim · L','20114011104',96),L('Polo Pique Basic · M','20114159103',144)]},{id:'up2',name:'Store Senayan',lines:[L('Celana Chino Tapered · 32','20114085132',96)]}]},
+    {id:'picked',name:'Picked',kids:[{id:'pk1',name:'Store PIK',lines:[L('Kemeja Oxford Slim · L','20114011104',34),L('Kaos Crew Basic · S','20114122102',144)]},{id:'pk2',name:'Store BSD',lines:[L('Jaket Bomber Light · M','20114196103',150)]}]},
+    {id:'packed',name:'Packed',kids:[{id:'pa1',name:'Store Kemang',lines:[L('Kemeja Oxford Slim · L','20114011104',300)]},{id:'pa2',name:'Store PIK',lines:[L('Polo Pique Basic · XL','20114159105',210)]}]},
+    {id:'dispatch',name:'Dispatch',kids:[{id:'d1',name:'Store BSD',lines:[L('Celana Chino Tapered · 32','20114085132',140)]},{id:'d2',name:'Store Senayan',lines:[L('Kaos Crew Basic · M','20114122103',260)]}]},
+  ]},
+  {id:'retpo',name:'Return PO',lines:[L('Kemeja Oxford Slim · L','20114011104',50)]},
+  {id:'retst',name:'Return stock',kids:[{id:'rh',name:'Return HO',kids:[
+    {id:'r1',name:'Store Kemang',lines:[L('Kemeja Oxford Slim · M','20114011103',4),L('Polo Pique Basic · L','20114159104',5)]},
+    {id:'r2',name:'Store PIK',lines:[L('Kemeja Linen Relaxed · L','20114048104',3)]},
+    {id:'r3',name:'Store Senayan',lines:[L('Kaos Crew Basic · S','20114122102',12),L('Kemeja Oxford Slim · S','20114011102',9)]}]}]},
+]};
+const qty=n=>n.lines?n.lines.reduce((s,l)=>s+l.q,0):(n.kids||[]).reduce((s,k)=>s+qty(k),0);
+function find(n,id,path=[]){if(n.id===id)return [...path,n];for(const k of n.kids||[]){const p=find(k,id,[...path,n]);if(p)return p}return null}
+
+/* Missing: what a pool should have held and didn't, when someone picked. */
+const MIS=[
+  {id:1,name:'Kemeja Oxford Slim · L',sku:'20114011104',pool:'Unallotted',left:2,src:'Pick',from:'ALT-0412 · Store PIK',age:3},
+  {id:2,name:'Kaos Crew Basic · XXL',sku:'20114122106',pool:'Unallotted',left:3,src:'Pack',from:'ALT-0409 · Store Bintaro',age:34},
+  {id:3,name:'Polo Pique Basic · M',sku:'20114159103',pool:'In transit',left:1,src:'Store receive',from:'SJ-SNY-0217 · Store Senayan',age:12},
+  {id:4,name:'Celana Chino Tapered · 32',sku:'20114207132',pool:'Return stock',left:2,src:'HO receive',from:'RT-KMG-0043 · Store Kemang',age:6},
+];
+/* Count tasks: a pool, or a few articles in it. */
+const CNT=[
+  {id:'CT-0031',pool:'Unallotted',scope:'Kemeja Oxford Slim · L',why:'Missing · 2 pcs',by:'Inventory',due:'Today',st:'todo',lines:[L('Kemeja Oxford Slim · L','20114011104')]},
+  {id:'CT-0030',pool:'Unallotted',scope:'All articles',why:'Cycle count',by:'Inventory',due:'Fri 3 Oct',st:'todo',lines:TREE.kids.find(k=>k.id==='unal').lines.map(l=>L(l.name,l.sku))},
+  {id:'CT-0029',pool:'Return HO · Store Senayan',scope:'All articles',why:'Cycle count',by:'Inventory',due:'Fri 3 Oct',st:'todo',lines:[L('Kaos Crew Basic · S','20114122102'),L('Kemeja Oxford Slim · S','20114011102')]},
+  {id:'CT-0028',pool:'Unallotted',scope:'Polo Pique Basic · M',why:'Missing · 1 pcs',by:'Inventory',due:'29 Sep',st:'review',lines:[]},
+  {id:'CT-0027',pool:'Unallotted',scope:'3 articles',why:'Cycle count',by:'Inventory',due:'29 Sep',st:'review',lines:[]},
+  {id:'CT-0021',pool:'Whole Gudang',scope:'Every pool',why:'Opname · Q3',by:'Finance',due:'30 Sep',st:'done',lines:[]},
+];
+const S={ptab:'todo',pr:null,printer:'Bench 1',size:'58x40',pv:0,view:'stock',tab:'tree',q:'',sel:'all',open:new Set(['all','allot','retst','rh']),count:null,parts:{},extra:[]};
+const $=id=>document.getElementById(id);
+const icons=()=>lucide.createIcons({attrs:{'stroke-width':1.7}});
+const id=n=>n.toLocaleString('id-ID');
+const dot=(c,l)=>`<span class="st"><span class="dot" style="background:${c}"></span>${l}</span>`;
+function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),2800)}
+const openMis=()=>MIS.filter(m=>m.left>0).length, todo=()=>CNT.filter(c=>c.st==='todo').length;
+
+/* ── Stock: the tree on the left, the clicked pool on the right ─────────── */
+function treeRows(n,depth,out){
+  const kids=n.kids||[], q=qty(n), open=S.open.has(n.id);
+  out.push(`<tr class="${n.id==='all'?'root ':''}${S.sel===n.id?'on':''}" onclick="sel('${n.id}')"><td><span class="nmw" style="padding-left:${depth*20}px">${kids.length?`<span class="chev${open?' open':''}" onclick="event.stopPropagation();tog('${n.id}')"><i data-lucide="chevron-right"></i></span>`:'<span class="chev"></span>'}<span><span class="${q?'':'zero'}" style="${depth===0?'':'color:var(--ink)'}">${n.name}</span>${n.sub?`<span class="sk">${n.sub}</span>`:''}</span></span></td><td class="r ${q?'':'zero'}">${id(q)}</td></tr>`);
+  if(open)kids.forEach(k=>treeRows(k,depth+1,out));
+  return out;
+}
+/* Ops → Stock: the same table as Inventory's, only the Gudang. A pool
+   with sub-pools folds; a pool of articles opens its articles in a sheet. */
+const SEEN={unal:[481,'Today 07.00'],unpicked:[334,'Today 07.00'],picked:[326,'Today 07.00'],packed:[510,'Today 07.00'],retpo:[50,'Today 07.00'],rh:[33,'Today 07.00']};
+const LAST={unal:['483','27 Sep'],rh:['33','30 Sep'],retpo:['50','30 Sep']};
+function opsRows(n,depth,out){
+  const kids=n.kids||[], q=qty(n), open=S.open.has(n.id), sn=SEEN[n.id], lc=LAST[n.id];
+  const clickable=!!n.lines||kids.length;
+  out.push(`<tr class="${n.id==='all'?'root':''}${n.lines?' click':''}" ${n.lines?`onclick="openPool('${n.id}')"`:kids.length?`onclick="tog('${n.id}')"`:''}><td><span class="nmw" style="padding-left:${depth*20}px">${kids.length?`<span class="chev${open?' open':''}"><i data-lucide="chevron-right"></i></span>`:'<span class="chev"></span>'}<span><span class="${q?'':'zero'}" style="${depth===0?'':'color:var(--ink)'}">${n.name}</span>${n.sub?`<span class="sk">${n.sub}</span>`:''}</span></span></td>
+    <td class="r ${q?'':'zero'}">${id(q)}</td><td class="r">${sn?`<span style="color:var(--ink)">${id(sn[0])}</span><span class="sk">${sn[1]}</span>`:depth?'<span class="wait">—</span>':''}</td><td class="r">${lc?`${lc[0]}<span class="sk">${lc[1]}</span>`:depth?'<span class="wait">—</span>':''}</td></tr>`);
+  if(open)kids.forEach(k=>opsRows(k,depth+1,out));
+  return out;
+}
+function stockTree(){
+  const q=S.q.trim().toLowerCase();
+  if(q){
+    const hits=[];(function walk(n,path){(n.lines||[]).forEach(l=>{if((l.name+' '+l.sku).toLowerCase().includes(q))hits.push({...l,where:[...path,n.name].slice(1).filter(x=>x!=='Allotted'&&x!=='Return stock').join(' · ')})});(n.kids||[]).forEach(k=>walk(k,[...path,n.name]))})(TREE,[]);
+    return search()+`<div class="card"><table><thead><tr><th class="n">No.</th><th>Article</th><th>Pool</th><th class="r">Pcs</th></tr></thead><tbody>${hits.map((h,i)=>`<tr><td class="n">${i+1}</td><td><span class="nm">${h.name}</span><span class="sk">${h.sku}</span></td><td>${h.where}</td><td class="r">${id(h.q)}</td></tr>`).join('')||'<tr><td colspan="4" class="wait" style="text-align:center">Not in any pool.</td></tr>'}</tbody><tfoot><tr><td></td><td colspan="2">Total</td><td class="r">${id(hits.reduce((s,h)=>s+h.q,0))}</td></tr></tfoot></table></div>`;
+  }
+  return search()+`<div class="card"><table class="tree watch"><thead><tr><th>Pool</th><th class="r">On hand</th><th class="r">Seen</th><th class="r">Last count</th></tr></thead><tbody>${opsRows(TREE,0,[]).join('')}</tbody></table></div>`;
+}
+function search(){return `<label class="search"><i data-lucide="search"></i><input id="q" placeholder="Find an article in the Gudang" value="${S.q}" autocomplete="off"></label>`}
+/* A pool's articles, in a sheet over the page. */
+function openPool(nid){
+  const path=find(TREE,nid),n=path[path.length-1];
+  $('dlg').innerHTML=`<div class="veil" onmousedown="if(event.target===this)closeDlg()" style="justify-content:flex-end;padding:20px"><div class="dlg" style="width:min(40rem,100%);height:100%;max-height:none"><div class="sh"><div class="g"><div class="crumb">${path.slice(1,-1).map(p=>p.name).join(' · ')||'Stock'}</div><h2>${n.name}</h2><p>${id(qty(n))} pcs</p></div><button class="ib" onclick="closeDlg()"><i data-lucide="x"></i></button></div>
+  <div class="sb"><div class="card"><table><thead><tr><th class="n">No.</th><th>Article</th><th class="r">Pcs</th></tr></thead><tbody>${n.lines.map((l,i)=>`<tr><td class="n">${i+1}</td><td><span class="nm">${l.name}</span><span class="sk">${l.sku}</span></td><td class="r">${id(l.q)}</td></tr>`).join('')}</tbody><tfoot><tr><td></td><td>Total</td><td class="r">${id(qty(n))}</td></tr></tfoot></table></div></div>
+  ${n.id!=='unid'&&n.id!=='po1'?`<div class="sf"><span class="g"></span><button class="btn" onclick="closeDlg();askCount('${n.id}')"><i data-lucide="clipboard-list"></i>Ask for a count</button></div>`:''}</div></div>`;
+  icons();
+}
+function sel(nid){S.sel=nid;S.open.add(nid);paint()}
+function tog(nid){S.open.has(nid)?S.open.delete(nid):S.open.add(nid);paint()}
+function askCount(nid){const path=find(TREE,nid),n=path[path.length-1];CNT.unshift({id:'CT-00'+(32+CNT.length),pool:path.slice(1).map(p=>p.name).filter(x=>x!=='Allotted'&&x!=='Return stock').join(' · '),scope:'All articles',why:'Asked from Stock',by:'Ops',due:'Today',st:'todo',lines:n.lines.map(l=>L(l.name,l.sku))});toast('Count added to Count');paint()}
+
+/* ── Missing ────────────────────────────────────────────────────────────── */
+function missing(inv){
+  const open=MIS.filter(m=>m.left>0);
+  return `<div class="card"><table><thead><tr><th class="n">No.</th><th>Article</th><th>Pool</th><th>From</th><th class="r">Missing</th><th class="r">Age</th><th class="act"></th></tr></thead><tbody>
+  ${open.length?open.map((m,i)=>`<tr><td class="n">${i+1}</td><td><span class="nm">${m.name}</span><span class="sk">${m.sku}</span></td><td>${m.pool}</td><td><span class="nm" style="font-weight:400">${m.src}</span><span class="sk">${m.from}</span></td><td class="r strong">${m.left}</td><td class="r" style="color:${m.age>30?'var(--bad-fg)':'var(--body)'}">${m.age} days</td><td class="act"><button class="btn sm" onclick="openMove(${m.id})">Move</button>${inv?` <button class="btn sm" style="color:var(--bad-fg)" onclick="openLost(${m.id})">Write off</button>`:''}</td></tr>`).join(''):'<tr><td colspan="7" class="wait" style="text-align:center;height:88px">Nothing missing.</td></tr>'}
+  </tbody></table></div>`;
+}
+/* Move: it turned up, here or in another pool. Part of it is fine; the rest stays missing. */
+const POOLS=['Unallotted','Unidentified','Return PO','Return stock'];
+function openMove(mid){
+  const m=MIS.find(x=>x.id===mid);
+  $('dlg').innerHTML=`<div class="veil" onmousedown="if(event.target===this)closeDlg()"><div class="dlg small"><div class="sh"><div class="g"><h2>Move</h2><p>${m.name} · ${m.left} missing</p></div><button class="ib" onclick="closeDlg()"><i data-lucide="x"></i></button></div>
+  <div class="sb"><div class="field"><label>Pcs found</label><input id="fQty" inputmode="numeric" value="${m.left}" oninput="moveNote(${mid})"></div>
+  <div class="field"><label>Found in</label><select id="fPool" oninput="moveNote(${mid})">${POOLS.map(p=>`<option${p===m.pool?' selected':''}>${p}</option>`).join('')}</select></div></div>
+  <div class="sf"><span class="g" id="fNote"></span><button class="btn pri" id="fGo" onclick="doMove(${mid})">Move</button></div></div></div>`;
+  icons();moveNote(mid);$('fQty').select();
+}
+function moveNote(mid){const m=MIS.find(x=>x.id===mid),q=+$('fQty').value||0,ok=q>0&&q<=m.left;$('fGo').disabled=!ok;$('fNote').textContent=!ok?'1 to '+m.left+' pcs':q<m.left?(m.left-q)+' stays missing':''}
+function doMove(mid){const m=MIS.find(x=>x.id===mid),q=+$('fQty').value,to=$('fPool').value;m.left-=q;closeDlg();paint();toast(q+' pcs moved to '+to+(m.left?' · '+m.left+' still missing':''))}
+/* Lost: written off. Inventory only. */
+function openLost(mid){
+  const m=MIS.find(x=>x.id===mid);
+  $('dlg').innerHTML=`<div class="veil" onmousedown="if(event.target===this)closeDlg()"><div class="dlg small"><div class="sh"><div class="g"><h2>Write off</h2><p>${m.name} · ${m.left} missing</p></div><button class="ib" onclick="closeDlg()"><i data-lucide="x"></i></button></div>
+  <div class="sb"><div class="field"><label>Pcs</label><input id="fQty" inputmode="numeric" value="${m.left}"></div></div>
+  <div class="sf"><span class="g"></span><button class="btn pri" style="background:var(--bad);border-color:var(--bad)" onclick="doLost(${mid})">Write off</button></div></div></div>`;
+  icons();$('fQty').select();
+}
+function doLost(mid){const m=MIS.find(x=>x.id===mid),q=Math.min(m.left,+$('fQty').value||0);if(!q)return;m.left-=q;closeDlg();paint();toast(q+' pcs written off · Stock Adjustment'+(m.left?' · '+m.left+' still missing':''))}
+
+/* ── Count: tasks, and the blind count itself ───────────────────────────── */
+function counts(){
+  const st={todo:dot('var(--warn)','To count'),review:dot('var(--faint)','Counted · Inventory reviewing'),done:dot('var(--ok)','Closed')};
+  return `<div class="card"><table><thead><tr><th class="n">No.</th><th>Count</th><th>Pool</th><th>What</th><th>Why</th><th>Due</th><th>Status</th><th class="act"></th></tr></thead><tbody>
+  ${CNT.map((c,i)=>`<tr><td class="n">${i+1}</td><td><span class="mono" style="color:var(--ink)">${c.id}</span><span class="sk">${c.by}</span></td><td class="strong">${c.pool}</td><td>${c.scope}</td><td>${c.why}</td><td>${c.due}</td><td>${st[c.st]}</td><td class="act">${c.st==='todo'?`<button class="btn sm pri" onclick="openCount('${c.id}')">Count</button>`:''}</td></tr>`).join('')}
+  </tbody></table></div>`;
+}
+/* Blind: what to count is listed, never how many the system has. */
+function openCount(cid){S.count=cid;S.parts={};S.extra=[];renderCount()}
+function renderCount(){
+  const c=CNT.find(x=>x.id===S.count), rows=[...c.lines,...S.extra];
+  $('dlg').innerHTML=`<div class="veil"><div class="dlg"><div class="sh"><div class="g"><h2>Count · ${c.pool}</h2><p>${c.why} · ${c.scope}</p></div><button class="ib" onclick="closeDlg()"><i data-lucide="x"></i></button></div>
+  <div class="sb"><div class="card"><table><thead><tr><th class="n">No.</th><th>Article</th><th class="r">Counted</th></tr></thead><tbody>${rows.map((x,i)=>`<tr><td class="n">${i+1}</td><td><span class="nm">${x.name}</span><span class="sk">${x.sku}</span></td><td class="r"><span class="fld"><input inputmode="numeric" placeholder="0" value="${S.parts[i]??''}" oninput="S.parts[${i}]=this.value.replace(/\\D/g,'');foot()"><span>pcs</span></span></td></tr>`).join('')}</tbody></table></div>
+  <button class="addrow" onclick="addExtra()"><i data-lucide="plus"></i>Something here that isn't listed</button></div>
+  <div class="sf" id="cf"></div></div></div>`;
+  foot();icons();
+}
+function foot(){
+  const c=CNT.find(x=>x.id===S.count), n=c.lines.length+S.extra.length;
+  const filled=Array.from({length:n}).filter((_,i)=>S.parts[i]!==undefined&&S.parts[i]!=='').length, tot=Array.from({length:n}).reduce((s,_,i)=>s+(+S.parts[i]||0),0);
+  $('cf').innerHTML=`<span class="g"><b style="color:var(--ink)">${id(tot)} pcs</b> counted · ${filled} of ${n} lines · type 0 for none</span><button class="btn pri" onclick="submitCount()"${filled===n?'':' disabled'}>Submit count</button>`;
+}
+function addExtra(){const sku=prompt('SKU found here');if(!sku)return;S.extra.push(L('Not on the list',sku.toUpperCase()));renderCount()}
+function submitCount(){const c=CNT.find(x=>x.id===S.count);c.st='review';closeDlg();paint();toast(c.id+' sent · Inventory reviews the difference')}
+function closeDlg(){$('dlg').innerHTML=''}
+
+/* ── Inventory: the whole company, and whether each number can be trusted ──
+   On hand is the ledger. Seen is how many tags the readers read there last
+   (Observations holds every read). Last count is the last approved count.
+   Seen fills in as tags are read, so it is shown with its time and never
+   subtracted from On hand. */
+const W=(id,name,oh,seen,seenAt,count,countAt,kids,sub)=>({id,name,oh,seen,seenAt,count,countAt,kids,sub});
+const WATCH=W('w','Stock',null,null,null,null,null,[
+  W('wg','Gudang HO',null,null,null,null,null,[
+    W('wg1','Unallotted',485,481,'Today 07.00',483,'27 Sep'),
+    W('wg2','Allotted',1574,1570,'Today 07.00',null,null),
+    W('wg3','Return stock',33,33,'Today 07.00',33,'30 Sep'),
+    W('wg4','Unidentified',700,null,null,null,null,null,'No tags yet'),
+  ]),
+  W('wr','On the road',null,null,null,null,null,[
+    W('wr1','SJ-011026-005 · Store Kemang',300,null,null,null,null),
+    W('wr2','SJ-280926-002 · Store BSD',140,null,null,null,null),
+  ]),
+  W('ws','Stores',null,null,null,null,null,[
+    W('ws1','Store Kemang',2140,2138,'1 hour ago',2140,'12 Sep'),
+    W('ws2','Store PIK',1880,null,'Silent 2 days',1871,'3 Sep'),
+    W('ws3','Store Senayan',1610,1571,'Today 08.30',1610,'25 Sep'),
+    W('ws4','Store BSD',990,990,'Today 08.10',988,'20 Sep'),
+  ]),
+]);
+const sumOf=(n,k)=>n.kids?n.kids.reduce((s,c)=>s+(sumOf(c,k)||0),0):(n[k]||0);
+const days=d=>({'27 Sep':4,'30 Sep':1,'12 Sep':19,'3 Sep':28,'25 Sep':6,'20 Sep':11})[d]??0;
+function watchRows(n,depth,out){
+  const leaf=!n.kids, oh=leaf?n.oh:sumOf(n,'oh');
+  const seenCell=leaf?(n.seen==null?(n.seenAt&&n.seenAt.startsWith('Silent')?`<span style="color:var(--warn)">${n.seenAt}</span>`:'<span class="wait">—</span>'):`<button class="seen" onclick="event.stopPropagation();openObs('${n.id}')">${id(n.seen)}</button><span class="sk">${n.seenAt}</span>`):'';
+  const diff=leaf&&n.seen!=null?n.seen-n.oh:0, pct=leaf&&n.oh?Math.abs(diff)/n.oh:0;
+  const cnt=leaf?(n.count==null?'<span class="wait">—</span>':`${id(n.count)}<span class="sk"${days(n.countAt)>21?' style="color:var(--warn)"':''}>${n.countAt}</span>`):'';
+  out.push(`<tr class="${depth===0?'root':''}"><td><span class="nmw" style="padding-left:${depth*20}px"><span>${n.name}${n.sub?`<span class="sk">${n.sub}</span>`:''}</span></span></td><td class="r">${id(oh)}</td><td class="r">${seenCell}</td><td class="r">${cnt}</td><td class="act">${leaf&&(days(n.countAt)>21||(n.seenAt||'').startsWith('Silent'))?`<button class="btn sm" onclick="schedule('${n.name}')">Ask for a count</button>`:''}</td></tr>`);
+  (n.kids||[]).forEach(k=>watchRows(k,depth+1,out));
+  return out;
+}
+function invStock(){
+  return `<div class="card"><table class="tree watch"><thead><tr><th>Where</th><th class="r">On hand</th><th class="r">Seen</th><th class="r">Last count</th><th class="act"></th></tr></thead><tbody>${watchRows(WATCH,0,[]).join('')}</tbody></table></div>`;
+}
+function schedule(name){CNT.unshift({id:'CT-00'+(32+CNT.length),pool:name,scope:'All articles',why:'Asked by Inventory',by:'Inventory',due:'Today',st:'todo',lines:TREE.kids.find(k=>k.id==='unal').lines.map(l=>L(l.name,l.sku))});toast('Count asked · it shows in Ops → Count')}
+/* Observations: every read behind a Seen number. */
+function openObs(wid){
+  const find2=n=>n.id===wid?n:(n.kids||[]).map(find2).find(Boolean);const n=find2(WATCH);
+  const reads=[['E280-1160-6000-0209-4A1B','Kemeja Oxford Slim · L',n.seenAt],['E280-1160-6000-0209-4A1C','Kemeja Oxford Slim · L',n.seenAt],['E280-1160-6000-0209-77F0','Celana Chino Tapered · 32',n.seenAt],['E280-1160-6000-0209-9C21','Polo Pique Basic · M',n.seenAt]];
+  $('dlg').innerHTML=`<div class="veil" onmousedown="if(event.target===this)closeDlg()"><div class="dlg"><div class="sh"><div class="g"><h2>Observations · ${n.name}</h2><p>${id(n.seen)} tags seen · ${n.seenAt}</p></div><button class="ib" onclick="closeDlg()"><i data-lucide="x"></i></button></div>
+  <div class="sb"><div class="card"><table><thead><tr><th class="n">No.</th><th>Tag</th><th>Article</th><th>Last seen</th></tr></thead><tbody>${reads.map((r,i)=>`<tr><td class="n">${i+1}</td><td class="mono">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('')}<tr><td></td><td colspan="3" class="wait">… ${id(Math.max(0,n.seen-4))} more</td></tr></tbody></table></div></div></div></div>`;
+  icons();
+}
+function invMissing(){return missing(true)}
+/* Inventory · Counts: Expected against Counted, and the one decision. */
+const RES={
+  'CT-0028':[['Polo Pique Basic · M','20114159103',61,60]],
+  'CT-0027':[['Kemeja Oxford Slim · L','20114011104',40,42],['Kaos Crew Basic · M','20114122104',30,30],['Celana Chino Tapered · 30','20114207130',18,19]],
+};
+/* What a line's difference becomes: short → Missing, over → closes an open Missing of the same SKU in this pool, else extra into the pool. */
+function outcome(c,l){
+  const d=l[3]-l[2];
+  if(!d)return {t:'Same',c:'var(--mute)'};
+  if(d<0)return {t:`${-d} to Missing`,c:'var(--warn-fg)'};
+  const m=MIS.find(x=>x.sku===l[1]&&x.pool===c.pool&&x.left>0);
+  return m?{t:`${Math.min(d,m.left)} found${d>m.left?' · '+(d-m.left)+' extra':''}`,c:'var(--ok-fg)',m}:{t:`${d} extra`,c:'var(--ok-fg)'};
+}
+function invCounts(){
+  const rev=CNT.filter(c=>c.st==='review');
+  return `<div class="card"><table><thead><tr><th class="n">No.</th><th>Count</th><th>Pool</th><th>Why</th><th class="r">Short</th><th class="r">Over</th><th class="act"></th></tr></thead><tbody>
+  ${rev.length?rev.map((c,i)=>{const r=RES[c.id]||[];const sh=r.reduce((s,x)=>s+Math.max(0,x[2]-x[3]),0),ov=r.reduce((s,x)=>s+Math.max(0,x[3]-x[2]),0);return `<tr class="click" onclick="openReview('${c.id}')"><td class="n">${i+1}</td><td><span class="mono" style="color:var(--ink)">${c.id}</span><span class="sk">${c.scope}</span></td><td class="strong">${c.pool}</td><td>${c.why}</td><td class="r" style="color:${sh?'var(--warn-fg)':'inherit'}">${sh||'—'}</td><td class="r" style="color:${ov?'var(--ok-fg)':'inherit'}">${ov||'—'}</td><td class="act"><button class="btn sm">Review</button></td></tr>`}).join(''):'<tr><td colspan="7" class="wait" style="text-align:center;height:72px">Nothing to review.</td></tr>'}
+  </tbody></table></div>`;
+}
+/* Inventory sees the book beside the count — Ops never did. */
+function openReview(cid){
+  const c=CNT.find(x=>x.id===cid),r=RES[cid]||[];
+  $('dlg').innerHTML=`<div class="veil" onmousedown="if(event.target===this)closeDlg()"><div class="dlg"><div class="sh"><div class="g"><h2>${c.id} · ${c.pool}</h2><p>${c.why}</p></div><button class="ib" onclick="closeDlg()"><i data-lucide="x"></i></button></div>
+  <div class="sb"><div class="card"><table><thead><tr><th class="n">No.</th><th>Article</th><th class="r">Book</th><th class="r">Counted</th><th>Becomes</th></tr></thead><tbody>
+  ${r.map((l,i)=>{const o=outcome(c,l);return `<tr><td class="n">${i+1}</td><td><span class="nm">${l[0]}</span><span class="sk">${l[1]}</span></td><td class="r">${l[2]}</td><td class="r strong">${l[3]}</td><td style="color:${o.c};font-weight:500">${o.t}</td></tr>`}).join('')}
+  </tbody></table></div></div>
+  <div class="sf"><span class="g"></span><button class="btn" onclick="recount('${c.id}');closeDlg()">Recount</button><button class="btn pri" onclick="approve('${c.id}');closeDlg()">Approve</button></div></div></div>`;
+  icons();
+}
+function approve(cid){
+  const c=CNT.find(x=>x.id===cid);let toMis=0,found=0;
+  (RES[cid]||[]).forEach(l=>{const d=l[3]-l[2];if(d<0){toMis+=-d;MIS.push({id:MIS.length+10,name:l[0],sku:l[1],pool:c.pool,left:-d,src:'Count',from:cid,age:0})}
+    else if(d>0){const m=MIS.find(x=>x.sku===l[1]&&x.pool===c.pool&&x.left>0);if(m){const f=Math.min(d,m.left);m.left-=f;found+=f}}});
+  c.st='done';paint();toast(cid+' approved'+(toMis?' · '+toMis+' to Missing':'')+(found?' · '+found+' found':''));
+}
+function recount(cid){const c=CNT.find(x=>x.id===cid);c.st='todo';paint();toast(cid+' back to Ops → Count')}
+
+
+
+/* ── Printing: labels for POs whose articles are all in the Article master ── */
+const PL=(name,sku,q,done=0)=>({name,sku,q,done});
+const PRN=[
+  {po:'011026-003',colour:'Navy',price:89000,sup:'CV Benang Mas',due:'Today',lines:[PL('Kaos Crew Basic · S','20114122102',240),PL('Kaos Crew Basic · M','20114122103',300),PL('Kaos Crew Basic · L','20114122104',260)]},
+  {po:'300926-011',colour:'White',price:249000,sup:'PT Sinar Tekstil',due:'Tomorrow',lines:[PL('Kemeja Oxford Slim · M','20114011103',120,120),PL('Kemeja Oxford Slim · L','20114011104',140,60),PL('Kemeja Oxford Slim · XL','20114011105',80)]},
+  {po:'290926-007',colour:'Khaki',price:299000,sup:'CV Denim Jaya',due:'Fri 3 Oct',lines:[PL('Celana Chino Tapered · 30','20114085130',90),PL('Celana Chino Tapered · 32','20114085132',110),PL('Celana Chino Tapered · 34','20114085134',70)]},
+  {po:'270926-002',colour:'Black',price:159000,sup:'PT Rajut Indah',due:'Mon 6 Oct',lines:[PL('Polo Pique Basic · M','20114159103',150),PL('Polo Pique Basic · L','20114159104',150)]},
+  {po:'250926-004',colour:'Grey',price:99000,sup:'CV Benang Mas',due:'29 Sep',lines:[PL('Kaos V-Neck · M','20114233103',200,200),PL('Kaos V-Neck · L','20114233104',180,180)]},
+];
+const tot=(o,k)=>o.lines.reduce((s,l)=>s+l[k],0);
+const left=o=>tot(o,'q')-tot(o,'done');
+function printing(){
+  const todo=PRN.filter(o=>left(o)>0),done=PRN.filter(o=>!left(o)),list=S.ptab==='done'?done:todo;
+  return `<div class="tabs"><button class="${S.ptab!=='done'?'on':''}" onclick="S.ptab='todo';paint()">To print${todo.length?`<span class="b" style="background:var(--accent)">${todo.length}</span>`:''}</button><button class="${S.ptab==='done'?'on':''}" onclick="S.ptab='done';paint()">Printed</button></div>
+  <div class="card"><table class="click"><thead><tr><th class="n">No.</th><th>PO</th><th>Supplier</th><th>Delivery</th><th class="r">SKU</th><th class="r">Labels</th><th class="r">Printed</th><th class="act"></th></tr></thead><tbody>
+  ${list.map((o,i)=>`<tr onclick="openPrint('${o.po}')"><td class="n">${i+1}</td><td class="mono" style="color:var(--ink)">${o.po}</td><td>${o.sup}</td><td>${o.due}</td><td class="r">${o.lines.length}</td><td class="r strong">${id(tot(o,'q'))}</td><td class="r">${tot(o,'done')?id(tot(o,'done')):'<span class="wait">—</span>'}</td><td class="act">${left(o)?`<button class="btn sm" style="min-width:7.5rem;justify-content:center" onclick="event.stopPropagation();printPo('${o.po}')"><i data-lucide="printer"></i>Print ${id(left(o))}</button>`:''}</td></tr>`).join('')||`<tr><td colspan="8" class="wait" style="text-align:center;height:88px">${S.ptab==='done'?'Nothing printed yet.':'Nothing to print.'}</td></tr>`}
+  </tbody><tfoot><tr><td></td><td colspan="4">Total</td><td class="r">${id(list.reduce((s,o)=>s+tot(o,'q'),0))}</td><td class="r">${id(list.reduce((s,o)=>s+tot(o,'done'),0))}</td><td></td></tr></tfoot></table></div>`;
+}
+function openPrint(po){S.pr=po;S.pv=0;renderPrint()}
+/* The benches and their reels. A printer is loaded with one stock, so
+   picking the printer picks the size; the size can still be changed. */
+const PRINTERS=[{id:'Bench 1',model:'Printronix T6204e',size:'58x40'},{id:'Bench 2',model:'Zebra ZD621R',size:'45x18'}];
+const PRESETS=[['58x40','Standard'],['50x30','House stock'],['45x18','RFID type 2'],['40x30',''],['100x50','Cartons']];
+/* The hang tag, drawn from the same layout the printer gets (backend/src/edge/zpl.rs):
+   brand, name, colour · size, price, the size big in the corner, barcode. */
+function tagSvg(l,o,size){
+  const [w,h]=size.split('x').map(Number),U=10,W=w*U,H=h*U;
+  const parts=l.name.split(' · '),art=parts[0],sz=parts[1]||'',price='Rp '+id(o.price),pay='8'+l.sku;
+  const t=(x,y,f,txt,ex='')=>`<text x="${x}" y="${y}" font-size="${f}" dominant-baseline="text-before-edge" ${ex}>${txt}</text>`;
+  // Code 128-looking bars that always fill the width they are given
+  const bars=(x,y,bw,bh)=>{const n=pay.length,mods=11*(n+3)+2,m=bw/mods;let out='',cx=x,seq=[2,1,1,2,3,2];for(let i=0;i<n+3;i++){const c=(pay.charCodeAt(i%n)*31+i*17)%97;const ws=[1+c%3,1+(c>>1)%2,1+(c>>2)%3,1+(c>>3)%2,1+(c>>4)%2];const rest=11-ws.reduce((a,b)=>a+b,0);seq=[...ws,Math.max(1,rest)];seq.forEach((u,j)=>{if(j%2===0)out+=`<rect x="${cx.toFixed(2)}" y="${y}" width="${(u*m).toFixed(2)}" height="${bh}"/>`;cx+=u*m})}out+=`<rect x="${(x+bw-2*m).toFixed(2)}" y="${y}" width="${(2*m).toFixed(2)}" height="${bh}"/>`;return out};
+  let body;
+  if(h<24){
+    const P=2*U,k=h/18,M=v=>v*U*k;
+    body=t(P,M(2.1),M(1.6),'CENTRAL','fill="#8a9099" letter-spacing="1.5" font-weight="600"')
+      +t(W-P,M(1.4),M(3.1),price,'text-anchor="end" font-weight="700"')
+      +t(P,M(5.1),M(2.2),art,'font-weight="600"')
+      +t(P,M(7.6),M(1.9),`${o.colour} · ${sz}`,'fill="#4b5260"')
+      +`<g fill="#111">${bars(P,M(10.2),W-2*P,M(3))}</g>`
+      +t(W/2,M(13.6),M(1.6),l.sku,'text-anchor="middle" fill="#4b5260" letter-spacing="2"');
+  }else{
+    const k=Math.min(w/58,h/40),P=3.2*U*k,bw=Math.min(W-2*P,52*U*k);
+    body=t(P,P,2*U*k,'CENTRAL','fill="#8a9099" letter-spacing="2" font-weight="600"')
+      +(sz?t(W-P,P-1.2*U*k,8.6*U*k,sz,'text-anchor="end" font-weight="700"'):'')
+      +t(P,P+4*U*k,3.1*U*k,art,'font-weight="600"')
+      +t(P,P+8*U*k,2.6*U*k,`${o.colour} · ${sz}`,'fill="#4b5260"')
+      +t(P,P+11.8*U*k,5*U*k,price,'font-weight="700" letter-spacing="-1"')
+      +`<g fill="#111">${bars(P,H-P-13.4*U*k,bw,10*U*k)}</g>`
+      +t(P+bw/2,H-P-2.8*U*k,2.1*U*k,l.sku,'text-anchor="middle" fill="#4b5260" letter-spacing="3"');
+  }
+  return `<svg class="tag" viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${Math.min(w*6.4,460)}px" font-family="Inter,Arial,sans-serif" fill="#111"><rect x=".5" y=".5" width="${W-1}" height="${H-1}" rx="${Math.min(W,H)*.05}" fill="#fff" stroke="#e3e6ea"/>${body}</svg>`;
+}
+function renderPrint(){
+  const o=PRN.find(x=>x.po===S.pr),l0=left(o),pv=o.lines[Math.min(S.pv,o.lines.length-1)];
+  $('dlg').innerHTML=`<div class="veil" onmousedown="if(event.target===this)closeDlg()" style="justify-content:flex-end;padding:20px"><div class="dlg" style="width:min(56rem,100%);height:100%;max-height:none"><div class="sh"><div class="g"><h2>PO ${o.po}</h2></div><button class="ib" onclick="closeDlg()"><i data-lucide="x"></i></button></div>
+  <div class="sb">
+    <div class="pvw">
+      <div class="stage">${tagSvg(pv,o,S.size)}<span class="cap">${pv.name.split(' · ')[0]} · ${o.colour} · ${pv.name.split(' · ')[1]||''}</span></div>
+      <div class="opts">
+        <div class="lbl">Printer</div>
+        ${PRINTERS.map(pr=>`<button class="pick${S.printer===pr.id?' on':''}" onclick="S.printer='${pr.id}';S.size='${pr.size}';renderPrint()"><span class="dotr"></span><span><span class="nm">${pr.id}</span><span class="sk">${pr.model} · ${pr.size.replace('x',' × ')} mm</span></span></button>`).join('')}
+        <div class="lbl" style="margin-top:18px">Label size</div>
+        <select class="ssel" onchange="S.size=this.value;renderPrint()">${PRESETS.map(z=>`<option value="${z[0]}"${S.size===z[0]?' selected':''}>${z[0].replace('x',' × ')} mm${z[1]?' · '+z[1]:''}</option>`).join('')}</select>
+      </div>
+    </div>
+    <div class="card"><table><thead><tr><th class="n">No.</th><th>SKU</th><th>Article</th><th>Colour</th><th>Size</th><th class="r">Labels</th><th class="r">Printed</th><th class="act"></th></tr></thead><tbody>${o.lines.map((l,i)=>`<tr class="pvrow${l===pv?' on':''}" onclick="S.pv=${i};renderPrint()"><td class="n">${i+1}</td><td class="mono" style="color:var(--ink)">${l.sku}</td><td>${l.name.split(' · ')[0]}</td><td>${o.colour}</td><td>${l.name.split(' · ')[1]||''}</td><td class="r">${id(l.q)}</td><td class="r">${l.done?id(l.done):'<span class="wait">—</span>'}</td><td class="act">${l.done<l.q?`<button class="btn sm" onclick="event.stopPropagation();printLine(${i})"><i data-lucide="printer"></i>Print ${id(l.q-l.done)}</button>`:`<button class="btn sm" onclick="event.stopPropagation();openReprint(${i})"><i data-lucide="rotate-ccw"></i>Reprint</button>`}</td></tr>`).join('')}</tbody><tfoot><tr><td></td><td colspan="4">Total</td><td class="r">${id(tot(o,'q'))}</td><td class="r">${id(tot(o,'done'))}</td><td></td></tr></tfoot></table></div>
+  </div>
+  <div class="sf"><button class="btn" onclick="toast('1 test label sent to '+S.printer+' · not counted')"><i data-lucide="file-check"></i>Test print</button><span class="g"></span>${l0?`<button class="btn pri" onclick="printAll()"><i data-lucide="printer"></i>Print all ${id(l0)}</button>`:''}</div></div></div>`;
+  icons();
+}
+function printLine(i){const o=PRN.find(x=>x.po===S.pr),l=o.lines[i],n=l.q-l.done;l.done=l.q;renderPrint();paint();toast(id(n)+' labels sent to '+S.printer)}
+function printPo(po){const o=PRN.find(x=>x.po===po),n=left(o);o.lines.forEach(l=>l.done=l.q);paint();toast(id(n)+' labels sent to '+S.printer)}
+function printAll(){const o=PRN.find(x=>x.po===S.pr),n=left(o);o.lines.forEach(l=>l.done=l.q);renderPrint();paint();toast(id(n)+' labels sent to '+S.printer)}
+/* Reprint: a torn or lost label. Same tags, never new ones. */
+function openReprint(i){
+  const o=PRN.find(x=>x.po===S.pr),l=o.lines[i];
+  $('dlg').insertAdjacentHTML('beforeend',`<div class="veil" id="rp" onmousedown="if(event.target===this)this.remove()"><div class="dlg small"><div class="sh"><div class="g"><h2>Reprint</h2><p>${l.name}</p></div><button class="ib" onclick="$('rp').remove()"><i data-lucide="x"></i></button></div>
+  <div class="sb"><div class="field"><label>Labels</label><input id="rpQty" inputmode="numeric" value="1"></div></div>
+  <div class="sf"><span class="g"></span><button class="btn pri" onclick="const n=+$('rpQty').value||0;if(n){$('rp').remove();toast(n+' labels reprinted on '+S.printer)}">Reprint</button></div></div></div>`);
+  icons();$('rpQty').select();
+}
+
+function paint(){
+  if(S.view.startsWith('inv')){
+    const v=S.view,ttl={inv:'Stock',invmis:'Missing',invcnt:'Counts'}[v];
+    $('crumb').innerHTML=`Inventory<i data-lucide="chevron-right"></i><b>${ttl}</b>`;
+    $('nStock').className='ci';$('nCount').className='ci';$('nPrint').className='ci';
+    $('view').innerHTML=`<h1>${ttl}</h1>`+{inv:invStock,invmis:invMissing,invcnt:invCounts}[v]();
+    paintSeg();icons();return;
+  }
+  const stock=S.view==='stock';
+  $('crumb').innerHTML=`Ops<i data-lucide="chevron-right"></i><b>${{stock:'Stock',count:'Count',print:'Printing'}[S.view]}</b>`;
+  $('nStock').className='ci'+(stock?' on':'');$('nCount').className='ci'+(S.view==='count'?' on':'');$('nPrint').className='ci'+(S.view==='print'?' on':'');
+  $('view').innerHTML=S.view==='print'?`<h1>Printing</h1>${printing()}`:stock
+    ?`<h1>Stock</h1><div class="tabs"><button class="${S.tab==='tree'?'on':''}" onclick="S.tab='tree';paint()">Stock</button><button class="${S.tab==='mis'?'on':''}" onclick="S.tab='mis';paint()">Missing${openMis()?`<span class="b">${openMis()}</span>`:''}</button></div>${S.tab==='tree'?stockTree():missing(true)}`
+    :`<h1>Count</h1>${counts()}`;
+  paintSeg();
+  const q=$('q');if(q){q.oninput=()=>{S.q=q.value;paint();const q2=$('q');q2.focus();q2.setSelectionRange(q2.value.length,q2.value.length)}}
+  icons();
+}
+function paintSeg(){$('seg').innerHTML=[['print','Ops · Printing'],['stock','Ops · Stock'],['count','Ops · Count'],['inv','Inventory · Stock'],['invmis','Inventory · Missing'],['invcnt','Inventory · Counts']].map(x=>`<button class="${S.view===x[0]?'on':''}" onclick="S.view='${x[0]}';paint()">${x[1]}</button>`).join('')}
+addEventListener('keydown',e=>{if(e.key==='Escape')closeDlg()});
+paint();
+</script>
+</body>
+</html>

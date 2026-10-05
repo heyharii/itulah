@@ -227,11 +227,11 @@ export function Expenses() {
                 tone={
                   tin.data.balance_minor <= 0
                     ? "bad"
-                    : tin.data.balance_minor < tin.data.manager_limit_minor
+                    : tin.data.balance_minor < tin.data.code_above_minor
                       ? "warn"
                       : "ok"
                 }
-                note={`${money(tin.data.manager_limit_minor)} a receipt on a manager's signature; above that head office signs`}
+                note={`Code from Finance above ${money(tin.data.code_above_minor)}`}
               />
               {/* Head office's question, answered the way it really stands.
                   The node captures every receipt and uploads it, and the centre
@@ -394,8 +394,8 @@ export function Expenses() {
             </EmptyState>
           ) : !showingBook ? (
             <EmptyState>
-              The unit filter is on <UnitName id={unit} />, and the only
-              petty cash book this hub can read is <SiteName id={nodeSite} />
+              The unit filter is on <UnitName id={unit} />, and the only petty
+              cash book this hub can read is <SiteName id={nodeSite} />
               &rsquo;s — one node per unit, and the hub is proxied to one node.
               Clear the filter to see it.
             </EmptyState>
@@ -454,7 +454,11 @@ export function Expenses() {
                             allowed to approve this, THEN. */}
                         {entry.rung !== null && (
                           <span className="ml-1.5 text-[0.875rem] text-mute">
-                            {entry.rung === "ADMIN" ? "head office" : "store"}
+                            {entry.rung === "FINANCE"
+                              ? "code"
+                              : entry.rung === "ADMIN"
+                                ? "head office"
+                                : "store"}
                           </span>
                         )}
                       </Td>
@@ -656,7 +660,7 @@ function bookEntries(pages: readonly ExpenseWindow[]): BookEntry[] {
       payee: expense.payee,
       reason: expense.reason,
       claimedBy: expense.claimed_by,
-      approvedBy: expense.approved_by,
+      approvedBy: expense.approved_by ?? "—",
       rung: expense.approved_role,
       in: 0,
       out: expense.amount_minor,

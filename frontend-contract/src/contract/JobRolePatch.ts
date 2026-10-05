@@ -5,4 +5,4 @@ import type { Role } from "./Role";
  * `PUT /api/v1/roles/{code}`: every field optional. For a code that does not
  * exist yet this creates the role, and `name` and `rung` are then required.
  */
-export type JobRolePatch = { name?: string, rung?: Role, flow_roles?: Array<string>, sections?: Array<string>, description?: string, read_only?: boolean, node_reach?: string, };
+export type JobRolePatch = { name?: string, rung?: Role, flow_roles?: Array<string>, sections?: Array<string>, description?: string, read_only?: boolean, node_reach?: string, unit_reach?: string, };

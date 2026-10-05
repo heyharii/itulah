@@ -79,18 +79,72 @@ const INCIDENTS_KEPT: usize = 2_000;
 ///
 /// `ITULAH_DATA_DIR` when set — the Linux unit and the Windows installer both
 /// set it. A Windows service started without it falls back to
-/// `%ProgramData%\itulah\store`, so a service registered by hand still has a
-/// home.
-pub fn installed_data_dir(running_as_service: bool) -> Option<PathBuf> {
+/// `%ProgramData%\itulah\store` (a Gudang's node to `…\dc`), so a service
+/// registered by hand still has a home.
+pub fn installed_data_dir(role: EdgeRole, running_as_service: bool) -> Option<PathBuf> {
     if let Some(dir) = enrolment::data_dir() {
         return Some(dir);
     }
     if running_as_service {
         if let Some(program_data) = std::env::var_os("ProgramData") {
-            return Some(PathBuf::from(program_data).join("itulah").join("store"));
+            return Some(
+                PathBuf::from(program_data)
+                    .join("itulah")
+                    .join(role_directory(role)),
+            );
         }
     }
     None
+}
+
+/// The directory name a role's node owns under `itulah/`, and the default
+/// database file inside it. One name per role so a shop and the Gudang on one
+/// machine cannot open each other's data — which they did while both used
+/// `store-edge.sqlite3`.
+const fn role_directory(role: EdgeRole) -> &'static str {
+    match role {
+        EdgeRole::Dc => "dc",
+        EdgeRole::Store => "store",
+    }
+}
+
+/// The database file a role opens when `INVENTORY_DATABASE_PATH` is unset.
+pub const fn default_database_file(role: EdgeRole) -> &'static str {
+    match role {
+        EdgeRole::Dc => "dc-edge.sqlite3",
+        EdgeRole::Store => "store-edge.sqlite3",
+    }
+}
+
+/// The role this process is running as, read from its own database.
+///
+/// `node_metadata` is written when the node opens and refused when it
+/// disagrees with the environment (`edge/sqlite.rs`), so it is the node's own
+/// answer rather than the environment's. The console and the operations runner
+/// hold a connection and no `NodeContext`, and both need it to say what they
+/// are diagnosing — a diagnosis that calls a Gudang "a shop's node" is the
+/// kind of wrong that costs an hour on the phone.
+pub fn resident_role(connection: &rusqlite::Connection) -> EdgeRole {
+    connection
+        .query_row(
+            "SELECT role FROM node_metadata WHERE singleton = 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .and_then(|role| role.parse::<EdgeRole>().ok())
+        .unwrap_or(EdgeRole::Store)
+}
+
+/// The port a role's node listens on when nothing sets `BIND_ADDR`, `PORT` or
+/// `INVENTORY_BIND_ADDR`: the Gudang below its shops, as `backend/README.md`
+/// states it, as `deploy/edge/*.env.example` writes it, and as the Windows
+/// installer's shortcuts already open it (`deploy/windows/store.wxs`).
+pub const fn default_port(role: EdgeRole) -> u16 {
+    match role {
+        EdgeRole::Dc => 8081,
+        EdgeRole::Store => 8082,
+    }
 }
 
 /// Load configuration the way this node is meant to be configured.
@@ -126,6 +180,7 @@ fn interactive() -> bool {
 /// JSON object per line, fourteen days kept. The guard must live as long as
 /// the process or the last lines are lost.
 pub fn init_logging(
+    role: EdgeRole,
     data_dir: Option<&Path>,
 ) -> Option<tracing_appender::non_blocking::WorkerGuard> {
     use tracing_subscriber::{
@@ -135,7 +190,7 @@ pub fn init_logging(
     let appender = data_dir.map(|dir| {
         tracing_appender::rolling::Builder::new()
             .rotation(tracing_appender::rolling::Rotation::DAILY)
-            .filename_prefix("store")
+            .filename_prefix(role_directory(role))
             .filename_suffix("ndjson")
             .max_log_files(14)
             .build(dir.join("logs"))
@@ -465,11 +520,17 @@ fn spawn_watchdog(
 
 // ---- The node ----------------------------------------------------------------
 
-/// Run the store node until `shutdown` resolves.
+/// Run a node until `shutdown` resolves.
+///
+/// `default_role` is what this binary serves when `INVENTORY_NODE_ROLE` is
+/// unset: `store` runs a shop's node, `dc` runs the Gudang's. The role decides
+/// the routes, the default port, the database file and the log line — one
+/// runtime, two callers (`edge::cli`).
 ///
 /// `data_dir` is `Some` for an installed node and `None` for a developer's
 /// run; everything unattended hangs off it.
 pub async fn run(
+    default_role: EdgeRole,
     data_dir: Option<PathBuf>,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> Result<Exit, Box<dyn std::error::Error + Send + Sync>> {
@@ -500,11 +561,14 @@ pub async fn run(
             let _ = rx.wait_for(|reason| *reason != StopReason::Running).await;
         }
     };
+    let port = default_port(default_role);
     let bind: SocketAddr = match (&data_dir, std::env::var("BIND_ADDR").ok()) {
         // An installed node serves the shop's tills over the LAN; the
         // firewall rule the installer writes keeps it off anything else.
-        (Some(_), None) if std::env::var("PORT").is_err() => "0.0.0.0:8082".parse()?,
-        _ => crate::bind_addr(8082)?,
+        (Some(_), None) if std::env::var("PORT").is_err() => {
+            format!("0.0.0.0:{port}").parse()?
+        }
+        _ => crate::bind_addr(port)?,
     };
 
     if let (Some(dir), Some(journal)) = (&data_dir, &journal) {
@@ -592,15 +656,20 @@ pub async fn run(
         }
     }
 
-    let site_id =
-        SiteId::new(std::env::var("INVENTORY_SITE_ID").unwrap_or_else(|_| "store-07".into()))?;
+    let site_id = SiteId::new(
+        std::env::var("INVENTORY_SITE_ID").unwrap_or_else(|_| match default_role {
+            EdgeRole::Dc => "dc-01".into(),
+            EdgeRole::Store => "store-07".into(),
+        }),
+    )?;
     let node_id = std::env::var("INVENTORY_NODE_ID").unwrap_or_else(|_| format!("{site_id}-edge"));
     // What head office enrolled this machine as: a shop's server or the
     // Gudang's. One program serves both; the routes follow the role. A
-    // node.env from before the role was written down is a shop's.
+    // node.env from before the role was written down is a shop's — and a
+    // `dc` binary that finds no role runs the Gudang's, not a shop's.
     let role = match std::env::var("INVENTORY_NODE_ROLE") {
         Ok(role) if !role.trim().is_empty() => role.trim().parse::<EdgeRole>()?,
-        _ => EdgeRole::Store,
+        _ => default_role,
     };
     let node = NodeContext::new(node_id, role, site_id)?;
     // Kept for the LAN advertisement, which starts once the listener is up.
@@ -609,8 +678,8 @@ pub async fn run(
     let database = std::env::var("INVENTORY_DATABASE_PATH")
         .map(PathBuf::from)
         .unwrap_or_else(|_| match &data_dir {
-            Some(dir) => dir.join("store-edge.sqlite3"),
-            None => PathBuf::from("./store-edge.sqlite3"),
+            Some(dir) => dir.join(default_database_file(role)),
+            None => PathBuf::from(format!("./{}", default_database_file(role))),
         });
     let frontend = std::env::var("FRONTEND_DIR")
         .map(PathBuf::from)
@@ -663,7 +732,7 @@ pub async fn run(
     }
 
     let listener = tokio::net::TcpListener::bind(bind).await?;
-    tracing::info!(%bind, "Store Edge running independently with SQLite");
+    tracing::info!(%bind, %role, "Edge node running independently with SQLite");
     // Tills, tablets and handhelds on the LAN find this node by browsing for
     // it (`edge/discovery.rs`), and read the shop's code and name off it from
     // the site directory. Held to the end of this function: dropping it says
@@ -819,9 +888,16 @@ async fn hold_with_an_explanation(
     stopped.load(Ordering::SeqCst)
 }
 
-/// Where the shop's web apps are, when nobody said: beside the executable for
-/// an installed node (the packages put them in `web/`), `../frontend` for a
-/// developer as before.
+/// Where a node looks for the browser surface it serves beside its API.
+///
+/// An installed node carries its own under `<exe>/web`. A deployment that
+/// serves the app from a static host names one explicitly — `render.yaml`
+/// points `FRONTEND_DIR` at `/app/api-only`, which holds nothing on purpose,
+/// because the static site owns the browser and the node owns `/api/*`. A
+/// developer's run serves none either: the app runs on its own Vite server and
+/// proxies `/api` here. This default therefore names a directory that holds
+/// nothing, and a request for a page this node does not have gets the 404 it
+/// should. It used to say `../frontend`, an application that no longer exists.
 fn default_frontend_dir(installed: bool) -> PathBuf {
     if installed {
         if let Some(dir) = std::env::current_exe()
@@ -831,7 +907,7 @@ fn default_frontend_dir(installed: bool) -> PathBuf {
             return dir;
         }
     }
-    PathBuf::from("../frontend")
+    PathBuf::from("../api-only")
 }
 
 /// Ctrl-C, or SIGTERM from systemd.

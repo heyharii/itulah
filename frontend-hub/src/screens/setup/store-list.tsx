@@ -170,11 +170,6 @@ export function StoreList({
               }}
               value={row.name}
               aria-label={`Store name ${codes[index]}`}
-              placeholder={
-                index === 0 && (!showExisting || (existing ?? []).length === 0)
-                  ? "Store name, e.g. Cikupa"
-                  : "Next store"
-              }
               onChange={(event) => set(index, { name: event.target.value })}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
@@ -206,7 +201,6 @@ export function StoreList({
             <input
               value={row.city}
               aria-label={`City ${codes[index]}`}
-              placeholder="City"
               onChange={(event) => set(index, { city: event.target.value })}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
@@ -223,7 +217,6 @@ export function StoreList({
               value={row.manager}
               aria-label={`Manager ${codes[index]}`}
               aria-invalid={missingManager(row) ? true : undefined}
-              placeholder="Manager"
               onChange={(event) => set(index, { manager: event.target.value })}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {

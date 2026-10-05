@@ -266,7 +266,7 @@ pub fn validate_transition(cause: MovementCause, line: &MovementLine) -> Result<
                     place: ExternalPlace::Customer
                 },
                 Place::Operational {
-                    pool: OperationalPool::StoreFloor { .. } | OperationalPool::StoreReject { .. },
+                    pool: OperationalPool::StoreFloor { .. } | OperationalPool::Reject { .. },
                     state: InventoryState::Normal
                 }
             )

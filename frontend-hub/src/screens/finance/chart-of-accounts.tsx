@@ -5,7 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { ChevronDown, ChevronRight, Plus } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
@@ -18,8 +18,9 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { EmptyState, LoadMore, Problem } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
-import { count, label, moment, money } from "@/lib/format"
+import { label, moment, money } from "@/lib/format"
 import {
+  accountBalances,
   accountChildren,
   accountDetail,
   changeChart,
@@ -31,7 +32,7 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { cn } from "@/lib/utils"
 import { ROOT_CLASSES } from "@/screens/finance/chart"
-import { AccountPicker, SiteName } from "@/screens/finance/parts"
+import { AccountPicker, SiteName, UnitSelect } from "@/screens/finance/parts"
 import type {
   ChartChange,
   ChartChangeRequest,
@@ -72,8 +73,15 @@ const SEARCH_PAGE = 100
 export function ChartOfAccounts() {
   const [needle, setNeedle] = useState("")
   const [inactive, setInactive] = useState(false)
+  /// Whose books the balances are read from — the company's when blank, as
+  /// ERPNext's tree is read per company.
+  const [unit, setUnit] = useState("")
   const [tab, setTab] = useState("chart")
   const [creating, setCreating] = useState(false)
+  // "Expand all" / "Collapse all": a sweep every branch applies once, when it
+  // has its children. The tree loads a level at a time, so opening it all is
+  // each branch opening its own parents as they arrive.
+  const [sweep, setSweep] = useState<Sweep>({ mode: "close", epoch: 0 })
   const account = useSheet("account")
 
   const trimmed = needle.trim()
@@ -99,16 +107,14 @@ export function ChartOfAccounts() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance"
-        title="Chart of accounts"
-        sub="The client's own chart, in their own words. Nothing here is translated."
+        crumb="Finance · Accounting Masters"
+        title="Chart of Accounts"
         actions={
           <>
             <Input
               value={needle}
               onChange={(event) => setNeedle(event.target.value)}
-              placeholder="Search code or name"
-              className="h-8 w-64"
+              className="h-control w-64"
             />
             <Button variant="primary" onClick={() => setCreating(true)}>
               <Plus />
@@ -136,24 +142,54 @@ export function ChartOfAccounts() {
             pills announcing that the default is the default, and the second
             label is the first plus something. A checkbox says "and also show
             me…" in the width of a checkbox. */}
+            <UnitSelect
+              value={unit}
+              onChange={setUnit}
+              emptyLabel="Whole company"
+              className="h-control w-52"
+              aria-label="Whose books"
+            />
             <Checkbox
               label="Show inactive"
               checked={inactive}
               onChange={(next) => setInactive(next)}
             />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                setSweep((now) => ({ mode: "open", epoch: now.epoch + 1 }))
+              }
+            >
+              Expand all
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                setSweep((now) => ({ mode: "close", epoch: now.epoch + 1 }))
+              }
+            >
+              Collapse all
+            </Button>
             <Toolbar.Spacer />
-            {/* What is on screen, in words. It used to say how the search works,
-            which is a help string and not an effective value — every other
-            toolbar in this module answers "what am I looking at". */}
+            {/* What is on screen, in words — every toolbar in this module
+            answers "what am I looking at". */}
             <span className="text-[0.875rem] text-mute">
               {searching
-                ? `Matching “${trimmed}” · codes from the start, names anywhere`
-                : "The eight root classes · open a heading to fetch what hangs under it"}
+                ? `Matching “${trimmed}”`
+                : "Balances as of today, headings summed"}
               {inactive ? " · including inactive" : ""}
             </span>
           </Toolbar>
 
           <Card className="max-h-[calc(100vh-16rem)] overflow-auto">
+            {/* The heading row every table in the app has, so the figures on
+            the right are named. */}
+            <div className="sticky top-0 z-10 flex h-10 items-center border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
+              <span className="flex-1">Account</span>
+              {!searching && <span>Balance</span>}
+            </div>
             {searching ? (
               queryState(results, {
                 loading: "Searching the chart…",
@@ -184,11 +220,16 @@ export function ChartOfAccounts() {
               })
             ) : (
               <Branch
+                // A collapse remounts the tree, so every branch forgets what
+                // it had opened.
+                key={sweep.mode === "close" ? sweep.epoch : "open"}
                 parent={null}
                 level={0}
+                unit={unit}
                 inactive={inactive}
                 openCode={account.value}
                 onOpen={(code) => account.open(code)}
+                sweep={sweep}
               />
             )}
           </Card>
@@ -210,20 +251,30 @@ export function ChartOfAccounts() {
 
 /// One rung of the ladder. Its own query, so it can be opened and closed
 /// without the branch above it refetching.
+interface Sweep {
+  readonly mode: "open" | "close"
+  readonly epoch: number
+}
+
 function Branch({
   parent,
   level,
+  unit,
   inactive,
   openCode,
   onOpen,
+  sweep,
 }: {
   parent: string | null
   level: number
+  unit: string
   inactive: boolean
   openCode: string | undefined
   onOpen: (code: string) => void
+  sweep: Sweep
 }) {
   const [expanded, setExpanded] = useState<readonly string[]>([])
+  const swept = useRef(-1)
 
   const children = useQuery({
     queryKey: financeKeys.accountChildren(parent, inactive),
@@ -238,6 +289,34 @@ function Branch({
     // twice in a session should not ask twice.
     staleTime: 10 * 60 * 1000,
   })
+
+  // Beside the rows rather than inside them: the chart sits for months, the
+  // balances move with every posting, so they are read on their own clock.
+  const balances = useQuery({
+    queryKey: financeKeys.accountBalances(parent, unit || null),
+    queryFn: ({ signal }) =>
+      accountBalances(
+        { parent: parent ?? undefined, unit: unit || undefined },
+        signal
+      ).then(
+        (rows) =>
+          new Map(rows.map((row) => [row.account_code, row.balance_minor]))
+      ),
+    staleTime: 30_000,
+  })
+
+  // Once per sweep, as soon as this level is known: open every row that has
+  // children. Their own branches mount, read their level, and do the same.
+  useEffect(() => {
+    if (sweep.mode !== "open" || swept.current === sweep.epoch) return
+    if (children.data === undefined) return
+    swept.current = sweep.epoch
+    setExpanded(
+      children.data
+        .filter((row) => row.child_count > 0)
+        .map((row) => row.account_code)
+    )
+  }, [sweep, children.data])
 
   return queryState(children, {
     loading: "Loading the chart…",
@@ -255,6 +334,11 @@ function Branch({
                 <AccountRow
                   account={row}
                   level={level}
+                  balance={
+                    balances.data === undefined
+                      ? undefined
+                      : (balances.data.get(row.account_code) ?? 0)
+                  }
                   selected={row.account_code === openCode}
                   expanded={isOpen}
                   onToggle={
@@ -273,9 +357,11 @@ function Branch({
                   <Branch
                     parent={row.account_code}
                     level={level + 1}
+                    unit={unit}
                     inactive={inactive}
                     openCode={openCode}
                     onOpen={onOpen}
+                    sweep={sweep}
                   />
                 )}
               </div>
@@ -289,6 +375,7 @@ function Branch({
 function AccountRow({
   account,
   level,
+  balance,
   selected,
   expanded,
   onToggle,
@@ -296,6 +383,8 @@ function AccountRow({
 }: {
   account: LedgerAccount
   level: number
+  /// Debit minus credit; absent while it is being read, or in a search.
+  balance?: number
   selected: boolean
   expanded?: boolean
   onToggle?: () => void
@@ -304,7 +393,7 @@ function AccountRow({
   return (
     <div
       className={cn(
-        "flex items-center gap-2 border-b border-hairline text-cell last:border-b-0",
+        "flex h-row items-center gap-2 border-b border-hairline text-cell",
         // Selection is a tint, the same as every list in the app.
         selected ? "bg-accent-bg" : "hover:bg-soft"
       )}
@@ -328,13 +417,14 @@ function AccountRow({
         onClick={onOpen}
         className="flex min-w-0 flex-1 items-center gap-2.5 py-2 pr-3.5 text-left"
       >
-        <Tag tone={account.is_active ? "neutral" : "warn"}>
+        <span className="w-16 shrink-0 font-mono text-[0.875rem] text-mute">
           {account.account_code}
-        </Tag>
+        </span>
         <span
           className={cn(
             "min-w-0 flex-1 truncate",
-            account.is_group ? "font-medium text-ink" : "text-text"
+            account.is_group ? "font-medium text-ink" : "text-text",
+            !account.is_active && "text-mute line-through"
           )}
         >
           {account.name}
@@ -354,9 +444,27 @@ function AccountRow({
             <SiteName id={account.site_id} />
           </span>
         )}
-        {account.child_count > 0 && (
-          <span className="w-10 shrink-0 text-right text-[0.875rem] text-faint tabular-nums">
-            {count(account.child_count)}
+        {balance !== undefined && (
+          <span
+            className={cn(
+              "w-48 shrink-0 text-right whitespace-nowrap tabular-nums",
+              balance === 0
+                ? "text-faint"
+                : account.is_group
+                  ? "font-medium text-ink"
+                  : "text-text"
+            )}
+          >
+            {balance === 0 ? (
+              money(0)
+            ) : (
+              <>
+                {money(Math.abs(balance))}
+                <span className="ml-1.5 inline-block w-5 text-left text-[0.875rem] font-normal text-mute">
+                  {balance > 0 ? "Dr" : "Cr"}
+                </span>
+              </>
+            )}
           </span>
         )}
       </button>
@@ -453,11 +561,11 @@ function AccountSheet({
               <Fact term="Kind">
                 {account.is_group ? "Heading" : "Postable"}
               </Fact>
-              {/* "Unscoped" and not a dash: an account with no location is a
+              {/* "Unscoped" and not a dash: an account with no site is a
                   real and ordinary state in this chart — the headings and the
-                  company-wide accounts — and it is not the same as a location
+                  company-wide accounts — and it is not the same as a site
                   we could not name. */}
-              <Fact term="Location">
+              <Fact term="Site">
                 {account.site_id === null ? (
                   "Unscoped"
                 ) : (
@@ -657,7 +765,6 @@ function HeadingPicker({
   return (
     <AccountPicker
       allowGroups
-      placeholder="Search for the heading it sits under"
       accept={(account) => (account.is_group ? null : "not a heading")}
       onPick={(account) =>
         onChange({ code: account.account_code, name: account.name })
@@ -830,7 +937,7 @@ function NewAccountSheet({
               })
             }
           >
-            {save.isPending ? "Adding…" : "Add account"}
+            {save.isPending ? "Submitting…" : "Submit"}
           </Button>
         </div>
       </div>
@@ -977,7 +1084,7 @@ function EditAccount({
             })
           }
         >
-          {save.isPending ? "Saving…" : "Save changes"}
+          {save.isPending ? "Submitting…" : "Submit"}
         </Button>
       </div>
     </div>

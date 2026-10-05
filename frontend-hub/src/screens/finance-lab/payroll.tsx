@@ -148,7 +148,7 @@ export function PayrollOverview() {
               ">Basic",
               ">Allowance",
               ">Overtime",
-              ">BPJS employer",
+              ">BPJS Employer",
               ">Cost",
               "Status",
             ]}
@@ -260,7 +260,7 @@ function RunDetail({ run }: { run: PayrollRun }) {
 
       <div>
         <SubHead>Gross to net</SubHead>
-        <Table head={["Line", "Whose money", ">Amount"]}>
+        <Table head={["Line", "Whose Money", ">Amount"]}>
           <Row>
             <Cell>Basic</Cell>
             <Cell className="text-body">Cost</Cell>

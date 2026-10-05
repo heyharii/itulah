@@ -108,6 +108,18 @@ export function useEveryEmployee() {
   })
 }
 
+/// A login name as a person: the employee bound to that login by full name,
+/// else the login itself with a capital — never the bare lowercase username.
+export function useNameOfLogin(): (username: string) => string {
+  const { data } = useEveryEmployee()
+  return (username) => {
+    const login = username.trim().toLowerCase()
+    const one = data?.find((person) => person.username?.toLowerCase() === login)
+    if (one?.full_name) return one.full_name
+    return username === "" ? "—" : username.charAt(0).toUpperCase() + username.slice(1)
+  }
+}
+
 export function nameOf(
   people: readonly EmployeeSummary[] | undefined,
   employeeId: string

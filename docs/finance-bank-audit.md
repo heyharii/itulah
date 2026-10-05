@@ -132,9 +132,13 @@ rekening toko di data mana pun. Jadi aturan bisnis brief §5 **cocok dengan
 kode**: `owner_site_id` dipertahankan (ia sudah ada sebagai `site_id`), diisi
 kantor pusat, ditegakkan di server, dan tidak dipamerkan sebagai pilihan di UI.
 
-Catatan yang ditahan: konstanta kantor pusat masih `dc`, dan migrasi rename 0256
-(`dc`→`ho`) masih dipegang lane lain. Phase 2 memakai `dc` lewat
-`poster::HEAD_OFFICE_SITE` dan **tidak** menyelesaikan rename itu.
+Catatan yang ditahan: saat audit ini ditulis, kantor pusat masih dikenali sebagai
+id `dc` dan rename `dc`→`ho` (dulu 0256) masih dipegang lane lain; Phase 2
+memakai konstanta kantor pusat yang saat itu bernilai `dc`, dan **tidak**
+menyelesaikan rename itu. Rename itu mendarat setelah audit ini lewat 0603/0605:
+`poster::HEAD_OFFICE_SITE` tidak lagi ada, dan kantor pusat ditemukan dari kind
+`HO` lewat `head_office_site_id()` / `head_office_unit_id()`, bukan konstanta
+atau literal `dc`.
 
 ## 6. Rencana (reuse / evolve / replace)
 

@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils"
 /// `info` is SKY and only ever means in motion — shipped, processing, issued,
 /// still receiving. `accent` means selected. They never swap.
 const pill = cva(
-  "inline-flex h-[1.5625rem] w-max items-center gap-1.5 rounded-inner border bg-canvas px-[0.5625rem] text-pill font-medium whitespace-nowrap",
+  "inline-flex h-7 w-max items-center gap-1.5 rounded-inner border bg-canvas px-2.5 text-pill font-medium whitespace-nowrap",
   {
     variants: {
       tone: {
@@ -77,6 +77,39 @@ export function Pill({
   return (
     <span className={cn(pill({ tone }), className)} {...props}>
       {withDot && <span className={dot({ tone })} />}
+      {children}
+    </span>
+  )
+}
+
+/// A status as a dot and a word — the quiet grammar (direction E, 28 Sep):
+/// no outline, no box, so a column of statuses reads as words rather than as
+/// a column of chips. The dot carries the tone; the word turns colour only for
+/// the states that need somebody (`warn`, `bad`), and a finished one recedes.
+export function Status({
+  tone = "neutral",
+  className,
+  children,
+}: {
+  tone?: NonNullable<VariantProps<typeof dot>["tone"]>
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-2 whitespace-nowrap",
+        tone === "warn"
+          ? "text-warn-fg"
+          : tone === "bad"
+            ? "text-bad-fg"
+            : tone === "done"
+              ? "text-mute"
+              : "text-text",
+        className
+      )}
+    >
+      <span aria-hidden className={cn(dot({ tone }), "size-1.5")} />
       {children}
     </span>
   )

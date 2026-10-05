@@ -10,9 +10,9 @@
  * drawer is credited and `cash_shortage` debited. Never a debit to
  * `cash_variance`: that meaning sits on `4301`, a revenue account, and a
  * shortage booked there was a cost hiding inside income. Both legs go through
- * `account_map`, so this function names no client account code — and a
+ * `account_resolution`, so this function names no client account code — and a
  * difference cannot be posted anywhere until somebody has said where the
- * meaning it needs lives at that location.
+ * meaning it needs lives in the books of the unit that owns the drawer's site.
  * The decision to post, and the sentence that justifies it.
  */
 export type PostCountRequest = { 

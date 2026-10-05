@@ -6,326 +6,559 @@ import {
 } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { Grid3x3 } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Search } from "lucide-react"
+import { Fragment, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Field, Input } from "@/components/ui/field"
-import { DockedFilters, ViewPicker } from "@/components/ui/list-chrome"
+import { ConfirmButton, SavedDialog } from "@/components/ui/dialog"
+import { Select } from "@/components/ui/field"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { ColumnsMenu, ListOptionsSheet } from "@/components/ui/list-chrome"
+import { Fab } from "@/components/ui/fab"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
-import { MiniTable, TotalsLadder } from "@/components/ui/rows"
-import { Toolbar } from "@/components/ui/segmented"
-import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import { MiniTable, Section } from "@/components/ui/rows"
+import { Segmented } from "@/components/ui/segmented"
+import { SubTabs } from "@/components/ui/sub-tabs"
+import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
-import { Tag } from "@/components/ui/tag"
 import { Thumbnail } from "@/components/ui/thumbnail"
-import {
-  Lifecycle,
-  Timeline,
-  type TimelineEvent,
-} from "@/components/ui/timeline"
+import { Timeline, type TimelineEvent } from "@/components/ui/timeline"
 import { useFilters } from "@/lib/filters"
-import { count, day, label as humanise, moment, toneFor } from "@/lib/format"
+import { count, day, label, moment } from "@/lib/format"
+import { useAppNavigate } from "@/lib/navigate"
 import { useCatalogueIdentity } from "@/lib/operations/catalogue"
 import {
   allotmentDetail,
   allotmentsByArticle,
   allotmentsByStore,
   cancelAllotment,
-  executeAllotment,
   fleetPools,
   idempotencyKey,
   inventoryKeys,
   listAllotments,
+  listFinishedAllotments,
+  type AllotmentDetail,
+  type AllotmentLine,
   type AllotmentRow,
   type ArticleAllotmentList,
+  type ArticleRollup,
+  type FulfillmentStatus,
   type StoreSkuSummary,
 } from "@/lib/queries/inventory"
+import { useBusinessNow } from "@/lib/queries/clock"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { cn } from "@/lib/utils"
 import { Choice, Metric, MetricRow } from "@/screens/inventory/parts"
+import { allotFromValue, stageDraft } from "@/screens/allotment/draft"
+import { AllotmentItems, ExpandToggle } from "@/screens/allotment/items"
+import { ExpandContext, useExpanding } from "@/screens/allotment/expanding"
+import { OverdueTable } from "@/screens/allotment/overdue"
+import { overdueOf } from "@/screens/allotment/overdue-data"
+import { ToAllot } from "@/screens/allotment/to-allot"
+import { useToAllot } from "@/screens/allotment/to-allot-data"
+import { UnfilledPanel } from "@/screens/allotment/unfilled"
+import { useUnfilled } from "@/screens/allotment/unfilled-data"
 import { sitesOf, useActor } from "@/screens/inventory/shared"
+import { type DisplayUnit } from "@/screens/inventory/unit-display"
 
-/// Allotments — goods promised out of a pool.
+/// Allotments — what each store has been promised, and how much of it has
+/// arrived. `docs/allotment-v1.md` §12 is the UI contract this screen follows
+/// and §14 the list of what it must never do; both are worth reading before
+/// touching this file.
 ///
-/// The number to read is **remaining**: accepted minus picked minus cancelled,
-/// which is what is still reserved and has not moved. It is the quantity
-/// holding stock out of everybody else's reach, so the list opens sorted by it.
-///
-/// `accepted` rather than `quantity` is what everything is measured against. An
-/// allotment a DC owns counts as nothing until that DC accepts it, so 300
-/// ordered with 0 accepted is a real and common state — and 0 is what can be
-/// picked. The same ownership decides whether picking is possible here at all:
-/// the centre may only execute an allotment no DC owns, because picking is the
-/// warehouse's act and raising a movement nobody made would be inventing stock
-/// history.
+/// The number the list leads with is **To receive**, read straight off the
+/// server's canonical commitment view — never `quantity - received -
+/// cancelled` in the browser (ALT-INV-16). MD's own pipeline is five stages —
+/// To pack · Packed · Shipment · In transit · Received — with Shipment
+/// standing for `at_shipment_qty + at_loaded_qty` (ALT-D06) and the receiving
+/// difference sitting in the totals rather than as a sixth column (§14 #6).
+/// There is no Pick action here any more: picking is the warehouse's act, not
+/// MD's (§10; §13 step 3).
 
-const TYPES = [
-  { value: "TO_STORE", label: "To store" },
-  { value: "RETURN_TO_DC", label: "Return to DC" },
-  { value: "RETURN_TO_SUPPLIER", label: "Return to supplier" },
-]
+/// The page's tabs: what is still to allot, the allotments made, and the
+/// ones that will not arrive in full.
+type View = "unallotted" | "allotted" | "overdue"
 
-const STATUSES = [
-  { value: "ACTIVE", label: "Active" },
-  { value: "IN_PROGRESS", label: "In progress" },
-  { value: "DC_COMPLETED", label: "DC completed" },
-  { value: "COMPLETED", label: "Completed" },
-  { value: "CANCELLED", label: "Cancelled" },
-  { value: "REJECTED", label: "Rejected" },
-]
+/// The three readings the Allotted tab's own picker offers.
+type Reading = "allotments" | "store" | "article"
 
-/// The road from allotted to arrived, in the order goods travel it. Each stage
-/// counts pieces that have reached at least that far, so the numbers only fall
-/// from left to right — and where they fall is where the goods are.
-const STAGES = [
-  { key: "total_accepted_quantity", label: "Accepted" },
-  { key: "total_picked_quantity", label: "Picked" },
-  { key: "total_packed_quantity", label: "Packed" },
-  { key: "total_shipment_quantity", label: "Shipment" },
-  { key: "total_dispatched_quantity", label: "Dispatched" },
-  { key: "total_in_transit_quantity", label: "In transit" },
-  { key: "total_received_quantity", label: "Received" },
-] as const
+/// The switch over the "Allotments" reading went (owner, 2 Oct 2026): one list,
+/// what is on its way and what has arrived. The value is kept because the
+/// server calls and the Unfilled reading are keyed by it.
+type Tab = "active" | "completed" | "unfilled"
 
-/// Ticks in the progress bar. Twenty-four is the older app's count, and it is
-/// a good one: enough that a single piece of a hundred still moves the bar,
-/// few enough that each tick stays wide enough to see.
-const TICKS = 24
+/// What the tab asks the server for. Completed is its own key: it is two reads
+/// merged.
+function statusOf(tab: Tab): string {
+  return tab === "active" ? "ACTIVE" : tab === "completed" ? "FINISHED" : ""
+}
 
-const columns: ColumnDef<TableSetup, AllotmentRow>[] = [
-  {
-    accessorKey: "allotment_number",
-    header: "Allotment",
-    size: 150,
-    meta: { filter: { kind: "text" } },
-    cell: ({ row }) => (
-      <span className="flex items-center gap-1.5">
-        <span className="font-mono text-id text-body">
-          {row.original.allotment_number}
-        </span>
-        {/* Only when it is not the ordinary thing. Every allotment this app
-            raises goes to a store, so a column of TO_STORE nine hundred rows
-            deep said nothing; a return — raised from the pool screen that
-            found the goods wrong — is rare enough to be worth a word. */}
-        {row.original.type !== "TO_STORE" && (
-          <Tag>{humanise(row.original.type)}</Tag>
-        )}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "status",
-    header: "Status",
-    size: 140,
-    meta: { filter: { kind: "option", format: humanise } },
-    cell: ({ row }) => (
-      <Pill tone={toneFor(row.original.status)}>
-        {humanise(row.original.status)}
-      </Pill>
-    ),
-  },
-  {
-    accessorKey: "created_at",
-    header: "Raised",
-    size: 120,
-    meta: { filter: { kind: "date" } },
-    cell: ({ row }) => day(row.original.created_at),
-  },
-  {
-    // How big the delivery is, in the three units a person asks about: how
-    // many garments it names, how many pieces that comes to, and how many
-    // shops are waiting on it. A row without them says "ALT-13, active" and
-    // nothing about the size of what is standing still.
-    accessorKey: "sku_count",
-    header: "Items",
-    size: 90,
-    meta: { align: "right", filter: { kind: "number" } },
-    cell: ({ row }) => (
-      <span
-        className="tabular-nums"
-        title={`${count(row.original.line_count)} lines — one per SKU per destination`}
-      >
-        {count(row.original.sku_count)}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "total_quantity",
-    header: "Qty",
-    size: 90,
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
-    cell: ({ row }) => (
-      <span className="tabular-nums">{count(row.original.total_quantity)}</span>
-    ),
-  },
-  {
-    accessorKey: "destination_count",
-    header: "Stores",
-    size: 90,
-    meta: { align: "right", filter: { kind: "number" } },
-    cell: ({ row }) => (
-      <span className="tabular-nums">
-        {count(row.original.destination_count)}
-      </span>
-    ),
-  },
-  {
-    // Keyed on what has not arrived — ordered less received less cancelled —
-    // so the list can still be sorted and filtered by the number that matters,
-    // drawn rather than printed. Deliberately NOT `remaining_quantity`: that
-    // one is accepted minus picked, so an allotment no DC has accepted reads
-    // as nothing outstanding, which is the opposite of the truth for the shop
-    // waiting for it.
-    id: "outstanding",
-    accessorFn: (row: AllotmentRow) =>
-      Math.max(
-        0,
-        row.total_quantity -
-          row.total_received_quantity -
-          row.total_cancelled_quantity
-      ),
-    header: "Progress",
-    size: 260,
-    meta: { filter: { kind: "number", unit: "pcs" } },
-    cell: ({ row }) => (
-      <Journey
-        total={row.original.total_quantity}
-        picked={row.original.total_picked_quantity}
-        dispatched={row.original.total_dispatched_quantity}
-        received={row.original.total_received_quantity}
-        cancelled={row.original.total_cancelled_quantity}
-      />
-    ),
-  },
-]
+/// One figure added up over the rows in hand.
+function sumOf<T>(rows: readonly T[], of: (row: T) => number): number {
+  return rows.reduce((sum, row) => sum + of(row), 0)
+}
 
-/// How far one allotment has actually travelled, in a bar.
-///
-/// This replaces five columns of stage counters — accepted, picked, received,
-/// remaining — which asked a person to subtract in their head to answer the
-/// only question they were reading the row for: *is this moving*. The counters
-/// are still on the record; a list is where the shape of the thing belongs.
-///
-/// The bar is segmented rather than solid, the way the same measurement is
-/// drawn in the older app: twenty-four ticks read as a countable quantity,
-/// where a smooth fill reads as a percentage nobody can check.
-///
-/// It is coloured by stage rather than by threshold. An allotment fully picked
-/// but not yet delivered is not "0% done" — the goods are off the rack and in
-/// a box, and a bar that showed nothing until they arrived would say the
-/// warehouse had not started.
-function Journey({
-  total,
-  picked,
-  dispatched,
-  received,
-  cancelled,
-}: {
-  total: number
-  picked: number
-  dispatched: number
-  received: number
-  cancelled: number
-}) {
-  // Each counter is cumulative — pieces that reached at least that far — so a
-  // band is a difference, and never negative even when two stages report out
-  // of order across a sync.
-  const arrived = received
-  const travelling = Math.max(0, dispatched - arrived)
-  const gathered = Math.max(0, picked - dispatched)
-  const waiting = Math.max(
-    0,
-    total - arrived - travelling - gathered - cancelled
-  )
+/// A quantity, in the viewer's chosen unit — "960", never "960 Piece" when the
+/// base unit is already pieces. Sorting and filtering stay in pieces
+/// regardless; this only changes what is printed.
+function qtyOf(display: DisplayUnit, n: number): string {
+  return display.unit?.is_base !== false ? count(n) : display.format(n)
+}
 
-  const marks: string[] = []
-  for (const band of [
-    { pieces: arrived, tone: "bg-ok" },
-    { pieces: travelling, tone: "bg-accent" },
-    { pieces: gathered, tone: "bg-info" },
-    { pieces: cancelled, tone: "bg-line-ico" },
-  ]) {
-    const ticks = total <= 0 ? 0 : Math.round((band.pieces / total) * TICKS)
-    for (let tick = 0; tick < ticks && marks.length < TICKS; tick += 1)
-      marks.push(band.tone)
+/// This book counts in pieces and nothing else.
+const PIECES: DisplayUnit = {
+  code: "PCS",
+  unit: undefined,
+  options: [],
+  setCode: () => {},
+  format: (n) => count(n),
+  isLoading: false,
+}
+
+/// Prepared at the Gudang — picked or packed — and everything that has gone
+/// further.
+function workedOf(row: AllotmentRow): number {
+  const packedOn =
+    row.at_packed_qty +
+    row.at_shipment_qty +
+    row.at_loaded_qty +
+    row.at_in_transit_qty +
+    row.received_qty
+  return Math.max(row.total_picked_quantity, packedOn)
+}
+
+/// Shipped from the Gudang: on the road, or already at the store.
+function departedOf(row: AllotmentRow): number {
+  return row.at_in_transit_qty + row.received_qty
+}
+
+/// A shop's own id, shortened the way the New Allotment matrix already
+/// shortens it — `store-04` → `04` — for a column heading that has to share a
+/// row with a dozen others. The full id is never shown as a caption or a
+/// label (§14 #17); only this shortened, human word is.
+function destinationShort(id: string): string {
+  return id.replace(/^store-?/i, "") || id
+}
+
+/// What an allotment that is over is called: nothing was picked and it was
+/// released, some of it was released, or it was received in full.
+function endedWord(row: AllotmentRow): string {
+  if (row.status === "CANCELLED" || row.status === "REJECTED") {
+    return row.total_picked_quantity === 0 && row.received_qty === 0
+      ? "Cancelled"
+      : "Closed short"
   }
-  while (marks.length < TICKS) marks.push("bg-soft-2")
+  return row.closed_short_qty > 0 ? "Closed short" : "Completed"
+}
 
-  const share = total <= 0 ? 0 : Math.round((arrived / total) * 100)
-
+/// The status word every screen in this app now draws instead of a pill: a
+/// 5px dot and a word, no border, no fill (house rule, 28 Sep 2026). Colour is
+/// the only thing that carries meaning here — Active is the accent, Completed
+/// is ok, Closed is simply quiet.
+function StatusWord({
+  status,
+  text,
+}: {
+  status: FulfillmentStatus
+  text: string
+}) {
   return (
-    <div
-      className="flex min-w-[9rem] items-center gap-2"
-      // The breakdown the columns used to hold, kept within reach of the row
-      // it belongs to rather than a click away in the record.
-      title={`${count(total)} promised · ${count(gathered)} picked · ${count(travelling)} in transit · ${count(arrived)} received${cancelled > 0 ? ` · ${count(cancelled)} cancelled` : ""}${waiting > 0 ? ` · ${count(waiting)} not started` : ""}`}
-    >
-      <span className="flex flex-1 gap-px" aria-hidden>
-        {marks.map((tone, tick) => (
-          <span key={tick} className={cn("h-2 flex-1 rounded-full", tone)} />
-        ))}
-      </span>
-      <span className="w-9 shrink-0 text-right text-[0.875rem] font-medium text-body tabular-nums">
-        {share}%
-      </span>
-    </div>
+    <span className="inline-flex items-center gap-1.5 text-[0.875rem] text-ink">
+      <span
+        aria-hidden
+        className={cn(
+          "size-[5px] shrink-0 rounded-full",
+          status === "ACTIVE" && "bg-accent",
+          status === "COMPLETED" && "bg-ok",
+          status === "CLOSED" && "bg-mute"
+        )}
+      />
+      {text}
+    </span>
   )
 }
 
-/// The three readings of the allotment book, as the picker beside the title
-/// offers them.
-///
-/// They were a row of tabs until 2026-09-13. Tabs say "these are three
-/// screens"; they are three questions asked of one book — the paperwork, one
-/// shop's, one garment's — and the owner's instruction was to name them the way
-/// the order book names its views. The value is what the queries below switch
-/// on, so the words here are the only place they are spelled for a reader.
-const VIEWS = [
-  { value: "all", label: "Every allotment" },
-  { value: "store", label: "By store" },
-  { value: "article", label: "By article" },
-]
+/// The book's columns. Three in sight — the number, the store, and the
+/// pieces over how many items (the owner, 2 Oct 2026: "items" and "articles"
+/// are one word here, said once) — and the rest behind Columns: when it was
+/// made, whose goods, its status and how far it has got. Searched, filtered
+/// and ordered through them; oldest first, because the allotment that has
+/// waited longest is the one somebody should be chasing.
+function columns(): ColumnDef<TableSetup, AllotmentRow>[] {
+  return [
+    {
+      id: "expand",
+      header: () => <span className="sr-only">Items</span>,
+      size: 44,
+      enableSorting: false,
+      enableHiding: false,
+      meta: { card: "hide" },
+      cell: ({ row }) => (
+        <ExpandToggle
+          id={row.original.id}
+          number={row.original.allotment_number}
+        />
+      ),
+    },
+    {
+      accessorKey: "allotment_number",
+      header: "Allotment",
+      meta: { grow: 160 },
+      cell: ({ row }) => <AllotmentCell row={row.original} />,
+    },
+    {
+      id: "stores",
+      accessorFn: (row) => (row.destination_names ?? []).join(", "),
+      header: "Store",
+      meta: { grow: 220 },
+      cell: ({ row }) => (
+        <span className="block truncate text-ink">
+          {(row.original.destination_names ?? []).join(", ") || "—"}
+        </span>
+      ),
+    },
+    {
+      // Sorts by the pieces; the items ride underneath, the way the order
+      // book's Qty does.
+      id: "qty",
+      accessorFn: (row) => row.total_quantity,
+      header: "Quantity",
+      size: 130,
+      meta: { align: "right" },
+      cell: ({ row }) => (
+        <span className="block text-right tabular-nums">
+          <span className="block whitespace-nowrap text-ink">
+            {count(row.original.total_quantity)} pcs
+          </span>
+          <span className="block whitespace-nowrap text-mute">
+            {count(row.original.article_count)}{" "}
+            {row.original.article_count === 1 ? "item" : "items"}
+          </span>
+        </span>
+      ),
+    },
+    {
+      accessorKey: "created_at",
+      header: "Created",
+      sortFn: "datetime",
+      size: 130,
+      meta: { filter: { kind: "date" } },
+      cell: ({ row }) => day(row.original.created_at),
+    },
+    {
+      id: "supplier",
+      accessorFn: (row) => row.supplier_names ?? "",
+      header: "Supplier",
+      meta: { grow: 160 },
+      cell: ({ row }) => (
+        <span className="block truncate">
+          {row.original.supplier_names ?? "No supplier"}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "fulfillment_status",
+      header: "Status",
+      size: 140,
+      cell: ({ row }) => (
+        <StatusWord
+          status={row.original.fulfillment_status}
+          text={
+            row.original.fulfillment_status === "ACTIVE"
+              ? "Active"
+              : endedWord(row.original)
+          }
+        />
+      ),
+    },
+    {
+      id: "picked",
+      accessorFn: (row) => workedOf(row),
+      header: "Picked",
+      size: 100,
+      meta: { align: "right" },
+      cell: ({ row }) => (
+        <span className="tabular-nums">{count(workedOf(row.original))}</span>
+      ),
+    },
+    {
+      id: "packed",
+      accessorFn: (row) => packedOf(row),
+      header: "Packed",
+      size: 100,
+      meta: { align: "right" },
+      cell: ({ row }) => (
+        <span className="tabular-nums">{count(packedOf(row.original))}</span>
+      ),
+    },
+    {
+      id: "dispatch",
+      accessorFn: (row) => departedOf(row),
+      header: "Dispatch",
+      size: 100,
+      meta: { align: "right" },
+      cell: ({ row }) => (
+        <span className="tabular-nums">{count(departedOf(row.original))}</span>
+      ),
+    },
+  ]
+}
 
-export function Allotments() {
-  const [tab, setTab] = useState("all")
-  const [type, setType] = useState("")
-  const [status, setStatus] = useState("")
+/// Packed at the Gudang or further on — the same cumulative reading the
+/// allotment sheet's lines use, so the card and the sheet cannot disagree.
+function packedOf(row: AllotmentRow): number {
+  return (
+    row.at_packed_qty +
+    row.at_shipment_qty +
+    row.at_loaded_qty +
+    row.at_in_transit_qty +
+    row.received_qty
+  )
+}
+
+/// The allotment's number, and under it anything that needs saying: a DC
+/// that has not taken it yet, or refused it, or pieces a store did not find.
+function AllotmentCell({ row }: { row: AllotmentRow }) {
+  const notes = [
+    row.edge_application_status === "PENDING" && {
+      text: "Waiting for DC",
+      tone: "text-warn-fg",
+    },
+    row.edge_application_status === "REJECTED" && {
+      text: "Refused by DC",
+      tone: "text-bad-fg",
+    },
+    row.receiving_gap_qty > 0 && {
+      text: `${count(row.receiving_gap_qty)} not found`,
+      tone: "text-warn-fg",
+    },
+  ].filter((one) => one !== false)
+  return (
+    <span className="block min-w-0">
+      <span className="block truncate font-mono font-medium text-ink">
+        {row.allotment_number}
+      </span>
+      {notes.length > 0 && (
+        <span className="flex flex-wrap gap-x-3">
+          {notes.map((one) => (
+            <span key={one.text} className={one.tone}>
+              {one.text}
+            </span>
+          ))}
+        </span>
+      )}
+    </span>
+  )
+}
+
+/// The "By article" reading's own, much shorter, column set — no Journey, no
+/// pipeline: just what a garment was promised and how much of it has arrived
+/// (§12: "By article: ARTICLE · SKUs · STORES · ALLOTED · RECEIVED · TO
+/// RECEIVE").
+function articleColumns(
+  display: DisplayUnit
+): ColumnDef<TableSetup, ArticleRollup>[] {
+  const qty = (n: number) => qtyOf(display, n)
+  return [
+    {
+      accessorKey: "article_name",
+      header: "Article",
+      meta: { grow: 200 },
+      cell: ({ row }) => (
+        <span className="flex min-w-0 items-center gap-2.5">
+          <Thumbnail
+            url={row.original.image_url}
+            name={row.original.article_name}
+            className="size-8 shrink-0 rounded-inner"
+          />
+          <span className="min-w-0">
+            <span className="block truncate text-ink">
+              {row.original.article_name}
+            </span>
+            <span className="block truncate font-mono text-mute">
+              {row.original.article_code}
+            </span>
+          </span>
+        </span>
+      ),
+    },
+    {
+      accessorKey: "sku_count",
+      header: "SKUs",
+      size: 80,
+      meta: { align: "right", card: "metric" },
+      cell: ({ row }) => (
+        <span className="tabular-nums">{count(row.original.sku_count)}</span>
+      ),
+    },
+    {
+      accessorKey: "destination_count",
+      header: "Stores",
+      size: 80,
+      meta: { align: "right", card: "metric" },
+      cell: ({ row }) => (
+        <span className="tabular-nums">
+          {count(row.original.destination_count)}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "total_quantity",
+      header: "Allotted",
+      size: 110,
+      meta: { align: "right", card: "metric" },
+      cell: ({ row }) => (
+        <span className="tabular-nums">{qty(row.original.total_quantity)}</span>
+      ),
+    },
+    {
+      accessorKey: "total_received_quantity",
+      header: "Received",
+      size: 110,
+      meta: { align: "right", card: "metric" },
+      cell: ({ row }) => (
+        <span className="tabular-nums">
+          {qty(row.original.total_received_quantity)}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "to_receive_qty",
+      header: "To Receive",
+      size: 110,
+      meta: { align: "right", card: "metric" },
+      cell: ({ row }) => {
+        const n = row.original.to_receive_qty
+        return (
+          <span
+            className={cn(
+              "tabular-nums",
+              n > 0 ? "font-medium text-ink" : "text-faint"
+            )}
+          >
+            {qty(n)}
+          </span>
+        )
+      },
+    },
+  ]
+}
+
+export function Allotments({
+  // Owner's menu of 2026-09-28: "Return to supplier" and "Return to HO" are
+  // this same screen, pre-narrowed — see `screens/allotment/returns.tsx`.
+  // `/allotment` passes neither, so it opens on TO_STORE exactly as the MD
+  // book always has.
+  title = "Allotments",
+  type = "TO_STORE",
+  sub,
+  actions,
+}: {
+  actions?: React.ReactNode
+  title?: string
+  /// One of `AllotmentType`'s values, fixed by the caller rather than a
+  /// picker on screen — the wrapper already knows which book it is.
+  type?: string
+  sub?: string
+} = {}) {
+  // Always pieces (the owner, 2026-09-29): the "Show in" picker is gone from
+  // this book. Not the shared hook — it remembers a unit chosen on another
+  // screen, and with no picker here there would be no way back from it.
+  const display = PIECES
+  const actor = useActor()
+  const qty = (n: number) => qtyOf(display, n)
+
+  /// The page's three tabs. Unallotted and Problems are the store book's
+  /// own: the return books have nothing to allot.
+  const storeBook = type === "TO_STORE"
+  const [view, setView] = useState<View>(storeBook ? "unallotted" : "allotted")
+  const [reading, setReading] = useState<Reading>("allotments")
+  // One list now (owner, 2 Oct 2026): what is on its way and what has arrived
+  // share the Allotted tab, so there is no Active/Completed/Unfilled switch.
+  const [tab] = useState<Tab>("active")
+  /// Which half of Unfilled is showing.
+  const [unfilledWhich, setUnfilledWhich] = useState<"open" | "closed">("open")
   const [store, setStore] = useState("")
   const [query, setQuery] = useState("")
-  const allotment = useSheet("allotment")
+  // The note stays behind Columns: the three stage bars need its width, and
+  // a list of allotments is read by number and progress, not by note.
+  // Created stays behind Columns: the age beside each number says it.
+  const [visibility, setVisibility] = useState<Record<string, boolean>>({
+    created_at: false,
+    supplier: false,
+    fulfillment_status: false,
+    picked: false,
+    packed: false,
+    dispatch: false,
+  })
+  // Oldest first (the owner, 29 Sep 2026).
   const [sorting, setSorting] = useState<SortingState>([
-    { id: "outstanding", desc: true },
+    { id: "created_at", desc: false },
   ])
+  const [articleSorting, setArticleSorting] = useState<SortingState>([
+    { id: "to_receive_qty", desc: true },
+  ])
+  const [showShortages, setShowShortages] = useState(false)
+  const allotment = useSheet("allotment")
+  const expanding = useExpanding()
+
+  /// The KPI strip's own read — always ACTIVE, always this book's type — kept
+  /// under the same query key `listAllotments(type, "ACTIVE")` would build, so
+  /// when the Allotments reading's own Active tab is open the two share one
+  /// fetch instead of asking the server twice for the same page.
+  const activeQuery = useQuery({
+    queryKey: inventoryKeys.allotmentList(type, "ACTIVE"),
+    queryFn: ({ signal }) => listAllotments(type, "ACTIVE", signal),
+  })
+  /// For the Completed card: how many this book has finished, all time.
+  const completedQuery = useQuery({
+    queryKey: inventoryKeys.allotmentList(type, "FINISHED"),
+    queryFn: ({ signal }) => listFinishedAllotments(type, signal),
+  })
+
+  const unfilledQuery = useUnfilled(type === "TO_STORE")
+  const toAllot = useToAllot(storeBook)
+  // Read at the business clock's "now", so a tester who moves time forward
+  // sees the book go overdue; pinned to the fetch so a render never changes it.
+  const businessNow = useBusinessNow(activeQuery.dataUpdatedAt)
+  const overdueAt = activeQuery.dataUpdatedAt === 0 ? 0 : businessNow
+  const overdue = useMemo(
+    () =>
+      storeBook ? overdueOf(activeQuery.data?.items ?? [], overdueAt) : [],
+    [storeBook, activeQuery.data, overdueAt]
+  )
+  const shortTab = tab === "unfilled"
 
   const list = useQuery({
-    queryKey: inventoryKeys.allotmentList(type, status),
-    queryFn: ({ signal }) => listAllotments(type, status, signal),
-    enabled: tab === "all",
+    queryKey: inventoryKeys.allotmentList(type, statusOf(tab)),
+    queryFn: async ({ signal }) => {
+      const [active, finished] = await Promise.all([
+        listAllotments(type, statusOf(tab), signal),
+        listFinishedAllotments(type, signal),
+      ])
+      return {
+        ...active,
+        items: [...active.items, ...finished.items],
+      } as typeof active
+    },
+    enabled: reading === "allotments" && !shortTab,
   })
 
   const byStore = useQuery({
     queryKey: inventoryKeys.allotmentsByStore(store),
     queryFn: ({ signal }) => allotmentsByStore(store, signal),
-    enabled: tab === "store" && store !== "",
+    enabled: reading === "store" && store !== "",
   })
 
-  /// The same book grouped by garment instead of by paperwork. The store
-  /// filter is shared with the tab beside it deliberately: "what has store 03
-  /// been sent" and "which articles went to store 03" are two readings of one
-  /// question, and having to choose the shop twice to ask both is a filter
-  /// that forgets what it was told.
   const byArticle = useQuery({
     queryKey: inventoryKeys.allotmentsByArticle(store),
     queryFn: ({ signal }) => allotmentsByArticle(store, signal),
-    enabled: tab === "article",
+    enabled: reading === "article",
   })
 
   const fleet = useQuery({
@@ -333,13 +566,27 @@ export function Allotments() {
     queryFn: ({ signal }) => fleetPools(signal),
   })
 
-  const source = tab === "store" ? byStore : list
+  const stores = useMemo(
+    () =>
+      sitesOf(fleet.data?.items ?? [], "STORE").map((site) => ({
+        value: site.site_id,
+        label: site.site_name,
+      })),
+    [fleet.data]
+  )
+
+  /// The main table's source: the plain book, or one shop's own slice of it.
+  /// "By article" reads a wholly different shape and gets its own table
+  /// below.
+  const source = reading === "store" ? byStore : list
   const rows = useMemo(
     () => (source.data?.items ?? []) as AllotmentRow[],
     [source.data]
   )
+  const shortages = source.data?.shortages ?? []
 
-  const filters = useFilters(columns)
+  const tableColumns = useMemo(() => columns(), [])
+  const filters = useFilters(tableColumns)
 
   const table = useTable(
     useMemo(
@@ -352,281 +599,437 @@ export function Allotments() {
           columnFilters: filters.columnFilters,
           globalFilter: query,
           sorting,
+          columnVisibility: visibility,
         },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
+        onColumnVisibilityChange: setVisibility,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting, visibility]
     )
   )
 
-  const stores = useMemo(
-    () =>
-      sitesOf(fleet.data?.items ?? [], "STORE").map((site) => ({
-        value: site.site_id,
-        label: site.site_name,
-      })),
-    [fleet.data]
+  const articleTableColumns = useMemo(() => articleColumns(display), [display])
+  const articleRows = useMemo(
+    () => (byArticle.data?.items ?? []) as ArticleRollup[],
+    [byArticle.data]
+  )
+  const articleTable = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: articleRows,
+        columns: articleTableColumns,
+        getRowId: (row: ArticleRollup) => row.article_id,
+        state: { globalFilter: query, sorting: articleSorting },
+        onSortingChange: setArticleSorting,
+        onGlobalFilterChange: setQuery,
+      }),
+      [articleRows, articleTableColumns, query, articleSorting]
+    )
   )
 
-  const shortages = source.data?.shortages ?? []
+  const shown = table.getRowModel().rows.map((row) => row.original)
+  const chooseSort = (id: string, desc: boolean) => setSorting([{ id, desc }])
+
+  const narrowed = query !== "" || filters.filters.length > 0
 
   return (
     <PageContent>
       <PageHeader
-        crumb="Allotment"
-        title="Allotments"
-        sub="What has been promised out of a pool, and how far it has actually travelled."
+        title={title}
+        sub={
+          sub ??
+          "What each store has been promised, and how much of it has arrived."
+        }
+        actions={view === "unallotted" ? undefined : actions}
       />
 
-      <Toolbar>
-        {/* Which reading of the book is on screen, and the saved questions
-            somebody asks of it every morning — one control, the same one the
-            order book wears, in the same place. The three readings were tabs
-            until 2026-09-13; a tab row claimed they were three screens, and
-            spent a full line of the page saying so. */}
-        <ViewPicker
-          model={filters}
-          id="allotments"
-          views={VIEWS}
-          view={tab}
-          onView={setTab}
+      <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
+        <Kpi
+          label="Active"
+          value={activeQuery.data ? count(activeQuery.data.items.length) : "—"}
         />
-        {tab === "all" ? (
-          <>
-            <Choice
-              value={type}
-              onChange={setType}
-              options={TYPES}
-              placeholder="Every type"
-            />
-            <Choice
-              value={status}
-              onChange={setStatus}
-              options={STATUSES}
-              placeholder="Every status"
-            />
-          </>
-        ) : (
-          <Choice
-            value={store}
-            onChange={setStore}
-            options={stores}
-            placeholder={tab === "store" ? "Choose a store" : "Every store"}
-            className="max-w-72"
-          />
-        )}
-        <Input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search"
-          className="h-8 w-48"
+        <Kpi
+          label="Completed"
+          value={
+            completedQuery.data ? count(completedQuery.data.items.length) : "—"
+          }
         />
-        <Toolbar.Spacer />
-        {/* A link and not a button: the composer is a page of its own now —
-            a matrix wide enough to hold thirteen stores does not fit a rail —
-            and a page you can be sent to is a page you can be sent a link to. */}
-        <AppLink to="/allotment/new" variant="primary">
-          <Grid3x3 />
-          New allotment
-        </AppLink>
-      </Toolbar>
+        {/* The Gudang's debt: every active piece that has not left it yet —
+            to pick, picked or packed, or on a surat jalan still at the dock
+            (the owner, 2026-09-29). */}
+        <Kpi
+          label="Not shipped yet"
+          value={
+            activeQuery.data
+              ? qty(
+                  sumOf(
+                    activeQuery.data.items,
+                    (r) =>
+                      r.to_pack_qty +
+                      r.at_packed_qty +
+                      r.at_shipment_qty +
+                      r.at_loaded_qty
+                  )
+                )
+              : "—"
+          }
+        />
+        {/* Left the Gudang, not yet at the store. */}
+        <Kpi
+          label="In transit"
+          value={
+            activeQuery.data
+              ? qty(sumOf(activeQuery.data.items, (r) => r.at_in_transit_qty))
+              : "—"
+          }
+        />
+      </KpiStrip>
 
-      {/* Two columns from 1440 up: the book, and the panel that narrows it —
-          the shape the order book has worn since its own panel docked, and the
-          reason the filter popover above the table is gone. Below that width
-          the same model is reached from the panel's own sheet. */}
-      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
-        <div className="flex min-w-0 flex-col">
-          {shortages.length > 0 && (
-            <Card className="mb-[1.125rem] overflow-hidden">
-              <CardHeader>
-                <CardTitle>Promised more than the pool holds</CardTitle>
-                <span className="text-[0.875rem] text-mute tabular-nums">
-                  {count(shortages.length)}
+      {storeBook && (
+        <SubTabs
+          value={view}
+          onChange={(next) => setView(next as View)}
+          tabs={(
+            [
+              ["unallotted", "Unallotted", toAllot.articles],
+              ["allotted", "Allotted", activeQuery.data?.items.length],
+              [
+                "overdue",
+                "Overdue",
+                activeQuery.data ? overdue.length : undefined,
+              ],
+            ] as const
+          ).map(([value, text, total]) => ({
+            value,
+            label: (
+              <>
+                {text}{" "}
+                <span className="text-mute tabular-nums">
+                  {total === undefined ? "—" : count(total)}
                 </span>
-              </CardHeader>
-              <div className="border-t border-hairline px-4 py-3">
-                <p className="mb-2.5 text-[0.875rem] text-mute">
-                  On Hand is Stock minus Allotted, so a negative reading means
-                  the allotments standing against this pool add up to more than
-                  the goods in it. The server reports it rather than preventing
-                  it — allotting is a promise, and a warehouse is allowed to
-                  find out it cannot keep one.
-                </p>
-                <MiniTable
-                  head={["Article", "SKU", "Stock", "Allotted", "Short by"]}
-                >
-                  {shortages.map((item) => (
-                    <tr key={item.sku_id} className="border-t border-hairline">
-                      <td className="py-2 pr-2 text-[0.875rem] text-ink">
-                        {item.article_name}
-                      </td>
-                      <td className="py-2 text-right font-mono text-[0.875rem] text-body">
-                        {item.sku_code}
-                      </td>
-                      <td className="py-2 text-right tabular-nums">
-                        {count(item.stock_qty)}
-                      </td>
-                      <td className="py-2 text-right tabular-nums">
-                        {count(item.allotted_qty)}
-                      </td>
-                      <td className="py-2 text-right font-medium text-bad-fg tabular-nums">
-                        {count(item.shortage_qty)}
-                      </td>
-                    </tr>
-                  ))}
-                </MiniTable>
-              </div>
-            </Card>
-          )}
+              </>
+            ),
+          }))}
+        />
+      )}
 
-          {tab === "article" ? (
-            <ByArticle
-              query={byArticle}
-              needle={query}
-              store={stores.find((one) => one.value === store)?.label ?? null}
-            />
-          ) : tab === "store" && store === "" ? (
-            <Card>
-              <EmptyState>
-                Choose a store to see everything owed to it, and its lifetime
-                per-SKU pipeline.
-              </EmptyState>
-            </Card>
+      {view === "unallotted" ? (
+        <ToAllot suppliers={toAllot.suppliers} status={toAllot.status} />
+      ) : view === "overdue" ? (
+        <OverdueTable
+          rows={overdue}
+          loading={activeQuery.isPending}
+          selected={allotment.value}
+          onOpen={allotment.open}
+        />
+      ) : (
+        <>
+          {reading === "allotments" && shortTab ? (
+            <>
+              <Segmented
+                className="mb-5"
+                value={unfilledWhich}
+                onChange={setUnfilledWhich}
+                options={(
+                  [
+                    ["open", "Open"],
+                    ["closed", "Closed short"],
+                  ] as const
+                ).map(([value, text]) => ({
+                  value,
+                  label: (
+                    <>
+                      {text}{" "}
+                      <span className="text-mute tabular-nums">
+                        {unfilledQuery.data
+                          ? count(unfilledQuery.data[value].length)
+                          : "—"}
+                      </span>
+                    </>
+                  ),
+                }))}
+              />
+              <UnfilledPanel
+                which={unfilledWhich}
+                query={unfilledQuery}
+                onOpen={allotment.open}
+              />
+            </>
           ) : (
             <>
-              {tab === "store" && byStore.data && (
-                <Card className="mb-[1.125rem] px-4 py-3.5">
-                  <MetricRow>
-                    <Metric
-                      label="Ordered"
-                      value={count(
-                        byStore.data.sku_summary.reduce(
-                          (total, sku) => total + sku.quantity,
-                          0
-                        )
-                      )}
-                    />
-                    <Metric
-                      label="Received"
-                      value={count(
-                        byStore.data.sku_summary.reduce(
-                          (total, sku) => total + sku.received_quantity,
-                          0
-                        )
-                      )}
-                    />
-                    <Metric
-                      label="Still owed"
-                      value={count(
-                        byStore.data.sku_summary.reduce(
-                          (total, sku) =>
-                            total +
-                            Math.max(
-                              0,
-                              sku.quantity -
-                                sku.received_quantity -
-                                sku.cancelled_quantity
-                            ),
-                          0
-                        )
-                      )}
-                      tone="warn"
-                    />
-                    <Metric
-                      label="SKUs"
-                      value={count(byStore.data.sku_summary.length)}
-                    />
-                  </MetricRow>
-                  <p className="mt-3 text-[0.875rem] text-mute">
-                    This summary spans every allotment ever addressed to{" "}
-                    {byStore.data.destination_name} — not only the ones listed
-                    below.
-                  </p>
-                </Card>
-              )}
+              <div className="mb-5 flex min-h-[2.25rem] flex-wrap items-center gap-2.5 md:flex-nowrap">
+                <Select
+                  aria-label="Reading"
+                  value={reading}
+                  onChange={(next) => setReading(next as Reading)}
+                  className="h-[2.125rem] w-auto shrink-0"
+                >
+                  <option value="allotments">Allotments</option>
+                  <option value="store">By store</option>
+                  <option value="article">By article</option>
+                </Select>
+                <span className="relative min-w-0 flex-1 md:max-w-64">
+                  <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
+                  <input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    aria-label="Search allotments"
+                    className="h-[2.125rem] w-full rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent pointer-coarse:h-11"
+                  />
+                </span>
+                {(reading === "store" || reading === "article") && (
+                  <Choice
+                    value={store}
+                    onChange={setStore}
+                    options={stores}
+                    className="max-w-56"
+                  />
+                )}
+                {reading !== "article" && (
+                  <ListOptionsSheet
+                    model={filters}
+                    table={table}
+                    sorting={sorting}
+                    onSort={chooseSort}
+                  />
+                )}
+                <div className="hidden md:contents">
+                  <span className="flex-1" />
+                  {reading === "article" && (
+                    <ColumnsMenu table={articleTable} />
+                  )}
+                  {type === "TO_STORE" && (
+                    <Button
+                      variant="primary"
+                      onClick={() => setView("unallotted")}
+                    >
+                      New allotment
+                    </Button>
+                  )}
+                </div>
+              </div>
 
-              {tab === "store" && byStore.data && (
-                <ByStoreSkus
-                  rows={byStore.data.sku_summary}
-                  store={byStore.data.destination_name}
-                  needle={query}
+              {type === "TO_STORE" && (
+                <Fab
+                  label="New allotment"
+                  onClick={() => setView("unallotted")}
                 />
               )}
 
-              <Card className="overflow-hidden">
-                {queryState(source, {
-                  loading: "Reading the allotment book…",
-                  render: () =>
-                    rows.length === 0 ? (
-                      <EmptyState>
-                        {type === "" && status === "" && query === ""
-                          ? "Nothing has been allotted out of any pool yet."
-                          : "No allotment matches these filters."}
-                      </EmptyState>
-                    ) : (
-                      <DataTable<AllotmentRow>
-                        table={table}
-                        onRowClick={(row) => allotment.open(row.id)}
-                        isSelected={(row) => row.id === allotment.value}
-                        className="max-h-[calc(100vh-22rem)]"
+              {reading !== "article" && shortages.length > 0 && (
+                <div className="mb-[1.125rem] flex flex-col gap-2">
+                  <Banner tone="warn">
+                    <span className="flex flex-wrap items-center justify-between gap-3">
+                      <span>
+                        {count(shortages.length)} SKUs are promised past what
+                        the warehouse holds.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowShortages((was) => !was)}
+                        className="shrink-0 text-[0.875rem] font-medium underline underline-offset-2 opacity-80 hover:opacity-100"
+                      >
+                        {showShortages ? "Hide" : "Show"}
+                      </button>
+                    </span>
+                  </Banner>
+                  {showShortages && (
+                    <Card className="overflow-hidden px-4 py-3">
+                      <MiniTable
+                        head={[
+                          "Article",
+                          "SKU",
+                          "Stock",
+                          "Allotted",
+                          "Short by",
+                        ]}
+                      >
+                        {shortages.map((item) => (
+                          <tr
+                            key={item.sku_id}
+                            className="border-t border-hairline"
+                          >
+                            <td className="py-2 pr-2 text-[0.875rem] text-ink">
+                              {item.article_name}
+                            </td>
+                            <td className="py-2 text-right font-mono text-[0.875rem] text-body">
+                              {item.sku_code}
+                            </td>
+                            <td className="py-2 text-right tabular-nums">
+                              {qty(item.stock_qty)}
+                            </td>
+                            <td className="py-2 text-right tabular-nums">
+                              {qty(item.allotted_qty)}
+                            </td>
+                            <td className="py-2 text-right font-medium text-bad-fg tabular-nums">
+                              {qty(item.shortage_qty)}
+                            </td>
+                          </tr>
+                        ))}
+                      </MiniTable>
+                    </Card>
+                  )}
+                </div>
+              )}
+
+              {reading === "article" ? (
+                <ByArticle
+                  table={articleTable}
+                  query={byArticle}
+                  store={
+                    stores.find((one) => one.value === store)?.label ?? null
+                  }
+                />
+              ) : reading === "store" && store === "" ? (
+                <Card>
+                  <EmptyState>
+                    Choose a store to see everything owed to it, and its
+                    lifetime per-SKU pipeline.
+                  </EmptyState>
+                </Card>
+              ) : (
+                <>
+                  {reading === "store" && byStore.data && (
+                    <>
+                      <Card className="mb-[1.125rem] px-4 py-3.5">
+                        <MetricRow>
+                          <Metric
+                            label="Allotted"
+                            value={qty(
+                              sumOf(
+                                byStore.data.sku_summary,
+                                (sku) => sku.quantity
+                              )
+                            )}
+                          />
+                          <Metric
+                            label="Received"
+                            value={qty(
+                              sumOf(
+                                byStore.data.sku_summary,
+                                (sku) => sku.received_quantity
+                              )
+                            )}
+                          />
+                          <Metric
+                            label="To receive"
+                            value={qty(
+                              sumOf(
+                                byStore.data.sku_summary,
+                                (sku) => sku.to_receive_qty
+                              )
+                            )}
+                            tone="warn"
+                          />
+                          <Metric
+                            label="SKUs"
+                            value={count(byStore.data.sku_summary.length)}
+                          />
+                        </MetricRow>
+                        <p className="mt-3 text-[0.875rem] text-mute">
+                          This summary spans every allotment ever addressed to{" "}
+                          {byStore.data.destination_name} — not only the ones
+                          listed below.
+                        </p>
+                      </Card>
+
+                      <ByStoreSkus
+                        rows={byStore.data.sku_summary}
+                        store={byStore.data.destination_name}
+                        needle={query}
+                        display={display}
                       />
-                    ),
-                })}
-              </Card>
+                    </>
+                  )}
+
+                  <div>
+                    {queryState(source, {
+                      loading: "Reading the allotment book…",
+                      render: () =>
+                        rows.length === 0 ? (
+                          narrowed ? (
+                            <EmptyState>
+                              No allotment matches these filters.
+                            </EmptyState>
+                          ) : reading === "store" ? (
+                            <EmptyState>
+                              Nothing has ever been allotted to this store.
+                            </EmptyState>
+                          ) : (
+                            <EmptyState>Nothing here yet.</EmptyState>
+                          )
+                        ) : (
+                          <Card className="overflow-clip">
+                            <ExpandContext value={expanding}>
+                              <DataTable<AllotmentRow>
+                                table={table}
+                                roomy
+                                pageScroll
+                                cardSort={false}
+                                onRowClick={(row) => allotment.open(row.id)}
+                                isSelected={(row) => row.id === allotment.value}
+                                isExpanded={(row) => expanding.isOpen(row.id)}
+                                renderSub={(row) => (
+                                  <AllotmentItems id={row.id} />
+                                )}
+                                summary={{
+                                  allotment_number: (
+                                    <span>
+                                      {count(shown.length)}{" "}
+                                      <span className="font-normal text-body">
+                                        {shown.length === 1
+                                          ? "allotment"
+                                          : "allotments"}
+                                      </span>
+                                    </span>
+                                  ),
+                                  qty: `${qty(sumOf(shown, (row) => row.total_quantity))} pcs`,
+                                }}
+                              />
+                            </ExpandContext>
+                          </Card>
+                        ),
+                    })}
+                  </div>
+                </>
+              )}
             </>
           )}
-        </div>
+        </>
+      )}
 
-        {/* Only where there is a table to narrow. "By article" is a different
-            reading with columns of its own, and a panel offering the order
-            book's fields beside it would be a panel that narrows nothing. */}
-        {tab !== "article" && (
-          <DockedFilters
-            model={filters}
-            id="allotments"
-            subject="Allotment"
-            kpis={[
-              { label: "Allotments", value: count(rows.length) },
-              {
-                label: "Short",
-                value: count(shortages.length),
-                note: "Pools promising more than they hold.",
-              },
-            ]}
-            className="hidden dock:flex"
-          />
-        )}
-      </div>
-
-      <AllotmentSheet id={allotment.value ?? null} onClose={allotment.close} />
+      <AllotmentSheet
+        id={allotment.value ?? null}
+        onClose={allotment.close}
+        display={display}
+        actor={actor}
+      />
     </PageContent>
   )
 }
 
-/// What one shop is owed, SKU by SKU.
+/// What one shop is owed, SKU by SKU — the lifetime pipeline the server has
+/// already computed, so a picker can read the size run at a glance rather than
+/// subtracting five numbers in their head (§12: "By store: … per SKU Alloted
+/// · To Pack · Packed · Shipment · In Transit · Received · To Receive").
 ///
-/// The tab used to answer this with four totals and then list the allotment
-/// headers — which is the paperwork, not the goods. A shop asking "what is
-/// still coming" wants the size run: which colour, which size, how many, and
-/// how far along. The server has computed exactly that for the whole lifetime
-/// of the store, and the screen was throwing it away.
-///
-/// Sorted by what is still owed rather than by SKU code: a store's picking
-/// question is about the rows that have not arrived, and there can be hundreds
-/// that have.
+/// Sorted by what is still owed, and left to scroll with the page: this is
+/// supplementary to the allotments below it, not a box of its own to scroll
+/// inside (the house rule against inner `max-h` scroll boxes).
 function ByStoreSkus({
   rows,
   store,
   needle,
+  display,
 }: {
   rows: readonly StoreSkuSummary[]
   store: string
   needle: string
+  display: DisplayUnit
 }) {
-  // The summary answers in SKU codes; a code is not a garment. The catalogue
-  // is already in cache for this hub, so the name costs nothing.
+  const qty = (n: number) => qtyOf(display, n)
   const catalogue = useCatalogueIdentity()
   const wanted = needle.trim().toLowerCase()
   const shown = useMemo(
@@ -643,12 +1046,14 @@ function ByStoreSkus({
         })
         .sort(
           (left, right) =>
-            right.quantity -
-              right.received_quantity -
-              (left.quantity - left.received_quantity) ||
+            right.to_receive_qty - left.to_receive_qty ||
             left.sku_code.localeCompare(right.sku_code)
         ),
     [rows, catalogue, wanted]
+  )
+
+  const cell = (n: number) => (
+    <span className={n === 0 ? "text-faint" : undefined}>{qty(n)}</span>
   )
 
   return (
@@ -659,7 +1064,7 @@ function ByStoreSkus({
           {count(shown.length)} SKUs
         </span>
       </CardHeader>
-      <div className="max-h-[26rem] overflow-auto border-t border-hairline px-4 py-3">
+      <div className="overflow-x-auto border-t border-hairline px-4 py-3">
         {shown.length === 0 ? (
           <EmptyState>
             Nothing has ever been allotted to this store under that search.
@@ -668,19 +1073,17 @@ function ByStoreSkus({
           <MiniTable
             head={[
               "SKU",
-              { label: "Ordered", align: "right" },
-              "Progress",
-              { label: "Still owed", align: "right" },
+              { label: "Allotted", align: "right" },
+              { label: "To Pack", align: "right" },
+              { label: "Packed", align: "right" },
+              { label: "Shipment", align: "right" },
+              { label: "In Transit", align: "right" },
+              { label: "Received", align: "right" },
+              { label: "To Receive", align: "right" },
             ]}
           >
             {shown.map((row) => {
               const identity = catalogue.get(row.sku_code)
-              // Ordered less arrived less cancelled. Not `remaining_quantity`,
-              // which counts a DC's acceptance rather than the goods.
-              const owed = Math.max(
-                0,
-                row.quantity - row.received_quantity - row.cancelled_quantity
-              )
               return (
                 <tr key={row.sku_id} className="border-t border-hairline">
                   <td className="py-2 pr-2">
@@ -694,24 +1097,25 @@ function ByStoreSkus({
                     </span>
                   </td>
                   <td className="py-2 pr-2 text-right tabular-nums">
-                    {count(row.quantity)}
+                    {cell(row.quantity)}
                   </td>
-                  <td className="w-[14rem] py-2 pr-2">
-                    <Journey
-                      total={row.quantity}
-                      picked={row.picked_quantity}
-                      dispatched={row.dispatched_quantity}
-                      received={row.received_quantity}
-                      cancelled={row.cancelled_quantity}
-                    />
+                  <td className="py-2 pr-2 text-right tabular-nums">
+                    {cell(row.to_pack_qty)}
                   </td>
-                  <td
-                    className={cn(
-                      "py-2 text-right tabular-nums",
-                      owed > 0 ? "font-medium text-info-fg" : "text-mute"
-                    )}
-                  >
-                    {count(owed)}
+                  <td className="py-2 pr-2 text-right tabular-nums">
+                    {cell(row.at_packed_qty)}
+                  </td>
+                  <td className="py-2 pr-2 text-right tabular-nums">
+                    {cell(row.at_shipment_qty + row.at_loaded_qty)}
+                  </td>
+                  <td className="py-2 pr-2 text-right tabular-nums">
+                    {cell(row.at_in_transit_qty)}
+                  </td>
+                  <td className="py-2 pr-2 text-right tabular-nums">
+                    {cell(row.received_quantity)}
+                  </td>
+                  <td className="py-2 text-right tabular-nums">
+                    {cell(row.to_receive_qty)}
                   </td>
                 </tr>
               )
@@ -723,45 +1127,22 @@ function ByStoreSkus({
   )
 }
 
-/// The book read by garment: where has this article been sent, and how much of
-/// it has actually arrived.
-///
-/// This is the reading merchandising does, and until now the app could not do
-/// it at all — allotments were only ever listed as paperwork, and an article's
-/// history was spread across however many allotments happened to name it. The
-/// rollup is the server's, across every line in the table; the store picker
-/// above narrows it to one shop.
+/// The book read by garment: where an article has been sent, and how much of
+/// it has actually arrived. Its own `DataTable`, narrower than the main book's
+/// — no Journey, no pipeline, just what §12 asks for.
 function ByArticle({
+  table,
   query,
-  needle,
   store,
 }: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  table: any
   query: UseQueryResult<ArticleAllotmentList>
-  needle: string
   store: string | null
 }) {
-  const wanted = needle.trim().toLowerCase()
-  const rows = useMemo(() => {
-    const items = query.data?.items ?? []
-    return items
-      .filter(
-        (item) =>
-          wanted === "" ||
-          item.article_name.toLowerCase().includes(wanted) ||
-          item.article_code.toLowerCase().includes(wanted)
-      )
-      .slice()
-      .sort(
-        (left, right) =>
-          right.total_quantity -
-            right.total_received_quantity -
-            (left.total_quantity - left.total_received_quantity) ||
-          left.article_name.localeCompare(right.article_name)
-      )
-  }, [query.data, wanted])
-
+  const rows = query.data?.items ?? []
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-clip">
       <CardHeader>
         <CardTitle>
           {store === null ? "Every article ever allotted" : `Sent to ${store}`}
@@ -770,7 +1151,7 @@ function ByArticle({
           {count(rows.length)} articles
         </span>
       </CardHeader>
-      <div className="border-t border-hairline px-4 py-3">
+      <div className="border-t border-hairline">
         {queryState(query, {
           loading: "Reading the book by garment…",
           render: () =>
@@ -781,74 +1162,7 @@ function ByArticle({
                   : "Nothing has ever been sent to this store."}
               </EmptyState>
             ) : (
-              <MiniTable
-                head={[
-                  "Article",
-                  { label: "SKUs", align: "right" },
-                  { label: "Places", align: "right" },
-                  { label: "Ordered", align: "right" },
-                  "Progress",
-                  { label: "Still owed", align: "right" },
-                ]}
-              >
-                {rows.map((item) => {
-                  const owed = Math.max(
-                    0,
-                    item.total_quantity -
-                      item.total_received_quantity -
-                      item.total_cancelled_quantity
-                  )
-                  return (
-                    <tr
-                      key={item.article_id}
-                      className="border-t border-hairline"
-                    >
-                      <td className="py-2 pr-2">
-                        <div className="flex items-center gap-2.5">
-                          <Thumbnail
-                            url={item.image_url}
-                            className="size-8 shrink-0 rounded-inner"
-                          />
-                          <div className="min-w-0">
-                            <span className="block truncate text-[0.875rem] text-ink">
-                              {item.article_name}
-                            </span>
-                            <span className="font-mono text-[0.875rem] text-mute">
-                              {item.article_code}
-                            </span>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-2 pr-2 text-right tabular-nums">
-                        {count(item.sku_count)}
-                      </td>
-                      <td className="py-2 pr-2 text-right tabular-nums">
-                        {count(item.destination_count)}
-                      </td>
-                      <td className="py-2 pr-2 text-right tabular-nums">
-                        {count(item.total_quantity)}
-                      </td>
-                      <td className="w-[14rem] py-2 pr-2">
-                        <Journey
-                          total={item.total_quantity}
-                          picked={item.total_picked_quantity}
-                          dispatched={item.total_dispatched_quantity}
-                          received={item.total_received_quantity}
-                          cancelled={item.total_cancelled_quantity}
-                        />
-                      </td>
-                      <td
-                        className={cn(
-                          "py-2 text-right tabular-nums",
-                          owed > 0 ? "font-medium text-info-fg" : "text-mute"
-                        )}
-                      >
-                        {count(owed)}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </MiniTable>
+              <DataTable<ArticleRollup> table={table} pageScroll />
             ),
         })}
       </div>
@@ -856,330 +1170,476 @@ function ByArticle({
   )
 }
 
+/// The record detail. It fetches its own read rather than being handed the
+/// row: the list carries a summary and the lines are only wanted once
+/// somebody opens one allotment.
 function AllotmentSheet({
   id,
   onClose,
+  display,
+  actor,
 }: {
   id: string | null
   onClose: () => void
+  /// The viewer's chosen unit, shared with the list this sheet opens from —
+  /// switching it there is reflected here without a picker of its own.
+  display: DisplayUnit
+  actor: string
 }) {
   const client = useQueryClient()
-  const actor = useActor()
-  const [reason, setReason] = useState("")
-  const [line, setLine] = useState("")
-  const [pickQuantity, setPickQuantity] = useState("1")
+  const qty = (n: number) => qtyOf(display, n)
 
   const detail = useQuery({
     queryKey: inventoryKeys.allotment(id ?? ""),
     queryFn: ({ signal }) => allotmentDetail(id!, signal),
     enabled: id !== null,
+    // The DC answers on its own time: keep reading while it has not.
+    refetchInterval: (query) =>
+      query.state.data?.edge_application_status === "PENDING" ||
+      query.state.data?.cancellation?.outcome === null
+        ? 4000
+        : false,
   })
 
-  // Both writes change the same two things: this record, and every list that
-  // sums it. The list keys carry the filters, so the whole `allotments` prefix
-  // goes — a cancelled allotment leaves one filtered list and joins another.
-  const invalidate = () => {
-    client.invalidateQueries({ queryKey: inventoryKeys.allotments() })
-    client.invalidateQueries({ queryKey: inventoryKeys.fleet() })
-  }
-
   const cancel = useMutation({
-    mutationFn: () =>
+    mutationFn: (reason: string) =>
       cancelAllotment(id!, {
         reason,
         actor_id: actor,
         idempotency_key: idempotencyKey(),
       }),
-    onSuccess: invalidate,
+    onSuccess: (result) => {
+      client.invalidateQueries({ queryKey: inventoryKeys.allotments() })
+      client.invalidateQueries({ queryKey: inventoryKeys.fleet() })
+      // The write's receipt, held in the middle of the screen until it is
+      // read (the owner, 2026-10-04) — the sheet underneath keeps standing.
+      setClosedShort(
+        result.edge_cancellation_status === "PENDING"
+          ? "Sent to the DC. Closing short"
+          : "Closed short"
+      )
+    },
   })
+  /// The close-short the DC took, held in the receipt dialog until it is
+  /// read. This sheet stays mounted between openings, so the state lives
+  /// here and survives the refetch that moves the row between tabs.
+  const [closedShort, setClosedShort] = useState<string | null>(null)
 
-  const execute = useMutation({
-    mutationFn: () =>
-      executeAllotment(id!, {
-        allotment_line_id: line,
-        quantity: Number(pickQuantity),
-        actor_id: actor,
-        idempotency_key: idempotencyKey(),
-      }),
-    onSuccess: invalidate,
-  })
+  const goto = useAppNavigate()
+
+  const record = detail.data
+  const packable = record?.lines.filter((one) => one.to_pack_qty > 0) ?? []
+  /// Close short, then New allotment opens with what was released — one
+  /// number per item and store — to change a quantity or move it. The draft is
+  /// written only once the close is accepted, so a refusal leaves nothing
+  /// behind.
+  const reallot = async (reason: string) => {
+    if (!record) return
+    const released = packable.map((one) => ({
+      skuId: one.sku_id,
+      destinationId: one.destination_id,
+      quantity: one.to_pack_qty,
+    }))
+    await cancel.mutateAsync(reason)
+    stageDraft(released)
+    goto("/allotment/new", {
+      key: "allotFrom",
+      value: allotFromValue("reallot", record.id),
+    })
+  }
+  /// Nothing picked yet: the whole allotment can simply be cancelled. Once
+  /// something is picked only what is still to pack can be closed short.
+  const nothingPicked =
+    record !== undefined && record.total_picked_quantity === 0
+  const cancelDisabled =
+    record === undefined ||
+    record.to_pack_qty === 0 ||
+    record.cancellation !== null ||
+    (record.activation_target_origin_id !== null &&
+      record.edge_application_status !== "ACCEPTED") ||
+    actor === ""
 
   return (
-    <Sheet
+    <>
+      <Sheet
       open={id !== null}
       subject={id === null ? undefined : { kind: "allotment", id }}
       onOpenChange={(open) => !open && onClose()}
-      title={detail.data?.allotment_number ?? "Allotment"}
+      title={record?.allotment_number ?? "Allotment"}
+      // Who and when, and nothing else (the owner, 2026-09-29): how many
+      // stores and items is the body's, and where it stands is the four
+      // figures under the header — a status word beside the number was one
+      // more thing in a header that is read in a glance.
+      caption={
+        record && `Created ${day(record.created_at)} by ${record.created_by}`
+      }
+      actions={
+        record && (
+          <>
+            {(record.type === "TO_STORE" || record.type === "TO_SITE") &&
+              record.fulfillment_status === "ACTIVE" && (
+                <ConfirmButton
+                  label="Cancel and re-allot"
+                  variant="ghost"
+                  title="Cancel and re-allot?"
+                  description={`${qty(record.to_pack_qty)} still to pack is released and opens in New allotment.`}
+                  confirmLabel="Cancel and re-allot"
+                  reason={{ label: "Reason" }}
+                  pending={cancel.isPending}
+                  disabled={cancelDisabled}
+                  onConfirm={reallot}
+                />
+              )}
+            {record.fulfillment_status === "ACTIVE" && nothingPicked && (
+              <ConfirmButton
+                label="Cancel allotment"
+                variant="ghost"
+                tone="danger"
+                title="Cancel this allotment?"
+                description={`${qty(record.to_pack_qty)} still to pack is released. Nothing has been picked.`}
+                confirmLabel="Continue"
+                reason={{
+                  label: "Reason",
+                  hint: "Kept on the cancelled allotment.",
+                }}
+                pending={cancel.isPending}
+                disabled={cancelDisabled}
+                onConfirm={(reason) => cancel.mutateAsync(reason)}
+              />
+            )}
+            {record.fulfillment_status === "ACTIVE" && !nothingPicked && (
+              <ConfirmButton
+                label="Close short"
+                variant="quiet"
+                tone="danger"
+                title="Close short what is still to pack?"
+                description={`${qty(record.to_pack_qty)} across ${count(packable.length)} ${packable.length === 1 ? "line" : "lines"} haven't been packed yet. Closing short releases them; anything already packed keeps travelling to the store.`}
+                confirmLabel={`Close short ${qty(record.to_pack_qty)}`}
+                reason={{
+                  label: "Reason",
+                  hint: "Kept on the closed allotment.",
+                }}
+                pending={cancel.isPending}
+                disabled={cancelDisabled}
+                onConfirm={(reason) => cancel.mutateAsync(reason)}
+              />
+            )}
+          </>
+        )
+      }
+      width="workspace"
+      className="md:w-[clamp(27.5rem,98vw,100rem)]"
     >
       {queryState(detail, {
         loading: "Opening the allotment…",
-        render: (record) => {
-          const owned = record.activation_target_origin_id !== null
-          const reached = STAGES.findIndex((stage) => record[stage.key] === 0)
-          const events: TimelineEvent[] = record.events.map((event) => ({
-            id: event.id,
-            title: humanise(event.event_type),
-            detail: `${event.actor_id} · ${count(event.quantity)} pieces · reserve ${event.remaining_delta >= 0 ? "+" : ""}${event.remaining_delta}`,
-            at: moment(event.occurred_at),
-            state: "done",
-          }))
-
-          return (
-            <div className="flex flex-col gap-5">
-              <Lifecycle
-                steps={STAGES.map((stage, index) => ({
-                  label: stage.label,
-                  state:
-                    record[stage.key] > 0
-                      ? "done"
-                      : index === (reached === -1 ? STAGES.length : reached)
-                        ? "current"
-                        : "todo",
-                }))}
-              />
-
-              <div className="flex flex-wrap gap-1.5">
-                <Pill tone={toneFor(record.status)}>
-                  {humanise(record.status)}
-                </Pill>
-                {owned && (
-                  <Pill tone="info">
-                    {record.edge_application_status === "ACCEPTED"
-                      ? "Accepted by the DC"
-                      : record.edge_application_status === "REJECTED"
-                        ? "Refused by the DC"
-                        : "Waiting on the DC"}
-                  </Pill>
-                )}
-                {!record.received_projection_consistent && (
-                  <Pill tone="bad">Receipt evidence disagrees</Pill>
-                )}
-              </div>
-
-              <Facts>
-                <Fact term="Raised by">{record.created_by}</Fact>
-                <Fact term="Raised">{moment(record.created_at)}</Fact>
-                <Fact term="Notes">{record.notes ?? "—"}</Fact>
-              </Facts>
-
-              {record.cancellation && (
-                <Banner
-                  tone={
-                    record.cancellation.outcome === "APPLIED"
-                      ? "ok"
-                      : record.cancellation.outcome === null
-                        ? "info"
-                        : "warn"
-                  }
-                >
-                  {record.cancellation.outcome === null
-                    ? `Cancellation of ${count(record.cancellation.requested_quantity)} requested by ${record.cancellation.requested_by}; the DC has not answered. Nothing is released until it does.`
-                    : `${humanise(record.cancellation.outcome)} — ${count(record.cancellation.cancelled_quantity ?? 0)} released, ${count(record.cancellation.blocked_picked_quantity ?? 0)} already picked and blocked.`}
-                </Banner>
-              )}
-
-              <section>
-                <h4 className="mb-2 text-card-title font-semibold text-ink">
-                  Lines
-                </h4>
-                <MiniTable
-                  head={[
-                    "SKU",
-                    { label: "Qty", align: "right" },
-                    "Progress",
-                    { label: "Still owed", align: "right" },
-                  ]}
-                >
-                  {record.lines.map((item) => (
-                    <tr key={item.id} className="border-t border-hairline">
-                      <td className="py-2 pr-2">
-                        <span className="block text-[0.875rem] text-ink">
-                          {item.article_name}
-                        </span>
-                        <span className="font-mono text-[0.875rem] text-mute">
-                          {item.sku_code}
-                        </span>
-                      </td>
-                      <td className="py-2 pr-2 text-right tabular-nums">
-                        {count(item.quantity)}
-                      </td>
-                      <td className="w-[13rem] py-2 pr-2">
-                        <Journey
-                          total={item.quantity}
-                          picked={item.picked_quantity}
-                          dispatched={item.dispatched_quantity}
-                          received={item.received_quantity}
-                          cancelled={item.cancelled_quantity}
-                        />
-                      </td>
-                      <td className="py-2 text-right tabular-nums">
-                        {count(
-                          Math.max(
-                            0,
-                            item.quantity -
-                              item.received_quantity -
-                              item.cancelled_quantity
-                          )
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </MiniTable>
-
-                <TotalsLadder
-                  className="mt-3"
-                  rows={[
-                    { label: "Ordered", value: count(record.total_quantity) },
-                    {
-                      label: "Received",
-                      value: count(record.total_received_quantity),
-                    },
-                    {
-                      label: "Cancelled",
-                      value: count(record.total_cancelled_quantity),
-                    },
-                  ]}
-                  total={{
-                    label: "Still owed",
-                    value: count(
-                      Math.max(
-                        0,
-                        record.total_quantity -
-                          record.total_received_quantity -
-                          record.total_cancelled_quantity
-                      )
-                    ),
-                  }}
-                />
-              </section>
-
-              {record.movements.length > 0 && (
-                <section>
-                  <h4 className="mb-2 text-card-title font-semibold text-ink">
-                    Ledger movements
-                  </h4>
-                  <MiniTable head={["Route", "Cause", "Qty"]}>
-                    {record.movements.map((movement) => (
-                      <tr
-                        key={movement.movement_id}
-                        className="border-t border-hairline"
-                      >
-                        <td className="py-2 pr-2 font-mono text-[0.875rem] text-body">
-                          <AppLink
-                            to="/inventory/pools"
-                            sheet={{
-                              key: "pool",
-                              value: movement.from.replace(/:.*$/, ""),
-                            }}
-                            className="hover:text-ink"
-                          >
-                            {movement.from}
-                          </AppLink>{" "}
-                          →{" "}
-                          <AppLink
-                            to="/inventory/pools"
-                            sheet={{
-                              key: "pool",
-                              value: movement.to.replace(/:.*$/, ""),
-                            }}
-                            className="hover:text-ink"
-                          >
-                            {movement.to}
-                          </AppLink>
-                        </td>
-                        <td className="py-2 text-right">
-                          <Tag>{movement.cause}</Tag>
-                        </td>
-                        <td className="py-2 text-right tabular-nums">
-                          {count(movement.quantity)}
-                        </td>
-                      </tr>
-                    ))}
-                  </MiniTable>
-                </section>
-              )}
-
-              {events.length > 0 && (
-                <section>
-                  <h4 className="mb-2 text-card-title font-semibold text-ink">
-                    History
-                  </h4>
-                  <Timeline events={events} />
-                </section>
-              )}
-
-              <section className="border-t border-hairline pt-4">
-                {(cancel.isError || execute.isError) && (
-                  <Banner tone="bad" className="mb-3">
-                    {(cancel.error ?? execute.error) instanceof Error
-                      ? ((cancel.error ?? execute.error) as Error).message
-                      : "The server refused the request."}
-                  </Banner>
-                )}
-
-                {owned ? null : (
-                  <div className="mb-4 flex flex-col gap-3">
-                    <Field
-                      label="Pick against a line"
-                      required
-                      hint="Partial picks are expected; press again until nothing remains."
-                    >
-                      <Choice
-                        value={line}
-                        onChange={setLine}
-                        options={record.lines.map((item) => ({
-                          value: item.id,
-                          label: `${item.sku_code} · ${count(item.remaining_allotted)} left`,
-                        }))}
-                        placeholder="Choose a line"
-                        className="h-9 w-full max-w-none"
-                      />
-                    </Field>
-                    <Field label="Quantity" required>
-                      <Input
-                        type="number"
-                        min={1}
-                        value={pickQuantity}
-                        onChange={(event) =>
-                          setPickQuantity(event.target.value)
-                        }
-                      />
-                    </Field>
-                    <Button
-                      variant="soft"
-                      pending={execute.isPending}
-                      disabled={
-                        line === "" || actor === "" || Number(pickQuantity) <= 0
-                      }
-                      onClick={() => execute.mutate()}
-                    >
-                      {execute.isPending ? "Picking…" : "Pick"}
-                    </Button>
-                  </div>
-                )}
-
-                <div className="flex flex-col gap-3">
-                  <Field label="Cancel what is still reserved" required>
-                    <Input
-                      value={reason}
-                      onChange={(event) => setReason(event.target.value)}
-                      placeholder="Why it is being released"
-                    />
-                  </Field>
-                  <Button
-                    variant="danger"
-                    pending={cancel.isPending}
-                    disabled={reason.trim() === "" || actor === ""}
-                    onClick={() => cancel.mutate()}
-                  >
-                    {cancel.isPending ? "Asking…" : "Cancel allotment"}
-                  </Button>
-                </div>
-              </section>
-            </div>
-          )
-        },
+        render: (data) => <AllotmentDocument record={data} display={display} />,
       })}
     </Sheet>
+      <SavedDialog
+        open={closedShort !== null}
+        onOpenChange={(next) => {
+          if (!next) setClosedShort(null)
+        }}
+        title={closedShort ?? ""}
+      />
+    </>
+  )
+}
+
+const HIDDEN_EVENTS = new Set([
+  "ALLOTMENT_EXECUTED",
+  "ALLOTMENT_PICKED",
+  "ALLOTMENT_PARTIALLY_PICKED",
+])
+
+const EVENT_TITLE: Record<string, string> = {
+  ALLOTMENT_CREATED: "Created",
+  ALLOTMENT_CANCELLATION_REQUESTED: "Close short requested",
+  ALLOTMENT_CANCELLED: "Closed short",
+  ALLOTMENT_SHORTAGE: "Short in the warehouse",
+}
+
+/// The allotment as a document: the fulfillment pipeline, the lines matrix,
+/// and its history — the shape §12's UI contract asks for, drawn as facts
+/// rather than as disabled inputs.
+function AllotmentDocument({
+  record,
+  display,
+}: {
+  record: AllotmentDetail
+  display: DisplayUnit
+}) {
+  const qty = (n: number) => qtyOf(display, n)
+  /// The SKU and store an event names, when it names them.
+  const lineOf = (event: AllotmentDetail["events"][number]) =>
+    record.lines.find(
+      (line) =>
+        line.sku_id === event.sku_id &&
+        (event.destination_id === null ||
+          line.destination_id === event.destination_id)
+    )
+  const events: TimelineEvent[] = record.events
+    .filter((event) => !HIDDEN_EVENTS.has(event.event_type))
+    .map((event) => {
+      const line = lineOf(event)
+      const where = line
+        ? [
+            [line.colour, line.size].filter(Boolean).join(" · ") ||
+              line.sku_code,
+            line.destination_name ?? destinationShort(line.destination_id),
+          ].join(" to ")
+        : null
+      const why =
+        record.cancellation !== null &&
+        record.cancellation.reason !== "" &&
+        event.event_type === "ALLOTMENT_CANCELLATION_REQUESTED"
+          ? record.cancellation.reason
+          : null
+      return {
+        id: event.id,
+        title: EVENT_TITLE[event.event_type] ?? label(event.event_type),
+        detail: [qty(event.quantity), where, why].filter(Boolean).join(" · "),
+        at: moment(event.occurred_at),
+        state: "done",
+      }
+    })
+
+  return (
+    <div className="flex flex-col gap-5">
+      {(record.edge_application_status === "PENDING" ||
+        record.edge_application_status === "REJECTED" ||
+        record.receiving_gap_qty > 0 ||
+        !record.received_projection_consistent) && (
+        <div className="flex flex-col gap-2">
+          {record.edge_application_status === "PENDING" && (
+            <Banner tone="warn">
+              Waiting for the DC to accept this allotment. It can't be closed
+              short until then.
+            </Banner>
+          )}
+          {record.edge_application_status === "REJECTED" && (
+            <Banner tone="bad">The DC refused this allotment.</Banner>
+          )}
+          {record.receiving_gap_qty > 0 && (
+            <Banner tone="warn">
+              {qty(record.receiving_gap_qty)} were handed over but not found at
+              the store. Inventory is looking into it.
+            </Banner>
+          )}
+          {!record.received_projection_consistent && (
+            <Banner tone="bad">
+              The received count and the scanned tags disagree.
+            </Banner>
+          )}
+        </div>
+      )}
+
+      <Section title="Lines">
+        <LinesTable key={record.id} lines={record.lines} display={display} />
+      </Section>
+
+      {events.length > 0 && (
+        <Section title="History">
+          <Timeline events={events} />
+        </Section>
+      )}
+    </div>
+  )
+}
+
+/// The allotment's lines as a read-only matrix, the same shape as New
+/// allotment: articles down the left with their SKUs beneath, one column per
+/// store, what was allotted in each cell and a Total at the right and the foot.
+function LinesTable({
+  lines,
+  display,
+}: {
+  lines: readonly AllotmentLine[]
+  display: DisplayUnit
+}) {
+  const qty = (n: number) => qtyOf(display, n)
+
+  const stores = [
+    ...new Map(
+      lines.map((line) => [
+        line.destination_id,
+        line.destination_name ?? destinationShort(line.destination_id),
+      ])
+    ).entries(),
+  ]
+    .map(([id, name]) => ({ id, name }))
+    .sort((left, right) =>
+      left.id.localeCompare(right.id, undefined, { numeric: true })
+    )
+
+  const cell = new Map<string, number>()
+  for (const line of lines) {
+    const key = `${line.sku_id}|${line.destination_id}`
+    cell.set(key, (cell.get(key) ?? 0) + line.quantity)
+  }
+
+  const articles = [
+    ...lines
+      .reduce((groups, line) => {
+        const group = groups.get(line.article_id) ?? {
+          id: line.article_id,
+          name: line.article_name,
+          code: line.article_code,
+          image: line.image_url,
+          skus: new Map<string, AllotmentLine>(),
+        }
+        if (!group.skus.has(line.sku_id)) group.skus.set(line.sku_id, line)
+        groups.set(line.article_id, group)
+        return groups
+      }, new Map<string, { id: string; name: string; code: string; image: string | null; skus: Map<string, AllotmentLine> }>())
+      .values(),
+  ]
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map((group) => ({
+      ...group,
+      skus: [...group.skus.values()].sort(
+        (left, right) =>
+          (left.colour ?? "").localeCompare(right.colour ?? "") ||
+          (left.size ?? "").localeCompare(right.size ?? "", undefined, {
+            numeric: true,
+          })
+      ),
+    }))
+
+  const at = (skuId: string, storeId: string) =>
+    cell.get(`${skuId}|${storeId}`) ?? 0
+  const rowTotal = (skuId: string) =>
+    stores.reduce((sum, store) => sum + at(skuId, store.id), 0)
+  const figure = (n: number, strong = false) =>
+    n > 0 ? (
+      <span className={strong ? "font-medium text-ink" : "text-ink"}>
+        {qty(n)}
+      </span>
+    ) : (
+      <span className="text-faint">—</span>
+    )
+
+  const NUM = "px-3 text-right text-[0.875rem] tabular-nums"
+  const FIRST = "sticky left-0 z-10 w-[17rem] min-w-[17rem] pr-3 pl-4 text-left"
+  const LAST = "sticky right-0 z-10 w-[6.5rem] min-w-[6.5rem]"
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-max border-separate border-spacing-0 text-[0.875rem]">
+        <thead>
+          <tr className="h-14">
+            <th className={cn(FIRST, "bg-canvas font-normal text-mute")}>
+              Article
+            </th>
+            {stores.map((store) => (
+              <th
+                key={store.id}
+                className="min-w-[6.5rem] bg-canvas px-3 text-right font-medium text-ink"
+              >
+                {store.name}
+              </th>
+            ))}
+            <th className={cn(LAST, NUM, "bg-canvas font-medium text-ink")}>
+              Total
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {articles.map((article) => (
+            <Fragment key={article.id}>
+              <tr className="h-[4.5rem]">
+                <td className={cn(FIRST, "rounded-l-inner bg-soft")}>
+                  <span className="flex items-center gap-3">
+                    <Thumbnail
+                      url={article.image}
+                      name={article.name}
+                      className="size-11 shrink-0 rounded-inner"
+                    />
+                    <span className="min-w-0">
+                      <span
+                        className="block truncate font-medium text-ink"
+                        title={article.name}
+                      >
+                        {article.name}
+                      </span>
+                      <span className="block truncate text-mute">
+                        {article.code}
+                      </span>
+                    </span>
+                  </span>
+                </td>
+                {stores.map((store) => (
+                  <td key={store.id} className={cn(NUM, "bg-soft")}>
+                    {figure(
+                      article.skus.reduce(
+                        (sum, sku) => sum + at(sku.sku_id, store.id),
+                        0
+                      ),
+                      true
+                    )}
+                  </td>
+                ))}
+                <td className={cn(LAST, NUM, "bg-soft font-medium")}>
+                  {figure(
+                    article.skus.reduce(
+                      (sum, sku) => sum + rowTotal(sku.sku_id),
+                      0
+                    ),
+                    true
+                  )}
+                </td>
+              </tr>
+              {article.skus.map((sku) => (
+                <tr key={sku.sku_id} className="h-16">
+                  <td className={cn(FIRST, "bg-canvas pl-[4.75rem]")}>
+                    <span className="block truncate text-ink">
+                      {[sku.colour, sku.size].filter(Boolean).join(" · ") ||
+                        sku.sku_code}
+                    </span>
+                    <span className="block truncate text-mute">
+                      {sku.sku_code}
+                    </span>
+                  </td>
+                  {stores.map((store) => (
+                    <td key={store.id} className={NUM}>
+                      {figure(at(sku.sku_id, store.id))}
+                    </td>
+                  ))}
+                  <td className={cn(LAST, NUM, "bg-canvas font-medium")}>
+                    {figure(rowTotal(sku.sku_id), true)}
+                  </td>
+                </tr>
+              ))}
+            </Fragment>
+          ))}
+          <tr className="h-[4.5rem]">
+            <td
+              className={cn(
+                FIRST,
+                "rounded-l-inner bg-soft font-medium text-ink"
+              )}
+            >
+              Total
+            </td>
+            {stores.map((store) => (
+              <td key={store.id} className={cn(NUM, "bg-soft font-medium")}>
+                {figure(
+                  lines
+                    .filter((line) => line.destination_id === store.id)
+                    .reduce((sum, line) => sum + line.quantity, 0),
+                  true
+                )}
+              </td>
+            ))}
+            <td className={cn(LAST, NUM, "bg-soft font-medium")}>
+              {figure(
+                lines.reduce((sum, line) => sum + line.quantity, 0),
+                true
+              )}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   )
 }

@@ -785,7 +785,11 @@ async fn an_in_transit_koli_is_announced_to_its_shop_and_received_blind(pool: Pg
             json!({
                 "count_id": count["count_id"],
                 "decision": "Accept",
-                "verifier_actor_id": "verifier-1",
+                // The person who RAISED the order verifies its counts (owner, 2026-09-26),
+                // and `checker-1` counted it: the two pairs of hands the rule
+                // wants are the checker and the buyer. This used to verify as
+                // somebody called `verifier-1`, which that rule refuses.
+                "verifier_actor_id": "buyer-1",
                 "idempotency_key": "verify-1"
             }),
         )
@@ -1008,6 +1012,17 @@ async fn an_in_transit_koli_is_announced_to_its_shop_and_received_blind(pool: Pg
         .as_str()
         .unwrap_or_else(|| panic!("no shipment number: {shipment}"))
         .to_string();
+    // A shipment document does not move a koli; the koli's own stage does.
+    fleet
+        .dc_post(
+            &format!("/api/v1/dc/koli/{koli_id}/shipment"),
+            json!({
+                "shipment_reference": shipment_reference,
+                "actor_id": "supervisor-1",
+                "idempotency_key": "koli-shipment-1"
+            }),
+        )
+        .await;
     let dispatch = fleet
         .dc_post(
             "/api/v1/dc/dispatches",
@@ -1024,6 +1039,13 @@ async fn an_in_transit_koli_is_announced_to_its_shop_and_received_blind(pool: Pg
         .as_str()
         .unwrap_or_else(|| panic!("no dispatch: {dispatch}"))
         .to_string();
+    // Likewise a dispatch document loads nothing; `Loaded` on the koli does.
+    fleet
+        .dc_post(
+            &format!("/api/v1/dc/koli/{koli_id}/dispatch"),
+            json!({ "actor_id": "supervisor-1", "idempotency_key": "koli-dispatch-1" }),
+        )
+        .await;
 
     // Nothing is announced before the lorry leaves.
     let announced_before: i64 = sqlx::query_scalar(
@@ -1040,6 +1062,16 @@ async fn an_in_transit_koli_is_announced_to_its_shop_and_received_blind(pool: Pg
         .dc_post(
             &format!("/api/v1/dc/dispatches/{dispatch_id}/depart"),
             json!({}),
+        )
+        .await;
+    // The lorry has left. A dispatch departing is not the koli being on the
+    // road: the stages are explicit, and it is the koli's own IN_TRANSIT —
+    // confirmed here, on this koli, after the departure — that the centre
+    // applies and announces.
+    fleet
+        .dc_post(
+            &format!("/api/v1/dc/koli/{koli_id}/in-transit"),
+            json!({ "actor_id": "supervisor-1", "idempotency_key": "in-transit-1" }),
         )
         .await;
     // The DC uploads IN_TRANSIT; the centre applies it and announces it.
@@ -1207,4 +1239,34 @@ async fn an_in_transit_koli_is_announced_to_its_shop_and_received_blind(pool: Pg
     assert_eq!(report["summary"]["matched"], ALLOTTED - 2, "{}", report["summary"]);
     assert_eq!(report["summary"]["dc_only"], 2, "{}", report["summary"]);
     assert_eq!(report["summary"]["store_only"], 1, "{}", report["summary"]);
+
+    // The operations board's Received lane: the surat jalan, as the shop
+    // counted it at the door, still two short.
+    let received = fleet
+        .cloud_get("/api/v1/inventory/shipments/received?limit=50")
+        .await;
+    let items = received["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no items: {received}"));
+    let row = items
+        .iter()
+        .find(|row| row["shipment_number"] == json!(shipment_reference))
+        .unwrap_or_else(|| panic!("the surat jalan is not listed: {received}"));
+    assert_eq!(row["sent_qty"], ALLOTTED, "{row}");
+    assert_eq!(row["received_qty"], ALLOTTED - 2, "{row}");
+    assert_eq!(row["found_qty"], 0, "{row}");
+    assert_eq!(row["open_gap_qty"], 2, "{row}");
+    assert_eq!(row["extra_qty"], 1, "{row}");
+    assert_eq!(row["delivery_id"], json!(delivery_id), "{row}");
+    // Short, so it is listed first, and still listed however old.
+    assert_eq!(items[0]["shipment_number"], json!(shipment_reference));
+    let later = fleet
+        .cloud_get("/api/v1/inventory/shipments/received?since=2999-01-01T00:00:00Z")
+        .await;
+    assert!(
+        later["items"]
+            .as_array()
+            .is_some_and(|rows| rows.iter().any(|r| r["shipment_number"] == json!(shipment_reference))),
+        "a surat jalan still short drops off the board: {later}"
+    );
 }

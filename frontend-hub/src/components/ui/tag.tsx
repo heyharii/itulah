@@ -15,7 +15,7 @@ export function Tag({
   return (
     <span
       className={cn(
-        "inline-flex h-[1.125rem] items-center rounded-md px-[0.4375rem] font-mono text-[0.875rem] font-semibold whitespace-nowrap",
+        "inline-flex h-6 items-center rounded-md px-2 font-mono text-[0.875rem] font-semibold whitespace-nowrap",
         tone === "neutral" && "bg-soft-2 text-body",
         tone === "accent" && "bg-accent-bg text-accent",
         tone === "ok" && "bg-ok-bg text-ok-fg",

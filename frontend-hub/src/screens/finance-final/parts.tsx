@@ -133,10 +133,16 @@ export function Grid({ children }: { children: React.ReactNode }) {
   // Stacks on a phone rather than scrolling sideways (`useStackLabels`).
   const table = useStackLabels()
   return (
-    <div className="overflow-x-auto">
+    // Framed like a Card when it stands on the page, as every `DataTable`
+    // is; inside a Card already, the Card is the frame and this one steps
+    // back rather than drawing a second border inside the first.
+    <div className="overflow-x-auto rounded-card border border-hairline-2 bg-canvas shadow-[0_1px_2px_rgb(0_0_0/0.05),0_4px_14px_rgb(0_0_0/0.04)] in-[.rounded-card]:rounded-none in-[.rounded-card]:border-0 in-[.rounded-card]:bg-transparent in-[.rounded-card]:shadow-none">
       <table
         ref={table}
-        className="mini-stack w-full border-collapse text-[0.875rem]"
+        // Drawn like `DataTable` (Purchase Invoice and the other lists), so a
+        // Finance screen never looks like a second product: a tinted heading
+        // row, 52px rows, the same padding and the same hover.
+        className="mini-stack w-full border-collapse text-cell [&>tbody>tr:last-child>td]:border-b-0 [&>tbody>tr:not([data-total])]:h-[3.75rem] [&>tbody>tr:not([data-total])]:hover:bg-soft"
       >
         {children}
       </table>
@@ -157,7 +163,7 @@ export function Th({
     <th
       style={width === undefined ? undefined : { width }}
       className={cn(
-        "border-b border-hairline-2 px-2 py-1.5 text-[0.875rem] font-medium whitespace-nowrap text-mute",
+        "h-12 border-b border-hairline-2 bg-soft px-4 py-0 text-eyebrow font-medium whitespace-nowrap text-body normal-case",
         align === "right"
           ? "text-right"
           : align === "center"
@@ -169,6 +175,8 @@ export function Th({
     </th>
   )
 }
+
+const NEGATIVE_MONEY = /^(-|\(|−)\s?Rp/
 
 export function Td({
   children,
@@ -191,12 +199,23 @@ export function Td({
     <td
       colSpan={colSpan}
       className={cn(
-        "border-b border-hairline px-2 py-2 align-top text-text",
+        // One line per cell, as in `DataTable`: a number or a date broken
+        // over two lines is a row twice the height for nothing. A cell of
+        // prose says `whitespace-normal`; a cell that should give way says
+        // `max-w-0` and truncates.
+        "border-b border-hairline px-4 py-3 align-middle whitespace-nowrap text-text",
         align === "right"
           ? "text-right tabular-nums"
           : align === "center"
             ? "text-center"
             : "text-left",
+        // A negative amount in the right-hand columns is red: a loss, a
+        // credit balance or an outflow is the thing the eye is looking for in
+        // a column of figures, and "-Rp" is easy to read past.
+        align === "right" &&
+          typeof children === "string" &&
+          NEGATIVE_MONEY.test(children) &&
+          "text-bad-fg",
         className
       )}
     >
@@ -209,7 +228,10 @@ export function Td({
 /// to. Heavier rule above it, no rule below — it ends the table.
 export function TotalRow({ children }: { children: React.ReactNode }) {
   return (
-    <tr className="border-t-2 border-hairline-strong [&>td]:border-b-0 [&>td]:pt-2.5 [&>td]:font-semibold [&>td]:text-ink">
+    <tr
+      data-total
+      className="h-14 border-t border-hairline-strong bg-soft [&>td]:border-b-0 [&>td]:py-0 [&>td]:font-medium [&>td]:whitespace-nowrap [&>td]:text-ink [&>td]:tabular-nums"
+    >
       {children}
     </tr>
   )
@@ -218,9 +240,7 @@ export function TotalRow({ children }: { children: React.ReactNode }) {
 /// An account code, printed the way a code should be: monospaced, quiet, and
 /// never the widest thing in its cell.
 export function Code({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="font-mono text-[0.875rem] text-mute">{children}</span>
-  )
+  return <span className="font-mono text-[0.875rem] text-mute">{children}</span>
 }
 
 /// Says plainly what a screen is standing on when it is not standing on an

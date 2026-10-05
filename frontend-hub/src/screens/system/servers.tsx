@@ -1,8 +1,12 @@
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { Plus } from "lucide-react"
+
+import { Button } from "@/components/ui/button"
 import { PageHeader } from "@/components/ui/page-header"
 import { SubTabs } from "@/components/ui/sub-tabs"
+import { InstallSheet } from "@/screens/system/enrolments"
 import { FleetHealth } from "@/screens/system/fleet-health"
 import { FleetIncidents } from "@/screens/system/fleet-incidents"
 import { FleetSync } from "@/screens/system/fleet-sync"
@@ -31,17 +35,19 @@ import { Nodes } from "@/screens/system/nodes"
 /// those three tabs used to show. Those older screens (`health.tsx`,
 /// `sync.tsx`, `monitoring.tsx`'s `Incidents`) are left in the tree unused
 /// rather than deleted here, in case something else still reads them.
-type Tab = "servers" | "health" | "incidents" | "sync"
+type Tab = "servers" | "sync" | "register" | "health" | "incidents"
 
 const TABS: readonly { value: Tab; label: string }[] = [
   { value: "servers", label: "Servers" },
+  { value: "sync", label: "Sync" },
+  { value: "register", label: "Register" },
   { value: "health", label: "Health" },
   { value: "incidents", label: "Incidents" },
-  { value: "sync", label: "Sync" },
 ]
 
 export function StoreServers() {
   const [tab, setTab] = useState<Tab>("servers")
+  const [installing, setInstalling] = useState(false)
 
   return (
     <PageContent>
@@ -49,21 +55,32 @@ export function StoreServers() {
         crumb="System"
         title="Store servers"
         sub="Every shop's own machine: whether it is up, whether data is moving, and what to do about it."
+        actions={
+          // On the page, not inside one tab: installing a server is the
+          // thing somebody opens this page to do on a new store's first day.
+          <Button variant="primary" onClick={() => setInstalling(true)}>
+            <Plus className="size-4" />
+            Install server
+          </Button>
+        }
       />
 
-      <SubTabs tabs={TABS} value={tab} onChange={(next) => setTab(next as Tab)} />
+      <SubTabs
+        tabs={TABS}
+        value={tab}
+        onChange={(next) => setTab(next as Tab)}
+      />
 
-      {tab === "servers" && (
-        <>
-          <Monitoring />
-          <div className="mt-5">
-            <Nodes embedded />
-          </div>
-        </>
-      )}
+      {/* One question per tab (owner, 2026-09-29): the uptime board and the
+          register used to sit one above the other on Servers, two tables of
+          the same eleven machines answering different things. */}
+      {tab === "servers" && <Monitoring />}
+      {tab === "register" && <Nodes embedded />}
       {tab === "health" && <FleetHealth />}
       {tab === "incidents" && <FleetIncidents />}
       {tab === "sync" && <FleetSync />}
+
+      <InstallSheet open={installing} onClose={() => setInstalling(false)} />
     </PageContent>
   )
 }

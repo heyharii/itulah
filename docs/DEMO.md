@@ -9,12 +9,12 @@ login**. Semua akun memakai password **`Password01`**. IP laptop saat ini
 
 | Aplikasi | Alamat | Terhubung ke |
 |---|---|---|
-| Hub (kantor pusat) | http://localhost:5350 | Cloud :8180 + DC edge :8182 |
-| Gudang DC | Hub → Operations (`/operations/*`, login DC) — Floor app `frontend-floor` sudah dipensiunkan 2026-09-26 | DC edge :8182 |
-| Store app (back office toko) | http://192.168.1.224:5353 | Store edge :8181 (store-01) |
+| Hub (kantor pusat) | http://localhost:5350 | Cloud :8180 + DC edge :8181 |
+| Gudang DC | Hub → Operations (`/operations/*`, login DC) — Floor app `frontend-floor` sudah dipensiunkan 2026-09-26 | DC edge :8181 |
+| Store app (back office toko) | http://192.168.1.224:5353 | Store edge :8182 (store-01) |
 | Customer app (member) | http://192.168.1.224:5352 | Cloud :8180 |
-| Kasir Windows (pos-desktop) | alamat node `http://192.168.1.224:8181`, terminal `POS-01` | Store edge :8181 |
-| Handheld C5 | app **Central DC** / **Central Store** (sudah terisi) | DC :8182 / Store :8181 |
+| Kasir Windows (pos-desktop) | alamat node `http://192.168.1.224:8182`, terminal `POS-01` | Store edge :8182 |
+| Handheld C5 | app **Central DC** / **Central Store** (sudah terisi) | DC :8181 / Store :8182 |
 
 ## Akun (password semua `Password01`)
 

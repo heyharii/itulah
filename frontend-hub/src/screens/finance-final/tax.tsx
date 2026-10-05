@@ -1,26 +1,39 @@
 import { useQuery } from "@tanstack/react-query"
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
-import { money } from "@/lib/format"
+import { SubTabs } from "@/components/ui/sub-tabs"
+import { count, dateText, money } from "@/lib/format"
 import {
   domainKeys,
   listTaxPeriods,
   listTaxTypes,
   taxReconciliation,
 } from "@/lib/queries/finance-domains"
-import { Grid, Note, NumberCard, Td, Th } from "@/screens/finance-final/parts"
+import {
+  CardRow,
+  Grid,
+  NumberCard,
+  Td,
+  Th,
+} from "@/screens/finance-final/parts"
 
-/// Tax — what is owed, what has been paid in advance, and never the two added
-/// together.
+/// Tax Payables — every tax period, what it owes or holds as credit, what has
+/// been paid, and what is left.
 ///
-/// PPh 25 is a CREDIT and PPh 29 is a PAYABLE. They are the same tax and
-/// opposite balances, and the subledger refuses to record one against the
-/// other. This screen keeps them on separate lines for the same reason: a
-/// single "tax" figure would be the netting the accounting refuses.
+/// PPh 25 is a CREDIT and PPh 29 is a PAYABLE: the same tax, opposite
+/// balances, and the subledger refuses to record one against the other. So
+/// the two totals above the list stay apart — a single "tax" figure would be
+/// the netting the accounting refuses.
+///
+/// Redrawn 2026-10-01 in English (owner): one list of periods, narrowed by
+/// tax and by status; the tax types themselves live on Tax › Tax Types.
+type Show = "OPEN" | "FILED" | "SETTLED" | "ALL"
+
 export function Tax() {
   const types = useQuery({
     queryKey: domainKeys.taxTypes(),
@@ -34,126 +47,216 @@ export function Tax() {
     queryKey: domainKeys.taxReconciliation(),
     queryFn: ({ signal }) => taxReconciliation(signal),
   })
+  const [show, setShow] = useState<Show>("OPEN")
+  const [taxType, setTaxType] = useState("")
 
-  const rows = useMemo(() => periods.data ?? [], [periods.data])
-  const payable = rows
+  const all = useMemo(() => periods.data ?? [], [periods.data])
+  const payable = all
     .filter((row) => row.nature === "PAYABLE")
     .reduce((total, row) => total + row.outstanding_minor, 0)
-  const credit = rows
+  const credit = all
     .filter((row) => row.nature === "CREDIT")
     .reduce((total, row) => total + row.outstanding_minor, 0)
   const mismatched = (control.data ?? []).filter(
     (row) => row.difference_minor !== 0
   ).length
 
+  const inStatus = (row: (typeof all)[number], which: Show) =>
+    which === "ALL" ||
+    (which === "OPEN"
+      ? row.status !== "FILED" && row.status !== "SETTLED"
+      : row.status === which)
+  const rows = all.filter(
+    (row) =>
+      inStatus(row, show) && (taxType === "" || row.tax_type_code === taxType)
+  )
+
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance"
-        title="Pajak"
-        sub="Per jenis dan per masa. Kredit dan utang tidak pernah dijaringkan."
+        crumb="Finance · Tax"
+        title="Tax Payables"
+        sub="Every tax period: what it owes, what was paid, what is left."
       />
 
-      <Grid>
-        <NumberCard label="Utang pajak belum disetor" value={payable} />
-        <NumberCard label="Kredit pajak belum dipakai" value={credit} />
+      <CardRow>
         <NumberCard
-          label="Masa yang tidak cocok dengan buku besar"
-          value={mismatched}
-          tone={mismatched === 0 ? "ok" : "bad"}
+          label="Tax owed, not yet paid"
+          value={payable}
+          note="PPh 21, 23, 29, PPN keluaran, PBB"
         />
-      </Grid>
+        <NumberCard
+          label="Tax credit not yet used"
+          value={credit}
+          note="PPh 25 instalments, PPN masukan"
+        />
+        <NumberCard
+          label="Periods off the ledger"
+          value={mismatched}
+          unit="count"
+          tone={mismatched === 0 ? "ok" : "bad"}
+          note={
+            mismatched === 0
+              ? "Every period agrees with the books"
+              : "Their balance differs from the tax account"
+          }
+        />
+      </CardRow>
 
-      <Note>
-        PPh 25 adalah kredit — uang yang sudah disetor dan bisa diperhitungkan.
-        PPh 29 adalah utang. Keduanya pajak penghasilan yang sama dan saldo yang
-        berlawanan; subledger menolak mencatat kewajiban pada jenis kredit.
-      </Note>
+      <div className="mt-6">
+        <SubTabs
+          tabs={[
+            {
+              value: "OPEN",
+              label: (
+                <Count
+                  text="Open"
+                  n={all.filter((row) => inStatus(row, "OPEN")).length}
+                />
+              ),
+            },
+            {
+              value: "FILED",
+              label: (
+                <Count
+                  text="Filed"
+                  n={all.filter((row) => inStatus(row, "FILED")).length}
+                />
+              ),
+            },
+            {
+              value: "SETTLED",
+              label: (
+                <Count
+                  text="Settled"
+                  n={all.filter((row) => inStatus(row, "SETTLED")).length}
+                />
+              ),
+            },
+            { value: "ALL", label: <Count text="All" n={all.length} /> },
+          ]}
+          value={show}
+          onChange={(next) => setShow(next as Show)}
+        />
+      </div>
 
-      {types.isPending ? (
-        <LoadingState />
-      ) : types.isError ? (
-        <ErrorState error={types.error} />
-      ) : (
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr>
-              <Th>Jenis</Th>
-              <Th>Sifat</Th>
-              <Th>Akun (meaning)</Th>
-              <Th>Catatan</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {(types.data ?? []).map((row) => (
-              <tr key={row.code}>
-                <Td>{row.name}</Td>
-                <Td>
-                  <Pill tone={row.nature === "CREDIT" ? "info" : "warn"}>
-                    {row.nature === "CREDIT" ? "kredit" : "utang"}
-                  </Pill>
-                </Td>
-                <Td>{row.semantic_key}</Td>
-                <Td>{row.note ?? ""}</Td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <Toolbar>
+        <Select
+          value={taxType}
+          onChange={setTaxType}
+          className="h-control w-56"
+          aria-label="Tax"
+        >
+          <option value="">Every tax</option>
+          {(types.data ?? []).map((row) => (
+            <option key={row.code} value={row.code}>
+              {row.name}
+            </option>
+          ))}
+        </Select>
+        <Toolbar.Spacer />
+        <span className="text-[0.875rem] text-mute">
+          {count(rows.length)} {rows.length === 1 ? "period" : "periods"}
+        </span>
+      </Toolbar>
 
-      <PageHeader title="Masa pajak" sub="Terbaru lebih dulu." />
       {periods.isPending ? (
-        <LoadingState />
+        <LoadingState>Reading the tax periods…</LoadingState>
       ) : periods.isError ? (
         <ErrorState error={periods.error} />
       ) : rows.length === 0 ? (
-        <EmptyState>Belum ada masa pajak</EmptyState>
+        <EmptyState>
+          {all.length === 0
+            ? "No tax period has been opened yet."
+            : "No period matches these filters."}
+        </EmptyState>
       ) : (
-        <table className="w-full border-collapse text-sm">
+        <Grid>
           <thead>
             <tr>
-              <Th>Masa</Th>
-              <Th>Jenis</Th>
-              <Th align="right">Kewajiban</Th>
-              <Th align="right">Kredit</Th>
-              <Th align="right">Disetor</Th>
-              <Th align="right">Sisa</Th>
-              <Th>Status</Th>
+              <Th width="9rem">Period</Th>
+              <Th>Tax</Th>
+              <Th align="right" width="11rem">
+                Owed or credit
+              </Th>
+              <Th align="right" width="11rem">
+                Paid
+              </Th>
+              <Th align="right" width="11rem">
+                Left
+              </Th>
+              <Th width="9rem">Status</Th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
               <tr key={row.period_id}>
+                <Td className="text-body">
+                  {dateText(
+                    new Date(row.period_year, row.period_month - 1, 1),
+                    {
+                      month: "short",
+                      year: "numeric",
+                    }
+                  )}
+                </Td>
                 <Td>
-                  {row.period_year}-{String(row.period_month).padStart(2, "0")}
+                  <span className="block text-ink">{row.tax_type_name}</span>
+                  <span className="block text-[0.875rem] text-mute">
+                    {row.nature === "CREDIT" ? "Credit" : "Payable"}
+                  </span>
                 </Td>
-                <Td>{row.tax_type_name}</Td>
                 <Td align="right">
-                  {row.nature === "PAYABLE" ? money(row.obligation_minor) : "—"}
-                </Td>
-                <Td align="right">
-                  {row.nature === "CREDIT" ? money(row.credit_minor) : "—"}
+                  {money(
+                    row.nature === "PAYABLE"
+                      ? row.obligation_minor
+                      : row.credit_minor
+                  )}
                 </Td>
                 <Td align="right">{money(row.settled_minor)}</Td>
-                <Td align="right">{money(row.outstanding_minor)}</Td>
+                <Td
+                  align="right"
+                  className={
+                    row.outstanding_minor > 0
+                      ? "font-medium text-ink"
+                      : "text-mute"
+                  }
+                >
+                  {row.outstanding_minor === 0
+                    ? "·"
+                    : money(row.outstanding_minor)}
+                </Td>
                 <Td>
-                  <Pill
-                    tone={
+                  <span
+                    className={
                       row.status === "SETTLED"
-                        ? "ok"
+                        ? "text-ok-fg"
                         : row.status === "FILED"
-                          ? "info"
-                          : "warn"
+                          ? "text-body"
+                          : "text-warn-fg"
                     }
                   >
-                    {row.status}
-                  </Pill>
+                    {row.status === "SETTLED"
+                      ? "Settled"
+                      : row.status === "FILED"
+                        ? "Filed"
+                        : "Open"}
+                  </span>
                 </Td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </Grid>
       )}
     </PageContent>
+  )
+}
+
+function Count({ text, n }: { text: string; n: number }) {
+  return (
+    <span>
+      {text}
+      <span className="ml-1.5 text-body tabular-nums">{count(n)}</span>
+    </span>
   )
 }

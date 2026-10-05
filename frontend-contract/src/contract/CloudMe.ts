@@ -2,7 +2,7 @@
 import type { Role } from "./Role";
 
 /**
- * `GET /api/v1/auth/me` at Cloud — and what accepting an invitation answers, 
+ * `GET /api/v1/auth/me` at Cloud — and what accepting an invitation answers,
  * since it signs the person in.
  */
 export type CloudMe = { username: string, display_name: string, 

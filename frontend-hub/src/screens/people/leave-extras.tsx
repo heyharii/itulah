@@ -129,7 +129,6 @@ export function BlockedDatesCard() {
           <Field label="Where">
             <PickOne
               label="Where"
-              placeholder="Every unit"
               choices={(units.data ?? []).map((one) => ({
                 value: one.id,
                 label: one.name,
@@ -139,11 +138,7 @@ export function BlockedDatesCard() {
             />
           </Field>
           <Field label="Why" required>
-            <Input
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="stock opname"
-            />
+            <Input value={reason} onChange={(e) => setReason(e.target.value)} />
           </Field>
         </div>
         {(block.error ?? lift.error) !== null && (
@@ -253,7 +248,6 @@ export function PayOutForm({ employeeId }: { employeeId: string }) {
         <Field label="Kind" required>
           <PickOne
             label="Kind"
-            placeholder="Choose…"
             choices={kinds}
             value={chosen}
             onChange={setKind}
@@ -264,7 +258,6 @@ export function PayOutForm({ employeeId }: { employeeId: string }) {
             inputMode="decimal"
             value={days}
             onChange={(e) => setDays(e.target.value)}
-            placeholder="2"
           />
         </Field>
         <Field label="Paid with the payroll of" required>
@@ -340,7 +333,6 @@ export function HolidayWorkedForm({ employeeId }: { employeeId: string }) {
         <Field label="Day back goes into" required>
           <PickOne
             label="Kind"
-            placeholder="Choose…"
             choices={kinds}
             value={chosen}
             onChange={setKind}
@@ -353,7 +345,6 @@ export function HolidayWorkedForm({ employeeId }: { employeeId: string }) {
           <Input
             value={workedWhy}
             onChange={(e) => setWorkedWhy(e.target.value)}
-            placeholder="jaga toko saat libur"
           />
         </Field>
       </div>
@@ -418,7 +409,6 @@ export function AdjustBalanceForm({ employeeId }: { employeeId: string }) {
         <Field label="Kind" required>
           <PickOne
             label="Kind"
-            placeholder="Choose…"
             choices={kinds}
             value={chosen}
             onChange={setKind}
@@ -444,7 +434,6 @@ export function AdjustBalanceForm({ employeeId }: { employeeId: string }) {
             inputMode="numeric"
             value={days}
             onChange={(e) => setDays(e.target.value.replace(/[^\d-]/g, ""))}
-            placeholder="12"
           />
         </Field>
         <Field label="Effective on" required>

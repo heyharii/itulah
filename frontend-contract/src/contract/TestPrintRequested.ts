@@ -3,7 +3,7 @@
 /**
  * `POST /api/v1/devices/{device_id}/test-print`: accepted, and on its way.
  */
-export type TestPrintRequested = {
+export type TestPrintRequested = { 
 /**
  * Head office's id for the ask. The register shows it in
  * `test_print_request_id` until the node reports it finished.

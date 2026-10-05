@@ -3,18 +3,18 @@
 /**
  * Where the store's server stands.
  */
-export type StoreServer = {
+export type StoreServer = { 
 /**
  * `NOT_INSTALLED`, `WAITING_TO_INSTALL` (a code is out, unclaimed),
  * `WAITING_FOR_APPROVAL` (a machine claimed it), `SYNCING` (approved, no
  * heartbeat yet), `ONLINE` or `OFFLINE` (heartbeat within five minutes,
  * or not).
  */
-state: string,
+state: string, 
 /**
  * The server's last heartbeat.
  */
-last_seen_at: string | null,
+last_seen_at: string | null, 
 /**
  * The enrolment to approve or refuse while one is waiting; otherwise the
  * one that let the server in, when it came in that way.

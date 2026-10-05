@@ -206,7 +206,7 @@ function ShopSaleReceipt({
 
           <div>
             <SubHead>Items</SubHead>
-            <MiniTable head={["Item", "Qty", "Unit", "Charged"]}>
+            <MiniTable head={["Item", "Quantity", "Unit", "Charged"]}>
               {record.lines.map((line) => (
                 <MiniRow key={line.sku_code}>
                   <MiniCell>
@@ -335,7 +335,7 @@ function SaleRecord({ sale }: { sale: SaleDetail }) {
             Nothing scanned onto this sale yet.
           </p>
         ) : (
-          <MiniTable head={["Item", "Qty", "Unit", "Line total"]}>
+          <MiniTable head={["Item", "Quantity", "Unit", "Line Total"]}>
             {sale.lines.map((line) => (
               <tr key={line.id} className="border-t border-hairline">
                 <td className="py-2 pr-2">
@@ -423,7 +423,7 @@ function ReceiptPanel({ saleId }: { saleId: string }) {
 
         <div>
           <h4 className="mb-2 text-card-title font-semibold text-ink">Sold</h4>
-          <MiniTable head={["Item", "Qty", "Unit", "Line total"]}>
+          <MiniTable head={["Item", "Quantity", "Unit", "Line Total"]}>
             {printed.lines.map((line) => (
               <tr key={line.sale_line_id} className="border-t border-hairline">
                 <td className="py-2 pr-2">
@@ -758,27 +758,21 @@ function RefundPanel({ sale }: { sale: SaleDetail }) {
             />
           )}
         </form.Field>
-        <form.Subscribe selector={(state) => totals(state.values).suggested}>
-          {(suggested) => (
-            <form.Field name="amount">
-              {(field) => (
-                <Money
-                  value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={field.handleChange}
-                  placeholder={`Refund ${money(suggested)}`}
-                />
-              )}
-            </form.Field>
+        <form.Field name="amount">
+          {(field) => (
+            <Money
+              value={field.state.value}
+              onBlur={field.handleBlur}
+              onChange={field.handleChange}
+            />
           )}
-        </form.Subscribe>
+        </form.Field>
         <form.Field name="reference">
           {(field) => (
             <Input
               value={field.state.value}
               onBlur={field.handleBlur}
               onChange={(event) => field.handleChange(event.target.value)}
-              placeholder="Reference for the reconciliation (optional)"
             />
           )}
         </form.Field>
@@ -788,7 +782,6 @@ function RefundPanel({ sale }: { sale: SaleDetail }) {
               value={field.state.value}
               onBlur={field.handleBlur}
               onChange={(event) => field.handleChange(event.target.value)}
-              placeholder="Why it came back"
               rows={2}
             />
           )}
@@ -818,7 +811,7 @@ function RefundPanel({ sale }: { sale: SaleDetail }) {
                   pending={record.isPending}
                   disabled={!ready(draft)}
                 >
-                  {record.isPending ? "Recording…" : "Record the return"}
+                  {record.isPending ? "Submitting…" : "Submit"}
                 </Button>
               </div>
             </>
@@ -964,7 +957,6 @@ function OpenSaleComposer({ sale }: { sale: SaleDetail }) {
         <Input
           value={epc}
           onChange={(event) => setEpc(event.target.value)}
-          placeholder="Scan a tag"
           className="h-8 flex-1 font-mono text-id"
         />
         <Button
@@ -989,12 +981,7 @@ function OpenSaleComposer({ sale }: { sale: SaleDetail }) {
         {/* `<Money>` fills the slot it is given, so the slot is what has to
             flex — the box itself only carries its height. */}
         <span className="flex min-w-0 flex-1">
-          <Money
-            value={amount}
-            onChange={setAmount}
-            placeholder={money(owing)}
-            className="h-8"
-          />
+          <Money value={amount} onChange={setAmount} className="h-8" />
         </span>
         <Button
           variant="soft"
@@ -1046,7 +1033,7 @@ function PricingPanel({ saleId }: { saleId: string }) {
           >
             Lines
           </SubHead>
-          <MiniTable head={["Item", "Qty", "Unit", "Source"]}>
+          <MiniTable head={["Item", "Quantity", "Unit", "Source"]}>
             {record.lines.map((line) => (
               <MiniRow key={line.sku_code}>
                 <MiniCell>

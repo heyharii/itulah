@@ -34,6 +34,7 @@ import { MiniTable } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, LoadMore } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { SHOW_MISSING, withoutMissing } from "@/lib/features"
 import { useFilters } from "@/lib/filters"
 import { ago, count, label as humanise, moment } from "@/lib/format"
 import { usePanelDock } from "@/lib/layout"
@@ -60,6 +61,11 @@ import {
   useActor,
   writablePools,
 } from "@/screens/inventory/shared"
+import {
+  DisplayUnitPicker,
+  useDisplayUnit,
+  type DisplayUnit,
+} from "@/screens/inventory/unit-display"
 
 /// Every pool the centre can see, its own and every Edge node's.
 ///
@@ -134,8 +140,12 @@ export interface PoolRow {
 }
 
 /// A quantity that may be absent, and an absence that is not a nought.
-function figure(value: number | null) {
-  return value === null ? <span className="text-mute">—</span> : count(value)
+function figure(value: number | null, display: DisplayUnit) {
+  return value === null ? (
+    <span className="text-mute">—</span>
+  ) : (
+    display.format(value)
+  )
 }
 
 /// A number that is also a way in to what it is made of.
@@ -187,10 +197,13 @@ function Figure({
 /// The openers are passed in rather than the cells reaching for `useSheet`
 /// themselves: a cell renderer is called by the table, not by React's
 /// component tree, so a hook inside one is a hook called outside a component.
-function poolColumns(open: {
-  allotments: (poolId: string) => void
-  sightings: (poolId: string) => void
-}): ColumnDef<TableSetup, PoolRow>[] {
+function poolColumns(
+  open: {
+    allotments: (poolId: string) => void
+    sightings: (poolId: string) => void
+  },
+  display: DisplayUnit
+): ColumnDef<TableSetup, PoolRow>[] {
   return [
     {
       id: "pool",
@@ -285,11 +298,11 @@ function poolColumns(open: {
       header: "Stock",
       size: 100,
       meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
-      cell: ({ row }) => count(row.original.stock),
+      cell: ({ row }) => display.format(row.original.stock),
     },
     {
       accessorKey: "on_hand",
-      header: "On hand",
+      header: "On Hand",
       size: 100,
       /// Not filterable, and none of the three derived readings beside it are.
       ///
@@ -300,7 +313,7 @@ function poolColumns(open: {
       /// identical band buttons is what the panel looked like with all of them
       /// declared, and six of the eight were furniture.
       meta: { align: "right" },
-      cell: ({ row }) => count(row.original.on_hand),
+      cell: ({ row }) => display.format(row.original.on_hand),
     },
     {
       accessorKey: "allotted",
@@ -311,13 +324,13 @@ function poolColumns(open: {
       /// row that names records rather than pieces. Clicking it asks which ones.
       cell: ({ row }) => {
         const { allotted, pool, poolId } = row.original
-        if (allotted === null || pool === null) return figure(allotted)
+        if (allotted === null || pool === null) return figure(allotted, display)
         return (
           <Figure
             onClick={() => open.allotments(poolId)}
             label={`Allotments out of ${row.original.label}`}
           >
-            {count(allotted)}
+            {display.format(allotted)}
           </Figure>
         )
       },
@@ -337,14 +350,14 @@ function poolColumns(open: {
         const reading = (
           <span className="inline-flex items-center gap-1.5">
             <Dial value={stock > 0 ? observed / stock : 0} />
-            {count(observed)}
+            {display.format(observed)}
           </span>
         )
         if (pool === null) return reading
         return (
           <Figure
             onClick={() => open.sightings(poolId)}
-            label={`Sightings in ${row.original.label}`}
+            label={`Observations in ${row.original.label}`}
           >
             {reading}
           </Figure>
@@ -362,13 +375,13 @@ function poolColumns(open: {
             row.original.missing > 0 ? "font-medium text-bad-fg" : "text-mute"
           }
         >
-          {count(row.original.missing)}
+          {display.format(row.original.missing)}
         </span>
       ),
     },
     {
       accessorKey: "last_count",
-      header: "Last count",
+      header: "Last Count",
       size: 120,
       meta: { priority: 3, filter: { kind: "date" } },
       cell: ({ row }) =>
@@ -389,7 +402,13 @@ function poolColumns(open: {
 ///
 /// `Pools` below is the same body under its own header, kept routed and
 /// findable in ⌘K for anyone who arrives at a pool from a link.
-export function PoolsBody() {
+export function PoolsBody({ display: given }: { display?: DisplayUnit } = {}) {
+  // A page that already shows its own unit picker (Overview, over the KPI
+  // strip) passes its `DisplayUnit` down so the two stay in step; the routed
+  // `/inventory/pools` page has nothing above it to own one, so it makes its
+  // own and offers the picker itself.
+  const own = useDisplayUnit()
+  const display = given ?? own
   const [query, setQuery] = useState("")
   /// Whether the filter panel has room to stand beside the list. Below it the
   /// same model is a sheet behind a Filter button, and the panel unmounts.
@@ -397,9 +416,9 @@ export function PoolsBody() {
   const pool = useSheet("pool")
   const poolAllotments = useSheet("pool-allotments")
   const poolSightings = useSheet("pool-sightings")
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: "missing", desc: true },
-  ])
+  const [sorting, setSorting] = useState<SortingState>(
+    SHOW_MISSING ? [{ id: "missing", desc: true }] : []
+  )
   /// Semua tertutup. Empat belas baris situs muat tanpa gulir; seratus dua
   /// belas pool terbuka adalah daftar yang tak seorang pun minta.
   const [expanded, setExpanded] = useState<ExpandedState>({})
@@ -688,11 +707,16 @@ export function PoolsBody() {
 
   const columns = useMemo(
     () =>
-      poolColumns({
-        allotments: poolAllotments.open,
-        sightings: poolSightings.open,
-      }),
-    [poolAllotments.open, poolSightings.open]
+      withoutMissing(
+        poolColumns(
+          {
+            allotments: poolAllotments.open,
+            sightings: poolSightings.open,
+          },
+          display
+        )
+      ),
+    [poolAllotments.open, poolSightings.open, display]
   )
   const filters = useFilters(columns)
 
@@ -736,9 +760,8 @@ export function PoolsBody() {
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search pools"
                 aria-label="Search pools"
-                className="h-[2.125rem] w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
+                className="h-control w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
               />
             </span>
             {/* The same model as the panel, as the chips over the table and
@@ -749,6 +772,7 @@ export function PoolsBody() {
             {!docked && (
               <FilterPanel model={filters} table={table} className="mr-auto" />
             )}
+            {given === undefined && <DisplayUnitPicker display={display} />}
             <SortMenu
               table={table}
               sorting={sorting}
@@ -794,8 +818,9 @@ export function PoolsBody() {
               columns, and it is not a thing anybody acts on. */}
           {fleet.data && (
             <p className="mt-2 text-[0.875rem] text-mute tabular-nums">
-              Sightings counted over the last {fleet.data.observed_window_hours}
-              h · loss measured over {fleet.data.lost_risk_window_days} days
+              Observations counted over the last{" "}
+              {fleet.data.observed_window_hours}h · confirmed lost measured over{" "}
+              {fleet.data.lost_risk_window_days} days
             </p>
           )}
         </div>
@@ -1000,10 +1025,16 @@ function PoolSheet({
               <Fact term="Stock">{count(pool.summary.stock)}</Fact>
               <Fact term="On hand">{count(pool.summary.on_hand)}</Fact>
               <Fact term="Allotted">{count(pool.summary.allotted ?? 0)}</Fact>
-              <Fact term="Missing">{count(pool.summary.missing)}</Fact>
+              {SHOW_MISSING && (
+                <Fact term="Missing">{count(pool.summary.missing)}</Fact>
+              )}
               <Fact term="Seen">{count(pool.summary.observed ?? 0)}</Fact>
-              <Fact term="Lost">{count(pool.summary.lost_quantity ?? 0)}</Fact>
-              <Fact term="Lost rate">{percent(pool.summary.lost_rate)}</Fact>
+              <Fact term="Confirmed lost">
+                {count(pool.summary.lost_quantity ?? 0)}
+              </Fact>
+              <Fact term="Confirmed lost rate">
+                {percent(pool.summary.lost_rate)}
+              </Fact>
             </Facts>
 
             <section>
@@ -1022,7 +1053,7 @@ function PoolSheet({
                   selector={(state) => state.values.subject?.subject_id ?? null}
                 >
                   {(picked) => (
-                    <MiniTable head={["Subject", "SKU", "Qty"]}>
+                    <MiniTable head={["Subject", "SKU", "Quantity"]}>
                       {pool.items.map((item) => (
                         <tr
                           key={item.subject_id}
@@ -1055,12 +1086,12 @@ function PoolSheet({
               )}
             </section>
 
-            {pool.missing.length > 0 && (
+            {SHOW_MISSING && pool.missing.length > 0 && (
               <section>
                 <h4 className="mb-2 text-card-title font-semibold text-ink">
                   Missing from here
                 </h4>
-                <MiniTable head={["Subject", "Age", "Qty"]}>
+                <MiniTable head={["Subject", "Age", "Quantity"]}>
                   {pool.missing.map((item) => (
                     <tr key={item.id} className="border-t border-hairline">
                       <td className="py-2 pr-2 font-mono text-[0.875rem] text-body">
@@ -1083,7 +1114,7 @@ function PoolSheet({
                 <h4 className="mb-2 text-card-title font-semibold text-ink">
                   Recent movements
                 </h4>
-                <MiniTable head={["Cause", "Route", "Qty"]}>
+                <MiniTable head={["Cause", "Route", "Quantity"]}>
                   {pool.movements.map((movement) => (
                     <tr
                       key={movement.movement_id}
@@ -1125,7 +1156,7 @@ function PoolSheet({
                 <MiniTable
                   head={[
                     "Tag",
-                    "Last seen",
+                    "Last Seen",
                     { label: "Reads", align: "right" },
                   ]}
                 >
@@ -1184,9 +1215,9 @@ function PoolSheet({
                 Correct a placement
               </h4>
               <p className="mb-3 text-[0.875rem] text-mute">
-                A sighting is evidence, not a movement — the ledger is never
-                corrected on its own. Pick the subject above, say where it
-                actually is, and name what proves it.
+                An observation is evidence, not a movement — the ledger is never
+                corrected on its own. Pick the subject above, say where it is,
+                and name what proves it.
               </p>
 
               {correct.isError && (
@@ -1216,19 +1247,17 @@ function PoolSheet({
                               field.state.value.subject_id)
                             : ""
                         }
-                        placeholder="Choose a row above"
                       />
                     </Field>
                   )}
                 </form.Field>
                 <form.Field name="destination">
                   {(field) => (
-                    <Field label="Actually in" required>
+                    <Field label="Place" required>
                       <Choice
                         value={field.state.value}
                         onChange={field.handleChange}
                         options={destinations}
-                        placeholder="Choose a pool"
                         className="h-9 w-full max-w-none"
                       />
                     </Field>
@@ -1258,7 +1287,6 @@ function PoolSheet({
                         onChange={(event) =>
                           field.handleChange(event.target.value)
                         }
-                        placeholder="Found on the floor during the morning sweep"
                       />
                     </Field>
                   )}
@@ -1276,7 +1304,6 @@ function PoolSheet({
                         onChange={(event) =>
                           field.handleChange(event.target.value)
                         }
-                        placeholder="COUNT-2026-08-31-DC"
                       />
                     </Field>
                   )}
@@ -1442,7 +1469,7 @@ function PoolSightingsSheet({
       title="Seen in this pool"
     >
       {queryState(reads, {
-        loading: "Reading the sightings…",
+        loading: "Reading the observations…",
         render: (data) => {
           const items = data.pages.flatMap((page) => page.rows)
           return items.length === 0 ? (
@@ -1453,12 +1480,12 @@ function PoolSightingsSheet({
           ) : (
             <div className="flex flex-col gap-4">
               <Banner tone="info">
-                A sighting is evidence, not a movement. Nothing on this list has
-                changed the ledger — correcting a placement is done on the
+                An observation is evidence, not a movement. Nothing on this list
+                has changed the ledger — correcting a placement is done on the
                 pool's own sheet, and it needs a reason and a piece of evidence.
               </Banner>
               <MiniTable
-                head={["Tag", "Last seen", { label: "Reads", align: "right" }]}
+                head={["Tag", "Last Seen", { label: "Reads", align: "right" }]}
               >
                 {items.map((item) => (
                   <tr

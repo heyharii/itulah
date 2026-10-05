@@ -368,14 +368,12 @@ export function InterunitFunding() {
             name: "reference",
             label: "Reference",
             required: true,
-            placeholder: "TRSF AC C4 UNIT",
           },
           {
             name: "amount",
             label: "Amount",
             kind: "money",
             required: true,
-            placeholder: "25000000",
           },
         ]}
         onSubmit={(v, minor) =>

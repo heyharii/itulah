@@ -21,6 +21,7 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { OrderComposer, type Group } from "@/screens/procurement/composer"
 import { LinkButton } from "@/screens/procurement/controls"
+import { supplierDisplayName } from "@/screens/procurement/supplier-format"
 import type { BasketLine } from "@itulah/contract"
 
 /// The basket: picked out, not yet ordered.
@@ -46,7 +47,7 @@ function groupBySupplier(lines: readonly BasketLine[]): readonly Group[] {
   return [...groups.entries()]
     .map(([supplierId, groupLines]) => ({
       supplierId,
-      supplierName: groupLines[0].supplier.name,
+      supplierName: supplierDisplayName(groupLines[0].supplier),
       lines: groupLines,
       pieces: groupLines.reduce((sum, line) => sum + line.quantity, 0),
       value: groupLines.reduce(
@@ -201,7 +202,7 @@ export function BasketSheet({
                       </span>
                     </CardStrip>
                     <div className="px-4 py-3.5">
-                      <MiniTable head={["Item", "Unit", "Qty", "Value", ""]}>
+                      <MiniTable head={["Item", "Unit", "Quantity", "Value", ""]}>
                         {group.lines.map((line) => (
                           <tr
                             key={line.item.supplier_item_id}

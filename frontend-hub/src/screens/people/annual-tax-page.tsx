@@ -76,7 +76,7 @@ export function AnnualTaxPage() {
                   "Employee",
                   { label: "Months", align: "left" },
                   { label: "Gross", align: "right" },
-                  { label: "Tax due", align: "right" },
+                  { label: "Tax Due", align: "right" },
                   { label: "Withheld", align: "right" },
                   { label: "State", align: "left" },
                 ]}

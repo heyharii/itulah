@@ -4,44 +4,44 @@ import type { ExceptionLink } from "./ExceptionLink";
 /**
  * One exception on the list.
  */
-export type ExceptionItem = { id: string,
+export type ExceptionItem = { id: string, 
 /**
  * `SHIFT_NOT_CLOSED`, `DEPOSIT_MISSING`, `RECEIVE_OVERDUE`,
  * `MISSING_OPEN`, `CASH_DIFFERENCE` or `CHECKOUT_UNRESOLVED`.
  */
-kind: string, unit_id: string, unit_code: string, unit_name: string, site_id: string | null, title: string,
+kind: string, unit_id: string, unit_code: string, unit_name: string, site_id: string | null, title: string, 
 /**
  * What the data says, in a sentence.
  */
-sentence: string,
+sentence: string, 
 /**
  * When the thing began to be wrong.
  */
-since: string,
+since: string, 
 /**
  * Seconds from `since` to now, or to when it was resolved.
  */
-age_seconds: number,
+age_seconds: number, 
 /**
  * `INFO`, `WARN` or `BAD`.
  */
-severity: string,
+severity: string, 
 /**
  * Job role codes that own the fix.
  */
-owner_roles: Array<string>, link: ExceptionLink,
+owner_roles: Array<string>, link: ExceptionLink, 
 /**
  * `OPEN`, `ACKNOWLEDGED` or `RESOLVED`.
  */
-state: string, acknowledged_by: string | null, acknowledged_at: string | null,
+state: string, acknowledged_by: string | null, acknowledged_at: string | null, 
 /**
  * What the person who acknowledged it wrote.
  */
-note: string | null,
+note: string | null, 
 /**
  * When a sweep first found it.
  */
-first_seen_at: string,
+first_seen_at: string, 
 /**
  * When a sweep found it fixed.
  */

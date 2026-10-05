@@ -6,7 +6,7 @@ export type RosterDayView = {
  * Every statement of what this day is, oldest first. The plan in force is
  * the last; the earlier ones are what makes a settled month reproducible.
  */
-revisions: Array<RosterRevisionView>, employee_id: string, place_id: string, on_date: string, 
+revisions: Array<RosterRevisionView>, employee_id: string, unit_id: string, on_date: string, 
 /**
  * `SCHEDULED`, `REST_DAY` or `PUBLIC_HOLIDAY`.
  */

@@ -64,7 +64,7 @@ export function AdjustSheet({
         <SheetFooter
           onCancel={onClose}
           onSave={() => save.mutate()}
-          saveLabel="Save"
+          saveLabel="Submit"
           pending={save.isPending}
           disabled={
             employeeIds.length === 0 || !amountOk || reason.trim() === ""
@@ -93,7 +93,6 @@ export function AdjustSheet({
             prefix="Rp"
             value={amount}
             onChange={setAmount}
-            placeholder="0"
           />
         </Field>
         <Field label="Why" required>

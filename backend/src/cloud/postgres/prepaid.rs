@@ -598,10 +598,12 @@ pub async fn prepaid_schedule_create(
     .await?;
 
     let mut tx = pool.begin().await?;
-    let number: String = sqlx::query_scalar(
-        "SELECT 'PPD-' || to_char(nextval('prepaid_schedule_number_seq'), 'FM000000')",
+    let number = super::number_series::next_number(
+        &mut tx,
+        super::number_series::PREPAID_SCHEDULE,
+        start,
+        None,
     )
-    .fetch_one(&mut *tx)
     .await?;
     let schedule_id = Uuid::new_v4();
     sqlx::query(

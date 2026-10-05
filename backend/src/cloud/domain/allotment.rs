@@ -184,6 +184,10 @@ pub enum AllotmentStatus {
     InProgress,
     DcCompleted,
     Completed,
+    /// `CLOSED` is accepted as a spelling of this on the way in, so a list
+    /// can be asked for by the three statuses MD reads (allotment V1 §8).
+    /// It is never written: `FulfillmentStatus::Closed` maps here.
+    #[serde(alias = "CLOSED")]
     Cancelled,
     Rejected,
 }

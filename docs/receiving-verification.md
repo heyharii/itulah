@@ -67,8 +67,12 @@ Someone who could both approve a delivery and decide what it was would hold the
 entire control, which is why (1) has no exception. If the count is wrong, the
 verifier refuses it and asks for a recount; they never edit it.
 
-**The verifier is never the checker.** Enforced in code and, independently, by
-a database CHECK at both ends. It is not configuration.
+**Who accepts is role and permission** (owner, 2026-10-04). The verifier may be
+the checker, and may be the person who raised the order: whether a caller may
+accept is decided by their role and permission — the stage's performer role on
+a flow, the route's permission ladder — not by a comparison of names. What does
+not change: a count is accepted verbatim or sent back, never edited; and the
+record still names both the checker and the verifier, whoever they are.
 
 ### Worked example
 
@@ -180,6 +184,29 @@ Because they are quantities and not a flag, the gate downstream is
 withholds only the 5. A receipt line is never blocked as a whole because part
 of it is unresolved — that would hold up goods the company certainly bought.
 
+### 4.1 When what arrives is not what was ordered
+
+The checker's count names how many pieces are **not the article the order
+names** — another colour, another model, somebody else's goods in the wrong
+carton (0829). Those pieces were never quantity this order agreed to buy, so
+the order matches against `counted − wrong`:
+
+```
+Ordered 8 · lorry holds 10 · checker writes 10, of which 3 not as ordered
+                 │
+   ┌─────────────┴─────────────┐
+   │                           │
+7 available to match       3 wrong — part of the excess
+   │                           │
+7 matched, 1 outstanding   returns to the supplier with the excess (0710)
+```
+
+The wrong pieces ride every excess rule unchanged — same Unidentified pile,
+same purchase return, same hand-over, no expected value — and the receipt line
+keeps `wrong_quantity` beside `matched`/`excess` so the return's paper says
+why they went back. A count that names mismatched goods never auto-accepts:
+a mismatch is exactly what a buyer has to see.
+
 ---
 
 ## 5. What reaches the centre
@@ -207,8 +234,9 @@ it, because merchandise nobody names is merchandise nobody can sell.
 
 `POST /api/v1/dc/purchase-verifications` → `edge/sqlite.rs:8064`.
 
-**Correct today, and to be preserved:** quantity accepted verbatim; checker ≠
-verifier enforced in code and by CHECK; recount writes a new row and preserves
+**Correct today, and to be preserved:** quantity accepted verbatim; the record
+names both the checker and the verifier, and who may hold each name is role and
+permission (owner, 2026-10-04); recount writes a new row and preserves
 the refused one; one accepted count becomes exactly one receipt line (a CHECK
 ties them); the movement into `<site>.pending.unidentified` and the facts are
 written in one transaction; replays are safe (`ON CONFLICT DO NOTHING` plus a
@@ -261,7 +289,8 @@ unique index on `(movement_group_id, po_line_id)`); the centre raises
 
 ### Control
 
-- **C1** Checker ≠ verifier. Not configurable.
+- **C1** Who may accept is role and permission, not a name comparison; the
+  record still carries a named checker and a named verifier.
 - **C2** The verifier accepts or refuses; they never edit the count.
 - **C3** A DC may report a price disagreement and may never settle one.
 - **C4** Excess is resolved by commercial authority, not by the warehouse.

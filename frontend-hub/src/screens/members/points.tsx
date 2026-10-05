@@ -105,9 +105,9 @@ export function Points() {
                   head={[
                     "Member",
                     { label: "Balance", align: "right" },
-                    { label: "From entries", align: "right" },
+                    { label: "From Entries", align: "right" },
                     { label: "Entries", align: "right" },
-                    { label: "Last movement", align: "right" },
+                    { label: "Last Movement", align: "right" },
                   ]}
                 >
                   {accounts.map((account) => (

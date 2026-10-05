@@ -55,7 +55,7 @@ export function Person({
       </span>
       <span className="flex min-w-0 flex-col">
         <span className="truncate text-cell font-medium text-ink">{name}</span>
-        <span className="truncate text-[0.6875rem] text-mute">{line}</span>
+        <span className="truncate text-meta text-mute">{line}</span>
       </span>
     </span>
   )
@@ -107,9 +107,8 @@ export function Fenced({ dropped, place }: { dropped: number; place: string }) {
   if (dropped === 0) return null
   return (
     <Banner tone="warn" className="mb-4">
-      Head office answered with {dropped} row{dropped === 1 ? "" : "s"} from
-      other shops, because this sign-in is not bounded to one. They are not
-      shown: this till only ever shows {place}.
+      {dropped} row{dropped === 1 ? "" : "s"} from other shops hidden. Showing{" "}
+      {place} only.
     </Banner>
   )
 }
@@ -248,8 +247,8 @@ export function Heading({
         <span
           className={
             tone === "warn" && count > 0
-              ? "rounded-full bg-warn-bg px-2 text-[0.6875rem] leading-5 font-semibold text-warn-fg tabular-nums"
-              : "rounded-full bg-soft-2 px-2 text-[0.6875rem] leading-5 font-semibold text-body tabular-nums"
+              ? "rounded-full bg-warn-bg px-2 text-meta leading-5 font-semibold text-warn-fg tabular-nums"
+              : "rounded-full bg-soft-2 px-2 text-meta leading-5 font-semibold text-body tabular-nums"
           }
         >
           {count}

@@ -203,7 +203,7 @@ export function PoDraftPanel({
   if (poNumber.trim() === "") problems.push("The order needs a PO number.")
   if (destinations.isSuccess && destinationOptions.length === 0)
     problems.push(
-      "No warehouse or shop is registered to take a delivery, so this order has nowhere to go. Register the receiving node before ordering to it.",
+      "No Gudang or shop is registered to take a delivery, so this order has nowhere to go. Register the receiving node before ordering to it.",
     )
   if (discountMinor > grossMinor)
     problems.push(
@@ -405,7 +405,7 @@ export function PoDraftPanel({
               )}
             </form.Field>
             {/* The site, not the label, is what the order carries — a node
-                registered as `dc-01` can be standing in a warehouse everybody
+                registered as `dc-01` can be standing in a site everybody
                 calls Jakarta, and the order has to name the first. */}
             <p className="text-muted-foreground font-mono text-[10.5px]">
               {destination === "" ? "—" : destination}

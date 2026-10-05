@@ -389,7 +389,6 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder={`Search ${vocabulary.title.toLowerCase()}`}
                 aria-label={`Search ${vocabulary.title.toLowerCase()}`}
                 className="h-[2.125rem] w-56 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
               />
@@ -418,7 +417,6 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
             model={filters}
             text={query === "" ? undefined : query}
             onText={(next) => setQuery(next ?? "")}
-            placeholder={`Search ${vocabulary.title.toLowerCase()}, or filter`}
             className="mb-3 dock:hidden"
           />
 
@@ -697,7 +695,6 @@ function TermForm({
                         form.setFieldValue("code", snake(event.target.value))
                       }
                     }}
-                    placeholder={vocabulary.labelPlaceholder}
                   />
                 </Field>
               )}
@@ -717,7 +714,6 @@ function TermForm({
                       setCodeTyped(true)
                       field.handleChange(event.target.value)
                     }}
-                    placeholder={vocabulary.codePlaceholder}
                     // Existing codes are shown, never edited: the goods point
                     // at them. Disabled rather than hidden, because somebody
                     // reading a database row needs to see it here.
@@ -759,10 +755,10 @@ function TermForm({
                 }
               >
                 {save.isPending
-                  ? "Saving…"
+                  ? "Submitting…"
                   : term === null
                     ? `Add ${vocabulary.one}`
-                    : "Save"}
+                    : "Submit"}
               </Button>
             </div>
           </>

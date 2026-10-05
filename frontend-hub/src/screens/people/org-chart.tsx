@@ -50,7 +50,6 @@ export function OrgChart() {
             <Field label="Department">
               <PickOne
                 label="Department"
-                placeholder="Every department"
                 choices={(depts.data ?? [])
                   .filter((one) => !one.retired)
                   .map((one) => ({ value: one.code, label: one.name }))}

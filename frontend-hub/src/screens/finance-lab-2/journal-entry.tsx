@@ -232,7 +232,6 @@ export function JournalEntrySheet({
                   <AccountAndCategory
                     value={row.choice}
                     onChange={(next) => set(row.key, { choice: next })}
-                    placeholder="Choose an account"
                     categoryLabel={`Category on line ${index + 1}`}
                   />
                 </Td>
@@ -255,7 +254,6 @@ export function JournalEntrySheet({
                       set(row.key, { debit: event.target.value, credit: "" })
                     }
                     inputMode="numeric"
-                    placeholder="0"
                     className={cn("h-8 text-right tabular-nums")}
                     aria-label={`Debit on line ${index + 1}`}
                   />
@@ -267,7 +265,6 @@ export function JournalEntrySheet({
                       set(row.key, { credit: event.target.value, debit: "" })
                     }
                     inputMode="numeric"
-                    placeholder="0"
                     className={cn("h-8 text-right tabular-nums")}
                     aria-label={`Credit on line ${index + 1}`}
                   />
@@ -342,7 +339,6 @@ export function JournalEntrySheet({
             rows={2}
             value={memo}
             onChange={(event) => setMemo(event.target.value)}
-            placeholder="Reklas biaya listrik Agustus"
           />
         </Field>
       </div>

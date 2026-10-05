@@ -208,6 +208,21 @@ impl Reach {
         }
     }
 
+    /// [`Reach::resolve`], with the job role's own answer to *where* (0700).
+    ///
+    /// A role whose `unit_reach` is `EVERY` — head office's departments —
+    /// reaches every unit whatever the posting says, the per-unit grant this
+    /// module's doc said was a decision and not a default. The section gate
+    /// still decides *what* such a person may open, which is what keeps a
+    /// procurement supervisor out of the thirteen shops' leave: People's routes
+    /// refuse the section before reach is asked.
+    pub fn resolve_for(role: Role, every_unit: bool, posting: Option<&Posting>) -> Self {
+        if every_unit {
+            return Self::Everywhere;
+        }
+        Self::resolve(role, posting)
+    }
+
     /// May the caller act on something that belongs to this unit?
     ///
     /// `None` means the thing belongs to no unit — an employment record

@@ -147,13 +147,12 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
       <PageHeader
         crumb="GA"
         title="Letters"
-        sub="Manage goods receipt notes and delivery notes. The letter number is assigned when it's issued."
+        sub="Manage deliveries and surat jalan. The letter number is assigned when it's issued."
         actions={
           <>
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Number, order, supplier"
               className="h-8 w-56"
             />
             <Button variant="primary" onClick={() => setWriting(true)}>
@@ -206,7 +205,7 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
                   </Button>
                 }
               >
-                No letters yet. Create one from a goods receipt, a delivery to a
+                No letters yet. Create one from a delivery, a surat jalan to a
                 store, or start with a blank letter.
               </EmptyState>
             </Card>
@@ -274,6 +273,7 @@ function LetterRowLine({
         <div className="mt-0.5 flex items-center gap-2 text-pill text-mute">
           <SubjectRef
             kind={row.subject_kind}
+            letter={row.kind}
             id={row.subject_id}
             reference={row.reference}
             className="font-mono text-id"
@@ -315,16 +315,46 @@ function LetterRowLine({
 /// links to nothing at all.
 function SubjectRef({
   kind,
+  letter,
   id,
   reference,
   className,
 }: {
   kind: string
+  /// The letter's kind — an allotment subject means different screens for a
+  /// delivery note (the Gudang's distribution board) and a return delivery
+  /// note (Buying's return book).
+  letter: string
   id: string
   reference: string
   className?: string
 }) {
   const navigate = useNavigate()
+
+  if (kind === "allotment" && letter === "SUPPLIER_RETURN") {
+    return (
+      <button
+        type="button"
+        title={`Open return ${reference}`}
+        onClick={(event) => {
+          event.stopPropagation()
+          void navigate({
+            to: "/procurement/returns",
+            search: (prev: Record<string, unknown>) => ({
+              ...prev,
+              allotment: id,
+            }),
+          } as never)
+        }}
+        className={cn(
+          "text-left text-accent transition-colors hover:underline",
+          className
+        )}
+      >
+        {reference}
+      </button>
+    )
+  }
 
   if (kind === "allotment") {
     const allotment = id.split("/")[0]
@@ -360,12 +390,12 @@ function SubjectRef({
   return (
     <span
       className={className}
-      // A goods receipt has no screen of its own yet — it is a warehouse
+      // A delivery has no screen of its own yet — it is a Gudang
       // document this app only reads through the letters it produces — so its
       // reference is text rather than a link somewhere that cannot answer.
       title={
         kind === "receipt"
-          ? "A goods receipt has no screen of its own yet"
+          ? "A delivery has no screen of its own yet"
           : undefined
       }
     >
@@ -716,7 +746,7 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
                       pending={save.isPending}
                       disabled={!dirty}
                     >
-                      {save.isPending ? "Saving…" : "Save"}
+                      {save.isPending ? "Submitting…" : "Submit"}
                     </Button>
                     {/* Issuing is the act that spends a number, so it says so
                         rather than saying "Submit". Nothing is saved
@@ -729,7 +759,7 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
                       pending={issue.isPending}
                       disabled={dirty}
                     >
-                      {issue.isPending ? "Issuing…" : "Issue and take a number"}
+                      {issue.isPending ? "Submitting…" : "Submit"}
                     </Button>
                     {dirty && (
                       <p className="text-pill text-mute">
@@ -767,6 +797,7 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
                     >
                       <SubjectRef
                         kind={open.subject_kind}
+                        letter={open.kind}
                         id={open.subject_id}
                         reference={fact(open.facts, "reference")}
                         className="font-mono text-id"
@@ -861,7 +892,6 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
                     <Input
                       value={patternName}
                       onChange={(event) => setPatternName(event.target.value)}
-                      placeholder="Return pickup assignment"
                     />
                   </Field>
                 </div>
@@ -903,7 +933,6 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
                       rows={3}
                       value={reason}
                       onChange={(event) => setReason(event.target.value)}
-                      placeholder="Wrong allocation, letter rewritten"
                     />
                   </Field>
                 </div>

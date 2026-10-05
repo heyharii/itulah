@@ -623,7 +623,7 @@ export function CashFlow() {
               "Activity",
               "Against",
               "Memo",
-              ">In / out",
+              ">In / Out",
             ]}
           >
             {movements.map((m) => (
@@ -809,7 +809,6 @@ export function TrialBalance() {
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search account"
             className="pl-8"
           />
         </div>
@@ -1069,7 +1068,7 @@ export function Consolidated() {
           head={[
             "Unit",
             ">Revenue",
-            ">Cost of sales",
+            ">Cost of Sales",
             ">Expenses",
             ">Result",
             ">Assets",

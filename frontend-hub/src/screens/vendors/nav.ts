@@ -2,7 +2,7 @@ import { Plug } from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
 
-/// Vendors — the parties we owe who do not sell us clothes.
+/// Suppliers — the parties we owe who do not sell us clothes.
 ///
 /// # Why this stands in GA and not in Finance
 ///
@@ -16,14 +16,14 @@ import type { AppModule } from "@/lib/navigation"
 /// record — which account the bills debit, what is owed, what is late — it
 /// reads where it works: on the bill, and in payables.
 ///
-/// The merchandise half of the same book belongs to Buying, at
+/// The merchandise half of the same book belongs to Procurement, at
 /// `/procurement/suppliers`. Three departments, one table — see migration 0212.
 export const vendorsNav: AppModule = {
   id: "vendors",
-  label: "Vendors",
+  label: "Suppliers",
   icon: Plug,
   home: "/vendors",
   // Where it answered for the hour it lived under Finance.
   moved: ["/finance/vendors"],
-  sections: [{ items: [{ path: "/vendors", label: "Vendors", icon: Plug }] }],
+  sections: [{ items: [{ path: "/vendors", label: "Suppliers", icon: Plug }] }],
 }

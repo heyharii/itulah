@@ -478,13 +478,20 @@ export function reactToMessage(
   emoji: string,
   on: boolean
 ) {
-  return node.post<ChatMessage>(`${messagePath(conversationId, seq)}/reactions`, {
-    emoji,
-    on,
-  })
+  return node.post<ChatMessage>(
+    `${messagePath(conversationId, seq)}/reactions`,
+    {
+      emoji,
+      on,
+    }
+  )
 }
 
-export function pinMessage(conversationId: string, seq: number, pinned: boolean) {
+export function pinMessage(
+  conversationId: string,
+  seq: number,
+  pinned: boolean
+) {
   return node.post<ChatMessage>(`${messagePath(conversationId, seq)}/pin`, {
     pinned,
   })
@@ -532,7 +539,10 @@ export function setConversationPreferences(
   )
 }
 
-export function addParticipants(conversationId: string, participants: string[]) {
+export function addParticipants(
+  conversationId: string,
+  participants: string[]
+) {
   return node.post<ChatConversation>(
     `${conversationPath(conversationId)}/participants`,
     { participants }
@@ -689,7 +699,6 @@ export function fileUrl(row: FileInContext): string {
 /// stays because two hundred lines below this read it as the drawer's own
 /// record, and `Document` is a word the contract uses for several things.
 export type WorkplaceDocument = Document
-
 
 export interface DocumentFilter {
   readonly q?: string

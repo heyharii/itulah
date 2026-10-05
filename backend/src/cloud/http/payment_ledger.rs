@@ -23,7 +23,7 @@ use crate::cloud::{
     postgres::{
         self as infrastructure, PaymentLedgerAging, PaymentLedgerEntry, PaymentLedgerFilter,
         PaymentLedgerIntegrity, PaymentLedgerPartyStatement, PaymentLedgerPartyType,
-        PaymentLedgerSettlementRow, PaymentLedgerSide,
+        PaymentLedgerSettlementRow, PaymentLedgerSide, PartyMovements,
     },
 };
 use axum::{
@@ -206,4 +206,35 @@ pub fn lane_p_routes(r: Router<AppState>) -> Router<AppState> {
             "/api/v1/finance/payment-ledger/{party_type}/{party_id}",
             get(party),
         )
+        .route(
+            "/api/v1/finance/payment-ledger/{party_type}/{party_id}/movements",
+            get(movements),
+        )
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MovementsQuery {
+    pub from: Option<NaiveDate>,
+    pub to: Option<NaiveDate>,
+    pub unit: Option<String>,
+}
+
+/// One party's movements with a running balance — the supplier's Kartu Hutang.
+/// The window defaults to the year so far.
+pub async fn movements(
+    State(state): State<AppState>,
+    Path((party_type, party_id)): Path<(String, String)>,
+    Query(query): Query<MovementsQuery>,
+) -> Result<Json<PartyMovements>, AppError> {
+    let kind = PaymentLedgerPartyType::parse(&party_type)?;
+    let today = chrono::Utc::now().date_naive();
+    let to = query.to.unwrap_or(today);
+    let from = query.from.unwrap_or_else(|| {
+        NaiveDate::from_ymd_opt(chrono::Datelike::year(&to), 1, 1).unwrap_or(to)
+    });
+    let unit = query.unit.as_deref().map(str::trim).filter(|u| !u.is_empty());
+    Ok(Json(
+        infrastructure::party_movements(&state.db, kind.as_str(), &party_id, from, to, unit)
+            .await?,
+    ))
 }

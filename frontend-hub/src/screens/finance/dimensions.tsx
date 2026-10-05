@@ -170,7 +170,6 @@ function DimensionForm({
           value={code}
           disabled={dimension !== null}
           onChange={(event) => setCode(event.target.value)}
-          placeholder="PROJECT"
         />
       </Field>
       <Field label="Name" required>
@@ -195,7 +194,7 @@ function DimensionForm({
           disabled={code.trim() === "" || name.trim() === ""}
           onClick={() => save.mutate()}
         >
-          {save.isPending ? "Saving…" : "Save dimension"}
+          {save.isPending ? "Submitting…" : "Submit"}
         </Button>
       </div>
 

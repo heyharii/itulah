@@ -237,7 +237,7 @@ function columnsFor(
       // to the bottom rather than reading as the cheapest shopper in the
       // scheme, which is what a zero here would have said.
       accessorFn: (row) => per(row.spent_minor, row.transaction_count) ?? -1,
-      header: "Avg transaction",
+      header: "Avg Transaction",
       size: 140,
       // Sorted by the server, not filtered by it: see `FILTER_COLUMN`.
       meta: { align: "right" },
@@ -318,7 +318,7 @@ function columnsFor(
     {
       id: "redeemed",
       accessorFn: (row) => row.points_spent_total,
-      header: "Points spent",
+      header: "Points Spent",
       size: 110,
       meta: { align: "right" },
       cell: ({ row }) =>
@@ -335,7 +335,7 @@ function columnsFor(
       // Sorted on the number, drawn as a sentence. `null` sorts last, which is
       // where "never bought" belongs in a column about recency.
       accessorFn: (row) => row.days_since_purchase ?? Number.MAX_SAFE_INTEGER,
-      header: "Last purchase",
+      header: "Last Purchase",
       size: 130,
       // Days, filtered by the server. Somebody who has never bought has no
       // number of days at all, so "at least 90 days" does NOT include them —
@@ -505,7 +505,6 @@ export function Members() {
                 ? search.close()
                 : search.open(event.target.value)
             }
-            placeholder="Card number or name"
             className="h-8 w-56"
           />
         }

@@ -56,7 +56,6 @@ export function Supplies() {
   const [filed, setFiled] = useState(false)
   return (
     <GaScreen
-      sub="What this shop has asked head office for, and where each request has got to."
       actions={
         <Button
           variant="primary"
@@ -74,8 +73,7 @@ export function Supplies() {
         <>
           {filed && (
             <Banner tone="ok" className="mb-4">
-              Asked. Head office sees it now; it moves to Approved and Ordered
-              below as they act on it.
+              Sent to head office.
             </Banner>
           )}
           <SupplyList
@@ -153,20 +151,18 @@ function SupplyList({ site, onNew }: { site: string; onNew: () => void }) {
   return (
     <>
       {gaState(supplies, {
-        loading: "Reading this shop's requests…",
+        loading: "Loading…",
         render: (rows) => {
           if (rows.length === 0) {
             return (
               <Card>
                 <div className="mx-auto flex max-w-[30em] flex-col items-center gap-4 px-4 py-12 text-center">
                   <p className="text-meta text-body">
-                    This shop has not asked head office for anything yet. Paper
-                    for the printer, cleaning things, a new extension lead — ask
-                    here and follow it until it arrives.
+                    No requests yet.
                   </p>
                   <Button variant="ghost" onClick={onNew}>
                     <Plus />
-                    Ask for something
+                    New request
                   </Button>
                 </div>
               </Card>
@@ -203,8 +199,8 @@ function SupplyList({ site, onNew }: { site: string; onNew: () => void }) {
                   }}
                   empty={
                     phase === "OPEN"
-                      ? "Nothing is on its way. Everything asked for has arrived or was turned down."
-                      : "Nothing has arrived or been turned down yet."
+                      ? "Nothing on the way."
+                      : "Nothing closed yet."
                   }
                 />
               </Card>
@@ -315,7 +311,7 @@ function SupplyComposer({
 
   const who = askedBy ?? me.data?.display_name ?? me.data?.username ?? ""
   const problems = {
-    category: category === null ? "Choose what kind of thing it is." : null,
+    category: category === null ? "Choose a kind." : null,
     item: item.trim() === "" ? "Say what you need." : null,
     who: who.trim() === "" ? "Say who is asking." : null,
   }
@@ -365,7 +361,6 @@ function SupplyComposer({
       }}
       width="wide"
       title="Ask head office for something"
-      caption="Goes to GA as this shop's request."
       footer={
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
           <Button variant="ghost" onClick={onClose}>
@@ -384,7 +379,7 @@ function SupplyComposer({
 
         <SheetBlock title="What kind of thing">
           {categories.isPending ? (
-            <p className="text-meta text-mute">Reading the list…</p>
+            <p className="text-meta text-mute">Loading…</p>
           ) : categories.isError ? (
             <p className="text-meta text-bad">{describeGa(categories.error)}</p>
           ) : (
@@ -414,7 +409,7 @@ function SupplyComposer({
               />
             </Field>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="How many" hint="With the unit — 2 rim, 1 box.">
+              <Field label="How many" hint="e.g. 2 rim">
                 <Input
                   value={quantity}
                   onChange={(event) => setQuantity(event.target.value)}
@@ -430,7 +425,7 @@ function SupplyComposer({
                 />
               </Field>
             </div>
-            <Field label="Notes" hint="Optional. A brand, a size, why.">
+            <Field label="Notes" hint="Optional">
               <TextArea
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}

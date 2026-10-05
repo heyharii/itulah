@@ -98,6 +98,44 @@ pub async fn load_site_pricing(
     Ok(pricing)
 }
 
+/// The promotions and campaigns a basket is priced under, with what they have
+/// already given away overlaid — the half of [`load_site_pricing`] that does not
+/// depend on the shop.
+///
+/// Loaded once by a caller that prices many shops in one request (the
+/// pricelist's final view) and handed to each shop's snapshot with
+/// [`Promotions::apply`], rather than read again per branch.
+pub struct Promotions {
+    rules: Vec<Rule>,
+    campaigns: Vec<Campaign>,
+}
+
+impl Promotions {
+    pub async fn load(tx: &mut Transaction<'_, Postgres>) -> Result<Self, AppError> {
+        let usage = load_usage(tx).await?;
+        Ok(Self {
+            rules: load_rules(tx, &usage).await?,
+            campaigns: load_campaigns(tx, &usage).await?,
+        })
+    }
+
+    /// Put these promotions into one shop's snapshot. Coupons stay out: the
+    /// final view prices a shopper who presents none, and a rule behind a code
+    /// answers `NoCoupon` without the code table being read.
+    pub fn apply(&self, snapshot: &mut PricingSnapshot) {
+        snapshot.rules = self.rules.clone();
+        snapshot.campaigns = self.campaigns.clone();
+    }
+
+    /// A campaign's name, for a screen that names what a promotion was part of.
+    pub fn campaign_name(&self, campaign_id: &str) -> Option<&str> {
+        self.campaigns
+            .iter()
+            .find(|campaign| campaign.campaign_id == campaign_id)
+            .map(|campaign| campaign.name.as_str())
+    }
+}
+
 /// What promotions have actually given away, keyed by what they are.
 ///
 /// `RULE`/`CAMPAIGN`/`COUPON` and the id or code, to `(uses, spent_minor)`.

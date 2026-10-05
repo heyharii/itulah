@@ -65,7 +65,6 @@ export function PayComponents() {
           <Input
             value={needle}
             onChange={(event) => setNeedle(event.target.value)}
-            placeholder="Search"
             className="h-8 w-48"
           />
         }
@@ -231,7 +230,7 @@ function ComponentForm({
             disabled={!changed}
             onClick={() => save.mutate()}
           >
-            {save.isPending ? "Saving…" : "Save"}
+            {save.isPending ? "Submitting…" : "Submit"}
           </Button>
         </span>
       </div>

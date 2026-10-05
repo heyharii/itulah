@@ -3,15 +3,15 @@
 /**
  * One line of a store's action history.
  */
-export type StoreActionEntry = { action_id: string, key: string, label: string, target: "server" | "device", device_id?: string | null, device_label?: string | null, note?: string | null, requested_by: string, requested_at: string,
+export type StoreActionEntry = { action_id: string, key: string, label: string, target: "server" | "device", device_id?: string | null, device_label?: string | null, note?: string | null, requested_by: string, requested_at: string, 
 /**
  * `QUEUED`, `SENT`, `RUNNING`, `DONE`, `FAILED` or `EXPIRED`.
  */
-state: "QUEUED" | "SENT" | "RUNNING" | "DONE" | "FAILED" | "EXPIRED", expires_at: string, finished_at?: string | null,
+state: "QUEUED" | "SENT" | "RUNNING" | "DONE" | "FAILED" | "EXPIRED", expires_at: string, finished_at?: string | null, 
 /**
  * What came of it, or where it has got to, in a sentence.
  */
-result_sentence?: string | null,
+result_sentence?: string | null, 
 /**
  * The numbers behind the sentence: a backup's size and time, a sync's
  * queue before and after, a diagnosis's checks and its full `report`

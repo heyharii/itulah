@@ -558,6 +558,7 @@ async fn a_unit_giro_paying_a_head_office_supplier_crosses_on_pembiayaan(pool: P
             allocations: vec![cloud::AllocateToBill {
                 invoice_id: bill.invoice_id,
                 amount_minor: 400_000,
+                discount_minor: None,
             }],
             giro_number: Some("BCA-778899".into()),
             giro_due_date: NaiveDate::from_ymd_opt(2026, 10, 15),

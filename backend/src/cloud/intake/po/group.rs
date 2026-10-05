@@ -94,6 +94,7 @@ mod tests {
                 article_name: Some(format!("barang {id}")),
                 quantity: Some(1),
                 unit: None,
+                unit_code: None,
                 unit_price_minor: Some(1000),
                 promised_date: None,
             }],

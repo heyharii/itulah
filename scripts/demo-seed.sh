@@ -61,9 +61,10 @@ id_of() { python3 -c 'import json,sys;d=json.load(sys.stdin);print(d.get("id") o
 step "demo-seed: 2 suppliers × 5 sourcing items"
 # Each with standing terms and tax status: a delivery's payable falls due by
 # the supplier's terms (0390), so a supplier without them is owed on the day
-# the goods are accepted. SUP-001 is PKP on Net 30, SUP-002 is non-PKP on COD.
-s1=$(post /api/v1/suppliers '{"supplier_code":"SUP-001","name":"PT Garmen Nusantara","contact_name":"Budi Santoso","phone":"0812-1000-0001","email":"sales@garmennusantara.co.id","address":"Jl. Industri No. 12, Bandung","status":"ACTIVE","category":"MERCHANDISE","npwp":"01.234.567.8-423.000","is_pkp":true,"default_payment_terms_code":"NET_30"}' | id_of)
-s2=$(post /api/v1/suppliers '{"supplier_code":"SUP-002","name":"CV Sepatu Sejahtera","contact_name":"Sari Wulandari","phone":"0812-2000-0002","email":"order@sepatusejahtera.co.id","address":"Jl. Raya Cibaduyut No. 45, Bandung","status":"ACTIVE","category":"MERCHANDISE","npwp":"02.345.678.9-424.000","is_pkp":false,"default_payment_terms_code":"COD"}' | id_of)
+# the goods are accepted. 0001 (Garmen Nusantara) is PKP on Net 30, 0002 (Sepatu Sejahtera) is non-PKP on
+# COD. No code is sent: the centre numbers suppliers itself, four digits.
+s1=$(post /api/v1/suppliers '{"name":"Garmen Nusantara","legal_form":"PT","contact_name":"Budi Santoso","phone":"0812-1000-0001","email":"sales@garmennusantara.co.id","address":"Jl. Industri No. 12, Bandung","status":"ACTIVE","category":"MERCHANDISE","npwp":"01.234.567.8-423.000","is_pkp":true,"default_payment_terms_code":"NET_30"}' | id_of)
+s2=$(post /api/v1/suppliers '{"name":"Sepatu Sejahtera","legal_form":"CV","contact_name":"Sari Wulandari","phone":"0812-2000-0002","email":"order@sepatusejahtera.co.id","address":"Jl. Raya Cibaduyut No. 45, Bandung","status":"ACTIVE","category":"MERCHANDISE","npwp":"02.345.678.9-424.000","is_pkp":false,"default_payment_terms_code":"COD"}' | id_of)
 
 item() { post "/api/v1/suppliers/$1/items" "$2" >/dev/null; }
 item "$s1" '{"supplier_item_code":"GN-KMJ-01","name":"Kemeja Oxford Lengan Panjang","unit_price_minor":85000,"currency":"IDR","status":"ACTIVE","division_code":"PRIA","tags":["KEMEJA","LENGAN_PANJANG"],"colour_codes":["WHITE","LIGHT_BLUE","NAVY"],"size_codes":["02","03","04","05"]}'
@@ -92,8 +93,8 @@ post /api/v1/attendance-shifts '{"id":"PAGI","name":"Pagi","starts_at":"08:00","
 post /api/v1/attendance-shifts '{"id":"SIANG","name":"Siang","starts_at":"13:00","ends_at":"22:00","crosses_midnight":false,"unpaid_break_minutes":60}' >/dev/null
 post /api/v1/attendance-policy "{\"effective_from\":\"$year-01-01\",\"late_grace_minutes\":10,\"early_leave_grace_minutes\":10,\"overtime_minimum_minutes\":30,\"duplicate_punch_window_minutes\":2,\"reason\":\"demo: attendance rules\"}" >/dev/null
 post /api/v1/overtime-policy '{"version":1,"max_per_day_minutes":240,"max_per_week_minutes":1080,"reason":"demo: PP 35/2021 caps"}' >/dev/null
-post /api/v1/expense-claim-types '{"code":"TRANSPORT","name":"Transport dinas"}' >/dev/null
-post /api/v1/expense-claim-types '{"code":"MAKAN","name":"Uang makan lembur"}' >/dev/null
+post /api/v1/expense-claim-types '{"code":"TRANSPORT","name":"Transport dinas","expense_category":"expense_transport"}' >/dev/null
+post /api/v1/expense-claim-types '{"code":"MAKAN","name":"Uang makan lembur","expense_category":"expense_misc"}' >/dev/null
 post /api/v1/grievance-types '{"code":"JADWAL","name":"Jadwal & shift"}' >/dev/null
 post /api/v1/grievance-types '{"code":"PERLAKUAN","name":"Perlakuan atasan atau rekan"}' >/dev/null
 echo "  3 leave types, 12 days/year, 2 holidays, shifts PAGI/SIANG, attendance + overtime rules, claim + grievance types"
@@ -112,7 +113,7 @@ person() {  # person <code> <name> <position> <grade> <kind> <place> <nik> <base
     post "/api/v1/employees/$id/personal-data" "{\"full_name\":\"$2\",\"nik\":\"$7\",\"birth_date\":\"199$n-05-1$n\",\"address\":\"Jl. Contoh No. $n, Bandung\"}" >/dev/null
     local ends=null; [[ $5 == PKWT ]] && ends="\"$(date -v+11m +%Y-%m-%d)\""
     post "/api/v1/employees/$id/contracts" "{\"kind\":\"$5\",\"starts_on\":\"$joined\",\"ends_on\":$ends,\"position\":\"$3\",\"grade\":\"$4\",\"reason\":\"first contract\"}" >/dev/null
-    post "/api/v1/employees/$id/assignments" "{\"place_id\":\"$6\",\"valid_from\":\"$joined\",\"valid_to\":null,\"reason\":\"posted to $6\"}" >/dev/null
+    post "/api/v1/employees/$id/assignments" "{\"unit_id\":\"$6\",\"valid_from\":\"$joined\",\"valid_to\":null,\"reason\":\"posted to $6\"}" >/dev/null
     post "/api/v1/employees/$id/pay" "{\"effective_from\":\"$joined\",\"base_minor\":$8,\"reason\":\"agreed pay\"}" >/dev/null
     identity "$id" "$2" "$7"
     roster "$id"
@@ -158,6 +159,13 @@ person ST-0102 "Dian Pertiwi" "Admin toko" G2 PKWT store-01 3273000000000012 580
 # DC (floor app, handheld operators), the store pair at store-01 (store app,
 # till). The edge learns each assignment over sync and signs them in offline.
 users=$(curl -sS -m10 ${auth[@]+"${auth[@]}"} "$api/api/v1/auth/users")
+# The DC pair work the Gudang: job role OPERATIONS (Ops + Inventory in the
+# hub). A bare SUPERVISOR rung defaults to STORE_MANAGER, which has no Ops
+# menu, so Nina could not count a delivery from the hub.
+for who in nina yusuf; do
+    uid=$(printf '%s' "$users" | python3 -c "import json,sys;d=json.load(sys.stdin);rows=d if isinstance(d,list) else d.get('items',d.get('users',[]));print(next(u.get('id') or u.get('user_id') for u in rows if u['username']=='$who'))")
+    post "/api/v1/auth/users/$uid/role" '{"role_code":"OPERATIONS"}' >/dev/null
+done
 pairs="maya:store-01:SUPERVISOR dian:store-01:CASHIER yusuf:dc:SUPERVISOR nina:dc:SUPERVISOR"
 # Rina runs the hub's Operations screens, which sign in at the DC with her
 # Cloud session — only possible with an assignment there.
@@ -188,8 +196,8 @@ step "demo-seed: head office bank account (pays the suppliers)"
 if curl -sS -m10 ${auth[@]+"${auth[@]}"} "$api/api/v1/finance/bank-accounts" | grep -q '"account_no":"8730123456"'; then
     echo "  Giro BCA 8730123456 already described"
 else
-    post /api/v1/finance/bank-accounts '{"ledger_account_code":"1005","site_id":"dc","bank_code":"BCA","account_no":"8730123456","account_holder":"PT Itulah Demo","branch":"KCU Bandung","kind":"GIRO","is_primary":true,"note":"Rekening demo untuk bayar supplier"}' >/dev/null
-    echo "  Giro BCA 8730123456 on 1005 at dc"
+    post /api/v1/finance/bank-accounts '{"ledger_account_code":"1005","unit_id":"ho","bank_code":"BCA","bank_name":"Bank Central Asia","account_no":"8730123456","account_holder":"PT Itulah Demo","branch":"KCU Bandung","kind":"GIRO","is_primary":true,"note":"Rekening demo untuk bayar supplier"}' >/dev/null
+    echo "  Giro BCA 8730123456 on 1005 at ho"
 fi
 
 psql -d "$db" -Atc "SELECT 'suppliers: '||count(*) FROM supplier UNION ALL SELECT 'supplier items: '||count(*) FROM supplier_item UNION ALL SELECT 'active accounts: '||count(*) FROM ledger_account WHERE NOT is_group AND is_active UNION ALL SELECT 'open periods: '||string_agg(year||'-'||month, ', ') FROM fiscal_period WHERE status='OPEN' UNION ALL SELECT 'movements: '||count(*) FROM movement" | sed 's/^/  /'

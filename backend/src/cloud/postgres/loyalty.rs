@@ -276,15 +276,21 @@ pub struct RedeemPointsRequest {
     #[serde(default)]
     pub customer_id: String,
     pub points: i64,
-    /// What the voucher is worth, in minor units. Decided by the caller rather
-    /// than by a rate in here: how many points buy how much is a loyalty scheme
-    /// and this module is a ledger. A rate hidden in the ledger is a rate
-    /// nobody can find when it changes.
+    /// Kept for wire compatibility and historical retries. For a new
+    /// redemption it must match the server's loyalty conversion; a caller
+    /// cannot choose how much money their points create.
     pub voucher_value_minor: i64,
     pub actor_id: String,
     pub idempotency_key: String,
     #[serde(default)]
     pub expires_at: Option<DateTime<Utc>>,
+}
+
+/// The server-owned loyalty scheme: one point buys one IDR minor unit.
+/// Both redemption entry points use this conversion. Historical idempotent
+/// retries use their recorded value, without creating another voucher.
+fn voucher_value_for_points(points: i64) -> i64 {
+    points
 }
 
 /// Spend points on a voucher, both halves or neither.
@@ -332,6 +338,14 @@ pub async fn redeem_points_to_voucher(
     .fetch_optional(&mut *tx)
     .await?
     {
+        let stored_points: i64 = row.try_get("points_spent")?;
+        let stored_value: i64 = row.try_get("voucher_value_minor")?;
+        if request.points != stored_points || request.voucher_value_minor != stored_value {
+            return Err(AppError::Conflict(
+                "that redemption key already names a different points amount or voucher value"
+                    .into(),
+            ));
+        }
         let voucher_id: Option<Uuid> = row.try_get("voucher_id")?;
         let code: Option<String> = match voucher_id {
             Some(id) => {
@@ -355,6 +369,15 @@ pub async fn redeem_points_to_voucher(
         }));
     }
 
+    let voucher_value_minor = voucher_value_for_points(request.points);
+    if request.voucher_value_minor != voucher_value_minor {
+        return Err(AppError::Validation(format!(
+            "{} points buy {voucher_value_minor} IDR under the loyalty scheme; \
+             the requested voucher value cannot change that rate",
+            request.points,
+        )));
+    }
+
     // Enough, measured inside the lock. A negative balance from a reversal
     // blocks spending until earning brings it back — the shopper keeps the
     // voucher they already have and carries the debt.
@@ -375,7 +398,7 @@ pub async fn redeem_points_to_voucher(
     .bind(redemption_id)
     .bind(customer_id)
     .bind(request.points)
-    .bind(request.voucher_value_minor)
+    .bind(voucher_value_minor)
     .bind(key)
     .bind(actor)
     .execute(&mut *tx)
@@ -401,7 +424,7 @@ pub async fn redeem_points_to_voucher(
         &mut tx,
         super::vouchers::IssuedVoucher {
             kind: "GOODWILL",
-            value_minor: request.voucher_value_minor,
+            value_minor: voucher_value_minor,
             member_id: Some(customer_id),
             expires_at: request.expires_at,
             actor,
@@ -431,7 +454,7 @@ pub async fn redeem_points_to_voucher(
         "redemption_id": redemption_id,
         "customer_id": customer_id,
         "points_spent": request.points,
-        "voucher_value_minor": request.voucher_value_minor,
+        "voucher_value_minor": voucher_value_minor,
         "voucher_id": voucher_id,
         "voucher_code": code,
         "balance_points": balance - request.points,
@@ -761,10 +784,7 @@ pub async fn lookup_redeem_request(
 /// is answered from what was already written rather than issuing a second
 /// voucher.
 ///
-/// This is the one place the rate is decided: 1 point buys Rp 1, applied here
-/// and asserted nowhere else in this codebase. The module doc above explains
-/// why `redeem_points_to_voucher` itself refuses to know a rate; this
-/// function is the loyalty scheme that doc says the rate belongs to.
+/// Uses the same server-owned 1:1 conversion as direct redemption.
 pub async fn confirm_redeem_request(
     pool: &PgPool,
     request_id: Uuid,
@@ -811,9 +831,7 @@ pub async fn confirm_redeem_request(
         RedeemPointsRequest {
             customer_id: member_id,
             points,
-            // The rate this whole function exists to apply — see the doc
-            // above.
-            voucher_value_minor: points,
+            voucher_value_minor: voucher_value_for_points(points),
             actor_id: actor.to_string(),
             idempotency_key: request_id.to_string(),
             expires_at: None,

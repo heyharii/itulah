@@ -8,4 +8,16 @@ import type { Session } from "./Session";
  * read to choose one, and forty SKUs under every row is a list nobody can
  * scan; the lines are one click away in [`pick_session_summary`].
  */
-export type PicklistSummary = { session: Session, sku_count: number, total_picked: number, };
+export type PicklistSummary = { session: Session, 
+/**
+ * The shop it was walked for; `None` on older rounds.
+ */
+destination_id: string | null, 
+/**
+ * The allotment it answers, and its number as printed.
+ */
+allotment_id: string | null, allotment_number: string | null, sku_count: number, total_picked: number, 
+/**
+ * Still in the pick area and in no carton: what is left to pack off it.
+ */
+waiting: number, };

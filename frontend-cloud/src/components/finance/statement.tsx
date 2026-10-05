@@ -123,8 +123,8 @@ export function StatementScreen({
           </table>
           {byLocation && (
             <p className="text-muted-foreground max-w-3xl px-3.5 pb-3 text-[11px]">
-              Consolidated across all fourteen locations. A per-location split needs the
-              same statement asked once per site — not built yet.
+              Consolidated across all fourteen units. A per-unit split needs the
+              same statement asked once per unit — not built yet.
             </p>
           )}
         </div>

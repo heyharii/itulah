@@ -82,13 +82,13 @@ export type PriceSource =
 export function describeSource(source: string): string {
   switch (source) {
     case "SITE_PRICE":
-      return "This shop"
+      return "Store price"
     case "SITE_GROUP_PRICE":
-      return "Shop group"
+      return "Group price"
     case "TIER_PRICE":
       return "Member tier"
     case "COMPANY_PRICE":
-      return "Company"
+      return "Company price"
     case "MARKDOWN":
       return "Sale price"
     case "MANUAL_OVERRIDE":
@@ -729,6 +729,24 @@ export const commercialKeys = {
       scope.channel,
       scope.at ?? "now",
     ] as const,
+  /// One piece of one SKU at one store, priced the way the till prices it —
+  /// promotions and campaigns included — for a walk-in shopper or a member.
+  /// Under `offers` so whatever refreshes the shelf prices refreshes this.
+  tillCheck: (
+    siteId: string,
+    channel: CommercialChannel,
+    skuCode: string,
+    member: boolean
+  ) =>
+    [
+      "commercial",
+      "offers",
+      "till",
+      siteId,
+      channel,
+      skuCode,
+      member ? "member" : "walk-in",
+    ] as const,
   usage: () => ["commercial", "usage"] as const,
   fleet: () => ["commercial", "activation"] as const,
   /// Every promotion, coupon and campaign the fleet is carrying, gathered from
@@ -1319,7 +1337,9 @@ export async function campaignById(
       { q: campaignId, sort: "campaign_id", limit: CATALOGUE_PAGE, cursor },
       signal
     )
-    const found = page.rows.find((row) => row.campaign.campaign_id === campaignId)
+    const found = page.rows.find(
+      (row) => row.campaign.campaign_id === campaignId
+    )
     if (found !== undefined) return found
     cursor = page.next_cursor ?? undefined
   } while (cursor !== undefined)
@@ -1631,17 +1651,12 @@ export function setCapAllocation(
 ///
 /// A POST that writes nothing: no sale, no usage count, no reservation. It is
 /// the same call a till makes, so what it says is what a till would charge —
-/// not an approximation built for a preview. It is a `useMutation` on the
-/// screen for that reason rather than a query: nothing is cached, because
-/// nothing was recorded.
+/// not an approximation built for a preview.
 ///
-/// **No screen calls this today.** The basket simulator was the only place the
-/// engine's `rejected_rules` explanations were visible, and the owner removed
-/// it with the rest of the seven menus. The function is kept rather than
-/// deleted because the endpoint has not gone anywhere and the explanations are
-/// the best answer to "why did the promotion not come off" that this system
-/// has — a "Try it" button inside the promotion form is where it belongs when
-/// somebody wants it back.
+/// The Pricelist's cell sheet asks it for "At the till": one piece of each
+/// SKU, for a walk-in shopper and for a member, which is the only place the
+/// pricelist, the sale price and the promotions are added up into what a
+/// customer pays.
 export function simulate(
   request: SimulateRequest,
   signal?: AbortSignal
@@ -1719,9 +1734,9 @@ export function describeLevel(level: PriceLevel): string {
     case "SITE":
       return level.site_id
     case "SITE_GROUP":
-      return `${level.site_ids.length} shops`
+      return `${level.site_ids.length} stores`
     default:
-      return "Every shop"
+      return "Every store"
   }
 }
 
@@ -1763,6 +1778,22 @@ export interface ArticlePriceShop {
   readonly site_id: string
   readonly label: string | null
   readonly stack: readonly ArticlePriceRule[]
+  /// What the till takes for one piece, promotions counted — only when the
+  /// page was asked for with `final`. Optional because a server that predates
+  /// the final view sends no such field.
+  readonly final_price?: FinalPrice | null
+}
+
+/// One article at one shop as a walk-in shopper pays for it: each SKU priced
+/// as a basket of one, no coupon, no member.
+export interface FinalPrice {
+  readonly min_unit_price_minor: number
+  readonly max_unit_price_minor: number
+  /// How many different amounts the SKUs come to.
+  readonly distinct: number
+  /// The promotions that came off at least one SKU, and their campaigns.
+  readonly promotions: readonly string[]
+  readonly campaigns: readonly string[]
 }
 
 /// One article across every shop — the view that answers "is this priced the
@@ -1774,7 +1805,22 @@ export interface ArticlePriceRow {
   readonly division_code: string | null
   readonly tags: readonly string[]
   readonly sku_count: number
+  /// What one piece cost, for the markup: the newest receipt's cost, else the
+  /// newest purchase order's price. Optional for a server that predates it.
+  readonly unit_cost_minor?: number | null
+  readonly cost_from?: "RECEIVED" | "PURCHASE_ORDER" | null
   readonly shops: readonly ArticlePriceShop[]
+}
+
+/// Markup over cost in basis points — the procurement screens' definition,
+/// (price − cost) / cost, so a PO's 60% and the pricelist's 60% are one
+/// number. `null` when either side is missing or the cost is nought.
+export function markupBps(
+  priceMinor: number | null | undefined,
+  costMinor: number | null | undefined
+): number | null {
+  if (priceMinor == null || costMinor == null || costMinor <= 0) return null
+  return Math.round(((priceMinor - costMinor) * 10000) / costMinor)
 }
 
 /// One column of the matrix, and the evidence behind it.
@@ -1857,6 +1903,10 @@ export interface ArticlePriceScope {
   readonly tags?: readonly string[]
   readonly minPrice?: number
   readonly maxPrice?: number
+  /// Also price every style the way the till does, promotions and campaigns
+  /// counted, into each shop's `final_price`. Part of the scope so it is part
+  /// of the cache key: the two views are two answers.
+  readonly final?: boolean
 }
 
 export function articlePrices(
@@ -1893,6 +1943,7 @@ export function articlePrices(
     params.set("min_price", String(options.minPrice))
   if (options.maxPrice !== undefined)
     params.set("max_price", String(options.maxPrice))
+  if (options.final) params.set("final", "true")
   return node.get<ArticlePrices>(
     `/api/v1/commercial/article-prices?${params.toString()}`,
     { signal }

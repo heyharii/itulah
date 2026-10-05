@@ -96,6 +96,85 @@ pub struct RecordInfo {
     /// Threads arguing about it. A comment is a sentence on a record; a thread
     /// is an argument about one, and both belong on the sheet.
     pub threads: Vec<DiscussionThread>,
+    /// What changed, field by field, newest first (0702). Empty for a kind
+    /// whose table keeps no versions.
+    pub versions: Vec<RecordVersion>,
+}
+
+/// One saved change to a record: which fields moved, from what to what.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct RecordVersion {
+    pub version_id: i64,
+    /// The table the change was made in — a supplier's bank account is filed
+    /// under the supplier, and this says it was the bank account.
+    pub table_name: String,
+    /// `UPDATE` or `DELETE`.
+    pub operation: String,
+    pub changes: Vec<FieldChange>,
+    pub actor: String,
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
+    pub changed_at: DateTime<Utc>,
+}
+
+/// One field of one change.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct FieldChange {
+    pub field: String,
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
+    pub from: serde_json::Value,
+    /// Null when the row was deleted.
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
+    pub to: serde_json::Value,
+}
+
+/// A record's saved changes, newest first — the tail a sheet draws.
+pub async fn list_record_versions(
+    db: &PgPool,
+    kind: RecordKind,
+    subject_id: &str,
+    limit: i64,
+) -> Result<Vec<RecordVersion>, AppError> {
+    let rows = sqlx::query(
+        "SELECT version_id, table_name, operation, changes, actor, changed_at
+           FROM record_version
+          WHERE record_kind = $1 AND record_id = $2
+          ORDER BY changed_at DESC, version_id DESC
+          LIMIT $3",
+    )
+    .bind(kind.as_str())
+    .bind(subject_id)
+    .bind(limit.clamp(1, 500))
+    .fetch_all(db)
+    .await?;
+    rows.iter()
+        .map(|row| {
+            let changes: serde_json::Value = row.try_get("changes")?;
+            let mut fields: Vec<FieldChange> = changes
+                .as_object()
+                .map(|object| {
+                    object
+                        .iter()
+                        .map(|(field, change)| FieldChange {
+                            field: field.clone(),
+                            from: change.get("from").cloned().unwrap_or(serde_json::Value::Null),
+                            to: change.get("to").cloned().unwrap_or(serde_json::Value::Null),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            fields.sort_by(|left, right| left.field.cmp(&right.field));
+            Ok(RecordVersion {
+                version_id: row.try_get("version_id")?,
+                table_name: row.try_get("table_name")?,
+                operation: row.try_get("operation")?,
+                changes: fields,
+                actor: row.try_get("actor")?,
+                changed_at: row.try_get("changed_at")?,
+            })
+        })
+        .collect()
 }
 
 /// What a caller posts to say something.
@@ -374,6 +453,17 @@ pub async fn record_info(
     .await?
     .rows;
 
+    // An order's trail is also what happened to its goods: the counts at the
+    // DC, the buyer's verification, the supplier's invoice. They are facts of
+    // their own tables rather than requests this node served, so they are read
+    // from there and laid into the same list, newest first.
+    let mut activity = activity;
+    if kind == RecordKind::PurchaseOrder {
+        activity.extend(receiving_activity(db, subject_id).await?);
+        activity.sort_by(|a, b| b.at.cmp(&a.at).then(b.audit_id.cmp(&a.audit_id)));
+        activity.truncate(TAIL as usize);
+    }
+
     let documents = search_documents(
         db,
         DocumentQuery {
@@ -402,6 +492,8 @@ pub async fn record_info(
     )
     .await?;
 
+    let versions = list_record_versions(db, kind, subject_id, TAIL).await?;
+
     Ok(RecordInfo {
         subject_kind: kind.as_str().to_owned(),
         label: kind.label().to_owned(),
@@ -411,5 +503,95 @@ pub async fn record_info(
         activity,
         documents,
         threads,
+        versions,
     })
+}
+
+/// What the DC did with an order's goods, shaped as the audit rows the panel
+/// already draws. The ids are negative so they can never meet a real
+/// `audit_id`, and the path is the route the act would have gone through —
+/// the browser reads the sentence off it, as it does for every other row.
+async fn receiving_activity(
+    db: &PgPool,
+    purchase_order_id: &str,
+) -> Result<Vec<AuditEntry>, AppError> {
+    let Ok(order) = uuid::Uuid::parse_str(purchase_order_id) else {
+        return Ok(Vec::new());
+    };
+    let rows = sqlx::query(
+        "WITH l AS (
+             SELECT gl.counted_at, gl.counted_by, gl.verified_at, gl.verified_by,
+                    gl.quantity, gl.matched_quantity, gl.excess_quantity, gl.wrong_quantity,
+                    pl.article_name, gr.receipt_number, gr.receipt_id
+               FROM goods_receipt_line gl
+               JOIN goods_receipt gr ON gr.receipt_id = gl.receipt_id
+               JOIN purchase_order_line pl ON pl.po_line_id = gl.po_line_id
+              WHERE pl.purchase_order_id = $1
+         ), events AS (
+             SELECT counted_at AS at, counted_by AS username, 'count' AS what,
+                    jsonb_build_object('quantity', quantity, 'article', article_name,
+                                       'receipt', receipt_number) AS payload
+               FROM l WHERE counted_at IS NOT NULL
+             UNION ALL
+             SELECT verified_at, verified_by, 'verify',
+                    jsonb_build_object('quantity', quantity, 'article', article_name,
+                                       'excess', excess_quantity, 'wrong', wrong_quantity,
+                                       'receipt', receipt_number)
+               FROM l WHERE verified_at IS NOT NULL
+             UNION ALL
+             SELECT gr.invoice_recorded_at, gr.invoice_recorded_by, 'invoice',
+                    jsonb_build_object('invoice', gr.invoice_number,
+                                       'total_minor', gr.invoice_total_minor,
+                                       'receipt', gr.receipt_number)
+               FROM goods_receipt gr
+              WHERE gr.invoice_recorded_at IS NOT NULL
+                AND gr.receipt_id IN (SELECT receipt_id FROM l)
+                -- A receipt counted for several orders (before 2026-10-02 the
+                -- bay put a whole lorry on one) carries one invoice, filed in
+                -- the review of one order: the one whose line was verified
+                -- last before the invoice was recorded. Only that order's
+                -- trail says it was filed.
+                AND (SELECT pl2.purchase_order_id
+                       FROM goods_receipt_line g2
+                       JOIN purchase_order_line pl2 ON pl2.po_line_id = g2.po_line_id
+                      WHERE g2.receipt_id = gr.receipt_id
+                        AND g2.verified_at <= gr.invoice_recorded_at
+                      ORDER BY g2.verified_at DESC
+                      LIMIT 1) = $1
+         )
+         SELECT e.at, e.username, COALESCE(u.display_name, e.username) AS display_name,
+                COALESCE(u.role, '') AS role, e.what, e.payload
+           FROM events e
+           LEFT JOIN app_user u ON u.username = e.username
+          ORDER BY e.at DESC
+          LIMIT $2",
+    )
+    .bind(order)
+    .bind(TAIL)
+    .fetch_all(db)
+    .await?;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for (index, row) in rows.iter().enumerate() {
+        let what: String = row.try_get("what")?;
+        let path = match what.as_str() {
+            "count" => "/api/v1/dc/purchase-counts",
+            "verify" => "/api/v1/dc/purchase-verifications",
+            _ => "/api/v1/dc/goods-receipts/invoice",
+        };
+        out.push(AuditEntry {
+            audit_id: -(index as i64) - 1,
+            at: row.try_get("at")?,
+            username: row.try_get("username")?,
+            display_name: row.try_get("display_name")?,
+            role: row.try_get("role")?,
+            method: "POST".to_owned(),
+            path: path.to_owned(),
+            status: 200,
+            subject_kind: Some(RecordKind::PurchaseOrder.as_str().to_owned()),
+            subject_id: Some(purchase_order_id.to_owned()),
+            payload: row.try_get("payload")?,
+        });
+    }
+    Ok(out)
 }

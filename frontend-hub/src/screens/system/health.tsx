@@ -209,7 +209,8 @@ function Board({
   const exceptions = useMemo<Exception[]>(() => {
     const rows: Exception[] = []
     for (const node of data.origins) {
-      const open = () => go("/system/servers", { key: "origin", value: node.origin_id })
+      const open = () =>
+        go("/system/servers", { key: "origin", value: node.origin_id })
       const title = node.label ?? node.origin_id
       if (node.status === "STALLED") {
         const stuck = node.command_blocked
@@ -255,7 +256,8 @@ function Board({
         amount: `${count(node.pending_commands)} waiting`,
         severity: "low",
         icon: <Unplug className="size-4" />,
-        onOpen: () => go("/system/servers", { key: "origin", value: node.origin_id }),
+        onOpen: () =>
+          go("/system/servers", { key: "origin", value: node.origin_id }),
       })
     } else if (never.length > 1) {
       const waiting = never.reduce(
@@ -891,7 +893,7 @@ function Positions({
               "Server",
               { label: "Pool", align: "left" },
               "Centre",
-              "Server says",
+              "Server Says",
               "Gap",
             ]}
           >

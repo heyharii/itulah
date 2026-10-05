@@ -1,6 +1,5 @@
 import type { ScreenMap } from "@/screens/registry"
 
-import { InspectReturns } from "@/screens/operations/intake/inspect"
 import { Receiving } from "@/screens/operations/intake/receiving"
 import { ReceiveStoreReturn } from "@/screens/operations/intake/returns"
 
@@ -9,5 +8,4 @@ import { ReceiveStoreReturn } from "@/screens/operations/intake/returns"
 export const screens: ScreenMap = {
   "/operations/intake": Receiving,
   "/operations/intake/returns": ReceiveStoreReturn,
-  "/operations/intake/inspect": InspectReturns,
 }

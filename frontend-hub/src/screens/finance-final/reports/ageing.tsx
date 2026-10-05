@@ -76,7 +76,8 @@ const BUCKETS: readonly {
   {
     key: "not_due_minor",
     label: "Not due",
-    title: "Outstanding, but not yet fallen due — a bill due today is here, not late",
+    title:
+      "Outstanding, but not yet fallen due — a bill due today is here, not late",
   },
   { key: "days_1_30_minor", label: "1–30", title: "1–30 days late" },
   { key: "days_31_60_minor", label: "31–60", title: "31–60 days late" },
@@ -141,10 +142,14 @@ export function Ageing() {
   const total = payable.data?.total ?? null
   /// Everything that has already fallen due, which is the figure somebody
   /// actually acts on — the not-due bucket is a forecast, not a problem.
-  const overdue = total === null ? null : total.total_minor - total.not_due_minor
+  const overdue =
+    total === null ? null : total.total_minor - total.not_due_minor
   /// How many documents are behind the payable total. A sum of integers the
   /// server counted, not a second opinion about an amount.
-  const openDocuments = rows.reduce((sum, row) => sum + row.open_document_count, 0)
+  const openDocuments = rows.reduce(
+    (sum, row) => sum + row.open_document_count,
+    0
+  )
 
   return (
     <PageContent>
@@ -164,7 +169,7 @@ export function Ageing() {
         <UnitSelect
           value={unit}
           onChange={setUnit}
-          className="h-8 w-44"
+          className="h-control w-44"
           aria-label="Unit"
         />
         <Toolbar.Spacer />
@@ -337,7 +342,9 @@ export function Ageing() {
 function WhatIsActuallyReceivable() {
   return (
     <Note>
-      <b>The receivable half is empty, and copying ERPNext would not fill it.</b>{" "}
+      <b>
+        The receivable half is empty, and copying ERPNext would not fill it.
+      </b>{" "}
       There is no <code>GET /finance/receivables-aging</code>, and no
       customer-invoice document exists anywhere in the backend for one to age: a
       till sale settles as it is rung up — the tenders are cash, card, QRIS,
@@ -365,15 +372,15 @@ function WhereTheBucketsComeFrom() {
       <b>Not due is a column, not a rounding.</b> The five buckets are the
       server&rsquo;s own and are fixed — this page never re-buckets, so what is
       on screen is exactly what the endpoint computed. Anything not yet fallen
-      due sits in <b>Not due</b> and is kept out of the{" "}
-      <b>Already late</b> figure above, because outstanding and late are
-      different states and a report that adds them together tells a business it
-      is months behind on money it does not owe yet. A bill falling due today
-      counts as not due here; ERPNext, whose equivalent column is{" "}
-      <code>&lt;0</code>, counts it in its first late bucket instead — which is
-      why our bands read <code>1–30</code> and theirs read <code>0-30</code>.
-      One thing to watch: there is no 120-day boundary on the wire, so{" "}
-      <b>90+</b> holds a debt of ninety-five days and one of four hundred alike.
+      due sits in <b>Not due</b> and is kept out of the <b>Already late</b>{" "}
+      figure above, because outstanding and late are different states and a
+      report that adds them together tells a business it is months behind on
+      money it does not owe yet. A bill falling due today counts as not due
+      here; ERPNext, whose equivalent column is <code>&lt;0</code>, counts it in
+      its first late bucket instead — which is why our bands read{" "}
+      <code>1–30</code> and theirs read <code>0-30</code>. One thing to watch:
+      there is no 120-day boundary on the wire, so <b>90+</b> holds a debt of
+      ninety-five days and one of four hundred alike.
     </Note>
   )
 }
@@ -399,9 +406,7 @@ function HalfRow({
         colSpan={COLUMNS}
         className="border-hairline-2 bg-soft py-1.5 align-middle"
       >
-        <span className="text-[0.875rem] font-semibold text-ink">
-          {label}
-        </span>
+        <span className="text-[0.875rem] font-semibold text-ink">{label}</span>
         <span className="ml-2 text-[0.875rem] text-mute">{sub}</span>
         <span className="ml-2 font-mono text-[0.875rem] text-faint">
           {detail}

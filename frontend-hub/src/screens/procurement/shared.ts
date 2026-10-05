@@ -1,5 +1,14 @@
+import { useQuery } from "@tanstack/react-query"
 import { useCallback, useState } from "react"
 
+import { count } from "@/lib/format"
+import {
+  catalogueVocabulary,
+  procurementKeys,
+  type PurchaseOrderDetail,
+  type PurchaseOrderLine,
+} from "@/lib/queries/procurement"
+import { lineTotal, shareOut } from "@/screens/procurement/line-pricing-model"
 import { useIdentity } from "@/lib/session"
 import type { VocabularyTerm } from "@itulah/contract"
 
@@ -16,7 +25,7 @@ import type { VocabularyTerm } from "@itulah/contract"
 /// look like the thing they came back to. One pair of classes, imported by
 /// both.
 export const GRID_HEAD =
-  "border-b border-l border-hairline bg-soft-2 px-3 py-2 text-left font-mono text-eyebrow tracking-[0.04em] text-body uppercase first:border-l-0"
+  "border-b border-l border-hairline bg-soft-2 px-3 py-2.5 text-left text-[0.875rem] font-medium text-body first:border-l-0"
 
 /// A read-only cell in one of those grids. Padded, unlike the composer's own
 /// editable `CELL`, which is `p-0` because the control inside it owns the
@@ -164,6 +173,9 @@ export interface PendingItem {
   /// The unit it was typed in and how many of it, when not pieces.
   readonly unitCode?: string
   readonly unitQuantity?: string
+  /// What one of that unit costs, as typed, when the unit is not pieces. The
+  /// request carries the per-piece figure it derives to.
+  readonly unitPrice?: string
   /// What the goods will sell for, and the markup that came from.
   readonly basePrice?: string
   readonly markup?: string
@@ -185,11 +197,205 @@ export const PO_STATUS: Readonly<
 > = {
   ACTIVE: { label: "Active", tone: "ok" },
   PARTIALLY_RECEIVED: { label: "Partially received", tone: "info" },
-  SHORT_RECEIVED: { label: "Short received", tone: "warn" },
+  SHORT_RECEIVED: { label: "Completed", tone: "done" },
   FULLY_RECEIVED: { label: "Fully received", tone: "done" },
   CANCELLED: { label: "Cancelled", tone: "neutral" },
 }
 
 export function poStatus(lifecycle: string) {
   return PO_STATUS[lifecycle] ?? { label: lifecycle, tone: "neutral" as const }
+}
+
+/// A quantity of pieces, "1 pc" or "12 pcs".
+export function pcs(quantity: number): string {
+  return `${count(quantity)} ${quantity === 1 ? "pc" : "pcs"}`
+}
+
+/// What an order's terms and conditions say when nobody wrote anything else.
+/// Printed under the notes, in Indonesian, on every purchase order.
+export const DEFAULT_TERMS =
+  "Penerimaan barang hari Senin–Sabtu pukul 08.00–15.00, istirahat pukul 12.00–13.00. Khusus hari Jumat, istirahat pukul 11.30–13.00."
+
+/// What `pieces` of a line come to, in whole rupiah, by the one rule: pieces
+/// times the price as agreed (per dozen, per kodi or per piece) over the pieces
+/// in that unit, rounded once. Never by way of a per-piece price.
+export function lineValue(line: PurchaseOrderLine, pieces: number): number {
+  if (
+    line.order_unit_code &&
+    line.unit_factor &&
+    line.order_unit_price_minor !== null &&
+    line.order_unit_price_minor !== undefined
+  )
+    return lineTotal(pieces, line.order_unit_price_minor, line.unit_factor)
+  return lineTotal(pieces, line.unit_price_minor)
+}
+
+/// The order's discount, line by line. Every piece takes the same discount, so
+/// a line's share goes by its pieces, to the rupiah, and the shares add up to
+/// the order's discount exactly. The server's own split is used when it sends
+/// one that adds up.
+export function lineDiscounts(order: PurchaseOrderDetail): number[] {
+  const server = order.lines.map((line) => line.discount_minor)
+  if (
+    server.every((one): one is number => one !== undefined) &&
+    server.reduce((sum, one) => sum + one, 0) === order.discount_minor
+  )
+    return server
+  return shareOut(
+    order.discount_minor,
+    order.lines.map((line) => line.ordered_quantity)
+  )
+}
+
+/// How what arrived stands against what was ordered, or null when they agree.
+/// More is over and fewer is short; both are differences. An order nothing has
+/// arrived against is not short, it is simply not here yet.
+export function receivedGap(
+  ordered: number,
+  received: number
+): { readonly text: string } | null {
+  if (received > ordered) return { text: `+${pcs(received - ordered)} over` }
+  if (received > 0 && received < ordered)
+    return { text: `${pcs(ordered - received)} short` }
+  return null
+}
+
+/// The colour of a received figure set against what was ordered: green once
+/// the line has all it asked for (over included — it did arrive), red while a
+/// part is still owed, and nothing while nothing has come in at all (see
+/// `receivedGap`: an order nothing has arrived against is not short, it is
+/// simply not here yet).
+export function receivedTone(
+  ordered: number,
+  received: number
+): "ok" | "bad" | null {
+  if (received <= 0) return null
+  return received < ordered ? "bad" : "ok"
+}
+
+/// A reason from the server as a sentence: the first letter in capitals.
+export function sentence(text: string | null | undefined): string | undefined {
+  if (text === null || text === undefined || text === "") return undefined
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+/// A size as people say it: the vocabulary's label ("M") for the code an order
+/// or a SKU carries ("03"). A code the vocabulary does not know stays as it is.
+export function useSizeLabel(): (code: string) => string {
+  const vocabulary = useQuery({
+    queryKey: procurementKeys.vocabulary(),
+    queryFn: ({ signal }) => catalogueVocabulary(signal),
+    staleTime: 30 * 60 * 1000,
+  })
+  const sizes = vocabulary.data?.sizes
+  return (code) => sizeLabel(sizes, code)
+}
+
+/// The columns a page-scrolled list has to give up to fit its card, worked out
+/// from the card's measured width and the columns' own sizes.
+///
+/// `DataTable` does this itself while the screen leaves `columnVisibility`
+/// alone; Purchase orders and Suppliers control it (the View menu), so they
+/// do it here and merge the answer into what the reader chose. A table wider
+/// than its card scrolls sideways, and a box that scrolls sideways takes the
+/// sticky heading and the floating total with it — so no column is worth that.
+///
+/// Highest `meta.priority` first, right-most first within one; a priority 1
+/// column is never given up. Attach `ref` to a box exactly as wide as the card.
+export function useFitHidden(
+  columns: ReadonlyArray<{
+    id?: string
+    accessorKey?: unknown
+    columns?: unknown
+    size?: number
+    meta?: unknown
+  }>,
+  visibility: Readonly<Record<string, boolean>>
+): {
+  ref: (node: HTMLElement | null) => void
+  hidden: Record<string, boolean>
+} {
+  const [width, setWidth] = useState(0)
+  const ref = useCallback((node: HTMLElement | null) => {
+    if (node === null) return
+    const observer = new ResizeObserver(() => setWidth(node.clientWidth))
+    observer.observe(node)
+    setWidth(node.clientWidth)
+  }, [])
+
+  const leaves: {
+    id: string
+    size: number
+    priority: number
+    index: number
+  }[] = []
+  const walk = (list: ReadonlyArray<any>) => {
+    for (const column of list) {
+      if (Array.isArray(column.columns)) {
+        walk(column.columns)
+        continue
+      }
+      const id =
+        column.id ??
+        (typeof column.accessorKey === "string"
+          ? column.accessorKey
+          : undefined)
+      if (id === undefined) continue
+      const meta = column.meta as
+        { priority?: number; grow?: number } | undefined
+      leaves.push({
+        id,
+        size: meta?.grow ?? column.size ?? 150,
+        priority: meta?.priority ?? 1,
+        index: leaves.length,
+      })
+    }
+  }
+  walk(columns)
+
+  const hidden: Record<string, boolean> = {}
+  if (width > 0) {
+    const shown = leaves.filter((one) => visibility[one.id] !== false)
+    let total = shown.reduce((sum, one) => sum + one.size, 0)
+    const order = shown
+      .filter((one) => one.priority > 1)
+      .sort((a, b) => b.priority - a.priority || b.index - a.index)
+    for (const one of order) {
+      if (total <= width - 2) break
+      hidden[one.id] = false
+      total -= one.size
+    }
+  }
+  return { ref, hidden }
+}
+
+/// A heading group that has shrunk to one visible column is not a group any
+/// more: "Ordered" over a lone "Quantity" is two rows and a box to say one
+/// thing. The column takes the group's word and stands in the single heading
+/// row — "Ordered Quantity" — and a group that still holds two or more stays.
+export function flattenSingles<
+  T extends {
+    id?: string
+    accessorKey?: unknown
+    columns?: unknown
+    header?: unknown
+  },
+>(columns: readonly T[], hidden: Readonly<Record<string, boolean>>): T[] {
+  const idOf = (column: T) =>
+    column.id ??
+    (typeof column.accessorKey === "string" ? column.accessorKey : undefined)
+  return columns.map((column) => {
+    if (!Array.isArray(column.columns)) return column
+    const shown = (column.columns as T[]).filter((one) => {
+      const id = idOf(one)
+      return id === undefined || hidden[id] !== false
+    })
+    if (shown.length !== 1 || typeof column.header !== "string") return column
+    const only = shown[0]
+    const header =
+      typeof only.header === "string"
+        ? `${column.header} ${only.header}`
+        : column.header
+    return { ...only, header }
+  })
 }

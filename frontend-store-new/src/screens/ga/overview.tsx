@@ -88,7 +88,7 @@ function Glance({ site }: { site: string }) {
   )
 
   return gaState(place, {
-    loading: "Asking head office about this shop…",
+    loading: "Loading…",
     render: (hub) => {
       const floor = hub.assets.filter(
         (row) =>
@@ -144,7 +144,7 @@ function Glance({ site }: { site: string }) {
               value={count(ending.length)}
               sub={
                 ending.length === 0
-                  ? "None in its reminder window"
+                  ? "None"
                   : `${contractTypeWords(ending[0].contract_type, ending[0].contract_type_name)} · ${standingOf(ending[0]).label.toLowerCase()}`
               }
               tone={ending.length > 0 ? "warn" : undefined}
@@ -184,7 +184,7 @@ function Glance({ site }: { site: string }) {
                 supplies.isError
                   ? "Could not be read"
                   : onTheWay.length === 0
-                    ? "Nothing asked for"
+                    ? "None"
                     : `${count(onTheWay.filter((row) => row.status === "REQUESTED").length)} waiting for approval`
               }
             />
@@ -201,7 +201,7 @@ function Glance({ site }: { site: string }) {
                 title="Contracts ending soon"
                 icon={CalendarClock}
                 to="/ga/contracts"
-                empty="No contract is inside its reminder window."
+                empty="None ending soon."
                 rows={ending.slice(0, 4).map((row) => ({
                   key: row.contract_id,
                   top: contractTypeWords(
@@ -221,7 +221,7 @@ function Glance({ site }: { site: string }) {
                 icon={Hammer}
                 to="/ga/repairs"
                 problem={repairs.isError ? describeGa(repairs.error) : null}
-                empty="Nothing is waiting to be fixed."
+                empty="Nothing to fix."
                 rows={openRepairs.slice(0, 4).map((row) => ({
                   key: row.repair_id,
                   top: row.title,
@@ -238,7 +238,7 @@ function Glance({ site }: { site: string }) {
                 icon={Wrench}
                 to="/ga/servicing"
                 problem={tasks.isError ? describeGa(tasks.error) : null}
-                empty={`Nothing is due in the next ${SERVICING_HORIZON_DAYS} days.`}
+                empty={`Nothing due in ${SERVICING_HORIZON_DAYS} days.`}
                 rows={coming.slice(0, 4).map((row) => {
                   const due = dueOf(row.next_due)
                   return {
@@ -261,7 +261,7 @@ function Glance({ site }: { site: string }) {
                 icon={Package}
                 to="/ga/supplies"
                 problem={supplies.isError ? describeGa(supplies.error) : null}
-                empty="Nothing asked for is outstanding."
+                empty="Nothing outstanding."
                 rows={onTheWay.slice(0, 4).map((row) => ({
                   key: row.request_id,
                   top: row.item,
@@ -341,8 +341,7 @@ function PlaceCard({ hub }: { hub: GaLocationHub }) {
       <div className="px-4 py-4">
         {place.version === 0 && (
           <p className="mb-4 text-meta text-mute">
-            Head office has not filled in this shop's premises record yet — the
-            address, floor area and contact below are blank until GA does.
+            Not filled in yet.
           </p>
         )}
         <Facts>
@@ -393,7 +392,7 @@ function PlaceCard({ hub }: { hub: GaLocationHub }) {
         </h3>
         {utilities.length === 0 ? (
           <p className="text-meta text-mute">
-            No electricity, water or telephone connection on record.
+            No utilities on record.
           </p>
         ) : (
           <ul>

@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card"
 import { Field, Input } from "@/components/ui/field"
 import { ListTable, type ListColumn } from "@/components/ui/list-table"
 import { Screen } from "@/components/ui/screen"
-import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
+import { Banner, LoadingState } from "@/components/ui/states"
 import { node } from "@/lib/api"
 import { describe } from "@/lib/errors"
 import { moment } from "@/lib/format"
@@ -104,7 +104,7 @@ export function TillApprovals() {
   if (joins.isPending) {
     return (
       <Screen>
-        <LoadingState>Reading tills waiting to join…</LoadingState>
+        <LoadingState>Loading…</LoadingState>
       </Screen>
     )
   }
@@ -120,14 +120,14 @@ export function TillApprovals() {
   const rows = joins.data ?? []
 
   return (
-    <Screen sub="Tills at the counter waiting for a supervisor to let them in.">
+    <Screen>
       <Card>
         <ListTable
           rows={rows}
           columns={columns}
           rowKey={(row) => row.join_id}
           detail={(row) => <JoinDetail join={row} />}
-          empty="Nothing waiting. A new till shows its code here the moment it asks to join."
+          empty="No tills waiting."
         />
       </Card>
     </Screen>
@@ -189,14 +189,14 @@ function JoinDetail({ join }: { join: PendingJoin }) {
         <Banner tone="ok">
           Joined as {approve.data.label}.
           {approve.data.replaced_terminal_id !== null &&
-            " It takes over the till it replaced."}
+            " Replaces the old till."}
         </Banner>
       )}
       {(approve.isError || refuse.isError) && (
         <Banner tone="bad">{describe(approve.error ?? refuse.error)}</Banner>
       )}
 
-      <Field label="Label" hint="Leave blank for the next free “Kasir N”.">
+      <Field label="Label" hint="Optional">
         <Input
           value={label}
           onChange={(event) => setLabel(event.target.value)}

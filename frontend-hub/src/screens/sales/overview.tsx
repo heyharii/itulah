@@ -196,7 +196,7 @@ export function Overview() {
                       No shop has reported a sale to the centre yet.
                     </EmptyState>
                   ) : (
-                    <MiniTable head={["Store", "Tills open", "Takings"]}>
+                    <MiniTable head={["Store", "Tills Open", "Takings"]}>
                       {[...stores]
                         .sort(
                           (a, b) =>

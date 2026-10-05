@@ -2,10 +2,15 @@ import { NumberField } from "@base-ui/react/number-field"
 import { Radio } from "@base-ui/react/radio"
 import { RadioGroup } from "@base-ui/react/radio-group"
 import { Slider } from "@base-ui/react/slider"
-import { Minus, Plus } from "lucide-react"
+import { Minus, Plus, type LucideIcon } from "lucide-react"
 
 import { Input } from "@/components/ui/field"
-import { HAS_INVALID, useFieldAria } from "@/components/ui/field-state"
+import {
+  FORM_HALO_WITHIN,
+  HAS_INVALID,
+  useFieldAria,
+  useInForm,
+} from "@/components/ui/field-state"
 import { cn } from "@/lib/utils"
 
 /// The controls a COMPOSER needs, which are not the controls a record needs.
@@ -38,21 +43,36 @@ import { cn } from "@/lib/utils"
 export function Section({
   title,
   aside,
+  icon: Icon,
   children,
   className,
 }: {
   title: React.ReactNode
   aside?: React.ReactNode
+  /// A 20px icon beside the heading — the same heading a record's detail
+  /// sheet sections wear, so a form and the record it makes read alike.
+  icon?: LucideIcon
   children: React.ReactNode
   className?: string
 }) {
   return (
     <section className={className}>
-      <div className="mb-2.5 flex items-baseline justify-between gap-2 border-b border-hairline pb-1.5">
-        <h4 className="text-card-title font-semibold text-ink">{title}</h4>
-        {aside && <span className="text-[0.875rem] text-mute">{aside}</span>}
-      </div>
-      <div className="flex flex-col gap-3.5">{children}</div>
+      {Icon ? (
+        <div className="mb-6 flex items-center gap-3 border-b border-hairline pb-4">
+          <Icon className="size-5 shrink-0 text-line-ico" strokeWidth={1.7} />
+          <h4 className="flex-1 text-base font-semibold text-ink">{title}</h4>
+          {aside && <span className="text-[0.875rem] text-mute">{aside}</span>}
+        </div>
+      ) : (
+        <div className="mb-3.5 flex items-baseline justify-between gap-2 border-b border-hairline pb-2">
+          <h4 className="text-card-title font-semibold text-ink">{title}</h4>
+          {aside && <span className="text-[0.875rem] text-mute">{aside}</span>}
+        </div>
+      )}
+      {/* 20px between questions since the fields grew to 47px (airy
+          charcoal, 2026-09-28): at 14px a form of tall boxes read as one
+          block rather than as questions one under another. */}
+      <div className="flex flex-col gap-5">{children}</div>
     </section>
   )
 }
@@ -271,6 +291,36 @@ export function Switch({
   )
 }
 
+/// A switch with its words beside it, drawn as a control of a toolbar's own
+/// height and edge — the list screens' way to narrow by a yes/no ("Active
+/// order", "Invoiced only"). Bare on the page, a switch's pale track reads as
+/// nothing at all; inside a bordered box beside the search it reads as one of
+/// the list's controls. The whole box is the target: a `<button>` is
+/// labelable, so a press on the words toggles it once.
+export function SwitchPill({
+  on,
+  label,
+  onToggle,
+  className,
+}: {
+  on: boolean
+  label: string
+  onToggle: () => void
+  className?: string
+}) {
+  return (
+    <label
+      className={cn(
+        "inline-flex h-[2.125rem] shrink-0 cursor-pointer items-center gap-2 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.875rem] whitespace-nowrap text-ink capitalize shadow-soft select-none pointer-coarse:h-11",
+        className
+      )}
+    >
+      <Switch on={on} label={label} onToggle={onToggle} />
+      {label}
+    </label>
+  )
+}
+
 /// A yes/no that changes what the form asks next, as a switch with its reading
 /// beside it.
 ///
@@ -315,7 +365,7 @@ export function Toggle({
         />
       </span>
       <span className="min-w-0">
-        <span className="block text-[0.875rem] font-medium text-ink">
+        <span className="block text-[0.875rem] font-medium text-ink capitalize">
           {label}
         </span>
         <span className="block text-[0.875rem] leading-relaxed text-body">
@@ -364,7 +414,6 @@ export function Dial({
   tick,
   suffix,
   marks,
-  placeholder,
   label,
   disabled,
   invalid,
@@ -384,7 +433,6 @@ export function Dial({
   /// The figures worth one press. The dots say where the values are; these say
   /// which ones somebody actually asks for.
   marks?: readonly number[]
-  placeholder?: string
   label: string
   disabled?: boolean
   /// Refused, outside a `<Field>`. Inside one the field says it — on the typed
@@ -475,7 +523,6 @@ export function Dial({
             value={value}
             inputMode="decimal"
             aria-label={`${label}, typed`}
-            placeholder={placeholder}
             disabled={disabled}
             invalid={invalid}
             onChange={(event) => onChange(event.target.value)}
@@ -532,7 +579,6 @@ export function Stepper({
   min = 0,
   max,
   suffix,
-  placeholder,
   label,
   disabled,
   invalid,
@@ -543,7 +589,6 @@ export function Stepper({
   min?: number
   max?: number
   suffix?: string
-  placeholder?: string
   label: string
   disabled?: boolean
   /// Refused, outside a `<Field>`. Inside one the field says it.
@@ -552,6 +597,7 @@ export function Stepper({
 }) {
   const typed = value.trim() === "" ? null : Number(value)
   const aria = useFieldAria({ invalid, required })
+  const form = useInForm()
 
   return (
     <NumberField.Root
@@ -567,7 +613,14 @@ export function Stepper({
           "has-[input:focus-visible]:border-accent",
           "has-[input:disabled]:opacity-50 has-[input:disabled]:hover:border-transparent has-[input:disabled]:hover:bg-soft-2",
           HAS_INVALID,
-          "has-[[aria-invalid=true]]:has-[input:focus-visible]:border-bad"
+          "has-[[aria-invalid=true]]:has-[input:focus-visible]:border-bad",
+          // On a form it is a form's box like its neighbours — 47px, a
+          // hairline, the halo — not the grey pill it is in a toolbar.
+          form && [
+            "h-[var(--form-box,2.75rem)] rounded-inner border-hairline-2 bg-canvas px-1 hover:border-hairline-strong hover:bg-canvas",
+            "has-[input:disabled]:hover:border-hairline-2 has-[input:disabled]:hover:bg-canvas",
+            FORM_HALO_WITHIN,
+          ]
         )}
       >
         <NumberField.Decrement
@@ -580,7 +633,6 @@ export function Stepper({
           <NumberField.Input
             aria-label={label}
             {...aria}
-            placeholder={placeholder}
             className={cn(
               "w-full bg-transparent text-center text-[0.875rem] text-ink tabular-nums outline-none",
               "placeholder:text-mute"

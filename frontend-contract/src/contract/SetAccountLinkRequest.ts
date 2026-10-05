@@ -12,10 +12,10 @@ export type SetAccountLinkRequest = { role: string,
  */
 source_type: string, source_id: string, 
 /**
- * `ALL`, `SITE_KIND` or `SITE`.
+ * `ALL`, `UNIT_KIND` or `UNIT`.
  */
 scope_type: string, 
 /**
- * `HO`/`STORE` for `SITE_KIND`, a site id for `SITE`, empty for `ALL`.
+ * `HO`/`STORE`/`ONLINE` for `UNIT_KIND`, a unit id for `UNIT`, empty for `ALL`.
  */
 scope_key: string, account_code: string, category_code?: string | null, note?: string | null, };

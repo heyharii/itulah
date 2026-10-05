@@ -31,15 +31,19 @@ export interface Waiting {
   readonly owed: number
   /// Jobs whose labels are not yet confirmed as attached.
   readonly tagging: number
-  /// SKUs still owed, and the pieces behind them.
-  readonly pickLines: number
-  readonly pickUnits: number
-  /// Boxes still open, so still fillable.
-  readonly openBoxes: number
-  /// Sealed boxes nobody has gathered into a consignment yet.
-  readonly looseBoxes: number
-  /// Consignments with no truck, and trucks still on the yard.
-  readonly unshipped: number
+  /// Picklists still to pick — one per allotment × shop, nobody composes one
+  /// (owner, 29 Sep 2026). Picking's own badge.
+  readonly toPick: number
+  /// Shops with something picked and still standing in the pick area, in no
+  /// carton — what Packing still has to gather into one (owner, 29 Sep 2026:
+  /// a packer opens a SHOP, not a picklist).
+  readonly toPack: number
+  /// Sealed cartons on no surat jalan yet, or on one not yet on a trip — what
+  /// Dispatch can still tick into a trip.
+  readonly toDispatch: number
+  /// Trucks loaded the old way and never departed. Not reachable through the
+  /// one-button trip; kept as its own number so nothing is stranded there
+  /// unseen.
   readonly onYard: number
 }
 
@@ -48,11 +52,9 @@ const NOTHING: Waiting = {
   toVerify: 0,
   owed: 0,
   tagging: 0,
-  pickLines: 0,
-  pickUnits: 0,
-  openBoxes: 0,
-  looseBoxes: 0,
-  unshipped: 0,
+  toPick: 0,
+  toPack: 0,
+  toDispatch: 0,
   onYard: 0,
 }
 
@@ -69,7 +71,7 @@ export function useWaiting(): Waiting {
   // Written out rather than mapped over a list: `useQueries` infers one result
   // type per entry, and running the entries through `.map` collapses them into
   // a union that no longer knows which query answered what.
-  const [receipts, verify, owed, tagging, picklist, koli, shipments, yard] =
+  const [receipts, verify, owed, tagging, toPick, picklists, koli, yard] =
     useQueries({
       queries: [
         {
@@ -101,21 +103,23 @@ export function useWaiting(): Waiting {
           enabled: signedIn,
         },
         {
-          queryKey: keys.picklist(),
-          queryFn: ({ signal }: { signal: AbortSignal }) => dc.picklist(signal),
-          refetchInterval: POLL_MS,
-          enabled: signedIn,
-        },
-        {
-          queryKey: keys.koli(),
-          queryFn: ({ signal }: { signal: AbortSignal }) => dc.koli({}, signal),
-          refetchInterval: POLL_MS,
-          enabled: signedIn,
-        },
-        {
-          queryKey: keys.shipments({ unassigned: true }),
+          queryKey: keys.picklistsToPick(),
           queryFn: ({ signal }: { signal: AbortSignal }) =>
-            dc.shipments({ unassigned: true }, signal),
+            dc.picklistsToPick(signal),
+          refetchInterval: POLL_MS,
+          enabled: signedIn,
+        },
+        {
+          queryKey: keys.picklists(),
+          queryFn: ({ signal }: { signal: AbortSignal }) =>
+            dc.picklists(signal),
+          refetchInterval: POLL_MS,
+          enabled: signedIn,
+        },
+        {
+          queryKey: keys.koli({ ready: true }),
+          queryFn: ({ signal }: { signal: AbortSignal }) =>
+            dc.koli({ ready: true }, signal),
           refetchInterval: POLL_MS,
           enabled: signedIn,
         },
@@ -129,8 +133,15 @@ export function useWaiting(): Waiting {
       ],
     })
 
-  const lines = picklist.data ?? []
-  const boxes = koli.data ?? []
+  const rounds = picklists.data ?? []
+  const cartons = koli.data ?? []
+  // Distinct shops with something picked and still waiting to be gathered
+  // into a carton — Packing's own unit of work, a shop at a time.
+  const shopsToPack = new Set(
+    rounds
+      .filter((round) => round.waiting > 0 && round.destination_id !== null)
+      .map((round) => round.destination_id)
+  )
 
   return {
     ...NOTHING,
@@ -140,14 +151,14 @@ export function useWaiting(): Waiting {
     // one order with nine lines owed is one thing to walk over to.
     owed: new Set((owed.data ?? []).map((line) => line.po_number)).size,
     tagging: tagging.data?.length ?? 0,
-    pickLines: lines.length,
-    pickUnits: lines.reduce((total, line) => total + line.outstanding, 0),
-    openBoxes: boxes.filter((box) => box.sealed_at === null).length,
-    // Sealed and unclaimed: the pile a supervisor builds a consignment from.
-    looseBoxes: boxes.filter(
-      (box) => box.sealed_at !== null && box.shipment_id === null
+    toPick: toPick.data?.length ?? 0,
+    toPack: shopsToPack.size,
+    // Sealed and either on no surat jalan yet, or on one still on the dock —
+    // both are cartons a trip can still tick, and both read `PACKED` or
+    // `SHIPMENT` from containment.
+    toDispatch: cartons.filter(
+      (one) => one.position === "PACKED" || one.position === "SHIPMENT"
     ).length,
-    unshipped: shipments.data?.length ?? 0,
     onYard: yard.data?.length ?? 0,
   }
 }

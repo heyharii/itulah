@@ -3,37 +3,37 @@
 /**
  * One entry of a store's Actions menu.
  */
-export type StoreActionOption = {
+export type StoreActionOption = { 
 /**
  * `restart_server`, `resend_initial_data`, `back_up_now`, `diagnose`,
  * `sync_now`, `update_server`, `test_print`, `suspend_device`,
  * `reactivate_device` or `revoke_device`.
  */
-key: string, label: string,
+key: string, label: string, 
 /**
  * `server` or `device`.
  */
-target: "server" | "device",
+target: "server" | "device", 
 /**
  * The device a device action is for; send it back in the request.
  */
-device_id?: string | null, device_label?: string | null,
+device_id?: string | null, device_label?: string | null, 
 /**
  * `TILL`, `PRINTER`, ...
  */
-device_kind?: string | null, enabled: boolean,
+device_kind?: string | null, enabled: boolean, 
 /**
  * Why not, in a sentence, when `enabled` is false.
  */
-reason_disabled?: string | null,
+reason_disabled?: string | null, 
 /**
  * The request must carry `confirm: true`.
  */
-danger: boolean,
+danger: boolean, 
 /**
  * What to ask the person before sending it.
  */
-confirm_sentence: string,
+confirm_sentence: string, 
 /**
  * The request must carry a `note` saying why (suspend, revoke).
  */

@@ -14,13 +14,20 @@ import { useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
-import { Field, Input } from "@/components/ui/field"
+import { SavedDialog } from "@/components/ui/dialog"
+import { Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Section, TotalsLadder } from "@/components/ui/rows"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { day, money } from "@/lib/format"
+import {
+  unitFactor,
+  useUnits,
+  type UnitConversion,
+  type UnitOfMeasure,
+} from "@/lib/queries/units"
 import {
   ingestPoFiles,
   poImportHealth,
@@ -43,6 +50,7 @@ import {
   offsetPoNumber,
   useActor,
 } from "@/screens/procurement/shared"
+import { SupplierName } from "@/screens/procurement/supplier-name"
 import type { PurchaseDestination, Supplier } from "@itulah/contract"
 
 /// Import PO — raise orders from documents instead of from a catalogue walk.
@@ -81,9 +89,18 @@ const HEAD =
 const CELL =
   "border-t border-l border-hairline px-3 py-2 align-middle first:border-l-0"
 
+/// Whether a line printed a unit ("koli") the units master does not
+/// recognise, and therefore still needs the buyer to say what it means
+/// before it can be sent — the server has no way to turn "10 koli" into
+/// pieces on its own, and neither does this screen.
+function needsUnit(line: EditableDraft["lines"][number]): boolean {
+  return (line.unit ?? "").trim() !== "" && line.unit_code === null
+}
+
 /// Whether a draft can become an order AT ALL: no open questions, a supplier
 /// and destination actually picked from the book (a typed name is not an
-/// id — the server refuses the order without one), and every line complete.
+/// id — the server refuses the order without one), and every line complete
+/// AND, where something was printed on the paper, understood.
 /// The Add PO buttons read this, so a half-finished draft cannot be pressed
 /// through by an optimistic UI.
 function isCreatable(draft: EditableDraft): boolean {
@@ -96,9 +113,72 @@ function isCreatable(draft: EditableDraft): boolean {
       (line) =>
         (line.article_name ?? "").trim() !== "" &&
         (line.quantity ?? 0) > 0 &&
-        (line.unit_price_minor ?? 0) > 0
+        (line.unit_price_minor ?? 0) > 0 &&
+        !needsUnit(line)
     )
   )
+}
+
+interface UnitBookLike {
+  readonly units: readonly UnitOfMeasure[]
+  readonly conversions: readonly UnitConversion[]
+  readonly baseUnit: string
+}
+
+/// The unit a line is ordered in: the buyer's own pick, or the base unit
+/// while nothing has been chosen — which is right for a line that printed no
+/// unit at all, and `needsUnit` above is what stops it standing in for a
+/// unit that was printed but never resolved.
+function chosenUnitCode(
+  line: EditableDraft["lines"][number],
+  unitBook: UnitBookLike
+): string {
+  return line.unit_code ?? unitBook.baseUnit
+}
+
+/// What the direct-order route needs for one line — pieces, the unit it was
+/// raised in off the base unit, and the price — mirroring the server's own
+/// check so a refusal here never differs from one there (`ordered_quantity`
+/// must equal `unit_quantity` × the unit's factor).
+///
+/// The printed price is per PRINTED unit ("Rp 240.000 per lusin"), and kept
+/// exactly: `order_unit_price_minor` carries it unchanged, the line totals
+/// the printed quantity times that (0656), and the server derives the
+/// per-piece `unit_price_minor` itself. This screen still works one out —
+/// dividing by the factor and rounding — because the field is not nullable
+/// on the wire, but nothing here depends on that division being exact any
+/// more; the total it used to protect with a "rounded" note is now exact.
+function orderedFields(
+  line: EditableDraft["lines"][number],
+  unitBook: UnitBookLike
+): {
+  readonly ordered_quantity: number
+  readonly unit_price_minor: number
+  readonly unit_code: string | null
+  readonly unit_quantity: string | null
+  readonly order_unit_price_minor: number | null
+} {
+  const qty = line.quantity ?? 0
+  const printedPrice = line.unit_price_minor ?? 0
+  const code = chosenUnitCode(line, unitBook)
+  if (code === unitBook.baseUnit) {
+    return {
+      ordered_quantity: qty,
+      unit_price_minor: printedPrice,
+      unit_code: null,
+      unit_quantity: null,
+      order_unit_price_minor: null,
+    }
+  }
+  const rawFactor = unitFactor(code, unitBook.conversions, unitBook.baseUnit)
+  const factor = rawFactor === null ? 1 : Number(rawFactor)
+  return {
+    ordered_quantity: Math.round(qty * factor * 10_000) / 10_000,
+    unit_price_minor: Math.round(printedPrice / factor),
+    unit_code: code,
+    unit_quantity: String(qty),
+    order_unit_price_minor: printedPrice,
+  }
 }
 
 export function PoImport() {
@@ -391,7 +471,15 @@ function UploadStep({
               >
                 <div className="min-w-0">
                   <div className="truncate text-[0.875rem] text-ink">
-                    {draft.supplier_name ?? "Supplier belum ditentukan"}
+                    {draft.supplier_name === null &&
+                    draft.supplier_id === null ? (
+                      "Supplier belum ditentukan"
+                    ) : (
+                      <SupplierName
+                        code={draft.supplier_id}
+                        name={draft.supplier_name}
+                      />
+                    )}
                     <span className="ml-2 text-body">
                       {draft.lines.length} baris
                     </span>
@@ -654,7 +742,6 @@ function QuestionRow({
     >
       {question.options === "supplier" ? (
         <PickFromBook
-          placeholder="Pilih supplier dari daftar"
           value={value}
           choices={suppliers.map((s) => ({
             value: s.supplier_id,
@@ -664,7 +751,6 @@ function QuestionRow({
         />
       ) : question.options === "destination" ? (
         <PickFromBook
-          placeholder="Pilih tujuan pengiriman"
           value={value}
           choices={destinations.map((d) => ({
             value: d.site_id,
@@ -682,7 +768,6 @@ function QuestionRow({
                 : "text"
           }
           value={value}
-          placeholder={question.prefilled ?? ""}
           onChange={(event) => onChange(event.target.value)}
         />
       )}
@@ -695,12 +780,10 @@ function QuestionRow({
 /// both, because the order needs the id and the summary reads the name.
 function PickFromBook({
   value,
-  placeholder,
   choices,
   onChange,
 }: {
   value: string
-  placeholder: string
   choices: readonly { value: string; label: string }[]
   onChange: (value: string, label?: string | null) => void
 }) {
@@ -730,7 +813,6 @@ function PickFromBook({
       </div>
       <Input
         value={typed}
-        placeholder={placeholder}
         onChange={(event) => {
           setTyped(event.target.value)
           onChange(event.target.value)
@@ -759,6 +841,7 @@ function SummaryStep({
 }) {
   const actor = useActor()
   const client = useQueryClient()
+  const unitBook = useUnits()
   const [created, setCreated] = useState<readonly string[]>([])
   const [failure, setFailure] = useState<string | null>(null)
 
@@ -787,7 +870,7 @@ function SummaryStep({
   }
 
   /// One mutation per press: each PO is its own write, its own failure, its
-  /// own toast. A "create all" that stops at the first refusal would leave
+  /// own receipt. A "create all" that stops at the first refusal would leave
   /// the buyer guessing which of five orders went through.
   const create = useMutation({
     mutationFn: async ({
@@ -806,26 +889,41 @@ function SummaryStep({
         currency: draft.currency || "IDR",
         notes: draft.notes,
         created_by: actor,
-        lines: draft.lines.map((line) => ({
-          article_code:
-            line.article_code ??
-            `IMPORT-${line.line_id.slice(2, 8).toUpperCase()}`,
-          article_name: line.article_name ?? "",
-          ordered_quantity: line.quantity ?? 0,
-          unit_price_minor: line.unit_price_minor ?? 0,
-          image_url: null,
-          division_code: null,
-          tags: [],
-          promised_date: line.promised_date ?? draft.expected_arrival,
-        })),
+        lines: draft.lines.map((line) => {
+          const fields = orderedFields(line, unitBook)
+          return {
+            article_code:
+              line.article_code ??
+              `IMPORT-${line.line_id.slice(2, 8).toUpperCase()}`,
+            article_name: line.article_name ?? "",
+            ordered_quantity: fields.ordered_quantity,
+            unit_price_minor: fields.unit_price_minor,
+            unit_code: fields.unit_code,
+            unit_quantity: fields.unit_quantity,
+            order_unit_price_minor: fields.order_unit_price_minor,
+            image_url: null,
+            division_code: null,
+            tags: [],
+            promised_date: line.promised_date ?? draft.expected_arrival,
+          }
+        }),
       })
       return { receipt, poNumber }
     },
     onSuccess: ({ receipt, poNumber }, { draft }) => {
       setCreated((current) => [...current, draft.draft_id])
-      toast.success(`${receipt.po_number} dibuat`, {
-        description: `${draft.lines.length} baris · tercatat sebagai ${poNumber}.`,
-      })
+      // One press can raise several orders (`Buat N PO`), so the receipt
+      // gathers everything it minted and stays up until it is read (the
+      // owner, 2026-10-04); the next press is the buyer's again once the
+      // dialog is dismissed.
+      setMade((was) => [
+        ...was,
+        {
+          number: receipt.po_number,
+          lines: draft.lines.length,
+          recorded: poNumber,
+        },
+      ])
       void client.invalidateQueries({ queryKey: procurementKeys.orders() })
     },
     onError: (error: Error) => {
@@ -834,6 +932,14 @@ function SummaryStep({
       void client.invalidateQueries({ queryKey: procurementKeys.orders() })
     },
   })
+  /// The orders the presses minted, held in the receipt dialog until read.
+  const [made, setMade] = useState<
+    readonly {
+      readonly number: string
+      readonly lines: number
+      readonly recorded: string
+    }[]
+  >([])
 
   if (drafts.length === 0) {
     return (
@@ -942,6 +1048,26 @@ function SummaryStep({
           </Button>
         </div>
       </Section>
+      <SavedDialog
+        open={made.length > 0}
+        onOpenChange={(next) => {
+          if (!next) setMade([])
+        }}
+        title={
+          made.length === 1 ? (
+            <>{made[0].number} dibuat</>
+          ) : (
+            <>
+              {made.length} PO dibuat ·{" "}
+              {made.map((one) => one.number).join(", ")}
+            </>
+          )
+        }
+      >
+        {made.length === 1
+          ? `${made[0].lines} baris · tercatat sebagai ${made[0].recorded}.`
+          : `${made.reduce((sum, one) => sum + one.lines, 0)} baris · tercatat sebagai ${made.map((one) => one.recorded).join(", ")}.`}
+      </SavedDialog>
     </div>
   )
 }
@@ -961,6 +1087,15 @@ function SummaryDraftCard({
   onFix: () => void
   onChanged: (draft: EditableDraft) => void
 }) {
+  const unitBook = useUnits()
+  /// Units offerable in the "Satuan" picker: the base and every active unit
+  /// whose factor to it is known — the same set an order composed by hand
+  /// offers, so import does not let through a unit ordering elsewhere forbids.
+  const unitChoices = unitBook.units.filter(
+    (one) =>
+      one.active &&
+      unitFactor(one.code, unitBook.conversions, unitBook.baseUnit) !== null
+  )
   const setLine = (
     lineId: string,
     patch: Partial<EditableDraft["lines"][number]>
@@ -981,12 +1116,19 @@ function SummaryDraftCard({
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-hairline px-4 py-3">
         <div className="min-w-0">
           <div className="truncate text-[0.9375rem] font-medium text-ink">
-            {draft.supplier_name ?? "Supplier belum ditentukan"}
+            {draft.supplier_name === null && draft.supplier_id === null ? (
+              "Supplier belum ditentukan"
+            ) : (
+              <SupplierName
+                code={draft.supplier_id}
+                name={draft.supplier_name}
+              />
+            )}
           </div>
           <div className="text-[0.875rem] text-mute">
             {draft.source_files.join(", ")} · {draft.lines.length} baris
             {draft.expected_arrival !== null &&
-              ` · datang ${day(draft.expected_arrival)}`}
+              ` · delivery ${day(draft.expected_arrival)}`}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -1017,7 +1159,7 @@ function SummaryDraftCard({
               ) : (
                 <Plus className="size-4" />
               )}
-              Add PO
+              Submit
             </Button>
           )}
         </div>
@@ -1028,7 +1170,8 @@ function SummaryDraftCard({
           <thead>
             <tr>
               <th className={HEAD}>Barang</th>
-              <th className={`${HEAD} w-[7rem] text-right`}>Qty</th>
+              <th className={`${HEAD} w-[7rem] text-right`}>Quantity</th>
+              <th className={`${HEAD} w-[9rem]`}>Satuan</th>
               <th className={`${HEAD} w-[10rem] text-right`}>Harga</th>
               <th className={`${HEAD} w-[11rem] text-right`}>Jumlah</th>
               <th className={`${HEAD} w-[2.5rem]`} />
@@ -1062,6 +1205,34 @@ function SummaryDraftCard({
                     }
                     className="h-8 border-transparent bg-transparent text-right"
                   />
+                </td>
+                <td className={CELL}>
+                  <Select
+                    aria-label="Satuan"
+                    value={line.unit_code ?? ""}
+                    invalid={needsUnit(line)}
+                    onChange={(unit_code) =>
+                      setLine(line.line_id, { unit_code })
+                    }
+                    className="h-8 border-transparent bg-transparent"
+                  >
+                    {unitChoices.map((unit) => (
+                      <option key={unit.code} value={unit.code}>
+                        {unit.label}
+                      </option>
+                    ))}
+                  </Select>
+                  {needsUnit(line) ? (
+                    <div className="mt-0.5 text-[0.875rem] text-bad">
+                      Satuan "{line.unit}" belum dikenal — pilih satuan
+                    </div>
+                  ) : (
+                    line.unit && (
+                      <div className="mt-0.5 text-[0.875rem] text-mute">
+                        tertulis "{line.unit}"
+                      </div>
+                    )
+                  )}
                 </td>
                 <td className={CELL}>
                   <Input

@@ -283,7 +283,7 @@ function FenceSheet({
         <SheetFooter
           onCancel={onClose}
           onSave={() => save.mutate()}
-          saveLabel="Save circle"
+          saveLabel="Submit"
           pending={save.isPending}
           disabled={
             unit === null ||
@@ -312,7 +312,6 @@ function FenceSheet({
           <Field label="Unit" required>
             <PickOne
               label="Unit"
-              placeholder="Choose a unit…"
               choices={(units.data ?? [])
                 .filter((one) => !taken.has(one.id))
                 .map((one) => ({ value: one.id, label: one.name }))}
@@ -335,7 +334,6 @@ function FenceSheet({
             inputMode="decimal"
             value={latitude}
             onChange={(event) => setLatitude(event.target.value)}
-            placeholder="-6.20000"
           />
         </Field>
         <Field label="Longitude" required>
@@ -343,7 +341,6 @@ function FenceSheet({
             inputMode="decimal"
             value={longitude}
             onChange={(event) => setLongitude(event.target.value)}
-            placeholder="106.80000"
           />
         </Field>
         <Field label="Why" required>

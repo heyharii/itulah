@@ -62,7 +62,6 @@ export function HrInterviews() {
   const [asking, setAsking] = useState(false)
   return (
     <HrWorkspace
-      sub="The shop asks for people and judges candidates at interview. The headcount plan, openings, screening and offers are head office's."
       actions={
         <Button variant="primary" onClick={() => setAsking(true)}>
           <Plus />
@@ -113,12 +112,12 @@ function Recruitment({
 }) {
   const team = useTeam(scope)
   const plans = useQuery({
-    queryKey: hrKeys.plans(scope.id),
-    queryFn: ({ signal }) => staffingPlansAt(scope.id, signal),
+    queryKey: hrKeys.plans(scope.unit_id),
+    queryFn: ({ signal }) => staffingPlansAt(scope.unit_id, signal),
   })
   const proposals = useQuery({
-    queryKey: hrKeys.hires(scope.id),
-    queryFn: ({ signal }) => hireProposalsAt(scope.id, signal),
+    queryKey: hrKeys.hires(scope.unit_id),
+    queryFn: ({ signal }) => hireProposalsAt(scope.unit_id, signal),
   })
 
   // In process: asked for and not yet refused or filled.
@@ -139,7 +138,7 @@ function Recruitment({
     <>
       <Heading>Headcount plan</Heading>
       {centreState(plans, {
-        loading: "Reading the headcount plan…",
+        loading: "Loading…",
         what: "this shop's headcount plan",
         render: (rows) =>
           rows.length === 0 ? (
@@ -188,13 +187,13 @@ function Recruitment({
         This shop's requests
       </Heading>
       {centreState(proposals, {
-        loading: "Reading this shop's requests…",
+        loading: "Loading…",
         what: "this shop's requests for new employees",
         render: (rows) => (
           <PeopleTable
             rows={rows}
             rowKey={(proposal) => proposal.id}
-            empty={`${scope.label} has not asked head office for anybody.`}
+            empty="No requests yet."
             columns={[
               {
                 key: "position",
@@ -208,7 +207,7 @@ function Recruitment({
                           ? "—"
                           : `${version.headcount}× ${version.position}`}
                       </span>
-                      <span className="text-[0.6875rem] text-mute">
+                      <span className="text-meta text-mute">
                         {version?.need === "REPLACEMENT"
                           ? "Replacement"
                           : "Addition"}
@@ -285,7 +284,7 @@ function Interviews({
 }) {
   const applicants = useQuery({
     queryKey: hrKeys.applicants(),
-    queryFn: ({ signal }) => applicantsAt(scope.id, signal),
+    queryFn: ({ signal }) => applicantsAt(scope.unit_id, signal),
   })
   // The candidates still in play, and the ones this shop has already judged.
   const rows = (applicants.data?.rows ?? []).filter((row) =>
@@ -316,16 +315,16 @@ function Interviews({
     <>
       <Heading count={scheduled}>Interviews by the store head</Heading>
       {centreState(applicants, {
-        loading: "Reading the candidates…",
+        loading: "Loading…",
         what: "this shop's candidates",
         render: (queue) => (
           <>
-            <Fenced dropped={queue.elsewhere} place={scope.id} />
+            <Fenced dropped={queue.elsewhere} place={scope.unit_id} />
             <PeopleTable
               rows={rows}
               rowKey={(row) => row.id}
               onRowClick={setOpen}
-              empty={`Head office has sent nobody to ${scope.label} for interview.`}
+              empty="No candidates yet."
               columns={[
                 {
                   key: "who",
@@ -333,7 +332,7 @@ function Interviews({
                   cell: (row) => (
                     <span className="flex flex-col">
                       <span className="font-medium text-ink">{row.name}</span>
-                      <span className="text-[0.6875rem] text-mute">
+                      <span className="text-meta text-mute">
                         {row.source.toLowerCase().replace(/_/g, " ")}
                         {row.referrer_employee_id !== null &&
                           ` · from ${personName(team, row.referrer_employee_id)}`}
@@ -526,7 +525,7 @@ function InterviewSheet({
       })}
 
       {interviews.isPending ? (
-        <p className="text-meta text-body">Reading the interviews…</p>
+        <p className="text-meta text-body">Loading…</p>
       ) : pending !== undefined ? (
         <SheetSection
           title={`Score · ${moment(pending.scheduled_at)} · ${personName(team, pending.interviewer_employee_id)}`}
@@ -556,17 +555,13 @@ function InterviewSheet({
                 onChange={setResult}
               />
             </Field>
-            <Field label="Note" hint="What the conversation showed.">
+            <Field label="Note">
               <Input
                 value={note}
                 placeholder="Good with customers, ready for the afternoon shift"
                 onChange={(event) => setNote(event.target.value)}
               />
             </Field>
-            <p className="text-meta text-mute">
-              The score goes to head office, who decide on an offer. A candidate
-              who does not pass is marked refused.
-            </p>
           </div>
         </SheetSection>
       ) : ["SHORTLIST", "INTERVIEW"].includes(applicant.stage) ? (
@@ -589,7 +584,7 @@ function InterviewSheet({
         </SheetSection>
       ) : (
         <p className="text-meta text-body">
-          This candidate is past interview — the next step is head office's.
+          Past interview.
         </p>
       )}
     </PeopleSheet>
@@ -629,7 +624,7 @@ function AskForSomebody({
   const propose = useMutation({
     mutationFn: () =>
       proposeHire({
-        place: scope.id,
+        place: scope.unit_id,
         position,
         headcount: Number(headcount),
         need,
@@ -641,7 +636,7 @@ function AskForSomebody({
         reason,
       }),
     onSuccess: () => {
-      client.invalidateQueries({ queryKey: hrKeys.hires(scope.id) })
+      client.invalidateQueries({ queryKey: hrKeys.hires(scope.unit_id) })
       onClose()
     },
   })
@@ -654,7 +649,6 @@ function AskForSomebody({
       }}
       crumb="Recruitment"
       title="Request a new employee"
-      sub="Checked by head office against this shop's headcount plan."
       foot={
         <Submit
           label="Send to head office"
@@ -708,7 +702,6 @@ function AskForSomebody({
         </div>
         <Field
           label="Candidate"
-          hint="The person the shop has in mind, or a working name for the opening."
         >
           <Input
             value={candidate}
@@ -749,7 +742,7 @@ function AskForSomebody({
           label="Proposed base pay (Rp)"
           hint={
             payMinor === null || payMinor <= 0
-              ? "Head office checks it against the grade band."
+              ? undefined
               : money(payMinor)
           }
         >
@@ -770,7 +763,6 @@ function AskForSomebody({
         </Field>
         <Field
           label="Store head"
-          hint="A request goes to head office only once the store head has agreed to it."
         >
           <Segmented
             options={[

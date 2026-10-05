@@ -10,5 +10,4 @@ export type GaInspectionPage = { rows: Array<GaInspectionRow>,
  * Opaque. Pass it back as `cursor` for the next page; absent means this
  * was the last one.
  */
-next_cursor: string | null, 
-total: number, facets: GaInspectionFacets, };
+next_cursor: string | null, total: number, facets: GaInspectionFacets, };

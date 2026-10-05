@@ -300,7 +300,6 @@ export function Journal() {
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search"
               className="h-8 w-48"
             />
             <Button variant="primary" onClick={() => setComposing(true)}>
@@ -450,7 +449,6 @@ function EntrySheet({
               rows={2}
               value={reason}
               onChange={(event) => setReason(event.target.value)}
-              placeholder="Why this entry is being reversed"
             />
             <div className="flex items-center justify-between gap-2">
               <span className="text-[0.875rem] text-mute">
@@ -841,7 +839,6 @@ function ComposerSheet({
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(event) => field.handleChange(event.target.value)}
-                  placeholder="Optional"
                 />
               </Field>
             )}
@@ -901,7 +898,6 @@ function ComposerSheet({
                           <Money
                             value={field.state.value}
                             onChange={field.handleChange}
-                            placeholder="0"
                           />
                         </Field>
                       )}
@@ -912,7 +908,6 @@ function ComposerSheet({
                           <Money
                             value={field.state.value}
                             onChange={field.handleChange}
-                            placeholder="0"
                           />
                         </Field>
                       )}

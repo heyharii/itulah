@@ -5,27 +5,27 @@ import type { UnitSite } from "./UnitSite";
 /**
  * One unit as the hub lists it.
  */
-export type UnitView = {
+export type UnitView = { 
 /**
  * Internal. Routes take it; screens show `code` and `name`.
  */
-id: string,
+id: string, 
 /**
  * The client's code: `HO`, `C001` … `C013`.
  */
-code: string, name: string,
+code: string, name: string, 
 /**
  * `HO`, `STORE` or `ONLINE`.
  */
-kind: string,
+kind: string, 
 /**
  * `ACTIVE` or `CLOSED`.
  */
-status: string, sites: Array<UnitSite>,
+status: string, sites: Array<UnitSite>, 
 /**
  * People with an open posting here today.
  */
-headcount: number,
+headcount: number, 
 /**
  * The PIC in charge today — `None` when nobody has been appointed, or when
  * the one appointed is no longer employed or no longer posted here.

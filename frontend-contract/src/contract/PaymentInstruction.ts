@@ -9,7 +9,7 @@ export type PaymentInstruction = { instruction_id: string, instruction_number: s
  * ledger row, and it is never part of an account code.
  *
  * Carried as an id and never as a name: the name of a unit comes from
- * `org_place` through `book_locations`, which is the one place that knows
+ * `unit` through `book_locations`, which is the one place that knows
  * head office is not spelled "DC".
  */
 site_id: string, 
@@ -27,8 +27,8 @@ supplier_id: string | null, supplier_name: string | null,
  */
 purpose: string, 
 /**
- * One of the nine kinds of cost. Resolves to no account here — see
- * `CATEGORIES`.
+ * An expense category open to shops (0465). Resolves to no account here:
+ * the bill head office settles the ask with carries the account.
  */
 category: string, amount_minor: number, currency: string, needed_by: string | null, status: string, 
 /**

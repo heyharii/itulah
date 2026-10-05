@@ -665,7 +665,7 @@ const reportProfitLossRoute = createRoute({
 const reportByLocationRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/finance/reports/by-location",
-  component: () => <UnitResultsScreen title="P&L by Location" />,
+  component: () => <UnitResultsScreen title="P&L by Unit" />,
 })
 
 const reportExpensesRoute = createRoute({

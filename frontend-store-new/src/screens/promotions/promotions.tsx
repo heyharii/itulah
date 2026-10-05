@@ -200,11 +200,11 @@ function PromotionList({ offers }: { offers: StoreOffers }) {
               cashier who stops at "nothing is on" would miss it. */}
           {offers.price_drops.length > 0 && (
             <AppLink
-              to="/promotions/price-drops"
+              to="/promotions/price-changes"
               className="text-meta font-medium text-accent"
             >
               {count(offers.price_drops.length)} price{" "}
-              {offers.price_drops.length === 1 ? "drop is" : "drops are"} on
+              {offers.price_drops.length === 1 ? "change is" : "changes are"} on
               instead
             </AppLink>
           )}
@@ -231,6 +231,7 @@ function PromotionList({ offers }: { offers: StoreOffers }) {
 
       <Card>
         <ListTable
+          roomy
           rows={shown}
           columns={columns}
           rowKey={(offer) => offer.rule_id}
@@ -244,12 +245,6 @@ function PromotionList({ offers }: { offers: StoreOffers }) {
           }
         />
       </Card>
-
-      <p className="mt-3 text-meta text-mute">
-        Decided by the till's own pricing engine, so what is listed is what
-        rings up. An offer leaves this list the minute it ends; the list checks
-        again every minute.
-      </p>
     </>
   )
 }

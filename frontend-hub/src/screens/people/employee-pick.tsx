@@ -34,7 +34,6 @@ export function EmployeePick({
   return (
     <PickOne
       label={label}
-      placeholder={people.isPending ? "Loading…" : "Choose someone…"}
       choices={choices}
       value={value}
       onChange={onChange}

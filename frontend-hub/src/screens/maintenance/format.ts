@@ -212,6 +212,30 @@ export function intervalLabel(kind: string, value: number): string {
   return `every ${count(value)} ${unit}`
 }
 
+/// The next date a task falls due when its service was done on `from` — the
+/// server's `next_due_from`, read the same way: days and months are calendar
+/// arithmetic (a month past 31 January is the last day of February), and a KM
+/// interval has no date at all.
+export function nextDueAfter(
+  kind: string,
+  value: number,
+  from: string
+): string | null {
+  if (value <= 0 || from === "") return null
+  const [year, month, date] = from.split("-").map(Number)
+  if (kind === "DAYS") {
+    const next = new Date(Date.UTC(year, month - 1, date + value))
+    return next.toISOString().slice(0, 10)
+  }
+  if (kind === "MONTHS") {
+    const target = month - 1 + value
+    const last = new Date(Date.UTC(year, target + 1, 0)).getUTCDate()
+    const next = new Date(Date.UTC(year, target, Math.min(date, last)))
+    return next.toISOString().slice(0, 10)
+  }
+  return null
+}
+
 /// A task's own status, read off its next date — the prototype's three
 /// tones: late in bad, inside a week in warn, otherwise the date itself in
 /// quiet. Today is the browser's because the schedule is read against the

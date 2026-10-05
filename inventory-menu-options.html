@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Inventory menu options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@500;600&display=swap" rel="stylesheet" />
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Inventory menu: today, five options, and the research behind them.
+   Look: hub v2 · E Quiet (hub-v2-prototype.html). Inter 14, 36px controls,
+   52px rows, Poppins only for the 28px title and figures. No chips, status is
+   a dot and a word, colour only on exceptions. Nothing below 14px.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --font-ui:"Inter",system-ui,-apple-system,sans-serif;
+  --font-display:"Poppins","Inter",system-ui,sans-serif;
+  --canvas:#f7f8fa; --surface:#fff; --well:#f6f7f9; --side:#f8f9fb;
+  --hairline:#e7eaf0; --rule:#eef0f4; --line-ctl:#d3d8e0;
+  --ink-900:#20242c; --ink-800:#2b313c; --ink-700:#394150; --ink-600:#4a5261; --ink-500:#626b78; --ink-400:#737c89; --ink-300:#aab1bb; --ink-200:#d5dae1;
+  --primary:#2563eb; --primary-ink:#1d4ed8; --primary-soft:#eef4ff;
+  --sel:#eceff3; --sel-subtle:#f8f9fb;
+  --ok:#22a55a; --info:#2563eb; --warn:#d99a2b; --warn-fg:#b45309; --bad:#e25555; --bad-fg:#be123c; --bad-bg:#fcecec;
+  --new:#7c3aed;
+  --h-ctl:36px; --h-row:52px; --h-nav:36px;
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1);
+  --shadow-pop:0 14px 36px -10px rgb(24 39 60/.22),0 2px 6px rgb(24 39 60/.06);
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --canvas:#15171b; --surface:#1c1f24; --well:#23262c; --side:#191b20;
+    --hairline:#2c3038; --rule:#262a31; --line-ctl:#3a3f48;
+    --ink-900:#f1f3f6; --ink-800:#e2e5ea; --ink-700:#c9ced6; --ink-600:#b3b9c3; --ink-500:#9aa1ad; --ink-400:#858d99; --ink-300:#5c636e; --ink-200:#3a3f48;
+    --primary:#4f83f5; --primary-ink:#8cb0ff; --primary-soft:#1d2a44; --sel:#2a2e36; --sel-subtle:#20232a;
+    --warn-fg:#f0b44f; --bad-fg:#ff8a8a; --bad-bg:#3a1f22; --new:#a78bfa;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --canvas:#15171b; --surface:#1c1f24; --well:#23262c; --side:#191b20;
+  --hairline:#2c3038; --rule:#262a31; --line-ctl:#3a3f48;
+  --ink-900:#f1f3f6; --ink-800:#e2e5ea; --ink-700:#c9ced6; --ink-600:#b3b9c3; --ink-500:#9aa1ad; --ink-400:#858d99; --ink-300:#5c636e; --ink-200:#3a3f48;
+  --primary:#4f83f5; --primary-ink:#8cb0ff; --primary-soft:#1d2a44; --sel:#2a2e36; --sel-subtle:#20232a;
+  --warn-fg:#f0b44f; --bad-fg:#ff8a8a; --bad-bg:#3a1f22; --new:#a78bfa;
+  color-scheme:dark;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--canvas)}
+body{font:400 14px/20px var(--font-ui);color:var(--ink-700);-webkit-font-smoothing:antialiased;min-height:100vh}
+button,select,input{font:inherit;color:inherit}
+button{cursor:pointer;background:none;border:0}
+svg.i{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+
+/* ── Prototype bar: which option is on screen ─────────────────────────── */
+.proto{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:16px;padding:10px 20px;background:var(--surface);border-bottom:1px solid var(--hairline)}
+.proto .t{font-weight:600;color:var(--ink-900);white-space:nowrap}
+.proto .t span{color:var(--ink-400);font-weight:400}
+.seg{display:flex;gap:2px;padding:3px;border-radius:10px;background:var(--well);overflow-x:auto;scrollbar-width:none}
+.seg button{height:30px;padding:0 12px;border-radius:8px;color:var(--ink-500);font-weight:500;white-space:nowrap;transition:background-color .2s var(--ease-out),color .2s}
+.seg button:hover{color:var(--ink-900)}
+.seg button[aria-pressed=true]{background:var(--surface);color:var(--ink-900);box-shadow:0 1px 2px rgb(24 39 60/.1),0 0 0 1px var(--hairline)}
+.seg button .star{color:var(--primary)}
+.proto .sp{flex:1}
+.proto .theme{height:30px;padding:0 10px;border-radius:8px;color:var(--ink-500)}
+.proto .theme:hover{background:var(--well);color:var(--ink-900)}
+
+/* ── The hub shell ───────────────────────────────────────────────────── */
+.app{display:grid;grid-template-columns:256px minmax(0,1fr) 340px;min-height:calc(100vh - 51px)}
+.side{background:var(--side);border-right:1px solid var(--hairline);padding:14px 10px;display:flex;flex-direction:column;gap:2px;position:sticky;top:51px;height:calc(100vh - 51px);overflow:auto}
+.chip{display:flex;align-items:center;gap:10px;padding:4px 8px 14px}
+.mark{width:28px;height:28px;border-radius:8px;background:#111114;color:#fff;display:grid;place-items:center;font:600 15px/1 var(--font-display);position:relative}
+.mark::after{content:"";position:absolute;right:5px;bottom:6px;width:5px;height:5px;border-radius:50%;background:#2563eb}
+.chip b{font-weight:600;color:var(--ink-900)}
+.chip small{display:block;font-size:14px;color:var(--ink-400)}
+.row{display:flex;align-items:center;gap:10px;height:var(--h-nav);padding:0 8px;border-radius:9px;color:var(--ink-600);font-weight:500;white-space:nowrap;text-align:left;width:100%;transition:background-color .15s var(--ease-out),color .15s}
+.row:hover{background:var(--well);color:var(--ink-900)}
+.row .i{color:var(--ink-400)}
+.row.dim{color:var(--ink-400)}
+.row.gone{color:var(--ink-300);text-decoration:line-through;text-decoration-color:var(--ink-300)}
+.row.dep{color:var(--ink-900);font-weight:600}
+.row.dep .i{color:var(--ink-900)}
+.row .ct{margin-left:auto;font-weight:500;color:var(--ink-400)}
+.row .ct.bad{color:var(--bad-fg)}
+.subs{position:relative;margin:2px 0 6px 17px;padding-left:12px;border-left:1px solid var(--hairline);display:flex;flex-direction:column;gap:1px}
+.sub{display:flex;align-items:center;gap:8px;min-height:32px;padding:0 10px;border-radius:8px;color:var(--ink-600);text-align:left;width:100%;transition:background-color .15s,color .15s}
+.sub:hover{background:var(--well);color:var(--ink-900)}
+.sub[aria-current]{background:var(--sel);color:var(--ink-900);font-weight:600}
+.sub .ct{margin-left:auto;font-weight:500;color:var(--ink-400)}
+.sub .ct.bad{color:var(--bad-fg)}
+.sub .nw{margin-left:auto;color:var(--new);font-weight:500}
+.grp{padding:10px 10px 2px;color:var(--ink-400);font-weight:500}
+.subs .anim{animation:sub-in .32s var(--ease-out) both}
+@keyframes sub-in{from{opacity:0;transform:translateY(-4px)}}
+
+/* ── Page ─────────────────────────────────────────────────────────────── */
+main{min-width:0;padding:28px 32px 64px}
+.page{animation:page-in .28s var(--ease-out)}
+@keyframes page-in{from{opacity:0;transform:translateY(6px)}}
+.crumb{color:var(--ink-400)}
+.head{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+.head .tx{flex:1;min-width:260px}
+.h1{margin-top:2px;font:600 28px/36px var(--font-display);letter-spacing:-.025em;color:var(--ink-900)}
+.desc{margin-top:4px;color:var(--ink-500);max-width:640px}
+.desc .nwt{color:var(--new);font-weight:500}
+.acts{display:flex;gap:8px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:8px;height:var(--h-ctl);padding:0 14px;border-radius:10px;font-weight:500;white-space:nowrap;transition:background-color .2s,transform .16s var(--ease-out)}
+.btn:active{transform:scale(.98)}
+.btn-g{background:var(--surface);box-shadow:inset 0 0 0 1px var(--line-ctl);color:var(--ink-700)}
+.btn-g:hover{background:var(--well)}
+.btn-g .i{color:var(--ink-400)}
+.btn-p{background:var(--primary);color:#fff;font-weight:600;box-shadow:inset 0 1px 0 rgb(255 255 255/.18),0 0 0 1px rgb(0 0 0/.08)}
+.btn-p:hover{background:var(--primary-ink)}
+:root[data-theme=dark] .btn-p:hover{background:#3b6ee0}
+.figs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;border:1px solid var(--hairline);border-radius:14px;background:var(--surface);margin-bottom:20px}
+.fig{padding:16px 20px}
+.fig+.fig{border-left:1px solid var(--rule)}
+.fig .l{color:var(--ink-500)}
+.fig .v{margin-top:2px;font:600 30px/38px var(--font-display);letter-spacing:-.03em;color:var(--ink-900);font-variant-numeric:tabular-nums}
+.fig .s{color:var(--ink-400)}
+.panel{background:var(--surface);border:1px solid var(--hairline);border-radius:14px;overflow:hidden}
+.bar{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--rule);flex-wrap:wrap}
+.search{flex:1;min-width:180px;display:flex;align-items:center;gap:8px;height:var(--h-ctl);padding:0 12px;border-radius:10px;box-shadow:inset 0 0 0 1px var(--line-ctl);color:var(--ink-400)}
+.search input{border:0;outline:0;background:none;flex:1;min-width:0;color:var(--ink-900)}
+.sel{position:relative;display:inline-flex;align-items:center}
+.sel select{appearance:none;height:var(--h-ctl);padding:0 34px 0 12px;border-radius:10px;border:0;background:var(--surface);box-shadow:inset 0 0 0 1px var(--line-ctl);color:var(--ink-800);font-weight:500;cursor:pointer}
+.sel select:hover{background:var(--well)}
+.sel .i{position:absolute;right:10px;pointer-events:none;color:var(--ink-400);width:16px;height:16px}
+.fcount{display:inline-flex;align-items:center;height:22px;padding:0 7px;border-radius:999px;background:var(--well);color:var(--ink-700);font-weight:600}
+.h2{padding:14px 16px 4px;font-weight:600;color:var(--ink-900);font-size:15px}
+table{width:100%;border-collapse:collapse}
+th{height:40px;padding:0 16px;text-align:left;font-weight:500;color:var(--ink-500);border-bottom:1px solid var(--hairline);white-space:nowrap}
+td{height:var(--h-row);padding:0 16px;border-bottom:1px solid var(--rule);color:var(--ink-700);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+th.n,td.n{text-align:right;font-variant-numeric:tabular-nums}
+tbody tr.link{cursor:pointer}
+tbody tr.link:hover td{background:var(--sel-subtle)}
+.t1{color:var(--ink-900);font-weight:500}
+.t2{color:var(--ink-400)}
+.mono{font-variant-numeric:tabular-nums;color:var(--ink-500)}
+.neg{color:var(--bad-fg);font-weight:600}
+.dot{display:inline-flex;align-items:center;gap:7px;font-weight:500;color:var(--ink-600)}
+.dot::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--ink-300)}
+.dot.ok::before{background:var(--ok)} .dot.info::before{background:var(--info)}
+.dot.warn{color:var(--warn-fg)} .dot.warn::before{background:var(--warn)}
+.dot.bad{color:var(--bad-fg)} .dot.bad::before{background:var(--bad)}
+.go{color:var(--primary-ink);font-weight:500}
+.tw{overflow-x:auto}
+.foot{padding:12px 16px;color:var(--ink-400);border-top:1px solid var(--rule)}
+.list .it{display:flex;align-items:center;gap:14px;min-height:var(--h-row);padding:10px 16px;border-top:1px solid var(--rule)}
+.list .it:first-child{border-top:0}
+.list .it .tx{flex:1;min-width:0}
+.list .it .i{color:var(--ink-400)}
+.two{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:16px}
+.picker{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+.picker .it{border-right:1px solid var(--rule)}
+
+/* ── Stock card sheet ────────────────────────────────────────────────── */
+.scrim{position:fixed;inset:0;background:rgb(247 248 250/.6);z-index:60;opacity:0;pointer-events:none;transition:opacity .25s var(--ease-out)}
+:root[data-theme=dark] .scrim{background:rgb(0 0 0/.45)}
+.sheet{position:fixed;top:12px;right:12px;bottom:12px;width:min(520px,calc(100vw - 24px));background:var(--surface);border:1px solid var(--hairline);border-radius:18px;box-shadow:var(--shadow-pop);z-index:61;transform:translateX(calc(100% + 24px));transition:transform .36s var(--ease-drawer);display:flex;flex-direction:column;overflow:hidden}
+.open .scrim{opacity:1;pointer-events:auto}
+.open .sheet{transform:none}
+.sheet .sh{padding:20px 20px 12px;border-bottom:1px solid var(--rule);display:flex;gap:12px;align-items:flex-start}
+.sheet .sh .tx{flex:1}
+.sheet .sh .h1{font-size:22px;line-height:30px}
+.sheet .x{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;color:var(--ink-500)}
+.sheet .x:hover{background:var(--well)}
+.sheet .sb{overflow:auto;padding:4px 0 20px}
+.sheet .h2{padding:18px 20px 6px}
+.sheet td,.sheet th{padding:0 20px}
+
+/* ── Right column: what this option is ───────────────────────────────── */
+.about{border-left:1px solid var(--hairline);background:var(--surface);padding:24px 20px 48px;position:sticky;top:51px;height:calc(100vh - 51px);overflow:auto}
+.about .k{color:var(--ink-400)}
+.about h3{margin-top:2px;font:600 20px/28px var(--font-display);color:var(--ink-900);letter-spacing:-.015em}
+.about p{margin-top:8px;color:var(--ink-600)}
+.about .meta{display:flex;gap:16px;margin-top:14px;padding:12px 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.about .meta div{flex:1}
+.about .meta b{display:block;font:600 22px/28px var(--font-display);color:var(--ink-900)}
+.about .meta span{color:var(--ink-500)}
+.about h4{margin-top:20px;font-weight:600;color:var(--ink-900)}
+.map{margin-top:6px;display:flex;flex-direction:column}
+.map div{display:grid;grid-template-columns:1fr 16px 1fr;gap:6px;padding:6px 0;border-bottom:1px solid var(--rule);align-items:start}
+.map .a{color:var(--ink-500)}
+.map .b{color:var(--ink-900);font-weight:500}
+.map .ar{color:var(--ink-300)}
+.pc{margin-top:6px;padding-left:18px;color:var(--ink-600)}
+.pc li{margin-top:4px}
+.rec{margin-top:14px;padding:12px 14px;border-radius:12px;background:var(--primary-soft);color:var(--ink-800)}
+.rec b{color:var(--primary-ink)}
+
+/* ── Research page ───────────────────────────────────────────────────── */
+.research{max-width:1100px;margin:0 auto;padding:32px 24px 72px}
+.research .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:20px}
+.research .card{background:var(--surface);border:1px solid var(--hairline);border-radius:14px;padding:16px 18px}
+.research .card h3{font-weight:600;color:var(--ink-900);font-size:15px}
+.research .card .pat{color:var(--ink-400)}
+.research .card .rows{margin-top:8px;color:var(--ink-700)}
+.research .card .rows b{font-weight:600;color:var(--ink-900)}
+.research .card .why{margin-top:8px;color:var(--ink-500)}
+.research .card a{color:var(--primary-ink);text-decoration:none}
+.research .card .v{color:var(--ink-400)}
+.research table{margin-top:10px}
+.research .panel{margin-top:20px}
+
+@media (max-width:1280px){
+  .app{grid-template-columns:232px minmax(0,1fr)}
+  .about{grid-column:2;position:static;height:auto;border-left:0;border-top:1px solid var(--hairline);padding:24px 32px 48px}
+}
+@media (max-width:860px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--hairline)}
+  .side .row:not(.dep){display:none}
+  main{padding:20px 16px 48px}
+  .about{grid-column:1;padding:20px 16px 40px}
+  .figs{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .fig:nth-child(3){border-left:0}
+  .fig:nth-child(n+3){border-top:1px solid var(--rule)}
+  .two,.picker,.research .grid{grid-template-columns:minmax(0,1fr)}
+  .proto{padding:10px 16px;gap:10px}
+  .proto .t span,.proto .theme{display:none}
+  .research{padding:24px 16px 56px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="t">Inventory menu <span>· prototype</span></div>
+  <div class="seg" id="seg" role="group" aria-label="Option"></div>
+  <div class="sp"></div>
+  <button class="theme" id="theme" title="Light / dark">◐</button>
+</div>
+<div id="root"></div>
+<div id="sheetwrap"><div class="scrim" data-close></div><aside class="sheet" id="sheet" aria-label="Stock card"></aside></div>
+
+<script>
+/* ───────────────────────── icons (lucide-ish, inline) ───────────────── */
+const I = {
+  home:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
+  shirt:'<path d="M8 3 3 6l2 5 2-1v11h10V10l2 1 2-5-5-3a4 4 0 0 1-8 0z"/>',
+  box:'<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  truck:'<path d="M2 6h12v10H2zM14 9h4l4 4v3h-8"/><circle cx="6.5" cy="17.5" r="1.8"/><circle cx="17.5" cy="17.5" r="1.8"/>',
+  cart:'<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.2a1.5 1.5 0 0 0 1.5 1.3h8.6a1.5 1.5 0 0 0 1.5-1.2L21 8H6"/>',
+  store:'<path d="M3 9 4.5 4h15L21 9M3 9v11h18V9M3 9h18M9 20v-6h6v6"/>',
+  receipt:'<path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
+  forklift:'<path d="M4 17V7h6l3 5v5M13 12h4V4M17 17h4"/><circle cx="6" cy="18" r="2"/><circle cx="12" cy="18" r="2"/>',
+  users:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2 .8 3.5 3 3.5 6"/>',
+  wallet:'<path d="M3 7a2 2 0 0 1 2-2h13v4"/><path d="M3 7v11a2 2 0 0 0 2 2h15V9H5a2 2 0 0 1-2-2z"/><circle cx="16" cy="14.5" r="1"/>',
+  person:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  cog:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  split:'<path d="M16 3h5v5M8 3H3v5M21 3l-7 7M3 3l7 7M12 14v7"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  filter:'<path d="M3 5h18M6 12h12M10 19h4"/>',
+  chev:'<path d="m6 9 6 6 6-6"/>',
+  x:'<path d="M18 6 6 18M6 6l12 12"/>',
+  alert:'<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>',
+  count:'<path d="M9 4h6v3H9z"/><path d="M8 5H5v16h14V5h-3"/><path d="m9 14 2 2 4-4"/>',
+  swap:'<path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/>',
+  ruler:'<path d="M3 17 17 3l4 4L7 21z"/><path d="m7 13 2 2M10 10l2 2M13 7l2 2"/>',
+  flow:'<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M9 6h5a3 3 0 0 1 3 3v6"/>',
+  pin:'<path d="M12 21s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/>',
+  pulse:'<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  radio:'<circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19 5a10 10 0 0 1 0 14M5 19A10 10 0 0 1 5 5"/>',
+  chart:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  up:'<path d="M12 19V5M5 12l7-7 7 7"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  more:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+}
+const ic = (n, cls = "i") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${I[n] || ""}</svg>`
+const nf = new Intl.NumberFormat("id-ID")
+const n = (v) => nf.format(v)
+const sg = (v) => (v > 0 ? "+" : v < 0 ? "−" : "") + nf.format(Math.abs(v))
+
+/* ───────────────────────── sample data ──────────────────────────────── */
+const ART = [
+  {c:"11020341", a:"Sneaker Arka Low", d:"Footwear", g:412, s:1286, t:96, al:120, cnt:"12 Sep"},
+  {c:"11020377", a:"Loafer Senja", d:"Footwear", g:88, s:640, t:40, al:132, cnt:"12 Sep"},
+  {c:"11040112", a:"Sandal Rinjani", d:"Footwear", g:1204, s:2210, t:0, al:300, cnt:"19 Sep"},
+  {c:"21010208", a:"Kemeja Linen Bara", d:"Apparel", g:356, s:918, t:72, al:96, cnt:"05 Sep"},
+  {c:"21030044", a:"Kaos Oversize Nara", d:"Apparel", g:2140, s:3302, t:240, al:480, cnt:"19 Sep"},
+  {c:"21050019", a:"Celana Chino Laras", d:"Apparel", g:64, s:512, t:24, al:90, cnt:"—"},
+  {c:"21070031", a:"Jaket Denim Kala", d:"Apparel", g:230, s:388, t:12, al:40, cnt:"28 Aug"},
+  {c:"31010007", a:"Tote Kanvas Rupa", d:"Accessories", g:780, s:1046, t:60, al:120, cnt:"19 Sep"},
+]
+const STORES = [
+  {s:"Kemang", h:3120, sold:412, inb:180, cnt:"21 Sep", sync:"2 min ago", ok:true},
+  {s:"Senopati", h:2480, sold:388, inb:96, cnt:"14 Sep", sync:"1 min ago", ok:true},
+  {s:"PIK Avenue", h:2915, sold:451, inb:240, cnt:"21 Sep", sync:"4 min ago", ok:true},
+  {s:"Bintaro Xchange", h:1870, sold:233, inb:0, cnt:"02 Sep", sync:"3 h ago", ok:false},
+  {s:"Bandung Dago", h:2060, sold:301, inb:120, cnt:"19 Sep", sync:"1 min ago", ok:true},
+  {s:"Surabaya Galaxy", h:1857, sold:276, inb:88, cnt:"07 Sep", sync:"6 min ago", ok:true},
+]
+const GUDANG = [
+  {p:"Unidentified", h:88, al:0, m:0, cnt:"—", note:"waiting for item setup"},
+  {p:"Warehouse", h:4180, al:980, m:6, cnt:"19 Sep"},
+  {p:"Pick area", h:612, al:358, m:0, cnt:"26 Sep"},
+  {p:"Picked", h:140, al:140, m:0, cnt:"—"},
+  {p:"Packed", h:212, al:212, m:2, cnt:"—"},
+  {p:"Returns to inspect", h:74, al:0, m:0, cnt:"—"},
+  {p:"Reject", h:31, al:0, m:0, cnt:"01 Sep"},
+]
+const TRANSIT = [
+  {sj:"SJ-280926-004", r:"Gudang → Kemang", k:6, pc:180, left:"28 Sep 09:40", st:"On the road", cls:"info"},
+  {sj:"SJ-280926-002", r:"Gudang → PIK Avenue", k:8, pc:240, left:"28 Sep 08:15", st:"On the road", cls:"info"},
+  {sj:"SJ-270926-011", r:"Gudang → Bandung Dago", k:4, pc:120, left:"27 Sep 16:02", st:"Received · 2 short", cls:"warn"},
+  {sj:"SJ-270926-009", r:"Senopati → Gudang", k:2, pc:46, left:"27 Sep 11:30", st:"On the road", cls:"info"},
+  {sj:"SJ-260926-014", r:"Gudang → Surabaya Galaxy", k:3, pc:88, left:"26 Sep 17:45", st:"Store says 1 extra", cls:"bad"},
+]
+const ISSUES = [
+  {k:"Missing", w:"Loafer Senja · 42", at:"Senopati", q:3, age:"16 days", nx:"Write off or found", cls:"bad"},
+  {k:"Delivery dispute", w:"SJ-260926-014 · 1 tag the store says it got", at:"Surabaya Galaxy", q:1, age:"2 days", nx:"Check the SJ", cls:"bad"},
+  {k:"Over-promised", w:"Celana Chino Laras · 31", at:"Gudang", q:26, age:"today", nx:"Cut the allotment", cls:"warn"},
+  {k:"Count to approve", w:"Cycle count · Warehouse rack C", at:"Gudang", q:-4, age:"1 day", nx:"Approve", cls:"warn"},
+  {k:"Reader mismatch", w:"Kaos Oversize Nara · M · 7 tags", at:"PIK Avenue", q:7, age:"3 h", nx:"Correct the place", cls:""},
+  {k:"Delivery dispute", w:"SJ-270926-011 · 2 tags not received", at:"Bandung Dago", q:2, age:"1 day", nx:"Check the SJ", cls:"warn"},
+  {k:"Missing", w:"Sneaker Arka Low · 40", at:"Gudang · Packed", q:2, age:"5 h", nx:"Look again", cls:""},
+  {k:"Store not syncing", w:"Store server last heard 3 h ago", at:"Bintaro Xchange", q:0, age:"3 h", nx:"Open the store", cls:"warn"},
+]
+const COUNTS = [
+  {id:"CNT-0931", w:"Gudang · Warehouse rack C", k:"Cycle count", st:"In review", cls:"warn", e:420, f:416, o:"27 Sep"},
+  {id:"CNT-0930", w:"PIK Avenue", k:"RFID sweep", st:"Counting", cls:"info", e:2915, f:null, o:"28 Sep"},
+  {id:"CNT-0929", w:"Kemang", k:"Full count", st:"Closed", cls:"", e:3108, f:3120, o:"21 Sep"},
+  {id:"CNT-0928", w:"Bandung Dago", k:"RFID sweep", st:"Closed", cls:"", e:2071, f:2060, o:"19 Sep"},
+  {id:"CNT-0927", w:"Gudang · Pick area", k:"Cycle count", st:"Closed", cls:"", e:612, f:612, o:"26 Sep"},
+  {id:"CNT-0926", w:"Bintaro Xchange", k:"Full count", st:"Draft", cls:"", e:null, f:null, o:"—"},
+]
+const MOVES = [
+  {t:"28 Sep 14:02", a:"Sale", r:"Kemang · on hand → sold", sku:"11020341-41", q:-1, by:"POS Kemang 2"},
+  {t:"28 Sep 13:55", a:"Pick", r:"Gudang · warehouse → picked", sku:"21030044-03", q:24, by:"Dewi (picker)"},
+  {t:"28 Sep 13:41", a:"Receive", r:"In transit → PIK Avenue", sku:"21010208-02", q:12, by:"Store PIK"},
+  {t:"28 Sep 13:20", a:"Missing", r:"Gudang · packed → missing", sku:"11020341-40", q:2, by:"Pack bench 1"},
+  {t:"28 Sep 12:58", a:"Return", r:"Senopati → Gudang returns", sku:"11020377-42", q:4, by:"Store Senopati"},
+  {t:"28 Sep 12:31", a:"Count", r:"Rack C · counted → on hand", sku:"21070031-04", q:-4, by:"Rina (inventory)"},
+  {t:"28 Sep 11:47", a:"Put away", r:"Unidentified → warehouse", sku:"31010007-00", q:120, by:"Tag station"},
+]
+const TODAY_POOLS = [
+  {p:"dc.pending.unidentified", h:88, al:0, m:0, src:"Cloud"},
+  {p:"dc.warehouse", h:4180, al:980, m:6, src:"Cloud"},
+  {p:"dc.pick", h:612, al:358, m:0, src:"Cloud"},
+  {p:"dc.outbound.picked.store-01", h:40, al:40, m:0, src:"Cloud"},
+  {p:"dc.outbound.packed.store-03", h:212, al:212, m:2, src:"Cloud"},
+  {p:"store-01.on_hand", h:3120, al:0, m:0, src:"Edge · Kemang"},
+  {p:"store-04.on_hand", h:1870, al:0, m:3, src:"Edge · Bintaro"},
+]
+
+/* ───────────────────────── pages ────────────────────────────────────── */
+const sel = (id, opts, cur) => `<label class="sel">${ic("chev")}<select data-view="${id}" aria-label="View">${opts.map(o => `<option${o === cur ? " selected" : ""}>${o}</option>`).join("")}</select></label>`
+const search = (ph) => `<label class="search">${ic("search")}<input placeholder="${ph}" /></label>`
+const filterBtn = (c) => `<button class="btn btn-g">${ic("filter")}Filter${c ? ` <span class="fcount">${c}</span>` : ""}</button>`
+const head = (crumb, title, desc, acts = "") => `<div class="head"><div class="tx"><div class="crumb">${crumb}</div><h1 class="h1">${title}</h1><p class="desc">${desc}</p></div><div class="acts">${acts}</div></div>`
+const table = (cols, rows, rowAttr = () => "") => `<div class="tw"><table><thead><tr>${cols.map(c => `<th class="${c.n ? "n" : ""}">${c.h}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr ${rowAttr(r)}>${cols.map(c => `<td class="${c.n ? "n" : ""}">${c.v(r)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
+const dot = (t, cls = "") => `<span class="dot ${cls}">${t}</span>`
+const two = (a, b) => `<div class="t1">${a}</div>${b ? `<div class="t2">${b}</div>` : ""}`
+const figs = (items) => `<div class="figs">${items.map(([l, v, s]) => `<div class="fig"><div class="l">${l}</div><div class="v">${v}</div>${s ? `<div class="s">${s}</div>` : ""}</div>`).join("")}</div>`
+
+const totals = () => {
+  const g = GUDANG.reduce((a, r) => a + r.h, 0), s = STORES.reduce((a, r) => a + r.h, 0), t = TRANSIT.reduce((a, r) => a + r.pc, 0)
+  return {g, s, t, all: g + s + t}
+}
+
+const stockViews = ["By article", "By store", "By place in the Gudang"]
+function stockBody(view, opt) {
+  if (view === "By store") return table([
+    {h:"Store", v:r => two(r.s)}, {h:"On hand", n:1, v:r => n(r.h)}, {h:"Sold, 7 days", n:1, v:r => n(r.sold)},
+    {h:"On its way", n:1, v:r => r.inb ? n(r.inb) : `<span class="t2">—</span>`}, {h:"Last counted", v:r => r.cnt},
+    {h:"Store server", v:r => r.ok ? `<span class="t2">${r.sync}</span>` : dot(r.sync, "warn")},
+  ], STORES, () => `class="link"`)
+  if (view === "By place in the Gudang") return table([
+    {h:"Place", v:r => two(r.p, r.note)}, {h:"On hand", n:1, v:r => n(r.h)}, {h:"Allotted", n:1, v:r => r.al ? n(r.al) : "—"},
+    {h:"Missing", n:1, v:r => r.m ? `<span class="neg">${r.m}</span>` : "—"}, {h:"Last counted", v:r => r.cnt},
+  ], GUDANG, () => `class="link"`)
+  return table([
+    {h:"Article", v:r => two(r.a, `${r.c} · ${r.d}`)},
+    {h:"Gudang", n:1, v:r => n(r.g)}, {h:"Stores", n:1, v:r => n(r.s)}, {h:"On its way", n:1, v:r => r.t ? n(r.t) : "—"},
+    {h:"Allotted", n:1, v:r => n(r.al)},
+    {h:"Free at Gudang", n:1, v:r => r.g - r.al < 0 ? `<span class="neg">${sg(r.g - r.al)}</span>` : n(r.g - r.al)},
+    {h:"Last counted", v:r => r.cnt},
+  ], ART, r => `class="link" data-card="${r.c}"`)
+}
+const stockPage = (ctx) => {
+  const t = totals(), v = ctx.view.stock || stockViews[0]
+  const views = ctx.opt === "a" ? [...stockViews, "Needs attention"] : stockViews
+  const body = v === "Needs attention" ? issuesTable(ISSUES) : stockBody(v)
+  return head("Inventory", "Stock", ctx.opt === "a"
+      ? "Everything the business holds. Open an article for its stock card: where every piece is and every movement behind it."
+      : "What the business holds, per article, per store, or per place in the Gudang.",
+      `<button class="btn btn-g">${ic("clock")}Now</button><button class="btn btn-g">Show in PCS</button>`)
+    + (ctx.opt === "b" || ctx.opt === "d" ? "" : figs([["Stock", n(t.all), "pieces"], ["At the Gudang", n(t.g)], ["In stores", n(t.s)], ["On its way", n(t.t)]]))
+    + `<div class="panel"><div class="bar">${search("Search article, SKU or tag")}${sel("stock", views, v)}${filterBtn(0)}</div>${body}<div class="foot">Click an article for its stock card.</div></div>`
+}
+
+const issueKinds = ["All issues", "Missing", "Delivery disputes", "Reader mismatches", "Over-promised", "Counts to approve"]
+const kindMatch = {"Missing":"Missing", "Delivery disputes":"Delivery dispute", "Reader mismatches":"Reader mismatch", "Over-promised":"Over-promised", "Counts to approve":"Count to approve"}
+const issuesTable = (rows) => table([
+  {h:"What", v:r => two(r.w, r.k)}, {h:"Where", v:r => r.at}, {h:"Pieces", n:1, v:r => r.q ? n(Math.abs(r.q)) : "—"},
+  {h:"For", v:r => r.cls ? dot(r.age, r.cls) : `<span class="t2">${r.age}</span>`}, {h:"", v:r => `<button class="go">${r.nx}</button>`},
+], rows, () => `class="link"`)
+const issuesPage = (ctx) => {
+  const v = ctx.view.issues || issueKinds[0]
+  const rows = v === issueKinds[0] ? ISSUES : ISSUES.filter(r => r.k === kindMatch[v])
+  return head("Inventory", "Issues", "Stock the books and the floor disagree on. Each row leaves the list when somebody answers it.")
+    + `<div class="panel"><div class="bar">${search("Search issues")}${sel("issues", issueKinds, v)}${filterBtn(0)}</div>${issuesTable(rows)}</div>`
+}
+
+const overviewPage = (ctx) => {
+  const t = totals()
+  return head("Inventory", "Overview", "The numbers, and everything that needs somebody. Nothing else.",
+      `<button class="btn btn-p">${ic("count", "i")}Start a count</button>`)
+    + figs([["Stock", n(t.all), "pieces"], ["At the Gudang", n(t.g)], ["In stores", n(t.s)], ["On its way", n(t.t), "5 surat jalan"]])
+    + `<div class="panel"><div class="bar"><div class="h2" style="padding:0 4px;flex:1">Needs someone <span class="t2" style="font-weight:400">· ${ISSUES.length}</span></div>${sel("ov", issueKinds, ctx.view.ov || issueKinds[0])}</div>${issuesTable(ctx.view.ov && ctx.view.ov !== issueKinds[0] ? ISSUES.filter(r => r.k === kindMatch[ctx.view.ov]) : ISSUES)}</div>`
+}
+
+const countViews = ["Open", "In review", "Closed", "All counts"]
+const countsPage = (ctx) => {
+  const v = ctx.view.counts || "All counts"
+  const rows = v === "All counts" ? COUNTS : v === "Open" ? COUNTS.filter(r => ["Counting", "Draft"].includes(r.st)) : COUNTS.filter(r => r.st === v)
+  return head("Inventory", "Counts", "Stock opname, cycle counts and RFID sweeps. The only thing allowed to tell the books they are wrong.",
+      `<button class="btn btn-p">${ic("plus")}New count</button>`)
+    + `<div class="panel"><div class="bar">${search("Search counts")}${sel("counts", countViews, v)}${filterBtn(0)}</div>${table([
+      {h:"Count", v:r => two(r.id, r.w)}, {h:"Kind", v:r => r.k},
+      {h:"Status", v:r => r.cls ? dot(r.st, r.cls) : `<span class="t2">${r.st}</span>`},
+      {h:"Expected", n:1, v:r => r.e == null ? "—" : n(r.e)}, {h:"Found", n:1, v:r => r.f == null ? "—" : n(r.f)},
+      {h:"Difference", n:1, v:r => r.f == null ? "—" : r.f - r.e ? `<span class="${r.f - r.e < 0 ? "neg" : ""}">${sg(r.f - r.e)}</span>` : "0"},
+      {h:"Opened", v:r => r.o},
+    ], rows, () => `class="link"`)}</div>`
+}
+
+const moveViews = ["All movements", "Sales", "Goods in", "Goods out", "Corrections"]
+const movementsPage = (ctx, title = "Movements", desc = "The ledger itself: every posting that moved a piece, newest first. Where you go when a number is wrong.") =>
+  head("Inventory", title, desc, `<button class="btn btn-g">${ic("up")}Export</button>`)
+  + `<div class="panel"><div class="bar">${search("Search SKU, tag or document")}${sel("mv", moveViews, ctx.view.mv || moveViews[0])}${filterBtn(1)}</div>${table([
+    {h:"When", v:r => `<span class="mono">${r.t}</span>`}, {h:"What", v:r => r.a}, {h:"From → to", v:r => r.r},
+    {h:"SKU", v:r => `<span class="mono">${r.sku}</span>`}, {h:"Pieces", n:1, v:r => sg(r.q)}, {h:"By", v:r => `<span class="t2">${r.by}</span>`},
+  ], MOVES)}</div>`
+
+const SETUP = [
+  ["ruler", "Units & conversions", "PCS, LUSIN, KODI and how many pieces each is", "Today a menu row"],
+  ["flow", "Goods flows", "The stages each route of goods runs, and who does them", "Today a menu row"],
+  ["pin", "Places & pools", "The shelves, stages and stores stock can stand in", "Today hidden (Pools)"],
+  ["radio", "Readers & sightings", "Handhelds, arches, and the raw log of what they read", "Today a menu row (Observations)"],
+  ["pulse", "Ledger health", "Replay, repost, as-of and the time machine, for support", "Today hidden (Control, Time machine, As of)"],
+]
+const setupPage = (ctx, items = SETUP) => head("Inventory", "Setup", "Set once, changed rarely. Nothing here is daily work.")
+  + `<div class="panel list">${items.map(([i, t, d, was]) => `<button class="it" style="width:100%;text-align:left">${ic(i)}<div class="tx">${two(t, d)}</div><span class="t2">${was}</span>${ic("chev", "i")}</button>`).join("")}</div>`
+
+const replenishPage = () => head("Inventory", "Replenish", `<span class="nwt">New.</span> What each store should get next, from its minimum and maximum. On the ERPNext gap list (min/max reorder, projected quantity).`,
+    `<button class="btn btn-p">Make allotment</button>`)
+  + `<div class="panel"><div class="bar">${search("Search article or store")}${sel("rp", ["Below minimum", "All rules"], "Below minimum")}${filterBtn(0)}</div>${table([
+    {h:"Article", v:r => two(r[0], r[1])}, {h:"Store", v:r => r[2]}, {h:"On hand", n:1, v:r => r[3]},
+    {h:"Min", n:1, v:r => r[4]}, {h:"Max", n:1, v:r => r[5]}, {h:"Suggest", n:1, v:r => `<b class="t1">${r[5] - r[3]}</b>`}, {h:"Free at Gudang", n:1, v:r => r[6] < 0 ? `<span class="neg">${sg(r[6])}</span>` : n(r[6])},
+  ], [
+    ["Sneaker Arka Low", "size 41", "Kemang", 2, 6, 12, 292], ["Kaos Oversize Nara", "M", "Senopati", 8, 20, 40, 1660],
+    ["Loafer Senja", "size 42", "PIK Avenue", 1, 4, 8, -44], ["Kemeja Linen Bara", "L", "Bandung Dago", 3, 6, 14, 260],
+  ])}</div>`
+
+const allotmentsPage = () => head("Inventory", "Allotments", "Goods promised to stores, and how far each got. Moved here from its own sidebar row.", `<button class="btn btn-p">${ic("plus")}New allotment</button>`)
+  + `<div class="panel"><div class="bar">${search("Search allotments")}${sel("al", ["Not yet received", "All allotments"], "Not yet received")}${filterBtn(0)}</div>${table([
+    {h:"Allotment", v:r => two(r[0], r[1])}, {h:"Pieces", n:1, v:r => n(r[2])}, {h:"Stage", v:r => r[4] ? dot(r[3], r[4]) : `<span class="t2">${r[3]}</span>`}, {h:"Made", v:r => r[5]},
+  ], [
+    ["ALT-280926-03", "Kemang · 14 articles", 180, "On the road", "info", "27 Sep"], ["ALT-280926-02", "PIK Avenue · 22 articles", 240, "On the road", "info", "27 Sep"],
+    ["ALT-280926-01", "Senopati · 9 articles", 96, "Picking", "", "28 Sep"], ["ALT-270926-07", "Surabaya Galaxy · 6 articles", 90, "Short: Chino 31 over-promised", "warn", "27 Sep"],
+  ])}</div>`
+
+const transferKinds = ["All transfers", "Store → store", "Store → Gudang (returns)", "Gudang → supplier (returns)"]
+const transfersPage = (ctx) => head("Inventory", "Transfers & returns", "Goods moving between our own places that no allotment asked for, and goods going back to a supplier.", `<button class="btn btn-p">${ic("plus")}New transfer</button>`)
+  + `<div class="panel"><div class="bar">${search("Search transfers")}${sel("tr", transferKinds, ctx.view.tr || transferKinds[0])}${filterBtn(0)}</div>${table([
+    {h:"Transfer", v:r => two(r[0], r[1])}, {h:"Pieces", n:1, v:r => r[2]}, {h:"Stage", v:r => r[4] ? dot(r[3], r[4]) : `<span class="t2">${r[3]}</span>`}, {h:"Made", v:r => r[5]},
+  ], [
+    ["TRF-0212", "Senopati → Gudang · return", 46, "On the road", "info", "27 Sep"], ["TRF-0211", "Kemang → PIK Avenue", 12, "Received", "", "25 Sep"],
+    ["RTS-0038", "Gudang → Sepatu Sejahtera, CV · reject", 31, "Waiting for pickup", "warn", "24 Sep"],
+  ])}</div>`
+
+const gudangPage = (ctx) => head("Inventory", "Gudang", "Every place in the Gudang, from the bay to the truck.", `<button class="btn btn-g">${ic("count")}Count a place</button>`)
+  + figs([["On hand", n(totals().g)], ["Allotted", n(GUDANG.reduce((a, r) => a + r.al, 0))], ["Missing", "8"], ["Waiting for setup", "88"]])
+  + `<div class="panel"><div class="bar">${search("Search article, SKU or tag")}${sel("gd", ["By place", "By article"], ctx.view.gd || "By place")}${filterBtn(0)}</div>${ctx.view.gd === "By article" ? stockBody("By article") : stockBody("By place in the Gudang")}</div>`
+const storesPage = () => head("Inventory", "Stores", "Stock in each store, what it sold, and whether its server is talking to us.")
+  + `<div class="panel"><div class="bar">${search("Search store or article")}${sel("st", ["All stores", "Needs a count"], "All stores")}${filterBtn(0)}</div>${stockBody("By store")}</div>`
+const transitPage = () => head("Inventory", "In transit", "Every surat jalan that has left and not been fully signed for, and what each end says.")
+  + `<div class="panel"><div class="bar">${search("Search SJ or store")}${sel("tt", ["Not yet closed", "All"], "Not yet closed")}${filterBtn(0)}</div>${table([
+    {h:"Surat jalan", v:r => two(r.sj, r.r)}, {h:"Koli", n:1, v:r => r.k}, {h:"Pieces", n:1, v:r => n(r.pc)}, {h:"Left", v:r => r.left},
+    {h:"Now", v:r => dot(r.st, r.cls)},
+  ], TRANSIT, () => `class="link"`)}</div>`
+
+const reportsPage = () => head("Inventory", "Reports", "Every inventory report in one picker.")
+  + `<div class="panel list picker">${["Stock balance", "Stock ledger (kartu stok)", "Stock aging", "Sell-through by article", "Stock value (HPP)", "Count variance", "Shrinkage", "Dead stock"].map(t => `<button class="it" style="text-align:left">${ic("chart")}<div class="tx">${two(t)}</div></button>`).join("")}</div>`
+
+/* Today's screens, as they are. */
+const todayStock = () => head("Inventory", "Stock", "What the business holds, and every pool it is standing in.", `<button class="btn btn-g">Show in PCS</button>`)
+  + figs([["Stock", n(totals().all)], ["On hand", "25 016"], ["Allotted", "1 690"], ["Missing", "11"]])
+  + `<div class="panel"><div class="bar">${search("Search pools")}${filterBtn(0)}</div>${table([
+    {h:"Pool", v:r => `<span class="mono">${r.p}</span>`}, {h:"Source", v:r => r.src}, {h:"On hand", n:1, v:r => n(r.h)},
+    {h:"Allotted", n:1, v:r => r.al ? n(r.al) : "—"}, {h:"Missing", n:1, v:r => r.m ? n(r.m) : "—"},
+  ], TODAY_POOLS)}<div class="foot">112 pools over 14 sites. Pools, Missing, Reconciliations, As of, Control and Time machine are hidden and reached by links.</div></div>`
+const todayObs = () => head("Inventory", "Observations", "What the readers saw, and where it disagrees with the books.")
+  + `<div class="panel"><div class="bar">${search("Search tags")}${sel("ob", ["Sightings", "Anomalies"], "Anomalies")}</div>${table([
+    {h:"Tag", v:r => `<span class="mono">${r[0]}</span>`}, {h:"The books say", v:r => r[1]}, {h:"The reader saw", v:r => r[2]}, {h:"Reader", v:r => r[3]},
+  ], [["E280…41A7", "store-03.on_hand", "dc.outbound.packed.store-03", "HH-07"], ["E280…9C12", "dc.warehouse", "dc.pick", "ARCH-1"]])}</div>`
+const todayUnits = () => head("Inventory", "Satuan & conversions", "Units of measure and how many of one another is worth.")
+  + `<div class="panel">${table([{h:"Other unit", v:r => r[0]}, {h:"Main unit", v:r => r[1]}, {h:"Conversion", n:1, v:r => r[2]}, {h:"Note", v:r => `<span class="t2">${r[3]}</span>`}],
+    [["LUSIN", "PCS", 12, "one lusin is 12 pcs"], ["KODI", "PCS", 20, "one kodi is 20 pcs"], ["PASANG", "PCS", 1, "footwear"]])}</div>`
+const todayFlows = () => head("Inventory", "Goods flows", "The order of stages each route of goods runs, and who does each.")
+  + `<div class="panel">${table([{h:"Flow", v:r => two(r[0], r[1])}, {h:"Stages", v:r => r[2]}, {h:"Version", n:1, v:r => r[3]}],
+    [["Gudang → store", "raised by an allotment", "Pick · Pack · Surat jalan · Receive", 4], ["Supplier → Gudang", "raised by a PO", "Receive · Tag", 2], ["Store → Gudang", "store return", "Surat jalan · Receive · Inspect", 1]])}</div>`
+
+const PAGES = {
+  overview: overviewPage, stock: stockPage, issues: issuesPage, counts: countsPage, movements: (c) => movementsPage(c),
+  setup: (c) => setupPage(c), replenish: replenishPage, allotments: allotmentsPage, transfers: transfersPage,
+  gudang: gudangPage, stores: storesPage, transit: transitPage, reports: reportsPage,
+  "t-stock": todayStock, "t-obs": todayObs, "t-units": todayUnits, "t-flows": todayFlows,
+  "e-ledger": (c) => movementsPage(c, "Stock ledger", "Every posting, in the order it happened."),
+  "e-card": (c) => movementsPage(c, "Stock card", "Kartu stok: one SKU's movements with a running balance."),
+  "e-adjust": (c) => issuesPage(c).replace(">Issues<", ">Adjustments<"),
+  "e-value": () => head("Inventory", "Stock value", "Stock at cost (HPP), per division and place.") + figs([["Stock value", "Rp 2,41 M"], ["Gudang", "Rp 0,86 M"], ["Stores", "Rp 1,47 M"], ["On its way", "Rp 0,08 M"]]),
+  "e-units": todayUnits, "e-flows": todayFlows,
+  "e-places": (c) => gudangPage(c).replace(">Gudang<", ">Places & pools<"),
+}
+
+/* ───────────────────────── the options ─────────────────────────────── */
+const T = "today"
+const OPTIONS = {
+  today: {
+    label:"Today", name:"Today · 6 rows", rows:6, from:"—",
+    principle:"Four rows on stock records (Stock, Counts, Movements, Observations) and two setup screens (Units, Goods flows) sitting between them. Seven more screens are routed but hidden. Allotment is its own sidebar row; the warehouse stations live in Operations.",
+    groups:[{items:[["t-stock","Stock"],["counts","Counts"],["movements","Movements"],["t-obs","Observations"],["t-units","Satuan & conversions"],["t-flows","Goods flows"]]}],
+    map:[["Pools, Availability","hidden, reached by links"],["Missing, Reconciliations","hidden"],["As of, Control, Time machine","hidden"]],
+    pros:["Every record has a home","Hidden screens still in ⌘K"],
+    cons:["Words are the engine's (pool, observation, reconciliation), not the floor's","Nothing answers \"how much of article X, and where?\"","Problems are spread over 4 hidden screens, so nobody sees them together","Setup sits between daily rows","Mixed language: “Satuan & conversions”"],
+  },
+  a: {
+    label:"A · Lean", name:"A · Lean", rows:3, from:"Shopify (Products › Inventory, Transfers), Katana",
+    principle:"Object first, very few rows. Stock is the place, and everything else is a view or a sheet on it: problems are the “Needs attention” view, and the ledger is the stock card you open from any article.",
+    groups:[{items:[["stock","Stock"],["counts","Counts"],["setup","Setup"]]}],
+    map:[["Stock, Pools, Availability, As of","Stock (views + “Now” date)"],["Missing, Reconciliations, reader mismatches","Stock › Needs attention"],["Movements","stock card sheet + ⌘K"],["Units, Goods flows, Observations log, Control, Time machine","Setup"]],
+    pros:["The calmest sidebar possible","The stock card answers most “where did it go” questions in place"],
+    cons:["Problems hide inside a view: nobody is pushed to them","Somebody hunting a movement with no article in mind has no row","Too thin once transfers and replenishment arrive"],
+  },
+  b: {
+    label:"B · Inbox first", star:true, name:"B · Inbox first", rows:5, from:"Odoo (Overview first), our Finance and HR cuts",
+    principle:"The same shape as the Finance cut (Overview … Setup) and HR's “Overview is the one inbox”. Overview is the numbers plus one list of everything that needs somebody. Then the three records people seek by name, then Setup.",
+    groups:[{items:[["overview","Overview",8,"bad"],["stock","Stock"],["counts","Counts",1],["movements","Movements"],["setup","Setup"]]}],
+    map:[["Missing, Reconciliations, reader mismatches, over-promised, counts to approve, stale store server","Overview › Needs someone"],["Stock, Pools, Availability, As of","Stock (views + “Now” date)"],["Counts","Counts"],["Movements","Movements (+ stock card sheet)"],["Units, Goods flows, Places, Observations log, Control, Time machine","Setup"]],
+    pros:["One place to see every problem, with a count on the row","Same pattern as Finance and HR, so the hub reads as one system","Words people use: Overview, Stock, Counts, Movements","Room to grow: Transfers or Replenish can be added as a 6th row later"],
+    cons:["Allotment stays its own module (fine: it is Merchandise's daily work), so one delivery is followed across Allotment, Operations and Inventory","No row yet for store → store transfers or replenishment"],
+  },
+  c: {
+    label:"C · Owns the flow", name:"C · Inventory owns the flow", rows:8, from:"Zoho Inventory, NetSuite, SAP B1, Cin7",
+    principle:"Every document that moves stock lives in Inventory. Allotment stops being its own sidebar module and becomes a row here, next to a new Transfers & returns list and a new Replenish list. Operations keeps the stations where the work is done.",
+    groups:[
+      {items:[["stock","Stock"],["replenish","Replenish","new"]]},
+      {label:"Move", items:[["allotments","Allotments",1],["transfers","Transfers & returns"]]},
+      {label:"Check", items:[["counts","Counts",1],["issues","Issues",8,"bad"]]},
+      {label:"Records", items:[["movements","Movements"],["setup","Setup"]]},
+    ],
+    hideAllotmentModule:true,
+    map:[["Allotment module","Move › Allotments"],["(new) store → store, returns, return to supplier","Move › Transfers & returns"],["(new) min/max, projected","Replenish"],["Missing, Reconciliations, reader mismatches","Check › Issues"],["Units, Goods flows, Places, Control, Time machine","Setup"]],
+    pros:["Planning a delivery and checking stock are one module: Replenish → Make allotment","Makes room for the gap list (min/max, transfers, returns to supplier)","The sidebar loses one module row"],
+    cons:["8 rows and 3 labels: over the weekly-row budget for most people","Merchandise (who allots) and Inventory (who counts) share one module, so role sections get coarser","Two new screens to build before it is honest"],
+  },
+  d: {
+    label:"D · By place", name:"D · By place", rows:7, from:"Odoo Locations, Nedap iD Cloud (store-centric)",
+    principle:"Rows follow where stock physically is: the Gudang, the stores, and the road between them. Matches how the business talks (“stok di gudang”, “stok toko”, “barang di jalan”), and the pool tree becomes three human pages.",
+    groups:[{items:[["overview","Overview",8,"bad"]]},{label:"Where", items:[["gudang","Gudang"],["stores","Stores",1],["transit","In transit",5]]},{label:"Records", items:[["counts","Counts",1],["movements","Movements"],["setup","Setup"]]}],
+    map:[["Stock, Pools (DC)","Gudang (by place / by article)"],["Pools (store), Observations per store","Stores"],["Pools (in transit), Reconciliations","In transit"],["Missing, over-promised, counts to approve","Overview"],["Units, Goods flows, Control, Time machine","Setup"]],
+    pros:["Pool jargon disappears, pages are about real places","In transit is a first-class page: SJ disputes live next to the SJ","Good for the Gudang head and area managers"],
+    cons:["No single “article X everywhere” page: you add it back as a view","Overlaps Stores module (store pages) and Operations (Gudang stations)","Adding a second Gudang means another row"],
+  },
+  e: {
+    label:"E · ERP full", name:"E · ERP full (for contrast)", rows:12, from:"ERPNext Stock workspace, SAP B1, Business Central",
+    principle:"One row per document type and report, grouped under labels, like an ERP workspace. Shown so the cost is visible: this is where the old 11-row Inventory and the frozen 90-row Finance came from.",
+    groups:[
+      {label:"Daily", items:[["stock","Stock summary"],["transfers","Transfers"],["e-adjust","Adjustments"],["counts","Stock opname",1]]},
+      {label:"Ledger", items:[["e-ledger","Stock ledger"],["e-card","Stock card"],["e-value","Stock value"],["reports","Reports"]]},
+      {label:"Setup", items:[["e-units","Units"],["e-flows","Goods flows"],["e-places","Places & pools"],["setup","Ledger health"]]},
+    ],
+    map:[["Each screen","its own row"]],
+    pros:["Every document findable by the name an ERP user knows","Familiar to anyone from ERPNext or SAP"],
+    cons:["12 rows, most opened monthly: breaks the weekly-row rule","Stock ledger vs Stock card vs Reports say the same thing three ways","The problems (missing, disputes) have no row at all"],
+  },
+  research: {label:"Research"},
+}
+const ORDER = ["today", "a", "b", "c", "d", "e", "research"]
+
+/* The rest of the sidebar, collapsed, as it is today. */
+const MODULES = [
+  ["home","Home"],["shirt","Articles"],["box","Inventory"],["split","Allotment"],["cart","Procurement"],["store","Stores"],
+  ["receipt","Sales"],["forklift","Operations",12],["users","Members"],["wallet","Finance",3],["person","People"],["cog","System"],
+]
+
+/* ───────────────────────── render ───────────────────────────────────── */
+const state = {opt:"b", page:null, view:{}}
+try { const s = JSON.parse(localStorage.getItem("inv-menu") || "{}"); if (OPTIONS[s.opt]) state.opt = s.opt } catch (e) {}
+
+function firstPage(o) { return OPTIONS[o].groups[0].items[0][0] }
+
+function sidebar(o) {
+  const opt = OPTIONS[o]
+  const inv = opt.groups.map(g => (g.label ? `<div class="grp">${g.label}</div>` : "") + g.items.map(([id, label, ct, cls], i) =>
+    `<button class="sub anim" style="animation-delay:${i * 22}ms" data-page="${id}"${state.page === id ? " aria-current=page" : ""}>${label}${ct === "new" ? `<span class="nw">new</span>` : ct ? `<span class="ct ${cls || ""}">${ct}</span>` : ""}</button>`).join("")).join("")
+  return `<nav class="side" aria-label="Sidebar"><div class="chip"><span class="mark">C</span><div><b>itulah</b><small>Head office</small></div></div>` +
+    MODULES.map(([i, l, ct]) => {
+      if (l === "Inventory") return `<button class="row dep">${ic(i)}<span>Inventory</span>${ic("chev")}</button><div class="subs">${inv}</div>`
+      if (l === "Allotment" && opt.hideAllotmentModule) return `<button class="row gone" title="Moved into Inventory">${ic(i)}<span>Allotment</span><span class="ct">moved</span></button>`
+      return `<button class="row">${ic(i)}<span>${l}</span>${ct ? `<span class="ct">${ct}</span>` : ""}</button>`
+    }).join("") + `</nav>`
+}
+
+function about(o) {
+  const x = OPTIONS[o]
+  return `<aside class="about"><div class="k">${o === "today" ? "What we have now" : "Option"}</div><h3>${x.name}${x.star ? " ★" : ""}</h3><p>${x.principle}</p>
+    <div class="meta"><div><b>${x.rows}</b><span>sidebar rows</span></div><div><span>Borrowed from</span><div class="t1" style="margin-top:2px">${x.from}</div></div></div>
+    <h4>${o === "today" ? "Hidden today" : "Where today's screens go"}</h4><div class="map">${x.map.map(([a, b]) => `<div><span class="a">${a}</span><span class="ar">→</span><span class="b">${b}</span></div>`).join("")}</div>
+    <h4>Good</h4><ul class="pc">${x.pros.map(p => `<li>${p}</li>`).join("")}</ul>
+    <h4>Costs</h4><ul class="pc">${x.cons.map(p => `<li>${p}</li>`).join("")}</ul>
+    ${x.star ? `<div class="rec"><b>Proposed.</b> Five rows, one inbox, the same shape as Finance and HR. Operations keeps the stations, Allotment keeps its row. When min/max and transfers are built, add them as a sixth row, or move to C.</div>` : ""}
+  </aside>`
+}
+
+function researchPage() {
+  const P = [
+    ["Odoo 17/18 Inventory", "Overview + activity buckets", "<b>Overview</b> · <b>Operations</b> (Transfers, Receipts, Deliveries, Physical inventory, Scrap) · <b>Products</b> (Products, Lots/Serials, Reordering rules) · <b>Reporting</b> (Stock, Moves history, Valuation, Forecast) · <b>Configuration</b>", "Dashboard first, then a bucket per activity. Deep, but scales.", "https://www.odoo.com/documentation/18.0/applications/inventory_and_mrp/inventory.html", "verified"],
+    ["ERPNext v15 Stock", "Workspace of doctype cards", "Shortcuts: Item, Material Request, Stock Entry, Purchase Receipt, Delivery Note, <b>Stock Ledger</b>, <b>Stock Balance</b> · Cards: Items, Stock Transactions, Stock Reports, Settings, Serial & Batch, Tools", "One link per document type and report, equal weight. Fast for experts, no story for anyone else.", "https://github.com/frappe/erpnext/blob/version-15/erpnext/stock/workspace/stock/stock.json", "verified (workspace JSON)"],
+    ["Shopify admin", "Object first, 3 rows", "Products › <b>Inventory</b> · <b>Transfers</b> · <b>Purchase orders</b>", "Inventory is a property of products. Lowest load; thin for multi-warehouse and RFID.", "https://help.shopify.com/en/manual/products/inventory", "verified"],
+    ["NetSuite", "Transaction type first", "Transactions › Inventory › <b>Adjust inventory</b>, <b>Transfer inventory</b> (each with a list) + an Inventory dashboard of portlets", "Every action is a postable document; dashboard bolted on.", "https://docs.oracle.com/en/cloud/saas/netsuite/ns-online-help/section_4660882963.html", "verified"],
+    ["SAP Business One", "Document type first", "Item master · Goods receipt · Goods issue · Transfer request · <b>Inventory transfer</b> · Revaluation · <b>Inventory counting</b> · Opening balance · Pick & pack · Reports", "Most granular of the set: one row per document.", "", "well documented"],
+    ["Business Central", "Role centre + document lists", "Items · <b>Physical inventory orders</b> · Item journals (adjust, reclassify) · <b>Transfer orders</b> · Item tracking · Warehouse module separate", "Task-shaped docs over lists of documents; warehouse is a separate module (like our Operations).", "https://learn.microsoft.com/en-us/dynamics365/business-central/inventory-manage-inventory", "verified"],
+    ["Zoho Inventory", "Sales / Purchases / Inventory split", "Items · Sales · Purchases · Inventory (<b>Adjustments</b>, <b>Transfer orders</b>, Warehouses)", "Inventory holds only what moves stock without a customer or supplier.", "https://www.zoho.com/us/inventory/help/", "approximate"],
+    ["Nedap iD Cloud (RFID retail)", "Workflows, not menus", "<b>RFID count</b> · Encode tags · Replenish from stockroom · Display check", "Named after what staff physically do. Our Operations stations already work this way.", "", "approximate"],
+  ]
+  return `<div class="research page"><div class="crumb">Research · 28 Sep 2026</div><h1 class="h1">How other software lays out Inventory</h1>
+    <p class="desc">Ten products checked. Labels marked “approximate” could not be read from a real screen or source; the rest were.</p>
+    <div class="grid">${P.map(([t, pat, rows, why, url, v]) => `<div class="card"><h3>${t}</h3><div class="pat">${pat} · <span class="v">${v}</span></div><div class="rows">${rows}</div><div class="why">${why}</div>${url ? `<div style="margin-top:8px"><a href="${url}" target="_blank" rel="noopener">Source</a></div>` : ""}</div>`).join("")}</div>
+    <div class="panel"><div class="h2">What almost everyone has</div>${table([{h:"Row", v:r => `<span class="t1">${r[0]}</span>`}, {h:"Seen in", v:r => r[1]}, {h:"Ours today", v:r => r[2]}],
+      [["Stock on hand by location", "all ten", "Stock (as pools)"], ["Transfers between locations", "Odoo, Shopify, NetSuite, SAP, BC, Zoho", "Allotment module + Operations; no store→store"],
+       ["Adjustments (damage, write-off)", "Odoo (Scrap), NetSuite, SAP, BC, Zoho", "Missing › write off (hidden)"], ["Counts / stock opname", "all ten", "Counts"],
+       ["Movement history / stock ledger", "Odoo, ERPNext, NetSuite, SAP, BC", "Movements"], ["Reorder / replenishment", "Odoo, ERPNext, Lightspeed, Katana", "none (gap list)"],
+       ["Units, locations, serials/RFID", "always under Settings / Configuration, never a daily row", "two of them are daily rows"]])}</div>
+    <div class="panel"><div class="h2">The patterns, and which option borrows each</div>${table([{h:"Pattern", v:r => `<span class="t1">${r[0]}</span>`}, {h:"Who", v:r => r[1]}, {h:"Option", v:r => r[2]}],
+      [["Object first, few rows", "Shopify, Katana", "A · Lean"], ["Overview + few buckets", "Odoo", "B · Inbox first ★"], ["Every stock document in Inventory", "Zoho, NetSuite, Cin7", "C · Owns the flow"],
+       ["Organised by place", "Odoo Locations, Nedap", "D · By place"], ["One row per document/report", "ERPNext, SAP B1", "E · ERP full"]])}</div>
+  </div>`
+}
+
+function render() {
+  const o = state.opt
+  document.getElementById("seg").innerHTML = ORDER.map(k => `<button data-opt="${k}" aria-pressed="${k === o}">${OPTIONS[k].label}${OPTIONS[k].star ? ' <span class="star">★</span>' : ""}</button>`).join("")
+  const root = document.getElementById("root")
+  if (o === "research") { root.innerHTML = researchPage(); return }
+  const ids = OPTIONS[o].groups.flatMap(g => g.items.map(i => i[0]))
+  if (!ids.includes(state.page)) state.page = firstPage(o)
+  const page = (PAGES[state.page] || (() => ""))({opt:o, view:state.view})
+  root.innerHTML = `<div class="app">${sidebar(o)}<main><div class="page">${page}</div></main>${about(o)}</div>`
+}
+
+function card(code) {
+  const a = ART.find(r => r.c === code); if (!a) return
+  const where = [["Gudang · Warehouse", Math.round(a.g * .8)], ["Gudang · Pick area", a.g - Math.round(a.g * .8)], ...STORES.slice(0, 4).map((s, i) => [s.s, Math.round(a.s * [.28, .22, .26, .14][i])]), ["On its way", a.t]]
+  document.getElementById("sheet").innerHTML = `<div class="sh"><div class="tx"><div class="crumb">Stock card · ${a.c}</div><h2 class="h1">${a.a}</h2><div class="desc">${n(a.g + a.s + a.t)} pieces · last counted ${a.cnt}</div></div><button class="x" data-close aria-label="Close">${ic("x")}</button></div>
+    <div class="sb"><div class="h2">Where it is</div>${table([{h:"Place", v:r => r[0]}, {h:"Pieces", n:1, v:r => n(r[1])}], where.filter(r => r[1]))}
+    <div class="h2">Last movements</div>${table([{h:"When", v:r => `<span class="mono">${r.t.slice(0, 6)}</span>`}, {h:"What", v:r => two(r.a, r.r)}, {h:"Pieces", n:1, v:r => sg(r.q)}], MOVES.slice(0, 5))}
+    <div class="foot" style="border:0"><button class="go">All movements of this article →</button></div></div>`
+  document.getElementById("sheetwrap").classList.add("open")
+}
+
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-opt],[data-page],[data-card],[data-close]")
+  if (!t) return
+  if (t.dataset.opt) { state.opt = t.dataset.opt; state.page = null; state.view = {}; try { localStorage.setItem("inv-menu", JSON.stringify({opt:state.opt})) } catch (err) {}; render(); scrollTo(0, 0) }
+  else if (t.dataset.page) { state.page = t.dataset.page; state.view = {}; render() }
+  else if (t.dataset.card) card(t.dataset.card)
+  else if (t.hasAttribute("data-close")) document.getElementById("sheetwrap").classList.remove("open")
+})
+document.addEventListener("change", (e) => {
+  const s = e.target.closest("select[data-view]"); if (!s) return
+  state.view[s.dataset.view] = s.value; render()
+})
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") document.getElementById("sheetwrap").classList.remove("open") })
+document.getElementById("theme").addEventListener("click", () => {
+  const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches
+  r.dataset.theme = dark ? "light" : "dark"
+})
+render()
+</script>
+</body>
+</html>

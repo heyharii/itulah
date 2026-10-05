@@ -273,7 +273,6 @@ export function Transactions() {
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search"
             className="pl-8"
           />
         </div>
@@ -445,9 +444,8 @@ export function Transactions() {
             label: "Amount",
             kind: "money",
             required: true,
-            placeholder: "5000000",
           },
-          { name: "memo", label: "Memo", placeholder: "Setoran modal kasir" },
+          { name: "memo", label: "Memo" },
         ]}
         onSubmit={(v, minor) =>
           b.transfer({

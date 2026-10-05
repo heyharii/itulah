@@ -4,6 +4,7 @@ import {
   ArrowUpDown,
   Check,
   ChevronRight,
+  Plus,
   Search,
   Sparkles,
   X,
@@ -11,6 +12,7 @@ import {
 import { useDeferredValue, useEffect, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { Garment } from "@/lib/garment"
 import { Screen } from "@/components/ui/screen"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { count, label } from "@/lib/format"
@@ -57,6 +59,8 @@ export function Catalogue() {
   const go = useGo()
   const search = useParam("q")
   const division = useParam("division")
+  const viewParam = useParam("view")
+  const view = viewParam.value ?? "article"
 
   /// What is being typed, held locally and pushed to the URL as it settles.
   ///
@@ -119,10 +123,30 @@ export function Catalogue() {
   /// divisions would stop being a map of the shop and become a description of
   /// the filter already applied. A shop assistant uses it to find out what
   /// else is there.
-  const searchable = useMemo(
+  const wordMatched = useMemo(
     () => rows.filter((row) => matchesWords(row, needle)),
     [rows, needle],
   )
+
+  /// Tags the range is narrowed to; a row must carry every one.
+  const [chosenTags, setChosenTags] = useState<readonly string[]>([])
+  const searchable = useMemo(
+    () =>
+      chosenTags.length === 0
+        ? wordMatched
+        : wordMatched.filter((row) =>
+            chosenTags.every((tag) => row.tags.includes(tag)),
+          ),
+    [wordMatched, chosenTags],
+  )
+  const tagCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const row of wordMatched)
+      for (const tag of row.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1)
+    return [...counts.entries()].sort((a, b) =>
+      a[1] === b[1] ? a[0].localeCompare(b[0]) : b[1] - a[1],
+    )
+  }, [wordMatched])
 
   const divisions = useMemo(() => {
     const counts = new Map<string, number>()
@@ -136,8 +160,10 @@ export function Catalogue() {
     )
   }, [searchable])
 
-  const markedDown = useMemo(
-    () => searchable.filter((row) => isDown(row)).length,
+  /// An article is a style; a SKU is one of its sizes or colours. A row
+  /// without an article code stands alone.
+  const articles = useMemo(
+    () => new Set(searchable.map((row) => row.article_code ?? row.sku_code)).size,
     [searchable],
   )
 
@@ -164,21 +190,45 @@ export function Catalogue() {
   /// for a search that matched nine — and an effect would draw them first and
   /// then throw them away, which on a counter tablet is a visible stutter every
   /// time somebody types.
+  /// One card per article: its SKUs folded into the cheapest of them, in the
+  /// order the first of them appeared. A row with no article code stands alone.
+  const cards = useMemo(() => {
+    if (view === "sku") return shown.map((row) => ({ row, skus: 1, from: false }))
+    const groups = new Map<string, CatalogRow[]>()
+    for (const row of shown) {
+      const key = row.article_code ?? row.sku_code
+      const group = groups.get(key)
+      if (group === undefined) groups.set(key, [row])
+      else group.push(row)
+    }
+    return [...groups.values()].map((group) => {
+      const row = group.reduce((a, b) =>
+        b.unit_price_minor < a.unit_price_minor ? b : a,
+      )
+      return {
+        row,
+        skus: group.length,
+        from: group.some((one) => one.unit_price_minor !== row.unit_price_minor),
+      }
+    })
+  }, [shown, view])
+
   const [limit, setLimit] = useState(PAGE)
-  const scope = `${needle}|${division.value ?? ""}|${order}`
+  const scope = `${needle}|${division.value ?? ""}|${order}|${view}|${chosenTags.join(",")}`
   const [lastScope, setLastScope] = useState(scope)
   if (scope !== lastScope) {
     setLastScope(scope)
     setLimit(PAGE)
   }
 
-  const filtered = needle !== "" || division.value !== undefined
+  const filtered =
+    needle !== "" || division.value !== undefined || chosenTags.length > 0
   const pick = (code: string | undefined) => division.set(code)
 
   return (
     <Screen
       counter
-      sub="Everything this shop sells, at today's price. Open a product for its details and promotions."
+      sub="Everything this shop sells, at today's price. Open an article for its details and promotions."
       // Named, because the grid column below is a container too and the two
       // questions are different: THIS one asks whether the page has room for
       // the division panel, that one how many cards fit beside it.
@@ -282,16 +332,46 @@ export function Catalogue() {
           {/* One line the width of the grid: what is on screen at the left,
               how it is ordered at the right — the line every list in the hub
               wears, in the same order. */}
+          <div
+            role="tablist"
+            aria-label="Group the range by"
+            className="mb-3 flex gap-1 border-b border-hairline"
+          >
+            {(
+              [
+                ["article", "By article"],
+                ["sku", "By SKU"],
+              ] as const
+            ).map(([one, name]) => (
+              <button
+                key={one}
+                type="button"
+                role="tab"
+                aria-selected={view === one}
+                onClick={() => viewParam.set(one === "article" ? undefined : one)}
+                className={cn(
+                  "-mb-px h-10 border-b-2 px-3.5 text-[0.875rem] font-medium transition-colors pointer-coarse:h-tap",
+                  view === one
+                    ? "border-accent text-ink"
+                    : "border-transparent text-mute hover:text-ink",
+                )}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+
           <div className="mb-[1.125rem] flex flex-wrap items-center gap-1.5">
             <span className="mr-auto min-w-0 truncate text-[0.84375rem] text-body">
-              <b className="font-medium text-ink">{count(shown.length)}</b>{" "}
-              {filtered
-                ? shown.length === 1
-                  ? "product matches"
-                  : "products match"
-                : shown.length === 1
-                  ? "product"
-                  : "products"}
+              <b className="font-medium text-ink">{count(cards.length)}</b>{" "}
+              {view === "sku"
+                ? cards.length === 1
+                  ? "SKU"
+                  : "SKUs"
+                : cards.length === 1
+                  ? "article"
+                  : "articles"}
+              {filtered && " match"}
             </span>
             <OrderMenu value={order} onChange={setOrder} />
           </div>
@@ -326,7 +406,7 @@ export function Catalogue() {
                 >
                   {filtered
                     ? "Nothing in the range matches that."
-                    : "This shop has no priced products yet."}
+                    : "This shop has no priced articles yet."}
                 </EmptyState>
               ) : (
                 <>
@@ -339,10 +419,12 @@ export function Catalogue() {
                       no module column this one has ~1000px, and three cards
                       there are three posters. */}
                   <div className="grid grid-cols-2 gap-2.5 @md:gap-[1.125rem] @2xl:grid-cols-3 @4xl:grid-cols-4">
-                    {shown.slice(0, limit).map((row) => (
+                    {cards.slice(0, limit).map(({ row, skus, from }) => (
                       <ProductCard
                         key={row.sku_code}
                         row={row}
+                        skus={view === "article" ? skus : undefined}
+                        from={from}
                         currency={book?.currency ?? "IDR"}
                         onOpen={() =>
                           go("/catalogue/product", { sku: row.sku_code })
@@ -350,10 +432,10 @@ export function Catalogue() {
                       />
                     ))}
                   </div>
-                  {shown.length > limit && (
+                  {cards.length > limit && (
                     <div className="mt-6 flex justify-center">
                       <Button onClick={() => setLimit((was) => was + PAGE)}>
-                        Show {count(Math.min(PAGE, shown.length - limit))} more
+                        Show {count(Math.min(PAGE, cards.length - limit))} more
                       </Button>
                     </div>
                   )}
@@ -367,8 +449,11 @@ export function Catalogue() {
           chosen={division.value}
           onPick={pick}
           loaded={book !== undefined}
-          products={searchable.length}
-          markedDown={markedDown}
+          articles={articles}
+          skus={searchable.length}
+          tags={tagCounts}
+          chosenTags={chosenTags}
+          onTags={setChosenTags}
           className="hidden @min-[60rem]/page:flex"
         />
       </div>
@@ -420,7 +505,7 @@ function matchesWords(row: CatalogRow, needle: string): boolean {
 
 /// Marked down: selling under the book's own base price. `base` equals `unit`
 /// on everything that is not, so this is never true by rounding.
-function isDown(row: CatalogRow): boolean {
+export function isDown(row: CatalogRow): boolean {
   return row.unit_price_minor < row.base_unit_price_minor
 }
 
@@ -497,18 +582,25 @@ function DivisionPanel({
   chosen,
   onPick,
   loaded,
-  products,
-  markedDown,
+  articles,
+  skus,
+  tags,
+  chosenTags,
+  onTags,
   className,
 }: {
+  /// Every tag on the words-matched range, commonest first, with its count.
+  tags: readonly (readonly [string, number])[]
+  chosenTags: readonly string[]
+  onTags: (next: readonly string[]) => void
   divisions: readonly (readonly [string, number])[]
   chosen: string | undefined
   onPick: (code: string | undefined) => void
   /// False until the book has arrived, so the figures read "—" rather than a
   /// confident zero while the request is still in flight.
   loaded: boolean
-  products: number
-  markedDown: number
+  articles: number
+  skus: number
   className?: string
 }) {
   return (
@@ -522,21 +614,18 @@ function DivisionPanel({
       <dl className="-mx-1 mb-1 grid grid-cols-2 gap-x-3 gap-y-2 border-b border-hairline px-1 pb-3">
         <div className="min-w-0">
           <dt className="truncate text-[0.625rem] font-medium tracking-[0.04em] text-mute uppercase">
-            Products
+            Articles
           </dt>
           <dd className="truncate text-[0.8125rem] font-semibold text-ink tabular-nums">
-            {loaded ? count(products) : "—"}
+            {loaded ? count(articles) : "—"}
           </dd>
         </div>
         <div className="min-w-0">
           <dt className="truncate text-[0.625rem] font-medium tracking-[0.04em] text-mute uppercase">
-            Price down
+            SKUs
           </dt>
-          <dd
-            title="Products selling under their base price."
-            className="truncate text-[0.8125rem] font-semibold text-ink tabular-nums"
-          >
-            {loaded ? count(markedDown) : "—"}
+          <dd className="truncate text-[0.8125rem] font-semibold text-ink tabular-nums">
+            {loaded ? count(skus) : "—"}
           </dd>
         </div>
       </dl>
@@ -559,7 +648,7 @@ function DivisionPanel({
           on={chosen === undefined}
           onClick={() => onPick(undefined)}
           name="Everything"
-          howMany={loaded ? products : undefined}
+          howMany={loaded ? skus : undefined}
         />
         {divisions.map(([code, howMany]) => (
           <DivisionRow
@@ -571,7 +660,112 @@ function DivisionPanel({
           />
         ))}
       </div>
+
+      <TagPicker tags={tags} chosen={chosenTags} onChange={onTags} />
     </aside>
+  )
+}
+
+/// Tags, without listing them all: the ones in use as removable chips, and a
+/// "+ Tags" button that opens a search over the rest. A range can carry
+/// hundreds of tags, so the list only ever shows what matches what is typed.
+function TagPicker({
+  tags,
+  chosen,
+  onChange,
+}: {
+  tags: readonly (readonly [string, number])[]
+  chosen: readonly string[]
+  onChange: (next: readonly string[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [typed, setTyped] = useState("")
+  const needle = typed.trim().toLowerCase()
+  const matches = tags
+    .filter(
+      ([tag]) =>
+        !chosen.includes(tag) &&
+        (needle === "" ||
+          `${tag} ${label(tag)}`.toLowerCase().includes(needle)),
+    )
+    .slice(0, 6)
+  const add = (tag: string) => {
+    onChange([...chosen, tag])
+    setTyped("")
+  }
+
+  return (
+    <div className="mt-2 flex flex-col gap-2 border-t border-hairline pt-3">
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-[0.8125rem] font-medium text-body">Tags</h4>
+        {chosen.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onChange([])}
+            className="text-[0.75rem] font-medium text-body transition-colors hover:text-ink"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {chosen.map((tag) => (
+          <button
+            key={tag}
+            type="button"
+            onClick={() => onChange(chosen.filter((one) => one !== tag))}
+            aria-label={`Remove ${label(tag)}`}
+            className="inline-flex h-7 items-center gap-1 rounded-full bg-accent px-2.5 text-[0.75rem] font-medium text-on-dark"
+          >
+            {label(tag)}
+            <X className="size-3" />
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => setOpen((was) => !was)}
+          aria-expanded={open}
+          className="inline-flex h-7 items-center gap-1 rounded-full border border-dashed border-hairline-2 px-2.5 text-[0.75rem] font-medium text-body transition-colors hover:text-ink"
+        >
+          <Plus className="size-3" />
+          Tags
+        </button>
+      </div>
+      {open && (
+        <div className="flex flex-col gap-1 rounded-inner border border-hairline p-1.5">
+          <input
+            autoFocus
+            value={typed}
+            onChange={(event) => setTyped(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setOpen(false)
+              if (event.key === "Enter" && matches[0] !== undefined)
+                add(matches[0][0])
+            }}
+            placeholder="Search tags"
+            aria-label="Search tags"
+            className="h-8 w-full rounded-inner bg-soft-2 px-2.5 text-[0.8125rem] text-ink outline-none placeholder:text-mute"
+          />
+          {matches.length === 0 ? (
+            <span className="px-2 py-1.5 text-[0.75rem] text-mute">
+              No tag matches
+            </span>
+          ) : (
+            matches.map(([tag, howMany]) => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => add(tag)}
+                className="flex min-h-8 items-center justify-between gap-2 rounded-inner px-2 text-left text-[0.8125rem] text-body transition-colors hover:bg-soft-2 hover:text-ink"
+              >
+                <span className="truncate">{label(tag)}</span>
+                <span className="tabular-nums text-mute">{count(howMany)}</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -643,10 +837,16 @@ function FacetChip({
 /// how its people talk about the range ("the 30101 in navy").
 export function ProductCard({
   row,
+  skus,
+  from = false,
   currency,
   onOpen,
 }: {
   row: CatalogRow
+  /// Set when the card stands for an article: how many SKUs it folds.
+  skus?: number
+  /// The article's SKUs are not all the same price, so this is the lowest.
+  from?: boolean
   currency: string
   onOpen: () => void
 }) {
@@ -668,7 +868,7 @@ export function ProductCard({
       className="flex w-full min-w-0 flex-col overflow-hidden rounded-card border border-hairline bg-canvas text-left shadow-soft transition duration-150 hover:-translate-y-0.5 hover:shadow-pop active:scale-[0.99]"
     >
       <div className="relative h-[9.875rem] w-full shrink-0 overflow-hidden bg-soft-2">
-        <Photograph sku={row.sku_code} has={row.has_image} />
+        <Photograph sku={row.sku_code} has={row.has_image} name={row.name} />
         {/* The division rides on the photograph, the way a marketplace puts
             its category badge there: it is what the picture IS, so it belongs
             with the picture rather than in a list of facts under it. */}
@@ -696,10 +896,17 @@ export function ProductCard({
           {row.name}
         </div>
         <div className="mt-1 truncate font-mono text-[0.6875rem] text-mute">
-          {row.sku_code}
+          {skus === undefined
+            ? row.sku_code
+            : `${row.article_code ?? row.sku_code} · ${count(skus)} ${skus === 1 ? "SKU" : "SKUs"}`}
         </div>
         <div className="mt-2 flex flex-wrap items-baseline gap-x-2">
           <span className="text-[1rem] font-semibold text-ink tabular-nums">
+            {from && (
+              <span className="mr-1 text-[0.75rem] font-normal text-mute">
+                from
+              </span>
+            )}
             {money(row.unit_price_minor, currency)}
           </span>
           {/* Both numbers, because a was-price with nothing struck through is
@@ -732,10 +939,13 @@ export function ProductCard({
 export function Photograph({
   sku,
   has,
+  name,
   className,
 }: {
   sku: string
   has: boolean
+  /// Draws a stand-in garment from the name when there is no photograph.
+  name?: string
   className?: string
 }) {
   /// *Which* product failed to load, not whether one did. A boolean would have
@@ -744,6 +954,13 @@ export function Photograph({
   /// twenty photographs that landed in the same slot.
   const [failed, setFailed] = useState<string | null>(null)
 
+  if ((!has || failed === sku) && name !== undefined) {
+    return (
+      <span className={cn("block size-full", className)} title="No photograph yet">
+        <Garment name={name} />
+      </span>
+    )
+  }
   if (!has || failed === sku) {
     return (
       <span

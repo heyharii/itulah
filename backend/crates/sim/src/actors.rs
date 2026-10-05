@@ -2,8 +2,8 @@
 //! the discrete-event loop that drives them.
 //!
 //! Every actor is a person with a name: the buyer at head office, the bay
-//! clerk who counts a lorry, the verifier who accepts it — a second person on
-//! purpose — and the finance clerk who books and pays the bill. Each acts
+//! clerk who counts a lorry, the verifier who accepts it, and the finance
+//! clerk who books and pays the bill. Each acts
 //! only through the node they would really work at, only through the API.
 //! Time does not flow; it JUMPS: the loop takes the earliest scheduled beat,
 //! advances the virtual clock to it, and asks that actor to decide.
@@ -28,7 +28,8 @@ const FINDINGS: [&str; 1] = [
 
 /// The bay clerk who counts what arrived.
 const COUNTER: &str = "penghitung-dc";
-/// The second person who accepts the count. The control is the DIFFERENCE.
+/// The person who accepts the count — a distinct name so the record shows
+/// both hands, not because the rules demand two people (owner, 2026-10-04).
 const VERIFIER: &str = "pemeriksa-dc";
 
 /// Everything the run's story has produced, in natural keys — the world model

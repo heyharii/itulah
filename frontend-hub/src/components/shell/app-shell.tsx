@@ -12,8 +12,8 @@ import { AssistantProvider } from "@/components/assistant/session"
 import { useAssistant } from "@/components/assistant/state"
 import { BottomBar } from "@/components/shell/bottom-bar"
 import { CommandPalette } from "@/components/shell/command-palette"
-import { Rail } from "@/components/shell/rail"
-import { Sidebar } from "@/components/shell/sidebar"
+import { NavColumn } from "@/components/shell/nav-column"
+import { SubSidebar, useSubSidebar } from "@/components/shell/sub-sidebar"
 import { TopBar } from "@/components/shell/top-bar"
 import { SheetSpace } from "@/components/shell/sheet-space"
 import {
@@ -25,17 +25,19 @@ import {
 import { useSheetsOpen } from "@/lib/sheet-space"
 import { cn } from "@/lib/utils"
 
-/// The shell: rail · sidebar · (bar over content).
+/// The shell: rail · panel · (bar over page).
 ///
-/// Two columns of navigation, each answering one question: the dark rail at
-/// the edge is *which part of the business* (`rail.tsx`), the light sidebar
-/// beside it is *which screen of it* (`sidebar.tsx`). Both run the window's
-/// full height; the bar spans only the page, and carries the breadcrumb and
-/// the tools that are not a place (`top-bar.tsx`).
+/// Option A of `sidebar-types-prototype.html` (owner, 2026-10-04), replacing
+/// the one column that answered both navigation questions on its own since
+/// 2026-09-28. The charcoal rail (`nav-column.tsx`) answers which part of the
+/// business — the departments' icons, full height. The light panel beside it
+/// (`sub-sidebar.tsx`) answers which screen — the department you are in, its
+/// screens down the body. The bar spans only the page and carries the
+/// business time (`top-bar.tsx`).
 ///
-/// ⌘B folds the sidebar away and leaves the rail standing, so a wide table
-/// gets the width back without navigation ever leaving the screen. Whether it
-/// is folded is remembered per browser — a convenience, not a record.
+/// ⌘B folds the PANEL away, so a wide table gets the width back without the
+/// rail ever leaving the screen. Whether it is folded is remembered per
+/// browser — a convenience, not a record.
 ///
 /// Density is baked into `:root { font-size: 14.4px }` rather than shipped as
 /// `zoom: 0.9`. The prototypes use zoom because they are single files; DESIGN.md
@@ -76,6 +78,7 @@ function Shell() {
   /// for a `md:`/`lg:` class instead, and the two agree because `useLayout`
   /// breaks on Tailwind's own numbers.
   const docked = atLeast(layout, "desktop")
+  const subSidebar = useSubSidebar()
   // A phone navigates from the bottom bar, not from a drawer behind a
   // hamburger — see `bottom-bar.tsx`. A tablet keeps the drawer.
   const phone = layout === "phone"
@@ -137,8 +140,8 @@ function Shell() {
   /// commit with a drawer that should not exist.
   if (docked && drawerOpen) setDrawerOpen(false)
 
-  // Docked, ⌘B folds the sidebar away and the rail stays; undocked, it opens
-  // and shuts the drawer that holds both.
+  // Docked, ⌘B folds the screens panel away and the rail stays; undocked, it
+  // opens and shuts the drawer that holds the whole column.
   const toggleSidebar = useCallback(() => {
     if (docked) {
       setSidebarOpen((open) => {
@@ -187,18 +190,35 @@ function Shell() {
 
   return (
     <div className="app-shell flex h-full w-full overflow-hidden bg-soft-3">
-      {/* Both columns are docked-only. Under 64rem they fold into the drawer
-          together: 320px of permanent chrome on a 768px screen, to hold
+      {/* The rail is docked-only and always the icons; the screens live in
+          the light panel beside it. Under 64rem both become the drawer:
+          68px + 232px of permanent chrome on a 768px screen, to hold
           something a thumb opens once a session, is the trade the drawer
           exists to refuse. */}
       {docked && (
-        <Rail sidebarOpen={sidebarOpen} onToggleSidebar={toggleSidebar} />
-      )}
-      {docked && <DockedSidebar open={sidebarOpen} />}
-      <div ref={page} className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <TopBar
-          onOpenNav={docked || phone ? undefined : () => setDrawerOpen(true)}
+        <NavColumn
+          folded
+          panelOpen={subSidebar === null || sidebarOpen}
+          onSearch={() => setPaletteOpen(true)}
+          onToggleNav={toggleSidebar}
         />
+      )}
+      {/* Full height, beside the page column: the desk bar spans only the
+          page, and the panel's head (the rail brand's height) is what lines
+          the three columns' lower edges up. */}
+      {docked && subSidebar !== null && sidebarOpen && (
+        <SubSidebar onFold={toggleSidebar} />
+      )}
+      <div ref={page} className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {/* On a desk the header is a slim strip carrying only the business
+            time (2 Oct 2026; the "Find anything" bar went, search stays on
+            ⌘K and in the column). It sits outside the scroller below, so
+            sticky table headers at `top-0` still stick to the strip's edge.
+            Tablet and phone keep the old bar — the drawer's button and the
+            page's name live there. */}
+        {!docked && (
+          <TopBar onOpenNav={phone ? undefined : () => setDrawerOpen(true)} />
+        )}
         {/* `isolate` makes the page its own stacking context, so a screen's
             z-index — a sticky table header, a frozen first column — is a
             statement about that screen and can never be read against the
@@ -224,22 +244,31 @@ function Shell() {
               measure their own box to decide how many columns they can afford,
               so an animated width would have them re-deciding twelve times on
               the way. */}
-          <div
-            className={cn(
-              "min-h-0 flex-1 overflow-y-auto",
-              // The last row clears the bottom bar on a phone.
-              phone && "pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))]",
-              beside && "pr-[29.5rem]"
-            )}
-          >
-            <Outlet />
+          <div className="flex min-h-0 min-w-0 flex-1">
+            <div
+              className={cn(
+                "min-h-0 min-w-0 flex-1 overflow-y-auto",
+                // The last row clears the bottom bar on a phone.
+                phone && "pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))]",
+                beside && "pr-[29.5rem]"
+              )}
+            >
+              <Outlet />
+            </div>
           </div>
         </div>
       </div>
 
       {phone && <BottomBar />}
       {!docked && !phone && (
-        <NavDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+        <NavDrawer
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          onSearch={() => {
+            setDrawerOpen(false)
+            setPaletteOpen(true)
+          }}
+        />
       )}
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       {/* Not modal: the panel is meant to be read beside the screen that
@@ -261,7 +290,15 @@ function Shell() {
 ///
 /// Motion is 200ms, `--t-panel`: MOTION.md's band for a panel arriving, and the
 /// duration the docked sidebar already animates its width over.
-function NavDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+function NavDrawer({
+  open,
+  onClose,
+  onSearch,
+}: {
+  open: boolean
+  onClose: () => void
+  onSearch: () => void
+}) {
   return (
     <>
       {/* The veil is WHITE, like every other overlay in this system: the screen
@@ -288,7 +325,7 @@ function NavDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
             : "-translate-x-full duration-(--t-exit)"
         )}
       >
-        {/* Both columns, as on a desk: a drawer you cannot change domain
+        {/* The desk's own column: a drawer you cannot change department
             from is not a navigation drawer. */}
         {/* Any link inside shuts it, as well as the path rule the caller
             holds. Those two are not the same rule, and the difference is the
@@ -303,71 +340,10 @@ function NavDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
             if ((event.target as HTMLElement).closest("a") !== null) onClose()
           }}
         >
-          <Rail />
-          <Sidebar variant="drawer" open onToggle={onClose} />
+          <NavColumn variant="drawer" onClose={onClose} onSearch={onSearch} />
         </div>
       </div>
     </>
-  )
-}
-
-/// The sidebar as a column, folded by SLIDING rather than by narrowing.
-///
-/// A column whose width animates makes every table beside it re-measure its
-/// columns on every frame of the animation, which reads as the page
-/// flickering. So the width changes exactly once per fold: opening, the
-/// column takes its full width at once and the panel slides in over it;
-/// closing, the panel slides out first and the width goes when it is gone.
-/// The page is laid out twice per fold, not twelve times.
-function DockedSidebar({ open }: { open: boolean }) {
-  // `present`: the column holds its width. `shown`: the panel is slid in.
-  const [present, setPresent] = useState(open)
-  const [shown, setShown] = useState(open)
-  // Both adjusted during render, as the drawer's state is above: the column
-  // takes its width, or the panel starts leaving, in the same commit as the
-  // prop that asked for it.
-  if (open && !present) setPresent(true)
-  if (!open && shown) setShown(false)
-  const timer = useRef<number | undefined>(undefined)
-
-  useEffect(() => {
-    window.clearTimeout(timer.current)
-    if (open) {
-      // Two frames: the first paints the panel at its start position, so the
-      // second has somewhere to travel from.
-      let second = 0
-      const first = requestAnimationFrame(() => {
-        second = requestAnimationFrame(() => setShown(true))
-      })
-      return () => {
-        cancelAnimationFrame(first)
-        cancelAnimationFrame(second)
-      }
-    }
-    // A timer rather than `transitionend`, which never fires when reduced
-    // motion has taken the travel out — and a column that never lets go of
-    // its width is worse than one that lets go a frame early.
-    timer.current = window.setTimeout(() => setPresent(false), 220)
-    return () => window.clearTimeout(timer.current)
-  }, [open])
-
-  return (
-    <div
-      className={cn(
-        "relative h-full shrink-0 overflow-hidden",
-        present ? "w-[15.5rem]" : "w-0"
-      )}
-    >
-      <div
-        inert={!open}
-        className={cn(
-          "absolute inset-y-0 left-0 transition-[transform,opacity] duration-(--t-panel) ease-(--ease-out)",
-          shown ? "translate-x-0 opacity-100" : "-translate-x-6 opacity-0"
-        )}
-      >
-        {present && <Sidebar open onToggle={() => {}} />}
-      </div>
-    </div>
   )
 }
 
@@ -416,8 +392,9 @@ export function PageContent({
   return (
     <div
       className={cn(
-        "mx-auto max-w-[100rem] px-4 pt-4 pb-10 md:px-[1.875rem] md:pt-6 md:pb-14",
-        fill && "flex h-full min-h-0 flex-col"
+        // Airy on a desk (2026-09-28): 32px gutters, 28px under the bar.
+        "mx-auto max-w-[100rem] px-4 pt-4 pb-10 md:px-8 md:pt-7 md:pb-16",
+        fill && "flex h-full min-h-0 flex-col pb-4 md:pb-6"
       )}
     >
       {children}

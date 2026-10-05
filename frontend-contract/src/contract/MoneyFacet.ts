@@ -12,14 +12,14 @@
 export type MoneyFacet = { 
 /**
  * What to send back as the filter. The client's own vocabulary for the
- * thing — a site id, a pot name — never a display string.
+ * thing — a unit id, a pot name — never a display string.
  */
 value: string, 
 /**
  * What to draw, when it differs from the value.
  *
  * Absent for a pot, whose words belong to the screen ("Cash in hand" is
- * ours, not the server's). Present for a site, because `store-01` is an
+ * ours, not the server's). Present for a unit, because `store-01` is an
  * id this system files it under and the list beside the filter shows
  * `Store 01` — one panel naming things one way and the column beside it
  * another is the reader's problem, not the schema's.

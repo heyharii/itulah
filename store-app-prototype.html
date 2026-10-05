@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Store app: receiving and returns (prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   The store's side of goods movement (frontend-store-new), for a store
+   manager on a tablet.
+
+     Receiving      what HO dispatched to this store. Count blind against the
+                    surat jalan, then Confirm receive. A shortfall goes to
+                    Inventory at HO by itself.
+     Return to HO   what Merchandise asked this store to send back, from its
+                    return stock. Pack it, say how much went, Send.
+     Return stock   what the store has set aside to go back: damaged, slow,
+                    recalled. Merchandise raises returns from here.
+
+   The store is told by a badge on the menu, a line on Today, and a push.
+   Hub tokens, 16px root, nothing under 14px, English copy.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f8f9; --soft-2:#f0f0f2; --soft-3:#f6f6f7;
+  --hairline:#e6e6e9; --hairline-2:#dadade; --hairline-strong:#c6c6cc;
+  --scrim:rgba(246,246,247,.72);
+  --accent:#2563eb; --accent-bg:#eff5ff; --cta:#2563eb; --cta-hover:#1d4ed8;
+  --ok:#36b827; --ok-bg:#e8f6ee; --ok-fg:#15803d;
+  --warn:#c9892e; --warn-bg:#fdf1dd; --warn-fg:#b45309;
+  --bad:#d05151; --bad-fg:#be123c; --info:#2f86d8;
+  --r-card:.75rem; --r-inner:.4375rem;
+  --shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);
+  --shadow-float:0 2px 6px rgb(24 39 60/5%),0 24px 64px rgb(24 39 60/16%);
+}
+*{box-sizing:border-box}
+html{font-size:16px}
+html,body{height:100%;margin:0}
+body{font-family:Inter,system-ui,sans-serif;font-size:15px;color:var(--text);background:var(--soft-3);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:left}
+input,select{font:inherit;color:var(--ink)}
+svg.lucide{width:18px;height:18px;stroke-width:1.7;flex-shrink:0}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px}
+.app{max-width:64rem;margin:0 auto;min-height:100%;display:flex;flex-direction:column}
+.top{display:flex;align-items:center;gap:12px;padding:16px 24px;background:var(--canvas);border-bottom:1px solid var(--hairline)}
+.top .mark{width:32px;height:32px;border-radius:8px;background:#0b0b0b;color:#fff;display:grid;place-items:center;font-weight:600}
+.top b{color:var(--ink);font-weight:600}
+.top span{color:var(--body)}
+.nav{display:flex;gap:4px;padding:0 24px;background:var(--canvas);border-bottom:1px solid var(--hairline);overflow-x:auto}
+.nav button{height:52px;padding:0 14px;display:flex;align-items:center;gap:8px;color:var(--body);font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+.nav button.on{color:var(--ink);border-color:var(--ink)}
+.badge{min-width:22px;height:22px;border-radius:11px;background:var(--warn);color:#fff;font-size:14px;font-weight:600;display:grid;place-items:center;padding:0 6px}
+.body{flex:1;padding:24px 24px 120px}
+h1{margin:0 0 4px;font-size:26px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+.sub{margin:0 0 20px;color:var(--body)}
+.btn{height:44px;padding:0 16px;border-radius:var(--r-inner);border:1px solid var(--hairline-2);background:var(--canvas);color:var(--ink);display:inline-flex;align-items:center;justify-content:center;gap:8px;font-weight:500;white-space:nowrap}
+.btn:hover{background:var(--soft)}
+.btn.pri{background:var(--cta);color:#fff;border-color:var(--cta)}
+.btn.pri:hover{background:var(--cta-hover)}
+.btn.big{height:52px;font-size:16px;flex:1}
+.btn:disabled{opacity:.45;cursor:default}
+.list{display:flex;flex-direction:column;gap:12px}
+.item{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);padding:16px 18px;display:flex;align-items:center;gap:16px}
+.item .g{flex:1;min-width:0}
+.item .t{color:var(--ink);font-weight:600}
+.item .m{color:var(--body);font-size:14px;margin-top:2px}
+.item .q{color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap}
+.st{display:inline-flex;align-items:center;gap:7px;font-size:14px;color:var(--body)}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.today{display:grid;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr));gap:12px}
+.tile{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);padding:18px;display:flex;flex-direction:column;gap:6px;text-align:left}
+.tile:hover{border-color:var(--hairline-2)}
+.tile .n{font-size:28px;font-weight:600;color:var(--ink);letter-spacing:-.02em}
+.tile .l{color:var(--body)}
+.tile.warn .n{color:var(--warn-fg)}
+.empty{color:var(--mute);text-align:center;padding:32px;background:var(--canvas);border:1px dashed var(--hairline-2);border-radius:var(--r-card)}
+/* the sheet: full screen on a tablet */
+.veil{position:fixed;inset:0;background:var(--scrim);z-index:40;display:flex;align-items:flex-end;justify-content:center}
+.sheet{width:min(64rem,100%);height:calc(100% - 24px);background:var(--canvas);border-radius:16px 16px 0 0;border:1px solid var(--hairline);box-shadow:var(--shadow-float);display:flex;flex-direction:column;animation:rise 320ms cubic-bezier(.32,.72,0,1)}
+@keyframes rise{from{transform:translateY(100%)}}
+.sh{display:flex;align-items:flex-start;gap:12px;padding:20px 16px 16px 24px;border-bottom:1px solid var(--hairline)}
+.sh .g{flex:1}
+.sh h2{margin:0;font-size:20px;font-weight:600;color:var(--ink)}
+.sh p{margin:4px 0 0;color:var(--body)}
+.ib{width:44px;height:44px;border-radius:var(--r-inner);display:grid;place-items:center;color:var(--line-ico)}
+.ib:hover{background:var(--soft-2)}
+.sb{flex:1;overflow-y:auto;padding:20px 24px}
+.sf{border-top:1px solid var(--hairline);padding:14px 24px;display:flex;gap:10px;align-items:center}
+.sf .g{flex:1;color:var(--body)}
+.tcard{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+table{width:100%;border-collapse:collapse}
+th{height:44px;text-align:left;font-weight:500;color:var(--body);padding:0 16px;border-bottom:1px solid var(--hairline);background:var(--soft);font-size:14px}
+td{height:64px;padding:0 16px;border-bottom:1px solid var(--hairline)}
+tbody tr:last-child td{border-bottom:0}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+td.n,th.n{width:52px;color:var(--mute);text-align:right;padding-right:8px}
+tfoot td{background:var(--soft);font-weight:600;color:var(--ink);border-top:1px solid var(--hairline);border-bottom:0;height:52px}
+.nm{display:block;color:var(--ink);font-weight:500}
+.sk{display:block;color:var(--mute);font-size:14px}
+.qs{display:inline-flex;align-items:center;gap:10px}
+.qs button{width:44px;height:44px;border-radius:var(--r-inner);border:1px solid var(--hairline-2);display:grid;place-items:center;background:var(--canvas)}
+.qs button:disabled{opacity:.35;cursor:default}
+.qs input{width:68px;height:44px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);text-align:center;font-size:16px;font-variant-numeric:tabular-nums;outline:none}
+.qs input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgb(37 99 235/.12)}
+.res{display:flex;align-items:center;gap:12px;padding:16px;border-radius:var(--r-card);margin-bottom:16px}
+.res.ok{background:var(--ok-bg);color:var(--ok-fg)}
+.res.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.res b{font-weight:600}
+.field{margin-bottom:16px}
+.field label{display:block;color:var(--body);margin-bottom:6px}
+.field input,.field select{width:100%;height:48px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 12px;background:var(--canvas);outline:none}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#191b20;color:#fff;padding:12px 18px;border-radius:10px;z-index:80;box-shadow:var(--shadow-pop)}
+.push{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:90;background:var(--canvas);border:1px solid var(--hairline);border-radius:14px;box-shadow:var(--shadow-pop);padding:12px 16px;display:flex;gap:12px;align-items:center;width:min(26rem,calc(100% - 32px));animation:drop 300ms cubic-bezier(.23,1,.32,1);cursor:pointer}
+@keyframes drop{from{opacity:0;transform:translate(-50%,-12px)}}
+.push .mark{width:32px;height:32px;border-radius:8px;background:#0b0b0b;color:#fff;display:grid;place-items:center;font-weight:600;flex-shrink:0}
+.push b{display:block;color:var(--ink);font-weight:600}
+.push span{color:var(--body);font-size:14px}
+@media (max-width:640px){.top,.nav,.body{padding-left:16px;padding-right:16px}.item{flex-wrap:wrap}.item .btn{width:100%}}
+
+/* spacious: every row breathes, and a two-line cell (name over SKU) gets room above and below */
+td{padding-top:14px!important;padding-bottom:14px!important;min-height:64px}
+tbody td{height:64px}
+.tree td{height:52px}
+.nm{line-height:1.4}
+.sk{line-height:1.4;margin-top:4px}
+h1{margin-bottom:20px}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top"><span class="mark">C</span><div><b>Store Kemang</b><br><span>Andi · Store manager</span></div></div>
+  <nav class="nav" id="nav"></nav>
+  <main class="body" id="body"></main>
+</div>
+<div id="sheet"></div>
+
+<script>
+/* ── what reaches this store ────────────────────────────────────────────── */
+const IN=[
+  {sj:'SJ-011026-005',a:'ALT-0408',koli:4,pcs:300,sent:'Today 08.10',trip:'Driver Budi, L300',st:'transit',lines:[['Kemeja Oxford Slim · L','KMJ-OXF-SL-L',96],['Celana Chino Tapered · 32','CLN-CHN-TP-32',84],['Polo Pique Basic · M','PLO-PQ-BS-M',72],['Kaos Crew Basic · M','KAO-CRW-BS-M',48]]},
+  {sj:'SJ-270926-001',a:'ALT-0402',koli:2,pcs:190,sent:'27 Sep',st:'received',got:190,lines:[]},
+];
+const OUT=[
+  {no:'RT-KMG-0054',by:'Rina · Merchandise',asked:'Today 09.30',st:'asked',lines:[['Kemeja Oxford Slim · XL','KMJ-OXF-SL-XL','Slow moving',7],['Celana Chino Tapered · 36','CLN-CHN-TP-36','Slow moving',5],['Polo Pique Basic · S','PLO-PQ-BS-S','Damaged',2]]},
+  {no:'RT-KMG-0043',by:'Sari · Merchandise',asked:'29 Sep',st:'sent',sent:18,lines:[]},
+];
+const RSTOCK=[['Kemeja Oxford Slim · XL','KMJ-OXF-SL-XL','Slow moving',7],['Celana Chino Tapered · 36','CLN-CHN-TP-36','Slow moving',5],['Polo Pique Basic · S','PLO-PQ-BS-S','Damaged',2],['Kaos Crew Basic · XXL','KAO-CRW-BS-XXL','Slow moving',9]];
+const S={tab:'today',open:null,cnt:{}};
+const $=id=>document.getElementById(id);
+const icons=()=>lucide.createIcons({attrs:{'stroke-width':1.7}});
+const id=n=>n.toLocaleString('id-ID');
+function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),2800)}
+const toCount=()=>IN.filter(x=>x.st==='transit').length, toSend=()=>OUT.filter(x=>x.st==='asked').length;
+
+/* ── menu: a badge is how the store learns something is waiting ─────────── */
+function nav(){
+  const b=n=>n?`<span class="badge">${n}</span>`:'';
+  $('nav').innerHTML=[['today','Today',0],['recv','Receiving',toCount()],['ret','Return to HO',toSend()],['stock','Return stock',0]]
+    .map(x=>`<button class="${S.tab===x[0]?'on':''}" onclick="S.tab='${x[0]}';paint()">${x[1]}${b(x[2])}</button>`).join('');
+}
+function today(){
+  return `<h1>Today</h1><div class="today">
+  <button class="tile${toCount()?' warn':''}" onclick="S.tab='recv';paint()"><span class="n">${toCount()}</span><span class="l">Delivery on the way from HO</span></button>
+  <button class="tile${toSend()?' warn':''}" onclick="S.tab='ret';paint()"><span class="n">${toSend()}</span><span class="l">Return HO asked you to send</span></button>
+  <button class="tile" onclick="S.tab='stock';paint()"><span class="n">${RSTOCK.reduce((s,l)=>s+l[3],0)}</span><span class="l">Pcs in return stock</span></button></div>`;
+}
+function recv(){
+  return `<h1>Receiving</h1><div class="list">${IN.map(x=>`<div class="item"><div class="g"><div class="t mono">${x.sj}</div><div class="m">${x.koli} koli · sent ${x.sent}${x.trip?' · '+x.trip:''}</div></div>
+  ${x.st==='transit'?`<button class="btn pri" onclick="openCount('${x.sj}')">Count receive</button>`:`<span class="st"><span class="dot" style="background:${x.got<x.pcs?'var(--bad)':'var(--ok)'}"></span>Received ${id(x.got)} pcs</span>`}</div>`).join('')}</div>`;
+}
+function ret(){
+  return `<h1>Return to HO</h1><div class="list">${OUT.map(r=>`<div class="item"><div class="g"><div class="t mono">${r.no}</div><div class="m">${r.by} · ${r.asked}</div></div>
+  ${r.st==='asked'?`<span class="q">${r.lines.reduce((s,l)=>s+l[3],0)} pcs</span><button class="btn pri" onclick="openSend('${r.no}')">Pack and send</button>`:`<span class="st"><span class="dot" style="background:var(--accent)"></span>Sent ${r.sent} pcs · on the way</span>`}</div>`).join('')}</div>`;
+}
+function stock(){
+  return `<h1>Return stock</h1>
+  <div class="tcard"><table><thead><tr><th class="n">No.</th><th>SKU</th><th>Reason</th><th class="r">Pcs</th></tr></thead><tbody>${RSTOCK.map((l,i)=>`<tr><td class="n">${i+1}</td><td><span class="nm">${l[0]}</span><span class="sk">${l[1]}</span></td><td>${l[2]}</td><td class="r">${l[3]}</td></tr>`).join('')}</tbody>
+  <tfoot><tr><td></td><td colspan="2">Total</td><td class="r">${RSTOCK.reduce((s,l)=>s+l[3],0)}</td></tr></tfoot></table></div>
+  <div style="margin-top:16px"><button class="btn" onclick="openAdd()"><i data-lucide="plus"></i>Set aside</button></div>`;
+}
+
+/* ── Count receive: blind against the surat jalan ───────────────────────── */
+function openCount(sj){S.open=sj;S.cnt={};S.done=null;sheetCount()}
+function sheetCount(){
+  const x=IN.find(i=>i.sj===S.open), q=i=>S.cnt[i]??'';
+  if(S.done){
+    const d=S.done;
+    $('sheet').innerHTML=`<div class="veil"><div class="sheet"><div class="sh"><div class="g"><h2>${x.sj}</h2><p>${x.koli} koli</p></div><button class="ib" onclick="closeSheet()"><i data-lucide="x"></i></button></div><div class="sb">
+    ${d.short?`<div class="res warn"><i data-lucide="circle-alert"></i><span><b>${d.short} pcs fewer than the surat jalan.</b> HO's Inventory has been told; you don't need to do anything.</span></div>`:`<div class="res ok"><i data-lucide="check"></i><span><b>Matches the surat jalan.</b> ${id(d.got)} pcs added to your stock.</span></div>`}
+    <div class="tcard"><table><thead><tr><th class="n">No.</th><th>SKU</th><th class="r">Sent</th><th class="r">Counted</th></tr></thead><tbody>${x.lines.map((l,i)=>`<tr><td class="n">${i+1}</td><td><span class="nm">${l[0]}</span><span class="sk">${l[1]}</span></td><td class="r">${l[2]}</td><td class="r"${d.c[i]<l[2]?' style="color:var(--bad-fg)"':''}>${d.c[i]}</td></tr>`).join('')}</tbody></table></div></div>
+    <div class="sf"><button class="btn pri big" onclick="closeSheet()">Done</button></div></div></div>`;
+    icons();return;
+  }
+  const filled=x.lines.filter((_,i)=>S.cnt[i]!==undefined&&S.cnt[i]!=='').length, total=x.lines.reduce((s,_,i)=>s+(+S.cnt[i]||0),0);
+  $('sheet').innerHTML=`<div class="veil"><div class="sheet"><div class="sh"><div class="g"><h2>Count receive</h2><p class="mono">${x.sj} · ${x.koli} koli</p></div><button class="ib" onclick="closeSheet()"><i data-lucide="x"></i></button></div>
+  <div class="sb"><div class="tcard"><table><thead><tr><th class="n">No.</th><th>SKU</th><th class="r">Counted</th></tr></thead><tbody>${x.lines.map((l,i)=>`<tr><td class="n">${i+1}</td><td><span class="nm">${l[0]}</span><span class="sk">${l[1]}</span></td><td class="r"><span class="qs"><input id="c${i}" value="${q(i)}" inputmode="numeric" placeholder="0" oninput="S.cnt[${i}]=this.value.replace(/\\D/g,'');sheetFoot()"><span style="color:var(--body)">pcs</span></span></td></tr>`).join('')}</tbody></table></div></div>
+  <div class="sf" id="sf"></div></div></div>`;
+  sheetFoot();icons();
+}
+function sheetFoot(){
+  const x=IN.find(i=>i.sj===S.open);
+  const filled=x.lines.filter((_,i)=>S.cnt[i]!==undefined&&S.cnt[i]!=='').length, total=x.lines.reduce((s,_,i)=>s+(+S.cnt[i]||0),0);
+  $('sf').innerHTML=`<span class="g"><b style="color:var(--ink)">${id(total)} pcs</b> counted · ${filled} of ${x.lines.length} lines</span><button class="btn pri" onclick="confirmRecv()"${filled===x.lines.length?'':' disabled'}><i data-lucide="check"></i>Confirm receive</button>`;
+  icons();
+}
+function confirmRecv(){
+  const x=IN.find(i=>i.sj===S.open), c=x.lines.map((_,i)=>+S.cnt[i]||0), got=c.reduce((a,b)=>a+b,0);
+  x.st='received';x.got=got;S.done={c,got,short:Math.max(0,x.pcs-got)};nav();sheetCount();
+}
+function closeSheet(){S.open=null;$('sheet').innerHTML='';paint()}
+
+/* ── Pack and send: what actually goes in the box ───────────────────────── */
+function openSend(no){
+  S.open=no;const r=OUT.find(x=>x.no===no);S.cnt={};r.lines.forEach((l,i)=>S.cnt[i]=l[3]);sheetSend();
+}
+function sheetSend(){
+  const r=OUT.find(x=>x.no===S.open), total=r.lines.reduce((s,_,i)=>s+S.cnt[i],0);
+  $('sheet').innerHTML=`<div class="veil"><div class="sheet"><div class="sh"><div class="g"><h2>Pack and send</h2><p class="mono">${r.no} · ${r.by}</p></div><button class="ib" onclick="closeSheet()"><i data-lucide="x"></i></button></div>
+  <div class="sb"><div class="tcard"><table><thead><tr><th class="n">No.</th><th>SKU</th><th class="r">Asked</th><th class="r">Sending</th></tr></thead><tbody>${r.lines.map((l,i)=>`<tr><td class="n">${i+1}</td><td><span class="nm">${l[0]}</span><span class="sk">${l[1]} · ${l[2]}</span></td><td class="r">${l[3]}</td><td class="r"><span class="qs"><button onclick="sq(${i},-1)"${S.cnt[i]?'':' disabled'}><i data-lucide="minus"></i></button><input value="${S.cnt[i]}" readonly><button onclick="sq(${i},1)"${S.cnt[i]<l[3]?'':' disabled'}><i data-lucide="plus"></i></button></span></td></tr>`).join('')}</tbody>
+  <tfoot><tr><td></td><td>Total</td><td class="r">${r.lines.reduce((s,l)=>s+l[3],0)}</td><td class="r">${total}</td></tr></tfoot></table></div></div>
+  <div class="sf"><span class="g"></span><button class="btn pri" onclick="send()"${total?'':' disabled'}><i data-lucide="send"></i>Send ${total} pcs</button></div></div></div>`;
+  icons();
+}
+function sq(i,d){const r=OUT.find(x=>x.no===S.open);S.cnt[i]=Math.max(0,Math.min(r.lines[i][3],S.cnt[i]+d));sheetSend()}
+function send(){const r=OUT.find(x=>x.no===S.open);r.sent=r.lines.reduce((s,_,i)=>s+S.cnt[i],0);r.st='sent';closeSheet();toast(r.no+' sent · '+r.sent+' pcs on the way to HO')}
+
+/* ── Set aside: put something into return stock ─────────────────────────── */
+function openAdd(){
+  $('sheet').innerHTML=`<div class="veil" onmousedown="if(event.target===this)closeSheet()"><div class="sheet" style="height:auto;max-width:34rem;border-radius:16px;margin-bottom:auto;margin-top:12vh"><div class="sh"><div class="g"><h2>Set aside for return</h2></div><button class="ib" onclick="closeSheet()"><i data-lucide="x"></i></button></div>
+  <div class="sb"><div class="field"><label>SKU</label><input id="aSku" placeholder="Scan or type a SKU"></div><div class="field"><label>Pcs</label><input id="aQty" inputmode="numeric" value="1"></div><div class="field"><label>Reason</label><select id="aWhy"><option>Damaged</option><option>Slow moving</option><option>Recall</option><option>Wrong size sent</option></select></div></div>
+  <div class="sf"><button class="btn pri big" onclick="addStock()">Set aside</button></div></div></div>`;
+  icons();$('aSku').focus();
+}
+function addStock(){const sku=$('aSku').value.trim().toUpperCase();if(!sku){$('aSku').focus();return}RSTOCK.push([sku,sku,$('aWhy').value,Math.max(1,parseInt($('aQty').value)||1)]);closeSheet();toast('Set aside · Merchandise can now ask for it')}
+
+function paint(){nav();$('body').innerHTML={today,recv,ret,stock}[S.tab]();icons()}
+/* A push when Merchandise asks for a return — the store didn't have to look. */
+function push(){const p=document.createElement('div');p.className='push';p.innerHTML='<span class="mark">C</span><div><b>Return to HO requested</b><span>RT-KMG-0054 · 14 pcs · from Rina</span></div>';p.onclick=()=>{p.remove();S.tab='ret';paint()};document.body.appendChild(p);setTimeout(()=>p.remove(),6000)}
+paint();setTimeout(push,800);
+</script>
+</body>
+</html>

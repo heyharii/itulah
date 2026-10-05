@@ -209,7 +209,6 @@ function Switches() {
                   onChange={(event) =>
                     setKind(event.target.value.toUpperCase())
                   }
-                  placeholder="CASH_SHIFT"
                 />
               </Field>
               <Field label="Module" className="w-44">
@@ -422,7 +421,7 @@ function SourceRules() {
             disabled={account === null || kind.trim() === ""}
             onClick={() => add.mutate()}
           >
-            {add.isPending ? "Saving…" : "Save rule"}
+            {add.isPending ? "Submitting…" : "Submit"}
           </Button>
         </div>
       </Card>
@@ -547,7 +546,7 @@ function HeadOfficeAccounts() {
             disabled={account === null || note.trim() === ""}
             onClick={() => add.mutate()}
           >
-            {add.isPending ? "Saving…" : "Save"}
+            {add.isPending ? "Submitting…" : "Submit"}
           </Button>
         </div>
       </Card>

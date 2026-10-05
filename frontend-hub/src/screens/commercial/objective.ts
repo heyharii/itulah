@@ -66,7 +66,7 @@ export const OBJECTIVES: readonly ObjectiveKind[] = [
   },
   {
     value: "LAUNCH_PRODUCT",
-    label: "Launch a product",
+    label: "Launch an article",
     hint: "Get units of something new into hands.",
     suggests: "UNITS_SOLD",
   },

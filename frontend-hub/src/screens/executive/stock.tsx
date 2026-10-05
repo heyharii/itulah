@@ -13,10 +13,11 @@ import { Figure, Figures, Head, ReportPage } from "@/screens/executive/parts"
 import { usePlaces } from "@/screens/executive/places"
 import { useReportScope } from "@/screens/executive/scope"
 import { useTrade } from "@/screens/executive/sales"
+import { SupplierName } from "@/screens/procurement/supplier-name"
 import { spanDays } from "@itulah/contract/reporting"
 
 /// Barang & pembelian — how much the shops hold, how long it lasts, and what
-/// is still coming from suppliers and the DC.
+/// is still coming from suppliers and the Gudang.
 
 /// The outbound stages after the goods have left the pick face: a pallet on
 /// the dock is already the store's, it just is not on its shelf.
@@ -52,8 +53,13 @@ export function ExecutiveStock() {
     if (!fleet.data) return []
     const stock = new Map<string, number>()
     const coming = new Map<string, number>()
+    // The head office site, by kind (`HO`, 0603), read from the same rows.
+    // This list is the shops, so it drops head office by its kind rather than
+    // by comparing the site id to a literal `dc`.
+    const headOffice = new Set<string>()
     for (const pool of fleet.data.items) {
       if (!pool.authority.included_in_fleet_total) continue
+      if (pool.site_kind === "HO") headOffice.add(pool.site_id)
       if (pool.group === "STORE_INVENTORY") {
         stock.set(pool.site_id, (stock.get(pool.site_id) ?? 0) + pool.on_hand)
       } else if (
@@ -75,7 +81,7 @@ export function ExecutiveStock() {
     )
     const sites = new Set([...stock.keys(), ...coming.keys(), ...sold.keys()])
     return [...sites]
-      .filter((site) => site !== "dc")
+      .filter((site) => !headOffice.has(site))
       .map((site) => {
         const held = stock.get(site) ?? 0
         const units = sold.get(site) ?? 0
@@ -143,7 +149,7 @@ export function ExecutiveStock() {
         <Figure
           label="Dalam perjalanan ke toko"
           value={fleet.data ? `${count(coming)} unit` : "…"}
-          note="Sudah keluar dari DC"
+          note="Sudah keluar dari Gudang"
         />
         <Figure
           label="PO belum diterima"
@@ -212,7 +218,7 @@ export function ExecutiveStock() {
                     head={[
                       "PO",
                       "Tujuan",
-                      "Belum diterima",
+                      "Belum Diterima",
                       "Nilai PO",
                       "Tiba",
                     ]}
@@ -225,7 +231,10 @@ export function ExecutiveStock() {
                             {order.po_number}
                           </span>
                           <span className="block text-[0.875rem] text-mute">
-                            {order.supplier_name ?? "—"}
+                            <SupplierName
+                              code={order.supplier_id}
+                              name={order.supplier_name}
+                            />
                           </span>
                         </MiniCell>
                         <MiniCell align="right">

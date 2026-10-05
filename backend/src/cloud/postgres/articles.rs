@@ -28,7 +28,7 @@
 use super::{begin_idempotent, complete_idempotent, FacetCount, NullablePatch};
 use crate::cloud::{
     application::AppError,
-    domain::{decode_epc, normalize_tag_codes},
+    domain::{decode_epc, normalize_tag_codes, uom::ItemUnit},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -80,6 +80,13 @@ pub struct ArticleRow {
     pub base_price_min_minor: Option<i64>,
     pub base_price_max_minor: Option<i64>,
     pub currency: Option<String>,
+    /// What this article's stock is counted in (ERPNext `stock_uom`): PCS
+    /// for clothing, GRAM or CM for goods kept by weight or length.
+    pub stock_unit_code: String,
+    /// What a new order line starts in (ERPNext `purchase_uom`).
+    pub purchase_unit_code: Option<String>,
+    /// What a sale starts in (ERPNext `sales_uom`).
+    pub sales_unit_code: Option<String>,
     /// What a PATCH must quote in `If-Match`.
     pub version: i32,
     pub created_at: DateTime<Utc>,
@@ -172,6 +179,9 @@ pub struct ArticleDetail {
     /// can get from a product back to the delivery that prompted it.
     pub created_by_session_id: Option<Uuid>,
     pub supplier_items: Vec<ArticleSupplierItem>,
+    /// The other units this article is dealt in, each with how many of its
+    /// stock unit one is (ERPNext's UOM Conversion Detail): CARTON 24.
+    pub units: Vec<ItemUnit>,
 }
 
 /// Which way the master is read.
@@ -309,6 +319,9 @@ fn article_row_from(row: &PgRow) -> Result<ArticleRow, AppError> {
         base_price_min_minor: row.try_get("base_price_min_minor")?,
         base_price_max_minor: row.try_get("base_price_max_minor")?,
         currency: row.try_get("currency")?,
+        stock_unit_code: row.try_get("stock_unit_code")?,
+        purchase_unit_code: row.try_get("purchase_unit_code")?,
+        sales_unit_code: row.try_get("sales_unit_code")?,
         version: row.try_get("version")?,
         created_at: row.try_get("created_at")?,
     })
@@ -323,6 +336,7 @@ fn article_row_from(row: &PgRow) -> Result<ArticleRow, AppError> {
 const ROW_COLUMNS: &str = "
     a.id, a.article_code, a.name, a.active, a.division_code, a.image_url,
     a.version, a.created_at, a.created_by_session_id,
+    a.stock_unit_code, a.purchase_unit_code, a.sales_unit_code,
     COALESCE((SELECT array_agg(t.tag_code ORDER BY t.tag_code)
                 FROM article_tag t WHERE t.article_id = a.id), '{}') AS tags,
     COALESCE((SELECT jsonb_agg(jsonb_build_object(
@@ -631,11 +645,28 @@ async fn read_article_detail(
     })
     .collect::<Result<Vec<_>, AppError>>()?;
 
+    let units = sqlx::query(
+        "SELECT unit_code, trim_scale(factor)::text AS factor
+           FROM article_unit WHERE article_id = $1 ORDER BY factor, unit_code",
+    )
+    .bind(article_id)
+    .fetch_all(&mut *connection)
+    .await?
+    .into_iter()
+    .map(|row| {
+        Ok(ItemUnit {
+            unit_code: row.try_get("unit_code")?,
+            factor: row.try_get("factor")?,
+        })
+    })
+    .collect::<Result<Vec<_>, AppError>>()?;
+
     Ok(ArticleDetail {
         article,
         skus,
         created_by_session_id,
         supplier_items,
+        units,
     })
 }
 
@@ -677,6 +708,32 @@ pub struct UpdateArticleRequest {
     /// Absent leaves the colourways alone; present REPLACES the mapping.
     #[serde(default)]
     pub colours: Option<Vec<ArticleColourwayInput>>,
+    /// A whole-number unit. Refused once the article has stock, as ERPNext
+    /// refuses a stock UOM change after transactions: every quantity already
+    /// counted would silently change meaning.
+    #[serde(default)]
+    pub stock_unit_code: Option<String>,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub purchase_unit_code: NullablePatch<String>,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub sales_unit_code: NullablePatch<String>,
+    /// Absent leaves them; present REPLACES the article's own units. A row
+    /// with no factor takes the global one, as ERPNext prefills it.
+    #[serde(default)]
+    pub units: Option<Vec<ArticleUnitInput>>,
+}
+
+/// One of an article's own units, as a form sends it.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ArticleUnitInput {
+    pub unit_code: String,
+    /// Stock units in one. Absent or blank takes the global conversion.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub factor: Option<String>,
 }
 
 fn map_article_write_error(error: sqlx::Error) -> AppError {
@@ -720,12 +777,18 @@ pub async fn update_article(
     let changes_division = !matches!(request.division_code, NullablePatch::Missing);
     let changes_image = !matches!(request.image_url, NullablePatch::Missing);
     let changes_active = request.active.is_some();
+    let changes_purchase_unit = !matches!(request.purchase_unit_code, NullablePatch::Missing);
+    let changes_sales_unit = !matches!(request.sales_unit_code, NullablePatch::Missing);
     if !(changes_name
         || changes_division
         || changes_image
         || changes_active
         || request.tags.is_some()
-        || request.colours.is_some())
+        || request.colours.is_some()
+        || request.stock_unit_code.is_some()
+        || changes_purchase_unit
+        || changes_sales_unit
+        || request.units.is_some())
     {
         return Err(AppError::Validation(
             "Article update must contain at least one field".into(),
@@ -795,6 +858,21 @@ pub async fn update_article(
     if let Some(colours) = colours.as_deref() {
         replace_article_colourways(&mut transaction, article_id, &article_code, colours).await?;
     }
+    if request.stock_unit_code.is_some()
+        || changes_purchase_unit
+        || changes_sales_unit
+        || request.units.is_some()
+    {
+        update_article_units(
+            &mut transaction,
+            article_id,
+            request.stock_unit_code.as_deref(),
+            &request.purchase_unit_code,
+            &request.sales_unit_code,
+            request.units.as_deref(),
+        )
+        .await?;
+    }
     // Read back through the same query the list and the sheet use, so what the
     // editor sees after saving is what everybody else will see.
     let detail = read_article_detail(&mut transaction, &article_code).await?;
@@ -854,6 +932,150 @@ fn validate_colourways(
         });
     }
     Ok(cleaned)
+}
+
+fn unit_code_of(value: &str) -> Option<String> {
+    Some(value.trim().to_uppercase()).filter(|code| !code.is_empty())
+}
+
+/// The article's units, ERPNext's way: a stock unit, default purchase and
+/// sales units, and its own list of other units with a factor each.
+async fn update_article_units(
+    transaction: &mut Transaction<'_, Postgres>,
+    article_id: Uuid,
+    stock_unit_code: Option<&str>,
+    purchase_unit_code: &NullablePatch<String>,
+    sales_unit_code: &NullablePatch<String>,
+    units: Option<&[ArticleUnitInput]>,
+) -> Result<(), AppError> {
+    let current: String =
+        sqlx::query_scalar("SELECT stock_unit_code FROM article WHERE id = $1")
+            .bind(article_id)
+            .fetch_one(&mut **transaction)
+            .await?;
+    let stock_unit = match stock_unit_code.and_then(unit_code_of) {
+        Some(code) if code != current => {
+            let whole: Option<bool> =
+                sqlx::query_scalar("SELECT whole_number FROM unit_of_measure WHERE code = $1")
+                    .bind(&code)
+                    .fetch_optional(&mut **transaction)
+                    .await?;
+            match whole {
+                None => return Err(AppError::Validation(format!("{code} is not in the units master"))),
+                Some(false) => {
+                    return Err(AppError::Validation(format!(
+                        "{code} is not counted in whole numbers, and stock is; \
+                         keep stock in its smallest unit (GRAM, CM, ML) and buy in {code}"
+                    )))
+                }
+                Some(true) => {}
+            }
+            let stocked: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM inventory_subject s
+                                  JOIN sku ON sku.id = s.sku_id
+                                 WHERE sku.article_id = $1)",
+            )
+            .bind(article_id)
+            .fetch_one(&mut **transaction)
+            .await?;
+            if stocked {
+                return Err(AppError::Validation(format!(
+                    "this article already has stock counted in {current}; \
+                     its stock unit cannot change under it"
+                )));
+            }
+            sqlx::query("UPDATE article SET stock_unit_code = $2 WHERE id = $1")
+                .bind(article_id)
+                .bind(&code)
+                .execute(&mut **transaction)
+                .await?;
+            code
+        }
+        _ => current,
+    };
+
+    if let Some(units) = units {
+        sqlx::query("DELETE FROM article_unit WHERE article_id = $1")
+            .bind(article_id)
+            .execute(&mut **transaction)
+            .await?;
+        for unit in units {
+            let Some(code) = unit_code_of(&unit.unit_code) else {
+                continue;
+            };
+            if code == stock_unit {
+                continue;
+            }
+            let typed = unit
+                .factor
+                .as_deref()
+                .map(|text| text.trim().replace(',', "."))
+                .filter(|text| !text.is_empty());
+            let factor: rust_decimal::Decimal = match typed {
+                Some(text) => text.parse().map_err(|_| {
+                    AppError::Validation(format!("{text:?} is not a number of {stock_unit}"))
+                })?,
+                None => sqlx::query_scalar::<_, Option<rust_decimal::Decimal>>(
+                    "SELECT round(unit_factor($1, $2), 4)",
+                )
+                .bind(&code)
+                .bind(&stock_unit)
+                .fetch_one(&mut **transaction)
+                .await?
+                .ok_or_else(|| {
+                    AppError::Validation(format!(
+                        "{code} has no global conversion to {stock_unit}; say how many {stock_unit} one {code} is"
+                    ))
+                })?,
+            };
+            if factor <= rust_decimal::Decimal::ZERO || factor.normalize().scale() > 4 {
+                return Err(AppError::Validation(format!(
+                    "one {code} must be a positive number of {stock_unit}, at most four decimals"
+                )));
+            }
+            sqlx::query(
+                "INSERT INTO article_unit (article_id, unit_code, factor) VALUES ($1, $2, $3)
+                 ON CONFLICT (article_id, unit_code) DO UPDATE SET factor = EXCLUDED.factor",
+            )
+            .bind(article_id)
+            .bind(&code)
+            .bind(factor)
+            .execute(&mut **transaction)
+            .await
+            .map_err(|_| AppError::Validation(format!("{code} is not in the units master")))?;
+        }
+    }
+
+    // A default unit must be one this article can actually be said in.
+    for (column, patch) in [
+        ("purchase_unit_code", purchase_unit_code),
+        ("sales_unit_code", sales_unit_code),
+    ] {
+        let code = match patch {
+            NullablePatch::Missing => continue,
+            NullablePatch::Null => None,
+            NullablePatch::Value(value) => unit_code_of(value),
+        };
+        if let Some(code) = &code {
+            let known: Option<rust_decimal::Decimal> =
+                sqlx::query_scalar("SELECT article_unit_factor(article_code, $2) FROM article WHERE id = $1")
+                    .bind(article_id)
+                    .bind(code)
+                    .fetch_one(&mut **transaction)
+                    .await?;
+            if known.is_none() {
+                return Err(AppError::Validation(format!(
+                    "{code} does not convert to {stock_unit} for this article; add it to its units first"
+                )));
+            }
+        }
+        sqlx::query(&format!("UPDATE article SET {column} = $2 WHERE id = $1"))
+            .bind(article_id)
+            .bind(&code)
+            .execute(&mut **transaction)
+            .await?;
+    }
+    Ok(())
 }
 
 async fn replace_article_tags(

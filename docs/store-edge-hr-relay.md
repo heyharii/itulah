@@ -3,8 +3,8 @@
 The store till (`frontend-store-new`) talks to one server, its own store edge,
 under one sign-in. HR data lives only at Cloud, and so does General Affairs.
 The store edge therefore relays an allowlisted set of HR and GA calls to Cloud
-for the person signed in at the till, and Cloud limits every one of them to that
-node's own place.
+for the person signed in at the till. Cloud limits HR to the unit that owns the
+node's site, and limits GA to that physical site.
 
 ## The route
 
@@ -69,6 +69,10 @@ more:
   proposing hire proposals.
 - **Performance and training:** reading templates and scores, recording a
   score, reading training programmes, and nominating somebody for one.
+- **The shop's cash:** `store-cash/boxes` (its Cash on hand, Petty cash and
+  Cashier float with today's book figure) and `store-cash/counts` (reading and
+  recording a count, note by note). The handler binds both to the relaying
+  node's own site, whatever the query names.
 - **Notifications:** listing them and marking one read. These are always the
   person's own.
 - **General Affairs:** `ga/locations/{site}`, the asset list, one asset, a note
@@ -120,8 +124,8 @@ never becomes the development `Admin`. Cloud then checks, in order:
 1. **The path is on the allowlist.** If not, `403`.
 2. **The node is who it says it is.** `x-relay-origin` must authenticate with its
    own `x-sync-key`, using the same `authenticate_origin` as `/sync/ingest`.
-3. **The node has a place.** The origin's site must map to an `org_place`. If it
-   does not, `403`.
+3. **The node belongs to a unit.** The origin's `site_id` must resolve through
+   `unit_of_origin` (`site.unit_id`). If it does not, `403`.
 4. **The person may sign in at this node now.** `x-relay-user` must be an
    active `app_user` with an active `edge_identity_assignment` at this origin.
    Revoking either one stops the relay on the next call.
@@ -129,21 +133,26 @@ never becomes the development `Admin`. Cloud then checks, in order:
 Cloud then builds the `Principal` from the real user. Their username and display
 name make `actor_id` checks and audit rows name the person, not the node. Their
 role is the lower of the Cloud role and the edge role on the assignment.
-`relayed: Some(RelayBinding { origin_id, site_id, site_kind, place_id })` records the node
-the call came through. The path role gate and the `actor_id` check apply as
-they do for any session. There is no CSRF check, because there is no cookie.
+`relayed: Some(RelayBinding { origin_id, site_id, site_kind, unit_id })` records
+the node the call came through and the unit its site belongs to. These are two
+different ids: a site is a premises, while a unit is the HR and accounting
+scope. The path role gate and the `actor_id` check apply as they do for any
+session. There is no CSRF check, because there is no cookie.
 
-## How Cloud limits a relayed call to the node's place
+## How Cloud limits a relayed call to the node's site and unit
 
 - **HR:** `reach_from` in `http/employment.rs` resolves every HR handler's
-  reach, and `Reach::bounded_to(place)` cuts it down there. `Everywhere`
-  becomes `Only(place)`, and `Only(place)` stays. `Only(elsewhere)` and
-  `Nowhere` both become `Nowhere`. So an Admin at a till reaches only that
-  till's place, and a supervisor posted to another shop reaches nothing at
-  this one. A list that takes no place filter is limited the same way.
-  `employees/me/reach` reports the till's place in that case.
+  reach, and `Reach::bounded_to(unit_id)` cuts it down to the unit resolved
+  from the origin's site. `Everywhere` becomes `Only(unit_id)`, and
+  `Only(unit_id)` stays. `Only(elsewhere)` and `Nowhere` both become
+  `Nowhere`. So an Admin at a till reaches only that site's owning unit, and a
+  supervisor posted to another unit reaches nothing there. A list that takes
+  no unit filter is limited the same way. `employees/me/reach` reports this
+  bounded `unit_id`; the store UI uses it for HR filters and queue fences and
+  never compares it with the node's `site_id`.
 - **GA:** GA resolves no `Reach`, so helpers on `Principal` do the same job,
-  and every GA handler on the list calls them:
+  and every GA handler on the list calls them using the node's physical
+  `site_id`:
   - **Lists.** `site_filter` sets a list's `site` to the node's site when no
     site is given. Asking for another site, or for this site plus another, is
     refused with a sentence, not quietly narrowed.
@@ -173,7 +182,8 @@ they do for any session. There is no CSRF check, because there is no cookie.
     `statuses` is recounted the same way.
 
 A request about the person's own record (`me`) still reaches that record, just
-as it does on every other surface.
+as it does on every other surface, when that person has a posting inside the
+node's bounded unit.
 
 ## Configuration
 
@@ -191,12 +201,13 @@ as it does on every other surface.
 
 ## Trust boundary
 
-The node's key proves which shop is calling. It cannot prove who is standing at
-the till; only the edge's own sign-in knows that. So Cloud takes the node's
-word for the person, but only as far as its own register allows (an active
-assignment at this node), and never beyond the node's own place. A stolen node
-key can at most act as a person assigned to that node, inside that node's
-place. That is the same limit the voucher relay has.
+The node's key proves which premises is calling. It cannot prove who is
+standing at the till; only the edge's own sign-in knows that. So Cloud takes the
+node's word for the person, but only as far as its own register allows (an
+active assignment at this node), and never beyond the owning unit for HR or the
+physical site for GA. A stolen node key can at most act as a person assigned to
+that node, inside those same bounds. That is the same limit the voucher relay
+has.
 
 ## Tests
 
@@ -206,8 +217,10 @@ place. That is the same limit the voucher relay has.
 - `backend/tests/store_hr_relay_integration.rs`: Cloud refusals (wrong or
   missing key, unassigned or revoked user, node with no place, path not on the
   list, forged `actor_id`, dev mode), the HR reach limit, and GA site
-  enforcement. The GA cases cover lists, rows by id, contract coverage, bodies,
-  the narrowed repair and task lists, and the stripped facets.
+  enforcement. `a_relayed_store_uses_the_site_owning_unit_for_hr` verifies that
+  HR uses the unit resolved from a different `site_id`; the GA cases cover
+  lists, rows by id, contract coverage, bodies, the narrowed repair and task
+  lists, and the stripped facets.
 - `backend/tests/store_central_relay_edge.rs`: edge refusals (no session,
   LOCAL account, path not on the list or encoded, no upload URL, sign-in
   disabled), plus one full trip from the edge to a live Cloud.

@@ -696,7 +696,18 @@ async fn get_text(app: axum::Router, path: &str) -> (http::StatusCode, String) {
 
 #[tokio::test]
 async fn dc_and_store_serve_role_aware_normalized_inventory() {
-    let frontend = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../frontend");
+    // A bundle the test writes itself, rather than `../frontend`: the
+    // single-page app that directory held was replaced by the Vite surfaces
+    // under `frontend-*`, and a node still serves whatever `FRONTEND_DIR`
+    // names — which is what this asserts. A fixture of our own is also the only
+    // form of this test that survives the apps moving.
+    let frontend = std::env::temp_dir().join(format!("edge-static-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&frontend).unwrap_or_else(|error| panic!("static dir: {error}"));
+    std::fs::write(
+        frontend.join("index.html"),
+        "<!doctype html><title>Inventory by Pool</title>",
+    )
+    .unwrap_or_else(|error| panic!("static index: {error}"));
     let dc_static = Arc::new(
         SqliteEdge::open_in_memory(node(EdgeRole::Dc, "dc-01"))
             .unwrap_or_else(|error| panic!("DC Edge static: {error}")),
@@ -754,7 +765,8 @@ async fn dc_and_store_serve_role_aware_normalized_inventory() {
             .unwrap_or_else(|error| panic!("Store Edge: {error}")),
     );
     let (_, store_pools) = get_json(
-        store_router(store, frontend).unwrap_or_else(|error| panic!("Store router: {error}")),
+        store_router(store, frontend.clone())
+            .unwrap_or_else(|error| panic!("Store router: {error}")),
         "/api/v1/inventory/pools",
     )
     .await;
@@ -763,4 +775,6 @@ async fn dc_and_store_serve_role_aware_normalized_inventory() {
         .unwrap_or_else(|| panic!("Store pool items"))
         .iter()
         .all(|item| item["site_id"] == "store-07" && item["is_rollup"] == false));
+
+    let _ = std::fs::remove_dir_all(&frontend);
 }

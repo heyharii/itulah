@@ -410,7 +410,6 @@ function OptionPicker({
           autoFocus
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search"
           className="h-8 shrink-0"
         />
       )}
@@ -509,7 +508,6 @@ function TypedValue({
               next[at] = event.target.value
               setDraft(next)
             }}
-            placeholder={field.spec.unit ?? field.label}
             className="h-8"
           />
         </span>
@@ -571,7 +569,6 @@ function AddFilter({
                 autoFocus
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search"
                 className="mb-1 h-8"
               />
             )}

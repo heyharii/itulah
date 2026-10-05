@@ -27,7 +27,7 @@ export function gaState<T>(
     return (
       <div className="mx-auto max-w-[28em] px-4 py-12 text-center">
         <p className="text-meta text-body">
-          {options.loading ?? "Asking head office…"}
+          {options.loading ?? "Loading…"}
         </p>
       </div>
     )
@@ -61,11 +61,11 @@ export function describeGa(error: unknown): string {
   if (error instanceof ApiError) {
     switch (error.status) {
       case 401:
-        return "This till's sign-in has lapsed, so its node will not ask head office on your behalf. Sign in again and come back."
+        return "Signed out. Sign in again."
       case 403:
-        return `Head office will not show this to the account signed in here. It said: “${error.message}”. General affairs needs a supervisor's account posted to this shop.`
+        return `Not allowed for this account: ${error.message}`
       case 503:
-        return "Head office's general affairs is not answering right now. Selling is unaffected; try again in a few minutes."
+        return "Head office is not answering. Try again shortly."
       case 0:
       case 502:
       case 504:
@@ -74,5 +74,5 @@ export function describeGa(error: unknown): string {
         return error.message
     }
   }
-  return "Head office is not reachable from this till. General affairs is kept at head office, not on this shop's node, so there is nothing to show until the line is back — this is not an empty register."
+  return "Can't reach head office. Try again when the line is back."
 }

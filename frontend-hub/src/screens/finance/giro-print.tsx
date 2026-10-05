@@ -231,7 +231,7 @@ export function GiroPrinting() {
                 disabled={!dirty}
                 onClick={() => save.mutate()}
               >
-                {save.isPending ? "Saving…" : "Save layout"}
+                {save.isPending ? "Submitting…" : "Submit"}
               </Button>
             </>
           )
@@ -297,7 +297,7 @@ export function GiroPrinting() {
                         disabled={newBank.trim() === ""}
                         onClick={() => add.mutate()}
                       >
-                        {add.isPending ? "Adding…" : "Add it"}
+                        {add.isPending ? "Submitting…" : "Submit"}
                       </Button>
                       <Button variant="quiet" onClick={() => setAdding(false)}>
                         Cancel

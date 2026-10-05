@@ -86,6 +86,8 @@ export const PARAMS = {
   q: text,
   /// Which part of the range the catalogue is narrowed to.
   division: text,
+  /// Whether the catalogue draws one card per article or one per SKU.
+  view: oneOf(["article", "sku"] as const),
   /// How many days the report covers, ending today.
   span: counted,
   /// How the series is grouped.

@@ -63,7 +63,8 @@ function MenuItemRow({
       className={cn(
         ITEM,
         "flex-col items-start gap-0",
-        !option.enabled && "cursor-default opacity-60 data-[highlighted]:bg-transparent"
+        !option.enabled &&
+          "cursor-default opacity-60 data-[highlighted]:bg-transparent"
       )}
     >
       <span>{option.label}</span>
@@ -134,7 +135,12 @@ export function ActionsMenu({
           {label}
         </Menu.Trigger>
         <Menu.Portal>
-          <Menu.Positioner side="bottom" align="end" sideOffset={4} className="z-50">
+          <Menu.Positioner
+            side="bottom"
+            align="end"
+            sideOffset={4}
+            className="z-50"
+          >
             <Menu.Popup className={cn(POPUP, "min-w-56")}>
               {items.map((option) => (
                 <MenuItemRow
@@ -166,7 +172,6 @@ export function ActionsMenu({
             ? {
                 label: "Note",
                 optional: !confirming.note_required,
-                placeholder: "Why",
               }
             : undefined
         }
@@ -310,7 +315,9 @@ function HistoryRow({ entry }: { entry: StoreActionEntry }) {
             <b className="text-[0.9375rem] font-semibold text-ink">
               {entry.label}
             </b>
-            <Pill tone={STATE_TONE[entry.state]}>{STATE_WORD[entry.state]}</Pill>
+            <Pill tone={STATE_TONE[entry.state]}>
+              {STATE_WORD[entry.state]}
+            </Pill>
           </div>
           <p className="mt-0.5 text-meta text-body">
             {entry.device_label ? `${entry.device_label} · ` : ""}
@@ -328,9 +335,7 @@ function HistoryRow({ entry }: { entry: StoreActionEntry }) {
       {entry.result_sentence && (
         <p className="text-[0.875rem] text-body">{entry.result_sentence}</p>
       )}
-      {entry.note && (
-        <p className="text-meta text-mute">Note: {entry.note}</p>
-      )}
+      {entry.note && <p className="text-meta text-mute">Note: {entry.note}</p>}
       {hasDetail && (
         <details className="text-meta">
           <summary className="cursor-pointer text-body select-none">

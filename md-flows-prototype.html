@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Allotments and returns (prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   The three documents that start a goods movement, from the people who own
+   the decision:
+
+     Merchandise · Allotments        HO → stores
+     Merchandise · Return to HO      stores → HO (from each store's return stock)
+     Buying · Return to supplier     HO → suppliers (from HO return stock, and
+                                     over-deliveries)
+
+   An allotment is tracked per store and never edited. MD can cancel a store
+   (or all of it) until it is dispatched, packed included; "Cancel and
+   re-allot" opens a new allotment prefilled with what was cancelled, to
+   change a quantity or move it to another store. Top up adds a linked
+   allotment. A short pick leaves "unfilled" for MD to wait on or close.
+   Ops does the physical undo; this screen only says what is asked.
+
+   Hub tokens, 16px root, nothing under 14px, English copy.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f8f9; --soft-2:#f0f0f2; --soft-3:#f6f6f7;
+  --hairline:#e6e6e9; --hairline-2:#dadade; --hairline-strong:#c6c6cc;
+  --rail:#242526; --rail-3:#393b3d; --rail-text:#c3c4c7;
+  --scrim:rgba(246,246,247,.72);
+  --accent:#2563eb; --accent-bg:#eff5ff; --cta:#2563eb; --cta-hover:#1d4ed8;
+  --ok:#36b827; --ok-bg:#e8f6ee; --ok-fg:#15803d;
+  --warn:#c9892e; --warn-bg:#fdf1dd; --warn-fg:#b45309;
+  --bad:#d05151; --bad-bg:#fbeaea; --bad-fg:#be123c; --info:#2f86d8;
+  --r-card:.75rem; --r-inner:.4375rem;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);
+  --shadow-float:0 2px 6px rgb(24 39 60/5%),0 24px 64px rgb(24 39 60/16%);
+}
+*{box-sizing:border-box}
+html{font-size:16px}
+html,body{height:100%;margin:0}
+body{font-family:Inter,system-ui,sans-serif;font-size:15px;color:var(--text);background:var(--soft-3);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:left}
+input,textarea{font:inherit;color:var(--ink)}
+svg.lucide{width:17px;height:17px;stroke-width:1.7;flex-shrink:0}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px}
+.shell{display:flex;height:100vh}
+.col{width:68px;background:var(--rail);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:6px;flex-shrink:0}
+.mark{width:30px;height:30px;border-radius:8px;background:#0b0b0b;color:#fff;display:grid;place-items:center;font-weight:600;position:relative;margin-bottom:10px}
+.mark::after{content:"";position:absolute;right:5px;bottom:5px;width:5px;height:5px;border-radius:50%;background:#3b82f6}
+.ci{width:40px;height:40px;border-radius:9px;display:grid;place-items:center;color:var(--rail-text)}
+.ci.on{background:var(--rail-3);color:#fff}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.bar{height:52px;display:flex;align-items:center;gap:8px;padding:0 32px;border-bottom:1px solid var(--hairline);color:var(--body);flex-shrink:0}
+.bar b{color:var(--ink);font-weight:500}
+.bar svg{width:15px;height:15px;color:var(--faint)}
+.page{flex:1;overflow-y:auto}
+.page.beside{padding-right:42rem}
+.page.beside .hb{display:none}
+.content{max-width:100rem;margin:0 auto;padding:28px 32px 120px}
+.ph{display:flex;align-items:flex-end;gap:16px;margin-bottom:20px}
+.ph h1{margin:0;font-size:28px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+.ph p{margin:6px 0 0;color:var(--body)}
+.ph .act{margin-left:auto;display:flex;gap:8px}
+.back{display:inline-flex;align-items:center;gap:6px;color:var(--body);margin-bottom:8px}
+.back:hover{color:var(--ink)}
+.btn{height:40px;padding:0 14px;border-radius:var(--r-inner);border:1px solid var(--hairline-2);background:var(--canvas);color:var(--ink);display:inline-flex;align-items:center;gap:8px;font-weight:500;white-space:nowrap}
+.btn:hover{background:var(--soft)}
+.btn.pri{background:var(--cta);color:#fff;border-color:var(--cta)}
+.btn.pri:hover{background:var(--cta-hover)}
+.btn.sm{height:36px;padding:0 12px}
+.btn.danger{color:var(--bad-fg)}
+.btn:disabled{opacity:.4;cursor:default}
+.btn svg{width:16px;height:16px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--hairline);margin-bottom:16px}
+.tabs button{height:44px;padding:0 12px;color:var(--body);font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;gap:8px;align-items:center}
+.tabs button.on{color:var(--ink);border-color:var(--ink)}
+.tabs button span{color:var(--mute);font-weight:400}
+.card{background:var(--canvas);border-radius:var(--r-card);border:1px solid var(--hairline);overflow:clip}
+table{width:100%;border-collapse:collapse}
+th{height:44px;text-align:left;font-weight:500;color:var(--body);padding:0 16px;border-bottom:1px solid var(--hairline);background:var(--soft);font-size:14px;white-space:nowrap;position:sticky;top:0;z-index:2}
+td{height:56px;padding:0 16px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+tbody tr.click{cursor:pointer}
+tbody tr.click:hover td{background:var(--soft)}
+tbody tr.sel td{background:var(--accent-bg)}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+td.n,th.n{width:56px;color:var(--mute);text-align:right;padding-right:8px}
+td.strong{color:var(--ink);font-weight:500}
+td.act,th.act{text-align:right;width:1%}
+tfoot td{position:sticky;bottom:0;background:var(--soft);font-weight:600;color:var(--ink);border-top:1px solid var(--hairline);border-bottom:0}
+.nm{display:block;color:var(--ink);font-weight:500}
+.sk{display:block;color:var(--mute);font-size:14px}
+.st{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;display:inline-block}
+.need{color:var(--warn-fg);font-weight:500}
+.empty{padding:28px;text-align:center;color:var(--mute)}
+.fld{display:inline-flex;height:40px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);overflow:hidden;background:var(--canvas)}
+.fld:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgb(37 99 235/.12)}
+.fld input{width:5rem;border:0;outline:none;text-align:right;padding:0 10px;font-variant-numeric:tabular-nums}
+.fld span{display:flex;align-items:center;padding:0 10px;border-left:1px solid var(--hairline);background:var(--soft);color:var(--body)}
+.split{display:grid;grid-template-columns:17rem 1fr;gap:16px;align-items:start}
+.pickl{padding:6px}
+.pickl button{width:100%;display:flex;flex-direction:column;padding:10px 12px;border-radius:var(--r-inner)}
+.pickl button:hover{background:var(--soft)}
+.pickl button.on{background:var(--accent-bg)}
+.pickl button.on .nm{color:#1e40af}
+.foot{position:sticky;bottom:0;margin-top:16px;display:flex;align-items:center;gap:12px;padding:14px 0;background:var(--soft-3);border-top:1px solid var(--hairline);color:var(--body)}
+.foot .g{flex:1}
+
+/* the allotment sheet */
+.sheet{position:fixed;z-index:30;top:20px;right:20px;bottom:20px;width:40rem;max-width:calc(100vw - 40px);background:var(--canvas);border:1px solid var(--hairline);border-radius:1rem;box-shadow:var(--shadow-float);display:flex;flex-direction:column;overflow:hidden;animation:slide 260ms cubic-bezier(.32,.72,0,1)}
+@keyframes slide{from{transform:translateX(calc(100% + 20px))}}
+.sh{display:flex;align-items:flex-start;gap:12px;padding:20px 16px 16px 28px;border-bottom:1px solid var(--hairline)}
+.sh .g{flex:1}
+.sh h2{margin:0;font-size:20px;font-weight:600;color:var(--ink)}
+.sh p{margin:4px 0 0;color:var(--body)}
+.ib{width:36px;height:36px;border-radius:var(--r-inner);display:grid;place-items:center;color:var(--line-ico)}
+.ib:hover{background:var(--soft-2)}
+.sb{flex:1;overflow-y:auto;padding:20px 28px}
+.sf{border-top:1px solid var(--hairline);padding:14px 28px;display:flex;gap:8px;align-items:center}
+.sf .g{flex:1;color:var(--body)}
+.sb td{height:64px}
+.unf{display:flex;align-items:center;gap:8px;justify-content:flex-end}
+.unf .need{margin-right:4px}
+.rowact{display:flex;gap:6px;justify-content:flex-end}
+
+/* dialog */
+.veil{position:fixed;inset:0;background:var(--scrim);z-index:40;display:flex;align-items:center;justify-content:center;padding:24px;animation:fade 160ms}
+@keyframes fade{from{opacity:0}}
+.dlg{width:min(34rem,100%);background:var(--canvas);border:1px solid var(--hairline);border-radius:1rem;box-shadow:var(--shadow-float);overflow:hidden}
+.dh{padding:20px 24px 4px}
+.dh h2{margin:0;font-size:20px;font-weight:600;color:var(--ink)}
+.db{padding:12px 24px 20px;color:var(--body);line-height:1.6}
+.db ul{margin:8px 0 0;padding-left:18px}
+.df{display:flex;justify-content:flex-end;gap:8px;padding:14px 24px;border-top:1px solid var(--hairline)}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#191b20;color:#fff;padding:12px 18px;border-radius:10px;z-index:80;box-shadow:var(--shadow-pop)}
+.proto{position:fixed;left:84px;bottom:16px;z-index:90;background:#191b20;border-radius:12px;padding:4px;box-shadow:var(--shadow-float);font-size:14px}
+.proto .seg{display:flex;background:#2a2c31;border-radius:9px;padding:3px}
+.proto .seg button{height:32px;padding:0 12px;border-radius:6px;color:#a9abb1;white-space:nowrap}
+.proto .seg button.on{background:#fff;color:#191b20;font-weight:500}
+
+/* spacious: every row breathes, and a two-line cell (name over SKU) gets room above and below */
+td{padding-top:14px!important;padding-bottom:14px!important;min-height:64px}
+tbody td{height:64px}
+.tree td{height:52px}
+.nm{line-height:1.4}
+.sk{line-height:1.4;margin-top:4px}
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="col"><span class="mark">C</span><span class="ci"><i data-lucide="house"></i></span><span class="ci" id="nBuy"><i data-lucide="shopping-cart"></i></span><span class="ci" id="nMd"><i data-lucide="shirt"></i></span><span class="ci"><i data-lucide="truck"></i></span><span class="ci"><i data-lucide="boxes"></i></span></nav>
+  <div class="main">
+    <header class="bar" id="crumb"></header>
+    <div class="page" id="page"><div class="content" id="view"></div></div>
+  </div>
+</div>
+<div id="side"></div><div id="dlg"></div>
+<div class="proto"><div class="seg" id="seg"></div></div>
+
+<script>
+/* ── stages a store's share of an allotment goes through ────────────────── */
+const ST={
+  pick:{l:'To pick',c:'var(--faint)'}, picked:{l:'Picked',c:'var(--warn)'}, packed:{l:'Packed',c:'var(--info)'},
+  transit:{l:'In transit',c:'var(--accent)'}, received:{l:'Received',c:'var(--ok)'},
+  cancelling:{l:'Cancelling · Ops returning stock',c:'var(--bad)'}, cancelled:{l:'Cancelled',c:'var(--faint)'},
+};
+const CAN_CANCEL=['pick','picked','packed'];
+const ALL=[
+  {no:'ALT-0412',sup:'PT Sinar Garmen',made:'29 Sep',by:'Sari',stores:[
+    {s:'Store Kemang',pcs:240,st:'pick'},{s:'Store PIK',pcs:178,st:'picked',unf:{qty:2,sku:'Kemeja Oxford Slim · L',state:'open'}},
+    {s:'Store Senayan',pcs:120,st:'packed'},{s:'Store BSD',pcs:90,st:'transit'}]},
+  {no:'ALT-0410',sup:'Konveksi Anugerah',made:'27 Sep',by:'Sari',stores:[
+    {s:'Store BSD',pcs:150,st:'picked'},{s:'Store Bintaro',pcs:120,st:'pick'}]},
+  {no:'ALT-0408',sup:'PT Tekstil Jaya',made:'25 Sep',by:'Dimas',stores:[
+    {s:'Store Kemang',pcs:300,st:'packed'},{s:'Store PIK',pcs:210,st:'packed'}]},
+  {no:'ALT-0405',sup:'CV Kain Nusantara',made:'22 Sep',by:'Rina',stores:[
+    {s:'Store Senayan',pcs:260,st:'transit'},{s:'Store Kelapa Gading',pcs:80,st:'received'}]},
+  {no:'ALT-0401',sup:'PT Sinar Garmen',made:'18 Sep',by:'Sari',stores:[
+    {s:'Store PIK',pcs:220,st:'received'},{s:'Store Kemang',pcs:190,st:'received'}]},
+  {no:'ALT-0399',sup:'UD Rajut Bandung',made:'17 Sep',by:'Dimas',stores:[
+    {s:'Store BSD',pcs:60,st:'cancelled'},{s:'Store Bintaro',pcs:40,st:'cancelled'}]},
+];
+/* The allotment's own status is read off its stores — never set by hand. */
+function statusOf(a){
+  const live=a.stores.filter(x=>x.st!=='cancelled');
+  if(!live.length)return {l:'Cancelled',c:'var(--faint)'};
+  if(live.every(x=>x.st==='received'))return {l:'Completed',c:'#4a5261'};
+  return {l:'Active',c:'var(--ok)'};
+}
+const needs=a=>a.stores.filter(x=>x.unf&&x.unf.state==='open').length;
+
+/* Return to HO: raised from a store's return stock; lands in that store's return stock at HO. */
+const RS={'Store Kemang':[['KMJ-OXF-SL-XL','Kemeja Oxford Slim · XL','Slow moving',7,'PT Sinar Garmen'],['CLN-CHN-TP-36','Celana Chino Tapered · 36','Slow moving',5,'PT Tekstil Jaya'],['PLO-PQ-BS-S','Polo Pique Basic · S','Damaged',2,'Konveksi Anugerah']],
+  'Store PIK':[['JKT-BMB-LT-S','Jaket Bomber Light · S','Slow moving',4,'CV Kain Nusantara']],
+  'Store Senayan':[['KAO-CRW-BS-S','Kaos Crew Basic · S','Recall',12,'UD Rajut Bandung'],['PLO-PQ-BS-XXL','Polo Pique Basic · XXL','Slow moving',6,'Konveksi Anugerah']],
+  'Store BSD':[],'Store Bintaro':[['KMJ-OXF-SL-S','Kemeja Oxford Slim · S','Damaged',3,'PT Sinar Garmen']]};
+const RET=[
+  {no:'RT-PIK-0018',from:'Store PIK',pcs:8,by:'Dimas',st:'counted'},
+  {no:'RT-KMG-0043',from:'Store Kemang',pcs:18,by:'Sari',st:'onway'},
+  {no:'RT-BSD-0007',from:'Store BSD',pcs:10,by:'Sari',st:'requested'},
+  {no:'RT-SNY-0031',from:'Store Senayan',pcs:22,by:'Rina',st:'done'},
+];
+const RST={requested:{l:'Waiting for the store to send',c:'var(--faint)'},onway:{l:'On the way to the Gudang',c:'var(--accent)'},counted:{l:'Counted · review it',c:'var(--warn)'},done:{l:'In HO return stock',c:'var(--ok)'}};
+/* HO return stock, per store of origin — what Buying can send back to suppliers. */
+const HORS=[
+  {sku:'KMJ-OXF-SL-M',name:'Kemeja Oxford Slim · M',store:'Store Kemang',reason:'Damaged',qty:4,sup:'PT Sinar Garmen'},
+  {sku:'KMJ-LNN-RX-L',name:'Kemeja Linen Relaxed · L',store:'Store PIK',reason:'Damaged',qty:3,sup:'PT Sinar Garmen'},
+  {sku:'KMJ-OXF-SL-S',name:'Kemeja Oxford Slim · S',store:'Store Senayan',reason:'Slow moving',qty:9,sup:'PT Sinar Garmen'},
+  {sku:'KAO-CRW-BS-S',name:'Kaos Crew Basic · S',store:'Store Senayan',reason:'Recall',qty:12,sup:'UD Rajut Bandung'},
+  {sku:'PLO-PQ-BS-L',name:'Polo Pique Basic · L',store:'Store Kemang',reason:'Damaged',qty:5,sup:'Konveksi Anugerah'},
+];
+const OVER=[{sku:'KMJ-OXF-SL-L',name:'Kemeja Oxford Slim · L',po:'290926-003',qty:50,sup:'PT Sinar Garmen'}];
+const RTS=[
+  {no:'RS-0012',sup:'CV Benang Mas',pcs:30,by:'Rina',st:'pick'},
+  {no:'RS-0011',sup:'PT Tekstil Jaya',pcs:14,by:'Dimas',st:'handed'},
+];
+const RSS={pick:{l:'At the Gudang · to pick',c:'var(--faint)'},packed:{l:'Packed · ready to hand over',c:'var(--info)'},handed:{l:'Handed over',c:'var(--ok)'}};
+
+const S={view:'allot',tab:'active',open:null,nr:{store:'Store Kemang',q:{}},ns:{sup:'PT Sinar Garmen',q:{}}};
+const $=id=>document.getElementById(id);
+const icons=()=>lucide.createIcons({attrs:{'stroke-width':1.7}});
+const id=n=>n.toLocaleString('id-ID');
+const dot=(c,l)=>`<span class="st"><span class="dot" style="background:${c}"></span>${l}</span>`;
+function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),2800)}
+
+/* ── Merchandise · Allotments ───────────────────────────────────────────── */
+function allotList(){
+  const groups={active:ALL.filter(a=>statusOf(a).l==='Active'),done:ALL.filter(a=>statusOf(a).l!=='Active')};
+  const rows=groups[S.tab].slice().sort((a,b)=>needs(b)-needs(a));
+  const sum=rows.reduce((t,a)=>t+a.stores.filter(x=>x.st!=='cancelled').reduce((s,x)=>s+x.pcs,0),0);
+  return `<div class="ph"><div><h1>Allotments</h1></div><div class="act"><button class="btn pri" onclick="toast('Opens New allotment — the matrix already in the hub')"><i data-lucide="plus"></i>New allotment</button></div></div>
+  <div class="tabs"><button class="${S.tab==='active'?'on':''}" onclick="S.tab='active';paint()">Active <span>${groups.active.length}</span></button><button class="${S.tab==='done'?'on':''}" onclick="S.tab='done';paint()">Completed and cancelled <span>${groups.done.length}</span></button></div>
+  <div class="card"><table><thead><tr><th class="n">No.</th><th>Allotment</th><th>Supplier</th><th class="hb">Stores</th><th class="r">Pcs</th><th>Status</th><th class="act"></th></tr></thead><tbody>
+  ${rows.map((a,i)=>{const st=statusOf(a),n=needs(a),live=a.stores.filter(x=>x.st!=='cancelled');
+    return `<tr class="click${S.open===a.no?' sel':''}" onclick="openAllot('${a.no}')"><td class="n">${i+1}</td><td><span class="mono" style="color:var(--ink)">${a.no}</span><span class="sk">${a.made} · ${a.by}</span></td><td class="strong">${a.sup}</td><td class="hb">${live.length} of ${a.stores.length}</td><td class="r">${id(live.reduce((s,x)=>s+x.pcs,0))}</td><td>${dot(st.c,st.l)}</td><td class="act">${n?`<span class="need">${n} to decide</span>`:''}</td></tr>`}).join('')}
+  </tbody><tfoot><tr><td></td><td colspan="2">Total · ${rows.length} allotments</td><td class="hb"></td><td class="r">${id(sum)}</td><td colspan="2"></td></tr></tfoot></table></div>`;
+}
+function openAllot(no){S.open=no;paint()}
+function closeSheet(){S.open=null;$('side').innerHTML='';paint()}
+function allotSheet(){
+  const a=ALL.find(x=>x.no===S.open);if(!a)return '';
+  const st=statusOf(a), cancellable=a.stores.filter(x=>CAN_CANCEL.includes(x.st));
+  const row=(x,i)=>{
+    const s=ST[x.st];let act='';
+    if(x.unf&&x.unf.state==='open')act=`<div class="unf"><span class="need">${x.unf.qty} unfilled</span><button class="btn sm" onclick="decide('${a.no}',${i},'wait')">Wait</button><button class="btn sm" onclick="decide('${a.no}',${i},'closed')">Close short</button></div>`;
+    else{
+      const b=[];
+      if(CAN_CANCEL.includes(x.st))b.push(`<button class="btn sm danger" onclick="askCancel('${a.no}',[${i}])">Cancel</button>`);
+      act=`<div class="rowact">${b.join('')}</div>`;
+    }
+    const note=x.unf&&x.unf.state!=='open'?`<span class="sk">${x.unf.qty} pcs ${x.unf.state==='wait'?'waiting for stock':'closed short'}</span>`:'';
+    return `<tr><td class="n">${i+1}</td><td><span class="nm">${x.s}</span>${note}</td><td class="r">${id(x.pcs)}</td><td>${dot(s.c,s.l)}</td><td class="act">${act}</td></tr>`;
+  };
+  return `<aside class="sheet"><div class="sh"><div class="g"><span class="mono" style="color:var(--body)">${a.no}</span><h2>${a.sup}</h2><p>${dot(st.c,st.l)} · ${a.made} · ${a.by}</p></div><button class="ib" onclick="closeSheet()" aria-label="Close"><i data-lucide="x"></i></button></div>
+  <div class="sb"><div class="card"><table><thead><tr><th class="n">No.</th><th>Store</th><th class="r">Pcs</th><th>Where it is</th><th class="act"></th></tr></thead><tbody>${a.stores.map(row).join('')}</tbody>
+  <tfoot><tr><td></td><td>Total</td><td class="r">${id(a.stores.filter(x=>x.st!=='cancelled').reduce((s,x)=>s+x.pcs,0))}</td><td colspan="2"></td></tr></tfoot></table></div></div>
+  <div class="sf"><span class="g">Allotments aren't edited. Cancel until dispatch, then allot again.</span><button class="btn" onclick="toast('Top up: a new allotment linked to ${a.no}')"><i data-lucide="plus"></i>Top up</button><button class="btn" onclick="askCancel('${a.no}',null,true)"${cancellable.length?'':' disabled'}>Cancel and re-allot</button><button class="btn danger" onclick="askCancel('${a.no}',null)"${cancellable.length?'':' disabled'}>Cancel allotment</button></div></aside>`;
+}
+/* Cancel says exactly which stores it can still stop, and what Ops will do. */
+function askCancel(no,idx,realloc){
+  const a=ALL.find(x=>x.no===no);
+  const pick=(idx||a.stores.map((_,i)=>i)).filter(i=>CAN_CANCEL.includes(a.stores[i].st));
+  const gone=idx?[]:a.stores.filter(x=>['transit','received'].includes(x.st));
+  const undo={pick:'picklist removed',picked:'back to stock',packed:'koli unpacked, back to stock'};
+  $('dlg').innerHTML=`<div class="veil" onmousedown="if(event.target===this)closeDlg()"><div class="dlg"><div class="dh"><h2>Cancel ${pick.length===1?a.stores[pick[0]].s:pick.length+' stores'}?</h2></div>
+  <div class="db">Ops is told to undo the work:<ul>${pick.map(i=>`<li><b style="color:var(--ink)">${a.stores[i].s}</b> · ${id(a.stores[i].pcs)} pcs · ${undo[a.stores[i].st]}</li>`).join('')}</ul>${gone.length?`<p style="margin:12px 0 0">${gone.map(x=>x.s).join(', ')} ${gone.length>1?'are':'is'} already dispatched and can't be cancelled.</p>`:''}</div>
+  <div class="df"><button class="btn" onclick="closeDlg()">Keep</button><button class="btn pri" style="${realloc?'':'background:var(--bad);border-color:var(--bad)'}" onclick="doCancel('${no}',[${pick}],${!!realloc})">${realloc?'Cancel and open New allotment':'Cancel '+(pick.length===1?'store':pick.length+' stores')}</button></div></div></div>`;
+}
+function closeDlg(){$('dlg').innerHTML=''}
+function doCancel(no,idx,realloc){
+  const a=ALL.find(x=>x.no===no);idx.forEach(i=>a.stores[i].st='cancelling');closeDlg();paint();
+  toast(realloc?'Cancelled · New allotment opens with '+idx.length+' store'+(idx.length>1?'s':'')+' prefilled — change the numbers there':'Ops is returning the stock');
+  setTimeout(()=>{idx.forEach(i=>{if(a.stores[i].st==='cancelling')a.stores[i].st='cancelled'});paint()},2500);
+}
+function decide(no,i,what){const x=ALL.find(a=>a.no===no).stores[i];x.unf.state=what;paint();toast(what==='wait'?'Waits for stock — Pick again when Inventory finds it':x.unf.qty+' pcs closed short')}
+
+/* ── Merchandise · Return to HO ─────────────────────────────────────────── */
+function retList(){
+  const rows=RET.slice().sort((a,b)=>(a.st==='counted'?-1:0)-(b.st==='counted'?-1:0));
+  return `<div class="ph"><div><h1>Return to HO</h1></div><div class="act"><button class="btn pri" onclick="S.view='newret';paint()"><i data-lucide="plus"></i>New return</button></div></div>
+  <div class="card"><table><thead><tr><th class="n">No.</th><th>Return</th><th>From</th><th class="r">Pcs</th><th>Status</th><th class="act"></th></tr></thead><tbody>
+  ${rows.map((r,i)=>`<tr><td class="n">${i+1}</td><td><span class="mono" style="color:var(--ink)">${r.no}</span><span class="sk">${r.by}</span></td><td class="strong">${r.from}</td><td class="r">${r.pcs}</td><td>${dot(RST[r.st].c,RST[r.st].l)}</td><td class="act">${r.st==='counted'?`<button class="btn sm pri" onclick="reviewRet('${r.no}')">Review count</button>`:''}</td></tr>`).join('')}
+  </tbody><tfoot><tr><td></td><td colspan="2">Total · ${rows.length} returns</td><td class="r">${rows.reduce((s,r)=>s+r.pcs,0)}</td><td colspan="2"></td></tr></tfoot></table></div>`;
+}
+function reviewRet(no){const r=RET.find(x=>x.no===no);r.st='done';paint();toast(no+' accepted · into '+r.from+"'s return stock at HO")}
+function newRet(){
+  const st=S.nr.store, lines=RS[st], q=i=>S.nr.q[st+i]??lines[i][3];
+  const total=lines.reduce((s,l,i)=>s+q(i),0);
+  return `<button class="back" onclick="S.view='ret';paint()"><i data-lucide="arrow-left"></i>Return to HO</button>
+  <div class="ph"><div><h1>New return</h1></div></div>
+  <div class="split"><div class="card pickl">${Object.keys(RS).map(s=>{const n=RS[s].reduce((t,l)=>t+l[3],0);return `<button class="${s===st?'on':''}" onclick="S.nr.store='${s}';paint()"><span class="nm">${s}</span><span class="sk">${n?n+' pcs · '+RS[s].length+' SKU'+(RS[s].length>1?'s':''):'Nothing set aside'}</span></button>`}).join('')}</div>
+  ${lines.length?`<div class="card"><table><thead><tr><th class="n">No.</th><th>SKU</th><th>Reason</th><th class="r">In return stock</th><th class="r">To send</th></tr></thead><tbody>
+  ${lines.map((l,i)=>`<tr><td class="n">${i+1}</td><td><span class="nm">${l[1]}</span><span class="sk">${l[0]}</span></td><td>${l[2]}</td><td class="r">${l[3]}</td><td class="r"><span class="fld"><input value="${q(i)}" inputmode="numeric" onchange="S.nr.q['${st}${i}']=Math.max(0,Math.min(${l[3]},parseInt(this.value)||0));paint()"><span>pcs</span></span></td></tr>`).join('')}
+  </tbody><tfoot><tr><td></td><td colspan="2">Total</td><td class="r">${lines.reduce((s,l)=>s+l[3],0)}</td><td class="r">${total} pcs</td></tr></tfoot></table></div>`:`<div class="card"><div class="empty">${st} has nothing in its return stock.</div></div>`}</div>
+  <div class="foot"><span class="g">${st} is asked to send it. The Gudang counts it in Receiving; you review the count here.</span><button class="btn pri" onclick="createRet()"${total?'':' disabled'}><i data-lucide="check"></i>Create return</button></div>`;
+}
+function createRet(){
+  const st=S.nr.store, lines=RS[st], n=lines.reduce((s,l,i)=>s+(S.nr.q[st+i]??l[3]),0);
+  const code={Kemang:'KMG',PIK:'PIK',Senayan:'SNY',BSD:'BSD',Bintaro:'BTR'}[st.split(' ')[1]];
+  RET.unshift({no:'RT-'+code+'-00'+(50+RET.length),from:st,pcs:n,by:'Rina',st:'requested'});
+  RS[st]=lines.map((l,i)=>[l[0],l[1],l[2],l[3]-(S.nr.q[st+i]??l[3]),l[4]]).filter(l=>l[3]>0);S.nr.q={};
+  S.view='ret';paint();toast('Return created · '+st+' is asked to send it');
+}
+
+/* ── Buying · Return to supplier ────────────────────────────────────────── */
+function rtsList(){
+  return `<div class="ph"><div><h1>Return to supplier</h1></div><div class="act"><button class="btn pri" onclick="S.view='newrts';paint()"><i data-lucide="plus"></i>New return</button></div></div>
+  <div class="card"><table><thead><tr><th class="n">No.</th><th>Return</th><th>Supplier</th><th class="r">Pcs</th><th>Status</th></tr></thead><tbody>
+  ${RTS.map((r,i)=>`<tr><td class="n">${i+1}</td><td><span class="mono" style="color:var(--ink)">${r.no}</span><span class="sk">${r.by}</span></td><td class="strong">${r.sup}</td><td class="r">${r.pcs}</td><td>${dot(RSS[r.st].c,RSS[r.st].l)}</td></tr>`).join('')}
+  </tbody><tfoot><tr><td></td><td colspan="2">Total · ${RTS.length} returns</td><td class="r">${RTS.reduce((s,r)=>s+r.pcs,0)}</td><td></td></tr></tfoot></table></div>`;
+}
+function newRts(){
+  const sups=[...new Set([...HORS.map(x=>x.sup),...OVER.map(x=>x.sup)])], sup=S.ns.sup;
+  const lines=[...OVER.filter(x=>x.sup===sup).map(x=>({...x,src:'Over-delivery · PO '+x.po,k:'o'+x.sku})),...HORS.filter(x=>x.sup===sup).map(x=>({...x,src:x.store+' · '+x.reason,k:'h'+x.sku+x.store}))];
+  const q=l=>S.ns.q[l.k]??l.qty, total=lines.reduce((s,l)=>s+q(l),0);
+  return `<button class="back" onclick="S.view='rts';paint()"><i data-lucide="arrow-left"></i>Return to supplier</button>
+  <div class="ph"><div><h1>New return to supplier</h1></div></div>
+  <div class="split"><div class="card pickl">${sups.map(s=>{const n=HORS.filter(x=>x.sup===s).reduce((t,x)=>t+x.qty,0)+OVER.filter(x=>x.sup===s).reduce((t,x)=>t+x.qty,0);return `<button class="${s===sup?'on':''}" onclick="S.ns.sup='${s}';paint()"><span class="nm">${s}</span><span class="sk">${n} pcs</span></button>`}).join('')}</div>
+  <div class="card"><table><thead><tr><th class="n">No.</th><th>SKU</th><th>From</th><th class="r">At HO</th><th class="r">To return</th></tr></thead><tbody>
+  ${lines.map((l,i)=>`<tr><td class="n">${i+1}</td><td><span class="nm">${l.name}</span><span class="sk">${l.sku}</span></td><td>${l.src}</td><td class="r">${l.qty}</td><td class="r"><span class="fld"><input value="${q(l)}" inputmode="numeric" onchange="S.ns.q['${l.k}']=Math.max(0,Math.min(${l.qty},parseInt(this.value)||0));paint()"><span>pcs</span></span></td></tr>`).join('')}
+  </tbody><tfoot><tr><td></td><td colspan="2">Total</td><td class="r">${lines.reduce((s,l)=>s+l.qty,0)}</td><td class="r">${total} pcs</td></tr></tfoot></table></div></div>
+  <div class="foot"><span class="g">${total} pcs</span><button class="btn pri" onclick="createRts(${total})"${total?'':' disabled'}><i data-lucide="check"></i>Create return</button></div>`;
+}
+function createRts(n){RTS.unshift({no:'RS-00'+(13+RTS.length),sup:S.ns.sup,pcs:n,by:'Rina',st:'pick'});S.ns.q={};S.view='rts';paint();toast('Return created · on the Gudang\'s Outbound board')}
+
+/* ── shell ─────────────────────────────────────────────────────────────── */
+const VIEWS={allot:['Merchandise','Allotments',allotList],ret:['Merchandise','Return to HO',retList],newret:['Merchandise','New return',newRet],rts:['Buying','Return to supplier',rtsList],newrts:['Buying','New return to supplier',newRts]};
+function paint(){
+  const v=VIEWS[S.view];
+  $('crumb').innerHTML=`${v[0]}<i data-lucide="chevron-right"></i><b>${v[1]}</b>`;
+  $('view').innerHTML=v[2]();
+  $('side').innerHTML=S.view==='allot'&&S.open?allotSheet():'';
+  $('page').className='page'+(S.view==='allot'&&S.open&&innerWidth>=1380?' beside':'');
+  $('nBuy').className='ci'+(v[0]==='Buying'?' on':'');$('nMd').className='ci'+(v[0]==='Merchandise'?' on':'');
+  $('seg').innerHTML=[['allot','MD · Allotments'],['ret','MD · Return to HO'],['rts','Buying · Return to supplier']].map(x=>`<button class="${S.view.replace('new','')===x[0]||(S.view==='newret'&&x[0]==='ret')||(S.view==='newrts'&&x[0]==='rts')?'on':''}" onclick="S.view='${x[0]}';S.open=null;paint()">${x[1]}</button>`).join('');
+  icons();
+}
+addEventListener('keydown',e=>{if(e.key==='Escape'){if($('dlg').innerHTML)closeDlg();else if(S.open)closeSheet()}});
+addEventListener('resize',paint);
+paint();
+</script>
+</body>
+</html>

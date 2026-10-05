@@ -1,5 +1,6 @@
 import type {
   AdvanceKoliRequest,
+  AllotmentPick,
   CaptureOutcome,
   CreateDispatchRequest,
   CreateKoliShipmentRequest,
@@ -8,6 +9,7 @@ import type {
   DestinationDemand,
   Dispatch,
   DispatchDetail,
+  DispatchTripRequest,
   EdgeOfficialCountDetail,
   EdgeOfficialCountSummary,
   FulfillmentProgressResult,
@@ -60,6 +62,7 @@ import type {
   Session,
   Shipment,
   ShipmentDetail,
+  StoreInboundCountRequest,
   StoreInboundDelivery,
   StoreInboundDetail,
   StoreInboundList,
@@ -119,6 +122,15 @@ export function idempotencyKey(): string {
 /// the wrong key. It is done once, here.
 ///
 /// Routes are `backend/src/edge/http.rs`; nothing here invents a path.
+/// One reading session as `GET /api/v1/rfid/sessions` lists it.
+export interface RfidSessionBrief {
+  readonly reader_session_id: string;
+  /// Distinct tags: the honest count of garments seen.
+  readonly tag_count: number;
+  readonly device_count: number;
+  readonly last_seen_at: string | null;
+}
+
 export class Dc {
   private readonly node: Node;
 
@@ -431,6 +443,18 @@ export class Dc {
     return body.items;
   }
 
+  /// Every picklist still to pick, one per allotment × shop — nobody
+  /// composes one (owner, 29 Sep 2026): it exists as soon as the allotment
+  /// is here, and accepting it is the pick. Grouped by shop, oldest
+  /// allotment first within it.
+  async picklistsToPick(signal?: AbortSignal): Promise<AllotmentPick[]> {
+    const body = await this.node.get<{ items: AllotmentPick[] }>(
+      "/api/v1/dc/picklist/allotments",
+      { signal },
+    );
+    return body.items;
+  }
+
   /// Raise a picklist: a round opened, walked and closed in one act.
   ///
   /// One request rather than one per line. A round that dropped halfway
@@ -654,11 +678,31 @@ export class Dc {
     });
   }
 
+  /// Every box opened against a target that no sweep has matched yet.
+  async packingBoxes(signal?: AbortSignal): Promise<PackingBox[]> {
+    const body = await this.node.get<{ items: PackingBox[] }>(
+      "/api/v1/dc/packing-boxes",
+      { signal },
+    );
+    return body.items;
+  }
+
   packingBox(sessionId: string, signal?: AbortSignal): Promise<PackingBox> {
     return this.node.get<PackingBox>(
       `/api/v1/dc/packing-boxes/${encodeURIComponent(sessionId)}`,
       { signal },
     );
+  }
+
+  /// The reading sessions this node has heard from, newest first. A packer
+  /// sweeps a box with a handheld or an arch; the sweep is filed under a
+  /// reader session, and that id is what `captureBox` checks against.
+  async rfidSessions(signal?: AbortSignal): Promise<RfidSessionBrief[]> {
+    const body = await this.node.get<{ items: RfidSessionBrief[] }>(
+      "/api/v1/rfid/sessions",
+      { signal },
+    );
+    return body.items;
   }
 
   /// The sweep. A box that does not add up comes back 200 with the detail,
@@ -731,6 +775,23 @@ export class Dc {
   dispatch(dispatchId: string, signal?: AbortSignal): Promise<DispatchDetail> {
     return this.node.get<DispatchDetail>(
       `/api/v1/dc/dispatches/${encodeURIComponent(dispatchId)}`,
+      { signal },
+    );
+  }
+
+  /// Dispatch: sealed cartons onto one trip, in one act.
+  ///
+  /// Owner, 29 Sep 2026: there is no Shipments station. This one call groups
+  /// the cartons ticked by shop, makes one surat jalan per shop, puts them on
+  /// one trip and the goods are in transit — generating the surat jalan IS
+  /// sending it.
+  dispatchTrip(
+    request: DispatchTripRequest,
+    signal?: AbortSignal,
+  ): Promise<DispatchDetail> {
+    return this.node.post<DispatchDetail>(
+      "/api/v1/dc/dispatch-trips",
+      request,
       { signal },
     );
   }
@@ -920,6 +981,20 @@ export class Dc {
   ): Promise<StoreInboundDetail> {
     return this.node.post<StoreInboundDetail>(
       `/api/v1/dc/inbound/${encodeURIComponent(deliveryId)}/receive`,
+      request,
+      { signal },
+    );
+  }
+
+  /// Receive an announced delivery from a blind count per SKU, no reader
+  /// (owner, 29 Sep 2026: receiving needs no RFID).
+  receiveInboundByCount(
+    deliveryId: string,
+    request: StoreInboundCountRequest,
+    signal?: AbortSignal,
+  ): Promise<StoreInboundDetail> {
+    return this.node.post<StoreInboundDetail>(
+      `/api/v1/dc/inbound/${encodeURIComponent(deliveryId)}/receive-count`,
       request,
       { signal },
     );

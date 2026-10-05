@@ -6,8 +6,19 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { money } from "@/lib/format"
-import { domainKeys, listFacilities, listPrincipals } from "@/lib/queries/finance-domains"
-import { Code, Grid, Note, NumberCard, Td, Th } from "@/screens/finance-final/parts"
+import {
+  domainKeys,
+  listFacilities,
+  listPrincipals,
+} from "@/lib/queries/finance-domains"
+import {
+  Code,
+  Grid,
+  Note,
+  NumberCard,
+  Td,
+  Th,
+} from "@/screens/finance-final/parts"
 
 /// Financing and owners — money borrowed on terms, and money the owners moved.
 ///
@@ -29,30 +40,36 @@ export function Financing() {
     (total, row) => total + row.outstanding_principal_minor,
     0
   )
-  const current = rows.reduce((total, row) => total + row.current_portion_minor, 0)
-  const equity = (owners.data ?? []).reduce((total, row) => total + row.equity_minor, 0)
+  const current = rows.reduce(
+    (total, row) => total + row.current_portion_minor,
+    0
+  )
+  const equity = (owners.data ?? []).reduce(
+    (total, row) => total + row.equity_minor,
+    0
+  )
 
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance"
-        title="Pinjaman & pemilik"
-        sub="Fasilitas yang berjalan, dan modal yang masuk atau ditarik."
+        crumb="Finance · Payables"
+        title="Loans"
+        sub="Bank loans and leases we owe, and what the owners put in or took out."
       />
 
       <Grid>
-        <NumberCard label="Pokok belum dibayar" value={outstanding} />
+        <NumberCard label="Principal still owed" value={outstanding} />
         <NumberCard
-          label="Jatuh tempo dalam setahun"
+          label="Due within a year"
           value={current}
-          note="bagian lancar, dihitung dari tanggal hari ini"
+          note="The current part, counted from today"
         />
-        <NumberCard label="Modal pemilik" value={equity} />
+        <NumberCard label="Owners' equity" value={equity} />
       </Grid>
 
       <Note>
-        Jadwal angsuran datang dari kontrak, bukan dari rumus amortisasi di sini.
-        Yang ditegakkan hanyalah bahwa jadwalnya melunasi pinjamannya.
+        Jadwal angsuran datang dari kontrak, bukan dari rumus amortisasi di
+        sini. Yang ditegakkan hanyalah bahwa jadwalnya melunasi pinjamannya.
       </Note>
 
       {facilities.isPending ? (
@@ -60,18 +77,21 @@ export function Financing() {
       ) : facilities.isError ? (
         <ErrorState error={facilities.error} />
       ) : rows.length === 0 ? (
-        <EmptyState>Belum ada fasilitas — Kontrak pinjaman dan leasing dicatat di sini setelah datanya ada.</EmptyState>
+        <EmptyState>
+          No loan yet. Loan and lease contracts show here once they are
+          recorded.
+        </EmptyState>
       ) : (
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr>
-              <Th>Nomor</Th>
-              <Th>Jenis</Th>
-              <Th>Pemberi</Th>
-              <Th align="right">Pokok</Th>
-              <Th align="right">Sisa pokok</Th>
-              <Th align="right">Bunga dibayar</Th>
-              <Th>Jatuh tempo</Th>
+              <Th>Number</Th>
+              <Th>Type</Th>
+              <Th>Lender</Th>
+              <Th align="right">Principal</Th>
+              <Th align="right">Principal left</Th>
+              <Th align="right">Interest paid</Th>
+              <Th>Matures</Th>
               <Th>Status</Th>
             </tr>
           </thead>
@@ -88,7 +108,9 @@ export function Financing() {
                 <Td align="right">{money(row.paid_interest_minor)}</Td>
                 <Td>{row.maturity_date}</Td>
                 <Td>
-                  <Pill tone={row.status === "ACTIVE" ? "info" : "ok"}>{row.status}</Pill>
+                  <Pill tone={row.status === "ACTIVE" ? "info" : "ok"}>
+                    {row.status}
+                  </Pill>
                 </Td>
               </tr>
             ))}
@@ -96,23 +118,26 @@ export function Financing() {
         </table>
       )}
 
-      <PageHeader title="Pemilik & investor" sub="Modal, prive, dan pinjaman dari pemilik." />
+      <PageHeader
+        title="Owners & investors"
+        sub="Capital paid in, drawings, and loans from the owners."
+      />
       {owners.isPending ? (
         <LoadingState />
       ) : owners.isError ? (
         <ErrorState error={owners.error} />
       ) : (owners.data ?? []).length === 0 ? (
-        <EmptyState>Belum ada pemilik terdaftar</EmptyState>
+        <EmptyState>No owner recorded yet.</EmptyState>
       ) : (
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr>
-              <Th>Kode</Th>
-              <Th>Nama</Th>
-              <Th align="right">Modal disetor</Th>
-              <Th align="right">Prive</Th>
-              <Th align="right">Modal bersih</Th>
-              <Th align="right">Pinjaman ke perusahaan</Th>
+              <Th>Code</Th>
+              <Th>Name</Th>
+              <Th align="right">Paid in</Th>
+              <Th align="right">Drawings</Th>
+              <Th align="right">Net equity</Th>
+              <Th align="right">Lent to the company</Th>
             </tr>
           </thead>
           <tbody>

@@ -108,7 +108,6 @@ export function BenefitPage() {
       <div className="mb-3 max-w-sm">
         <Input
           aria-label="Search people"
-          placeholder="Search by name or code"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
@@ -127,7 +126,7 @@ export function BenefitPage() {
                   { label: "Employee", align: "left" },
                   { label: "Unit", align: "left" },
                   { label: "Balance", align: "right" },
-                  { label: "Last moved", align: "right" },
+                  { label: "Last Moved", align: "right" },
                 ]}
               >
                 {shown.map((row) => (
@@ -241,7 +240,6 @@ function FillSheet({
               <Field label="People">
                 <PickMany
                   label="People"
-                  placeholder="Choose people…"
                   choices={(people.data ?? []).map((one) => ({
                     value: one.employee_id,
                     label: `${one.full_name ?? one.employee_code} · ${one.employee_code}`,

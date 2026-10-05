@@ -44,6 +44,8 @@ export function Terms({
   hidden,
   foot,
   empty,
+  variant = "box",
+  rows,
 }: {
   /// The offer in three or four words — "20% off", "Rp 50.000 each".
   headline: React.ReactNode
@@ -65,13 +67,53 @@ export function Terms({
   foot?: React.ReactNode
   /// What to say before there is anything to read.
   empty: string
+  /// `box` is the numbered list in a grey box; `rows` is plain label/value
+  /// rows, one group per array in `rows`, with a hairline between groups.
+  variant?: "box" | "rows"
+  rows?: readonly (readonly {
+    label: string
+    value: React.ReactNode
+  }[])[]
 }) {
+  if (variant === "rows") {
+    const groups = (rows ?? []).filter((group) => group.length > 0)
+    return groups.length === 0 ? (
+      <p className="text-[0.9375rem] text-mute">{empty}</p>
+    ) : (
+      <div className="flex flex-col gap-4">
+        {groups.map((group, at) => (
+          <dl
+            key={at}
+            className={cn(
+              "flex flex-col gap-4",
+              at > 0 && "border-t border-hairline pt-4"
+            )}
+          >
+            {group.map((row) => (
+              <div
+                key={row.label}
+                className="flex items-baseline justify-between gap-6"
+              >
+                <dt className="shrink-0 text-[0.875rem] text-mute">
+                  {row.label}
+                </dt>
+                <dd className="min-w-0 text-right text-[0.9375rem] text-ink">
+                  {row.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        ))}
+      </div>
+    )
+  }
+
   const said = clauses.filter((one): one is string => Boolean(one))
   const unsaid = (hidden ?? []).filter((one): one is string => Boolean(one))
 
   return (
-    <div className="rounded-inner border border-hairline bg-soft px-3.5 py-3">
-      <div className="mb-2 flex items-baseline justify-between gap-2">
+    <div className="rounded-inner border border-hairline bg-soft p-5">
+      <div className="mb-3 flex items-baseline justify-between gap-2">
         <span className="text-metric font-semibold text-ink">{headline}</span>
         <span className="truncate text-[0.875rem] text-mute">
           {name.trim() === "" ? "Unnamed" : name.trim()}
@@ -79,7 +121,7 @@ export function Terms({
       </div>
 
       {prose && prose.trim() !== "" && (
-        <p className="mb-2.5 border-l-2 border-hairline-strong pl-2.5 text-[0.875rem] leading-relaxed whitespace-pre-line text-text">
+        <p className="mb-4 border-l-2 border-hairline-strong pl-2.5 text-[0.875rem] leading-relaxed whitespace-pre-line text-text">
           {prose.trim()}
         </p>
       )}
@@ -87,7 +129,7 @@ export function Terms({
       {said.length === 0 ? (
         <p className="text-[0.875rem] leading-relaxed text-mute">{empty}</p>
       ) : (
-        <ol className="flex flex-col gap-1">
+        <ol className="flex flex-col gap-2">
           {said.map((one, index) => (
             <li
               key={index}
@@ -103,7 +145,7 @@ export function Terms({
       )}
 
       {(unsaid.length > 0 || foot) && (
-        <div className="mt-2.5 border-t border-hairline pt-2.5">
+        <div className="mt-4 border-t border-hairline pt-4">
           <p className="text-[0.875rem] leading-relaxed text-mute">
             {unsaid.length > 0
               ? `A shopper is never told any of this: ${unsaid.join("; ")}.`
@@ -141,7 +183,7 @@ export function More({
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((was) => !was)}
-        className="flex w-full items-center gap-2 rounded-inner px-3.5 py-2.5 text-left transition-colors hover:bg-soft"
+        className="flex w-full items-center gap-2 rounded-inner px-4 py-3.5 text-left transition-colors hover:bg-soft"
       >
         <ChevronRight
           className={cn(
@@ -159,7 +201,7 @@ export function More({
         )}
       </button>
       {open && (
-        <div className="flex flex-col gap-4 border-t border-hairline px-3.5 pt-3.5 pb-4">
+        <div className="flex flex-col gap-5 border-t border-hairline px-4 pt-5 pb-5">
           {children}
         </div>
       )}
@@ -182,7 +224,7 @@ export function Question({
   className?: string
 }) {
   return (
-    <div className={cn("flex flex-col gap-[0.4375rem]", className)}>
+    <div className={cn("flex flex-col gap-2", className)}>
       <span className="text-[0.875rem] font-medium text-text">{label}</span>
       {children}
     </div>

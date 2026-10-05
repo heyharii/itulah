@@ -137,7 +137,6 @@ export function PlacementPanel({ employeeId }: { employeeId: string }) {
           <Field label="Department">
             <PickOne
               label="Department"
-              placeholder="None"
               choices={(depts.data ?? [])
                 .filter((one) => !one.retired)
                 .map((one) => ({ value: one.code, label: one.name }))}
@@ -148,7 +147,6 @@ export function PlacementPanel({ employeeId }: { employeeId: string }) {
           <Field label="Job level">
             <PickOne
               label="Job level"
-              placeholder="None"
               choices={(levels.data ?? [])
                 .filter((one) => !one.retired)
                 .map((one) => ({ value: one.code, label: one.name }))}
@@ -159,7 +157,6 @@ export function PlacementPanel({ employeeId }: { employeeId: string }) {
           <Field label="Grade">
             <PickOne
               label="Grade"
-              placeholder="None"
               choices={(grades.data ?? [])
                 .filter(
                   (one) =>
@@ -176,7 +173,6 @@ export function PlacementPanel({ employeeId }: { employeeId: string }) {
           <Field label="Reports to">
             <PickOne
               label="Reports to"
-              placeholder="Nobody"
               choices={(people.data ?? [])
                 .filter((one) => one.employee_id !== employeeId)
                 .map((one) => ({
@@ -194,7 +190,6 @@ export function PlacementPanel({ employeeId }: { employeeId: string }) {
             <Input
               value={reason}
               onChange={(event) => setReason(event.target.value)}
-              placeholder="promosi"
             />
           </Field>
         </div>

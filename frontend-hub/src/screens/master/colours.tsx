@@ -35,6 +35,7 @@ import {
 } from "@/lib/queries/colours"
 import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { readColour } from "@/lib/colour-parse"
 import { ColourField } from "@/screens/master/colour-field"
 import { MasterLifecycle } from "@/screens/master/lifecycle"
 import { HEX, mistakenFor } from "@/screens/master/colour-hex"
@@ -310,7 +311,6 @@ export function Colours() {
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search colours"
                 aria-label="Search the colour master"
                 className="h-[2.125rem] w-56 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
               />
@@ -336,7 +336,6 @@ export function Colours() {
             model={filters}
             text={query === "" ? undefined : query}
             onText={(next) => setQuery(next ?? "")}
-            placeholder="Search colours, or filter"
             className="mb-3 dock:hidden"
           />
 
@@ -631,14 +630,26 @@ function ColourForm({
                 <Field label="Label" required problem={problems.label}>
                   <Input
                     value={field.state.value}
-                    onBlur={field.handleBlur}
+                    onBlur={() => {
+                      field.handleBlur()
+                      // "Biru Tua" typed as the label says what the swatch
+                      // should be, so an empty hex is filled from it. A hex
+                      // somebody already chose is never overwritten.
+                      if (
+                        colour === null &&
+                        form.getFieldValue("hex").trim() === ""
+                      ) {
+                        const read = readColour(field.state.value)
+                        if (read !== null && /^#[0-9A-F]{6}$/.test(read.hex))
+                          form.setFieldValue("hex", read.hex)
+                      }
+                    }}
                     onChange={(event) => {
                       field.handleChange(event.target.value)
                       if (colour === null && !codeTyped) {
                         form.setFieldValue("code", snake(event.target.value))
                       }
                     }}
-                    placeholder="Navy"
                   />
                 </Field>
               )}
@@ -659,7 +670,6 @@ function ColourForm({
                       setCodeTyped(true)
                       field.handleChange(event.target.value)
                     }}
-                    placeholder="NAVY"
                   />
                 </Field>
               )}
@@ -673,6 +683,18 @@ function ColourForm({
                       value={field.state.value}
                       onBlur={field.handleBlur}
                       onChange={(next) => field.handleChange(next)}
+                      onNamed={(read) => {
+                        // A name typed into the hex box names the colour too,
+                        // when nothing else has.
+                        if (
+                          colour !== null ||
+                          form.getFieldValue("label").trim() !== ""
+                        )
+                          return
+                        form.setFieldValue("label", read.name)
+                        if (!codeTyped)
+                          form.setFieldValue("code", snake(read.name))
+                      }}
                     />
                   </Field>
                 )}
@@ -767,10 +789,10 @@ function ColourForm({
               )}
             >
               {save.isPending
-                ? "Saving…"
+                ? "Submitting…"
                 : colour === null
-                  ? "Add to the list"
-                  : "Save"}
+                  ? "Submit"
+                  : "Submit"}
             </Button>
           </>
         )}

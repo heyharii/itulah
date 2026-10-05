@@ -9,7 +9,12 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState, LoadingState, Problem } from "@/components/ui/states"
+import {
+  Banner,
+  EmptyState,
+  LoadingState,
+  Problem,
+} from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { count, day, moment } from "@/lib/format"
 import { unitLabel, useUnits } from "@/lib/queries/organisation"
@@ -23,7 +28,11 @@ import {
 } from "@/lib/queries/invitations"
 import { useCanWrite } from "@/lib/session"
 import { useSheet } from "@/lib/sheets"
-import { CopyLinkButton, InviteSheet } from "@/screens/people/invite-sheet"
+import {
+  CopyLinkButton,
+  InviteSheet,
+  WhatsAppLinkButton,
+} from "@/screens/people/invite-sheet"
 
 /// Everyone who has been sent a link to set up their own sign-in.
 ///
@@ -40,7 +49,9 @@ const TABS: readonly { value: InvitationStatus; label: string }[] = [
   { value: "REVOKED", label: "Revoked" },
 ]
 
-const STATUS_TONE: Readonly<Record<InvitationStatus, "warn" | "ok" | "neutral" | "bad">> = {
+const STATUS_TONE: Readonly<
+  Record<InvitationStatus, "warn" | "ok" | "neutral" | "bad">
+> = {
   PENDING: "warn",
   ACCEPTED: "ok",
   EXPIRED: "neutral",
@@ -52,9 +63,11 @@ const STATUS_TONE: Readonly<Record<InvitationStatus, "warn" | "ok" | "neutral" |
 /// union does not (yet) name, rather than throwing on an index it does not
 /// recognise.
 function statusTone(status: string): "warn" | "ok" | "neutral" | "bad" {
-  return (STATUS_TONE as Readonly<Record<string, "warn" | "ok" | "neutral" | "bad">>)[
-    status
-  ] ?? "neutral"
+  return (
+    (
+      STATUS_TONE as Readonly<Record<string, "warn" | "ok" | "neutral" | "bad">>
+    )[status] ?? "neutral"
+  )
 }
 
 function statusLabel(status: string): string {
@@ -101,12 +114,7 @@ export function Invitations() {
       />
 
       <Toolbar>
-        <Select
-          value={unitId}
-          onChange={setUnitId}
-          placeholder="Every unit"
-          className="h-8 w-52"
-        >
+        <Select value={unitId} onChange={setUnitId} className="h-8 w-52">
           <option value="">Every unit</option>
           {(units.data ?? []).map((unit) => (
             <option key={unit.id} value={unit.id}>
@@ -256,6 +264,7 @@ function RenewSheet({
               {renew.data.link}
             </code>
             <CopyLinkButton link={renew.data.link} />
+            <WhatsAppLinkButton link={renew.data.link} name={row?.name} />
           </div>
           <p className="text-meta text-mute">
             Expires {moment(renew.data.expires_at)}.

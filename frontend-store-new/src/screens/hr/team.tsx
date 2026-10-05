@@ -41,7 +41,7 @@ import type { EmployeeList, EmployeeSummary } from "@itulah/contract"
 /// decides.
 export function HrTeam() {
   return (
-    <HrWorkspace sub="This shop's people. Job, grade and pay change only through a head-office decision — propose one under Employment changes.">
+    <HrWorkspace>
       {(scope) => <Team scope={scope} />}
     </HrWorkspace>
   )
@@ -67,7 +67,7 @@ function Team({ scope }: { scope: StoreScope }) {
   const [open, setOpen] = useState<string | null>(null)
 
   return centreState(team, {
-    loading: "Reading who works here…",
+    loading: "Loading…",
     what: "this shop's workforce",
     render: (page) => {
       const rows = page.rows
@@ -100,9 +100,7 @@ function Team({ scope }: { scope: StoreScope }) {
 
           {rows.length === 0 ? (
             <EmptyState>
-              Head office has nobody posted to {scope.label}. Somebody working
-              here who is not on this list has not been posted yet, which is
-              HR's paperwork rather than a fault of this screen.
+              Nobody posted to this shop.
             </EmptyState>
           ) : (
             <PeopleTable
@@ -254,7 +252,7 @@ function EmployeeSheet({
     >
       <SheetSection title="Placement">
         {centreState(profile, {
-          loading: "Reading the profile…",
+          loading: "Loading…",
           what: "this person's profile",
           render: (view) => (
             <Facts
@@ -287,12 +285,12 @@ function EmployeeSheet({
 
       <SheetSection title="Leave left">
         {centreState(balances, {
-          loading: "Reading the balances…",
+          loading: "Loading…",
           what: "this person's leave balances",
           render: (rows) =>
             rows.length === 0 ? (
               <p className="text-meta text-body">
-                No balance is kept for them yet.
+                No balances yet.
               </p>
             ) : (
               <Facts
@@ -307,7 +305,7 @@ function EmployeeSheet({
 
       <SheetSection title="History">
         {centreState(detail, {
-          loading: "Reading the record…",
+          loading: "Loading…",
           what: "this person's employment record",
           render: (view) => (
             <ul className="flex flex-col gap-2">
@@ -345,10 +343,6 @@ function EmployeeSheet({
         })}
       </SheetSection>
 
-      <p className="text-meta text-mute">
-        Pay, bank details and personal data are held at head office and are not
-        read from a till.
-      </p>
     </PeopleSheet>
   )
 }

@@ -13,6 +13,11 @@ import { App } from "@/App"
 import { cacheKey, edge, setEdgeToken } from "@/lib/api"
 import { markSignedOutElsewhere } from "@/lib/session"
 import { registerServiceWorker } from "@/lib/pwa"
+import {
+  isTenancySignOut,
+  tenancyQueryKey,
+  TenancyProvider,
+} from "@/lib/tenancy"
 import { ApiError } from "@itulah/contract/client"
 
 /// One client for the whole surface.
@@ -36,12 +41,28 @@ function pushedOut(error: unknown): boolean {
 }
 
 function signOutHere(error: unknown) {
-  if (!pushedOut(error)) return
-  markSignedOutElsewhere()
-  queryClient.setQueryData(cacheKey.me(), null)
-  queryClient.removeQueries({
-    predicate: (query) => query.queryKey[0] !== cacheKey.me()[0],
-  })
+  if (pushedOut(error)) {
+    markSignedOutElsewhere()
+    queryClient.setQueryData(cacheKey.me(), null)
+    queryClient.removeQueries({
+      predicate: (query) => query.queryKey[0] !== cacheKey.me()[0],
+    })
+    return
+  }
+  // Sandbox tenancy: any `/api/*` call — not just the startup one — can
+  // answer this once a business is removed out from under an open tab, or
+  // never chosen at all. Treated exactly like a lapsed session: drop the
+  // cached identity and re-ask tenancy, so `App` shows the door or chooser
+  // instead of a screen of failures.
+  if (isTenancySignOut(error)) {
+    queryClient.setQueryData(cacheKey.me(), null)
+    queryClient.removeQueries({
+      predicate: (query) =>
+        query.queryKey[0] !== cacheKey.me()[0] &&
+        query.queryKey[0] !== tenancyQueryKey[0],
+    })
+    void queryClient.invalidateQueries({ queryKey: tenancyQueryKey })
+  }
 }
 
 const queryClient = new QueryClient({
@@ -70,7 +91,9 @@ registerServiceWorker()
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App />
+      <TenancyProvider>
+        <App />
+      </TenancyProvider>
     </QueryClientProvider>
   </StrictMode>
 )

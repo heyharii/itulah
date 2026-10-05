@@ -153,7 +153,6 @@ export function Correction() {
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(event) => field.handleChange(event.target.value)}
-                  placeholder="e.g. the fingerprint station was down when I finished."
                   required
                 />
               </Field>

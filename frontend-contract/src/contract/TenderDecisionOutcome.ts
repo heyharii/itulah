@@ -10,7 +10,7 @@ import type { TenderDecisionRow } from "./TenderDecisionRow";
  * what the shop found and change nothing, which is 0071's argument — agreeing
  * that two records describe one payment records no new fact.
  */
-export type TenderDecisionOutcome = { decision: TenderDecisionRow,
+export type TenderDecisionOutcome = { decision: TenderDecisionRow, 
 /**
  * What `sales_posting::retender_tender` did — the row it moved, and the
  * reclassifying entry when the day was already posted.

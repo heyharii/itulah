@@ -21,6 +21,11 @@ export type UserRow = { id: string, username: string, display_name: string, role
  */
 last_login_at: string | null, 
 /**
+ * Set while too many wrong passwords keep this login locked out; the
+ * console shows it and offers Unlock ([`unlock_user`]).
+ */
+login_blocked_until: string | null, 
+/**
  * Null in all five together: a machine account, or a login HR has not
  * finished the paperwork for. The console says which rather than leaving a
  * blank column to be read as a bug.

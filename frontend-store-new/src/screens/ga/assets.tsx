@@ -69,7 +69,7 @@ import type { GaAssetEvent, GaAssetRow, GaDocument } from "@itulah/contract"
 /// the whole estate, so they are not used.)
 export function Assets() {
   return (
-    <GaScreen sub="What head office has on its register for this shop — the things themselves, not what they are worth.">
+    <GaScreen>
       {(site) => <Register site={site} />}
     </GaScreen>
   )
@@ -190,13 +190,13 @@ function Register({ site }: { site: string }) {
           }
         >
           {filed === "repair"
-            ? "Sent to head office. It is on the repair book now, and its progress shows under Repairs."
-            : "Noted on the asset's history, where head office reads it."}
+            ? "Sent to head office."
+            : "Noted."}
         </Banner>
       )}
 
       {gaState(register, {
-        loading: "Reading this shop's register…",
+        loading: "Loading…",
         render: () => {
           if (rows.length === 0) {
             return (
@@ -204,9 +204,7 @@ function Register({ site }: { site: string }) {
                 <div className="mx-auto max-w-[30em] px-4 py-12 text-center">
                   <Boxes className="mx-auto mb-3 size-6 text-line-ico" />
                   <p className="text-meta text-body">
-                    Head office has nothing on the register for this shop. If
-                    something here belongs to the company — an air conditioner,
-                    a computer, the shelving — ask them to register it.
+                    No assets registered.
                   </p>
                 </div>
               </Card>
@@ -259,8 +257,7 @@ function Register({ site }: { site: string }) {
                   <>
                     {" · "}
                     <span className="tabular-nums">
-                      {count(drafts)} arrived on a bill and{" "}
-                      {drafts === 1 ? "is" : "are"} not confirmed yet
+                      {count(drafts)} not confirmed
                     </span>
                   </>
                 )}
@@ -277,8 +274,8 @@ function Register({ site }: { site: string }) {
                   }}
                   empty={
                     needle !== ""
-                      ? `Nothing on this shop's register matches “${typed.trim()}”.`
-                      : "Nothing in this class here."
+                      ? `No match for “${typed.trim()}”.`
+                      : "None in this class."
                   }
                 />
               </Card>
@@ -364,8 +361,8 @@ function AssetSheet({
           className="mb-5"
         >
           {asset.status === "DRAFT"
-            ? "A bill says this arrived here, and nobody has confirmed it yet. If it is not in the shop, tell head office."
-            : "Head office has asked to dispose of this. It stays on the register until that is decided."}
+            ? "Not confirmed yet. Tell head office if it isn't here."
+            : "Disposal requested by head office."}
         </Banner>
       )}
 
@@ -384,7 +381,7 @@ function AssetSheet({
       </Facts>
 
       {gaState(hub, {
-        loading: "Reading its history…",
+        loading: "Loading…",
         render: (answer) => (
           <>
             {answer.documents.length > 0 && (

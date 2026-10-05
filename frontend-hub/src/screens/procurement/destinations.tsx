@@ -77,7 +77,7 @@ const columns: ColumnDef<TableSetup, DestinationRow>[] = [
   },
   {
     accessorKey: "orders",
-    header: "Orders routed here",
+    header: "Orders Routed Here",
     size: 170,
     // Zero is the interesting end of this column, not the top: a destination
     // nothing has ever been routed to is either a shop nobody supplies direct
@@ -87,7 +87,7 @@ const columns: ColumnDef<TableSetup, DestinationRow>[] = [
   },
   {
     accessorKey: "outstanding",
-    header: "Units still owed",
+    header: "Units Still Owed",
     size: 160,
     meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
     // The decision metric: a destination with a lot in flight is where the

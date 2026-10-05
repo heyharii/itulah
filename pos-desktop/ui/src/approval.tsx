@@ -23,9 +23,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
 import * as api from "@/api"
+import { isWeb } from "@/edition"
 import { Icon } from "@/icons"
 import { PinPad } from "@/pinpad"
 import { Sheet } from "@/screens/dialogs"
+import { seatNow } from "@/seat"
 import { supervisorByFinger, supervisorByPin, useSession } from "@/session"
 
 export type Approved = { readonly username: string; readonly approvalId: string }
@@ -116,7 +118,9 @@ function ApprovalSheet({
   async function record(supervisor: api.Supervisor): Promise<void> {
     const reply = await api.recordApproval({
       action: request.action,
-      terminal_id: session.terminalId,
+      // The drawer the approval is about: the seat the cashier holds, and the
+      // machine only when they hold none.
+      terminal_id: seatNow()?.terminal_id ?? session.terminalId,
       detail: request.detail,
       reason: request.reason ?? null,
       epcs: request.epcs ?? [],
@@ -185,7 +189,11 @@ function ApprovalSheet({
     setBusy(false)
   }
 
-  const quick = mode === "quick" && stepUp !== "NONE"
+  // Finger and PIN grants both travel the pairing channel (`signedEdge`),
+  // which only the desktop shell can sign — see `edition.ts` — so on the web
+  // a supervisor always types a password, and this screen never offers the
+  // quick way or a switch onto it.
+  const quick = !isWeb && mode === "quick" && stepUp !== "NONE"
   const submit = () =>
     void (quick
       ? stepUp === "FINGERPRINT"
@@ -229,7 +237,7 @@ function ApprovalSheet({
 
       {stepUp === null && <p className="muted">Memuat…</p>}
 
-      {stepUp !== null && stepUp !== "NONE" && (
+      {!isWeb && stepUp !== null && stepUp !== "NONE" && (
         <div className="segmented" role="radiogroup" aria-label="Cara menyetujui">
           <button
             type="button"

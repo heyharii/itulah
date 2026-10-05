@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Prices · 5 table options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* Tokens from frontend-hub/src/styles/index.css. */
+:root{
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f9fb; --soft-2:#f0f2f5; --soft-3:#f7f8fa;
+  --hairline:#e7eaf0; --hairline-2:#dce1e8; --hairline-strong:#c7ced8;
+  --backdrop:#dfe3ea; --tooltip:#101012;
+  --accent:#2563eb; --accent-bg:#eff5ff; --cta:#2563eb; --cta-hover:#1d4ed8;
+  --info:#2f86d8; --info-bg:#ddebfa; --info-fg:#2c57bf;
+  --ok:#36b827; --ok-fg:#15803d;
+  --warn:#c9892e; --warn-bg:#faeacd; --warn-fg:#b45309;
+  --new-fg:#d6447e; --new-bg:#fdeaf1;
+  --a-orange:#e0823c; --a-pink:#d65b95; --a-violet:#8a6cf0;
+  --r-shell:1rem; --r-card:.75rem; --r-inner:.4375rem;
+  --shadow-soft:0 1px 3px rgb(24 39 60 / 4%);
+  --shadow-pop:0 4px 8px rgb(24 39 60 / 4%),0 12px 32px rgb(24 39 60 / 8%);
+  --shadow-shell:0 10px 34px rgb(24 39 60 / 8%);
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --c-sale:var(--a-pink); --c-shop:var(--a-orange); --c-group:var(--a-violet);
+  font-size:16px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Inter,system-ui,sans-serif;background:var(--backdrop);color:var(--text);font-size:.875rem;
+  line-height:1.45;-webkit-font-smoothing:antialiased;padding:1.25rem 1.25rem 6rem;min-height:100vh}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:.75rem}
+.num{font-variant-numeric:tabular-nums}
+.muted{color:var(--mute)} .faint{color:var(--faint)}
+
+/* option switcher */
+.top{max-width:80rem;margin:0 auto .875rem;display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
+.top h1{font-size:1rem;font-weight:600;color:var(--ink)}
+.top p{color:var(--body);font-size:.8125rem}
+.lenses{margin-left:auto;display:flex;gap:.25rem;background:var(--soft-2);padding:.1875rem;border-radius:999px;flex-wrap:wrap}
+.lens{border:0;background:transparent;border-radius:999px;padding:.3125rem .8rem;font-size:.8125rem;color:var(--body);
+  transition:background .15s var(--ease-out),color .15s var(--ease-out)}
+.lens.on{background:var(--canvas);color:var(--ink);font-weight:500;box-shadow:var(--shadow-soft)}
+
+/* page */
+.pane{max-width:80rem;margin:0 auto;background:var(--canvas);border-radius:var(--r-shell);box-shadow:var(--shadow-shell);padding:1.25rem 1.5rem 1.5rem}
+.ph{display:flex;align-items:flex-end;gap:1rem;margin-bottom:1rem;flex-wrap:wrap}
+.ph .crumb{font-size:.75rem;color:var(--mute)}
+.ph h2{font-size:1.375rem;font-weight:600;color:var(--ink);letter-spacing:-.01em;line-height:1.2}
+.ph .sub{color:var(--body);font-size:.8125rem;margin-top:.125rem}
+.ph .act{margin-left:auto;display:flex;gap:.5rem;align-items:center}
+.btn{border:1px solid var(--hairline-2);background:var(--canvas);border-radius:var(--r-inner);padding:.375rem .75rem;font-size:.8125rem;
+  color:var(--ink);font-weight:500;transition:background .15s var(--ease-out),transform .1s var(--ease-out);white-space:nowrap}
+.btn:hover{background:var(--soft)} .btn:active{transform:scale(.97)}
+.btn.soft{background:var(--soft-2);border-color:transparent}
+.btn.pri{background:var(--cta);border-color:var(--cta);color:#fff} .btn.pri:hover{background:var(--cta-hover)}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--body)}
+.btn.sm{padding:.1875rem .5rem;font-size:.75rem}
+.omni{display:flex;align-items:center;gap:.5rem;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:.4375rem .75rem;margin-bottom:.875rem}
+.omni input{border:0;outline:0;flex:1;min-width:0;font-size:.875rem;background:transparent}
+.omni svg{color:var(--line-ico);flex:none}
+.bar{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin-bottom:.75rem;font-size:.75rem;color:var(--body)}
+.bar .r{margin-left:auto;display:flex;gap:.375rem;align-items:center}
+.key{display:inline-flex;align-items:center;gap:.3rem}
+.key i{width:5px;height:5px;border-radius:50%;background:var(--c)}
+.seg{display:inline-flex;background:var(--soft-2);border-radius:var(--r-inner);padding:.1875rem}
+.seg button{border:0;background:transparent;border-radius:5px;padding:.1875rem .625rem;font-size:.75rem;color:var(--body)}
+.seg button.on{background:var(--canvas);color:var(--ink);font-weight:500;box-shadow:var(--shadow-soft)}
+
+/* the one table grammar */
+.card{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:auto;max-height:38rem;background:var(--canvas)}
+table.t{border-collapse:separate;border-spacing:0;width:100%;font-size:.8125rem}
+.t th,.t td{border-bottom:1px solid var(--hairline);padding:.5rem .75rem;white-space:nowrap}
+.t thead th{position:sticky;top:0;z-index:2;background:var(--soft);color:var(--body);font-weight:400;font-size:.75rem;text-align:left;
+  border-bottom-color:var(--hairline-2);vertical-align:bottom}
+.t .n{text-align:right}
+.t .vr{border-right:1px solid var(--hairline)}
+.t .stick{position:sticky;left:0;z-index:1;background:var(--canvas)}
+.t thead .stick{z-index:3;background:var(--soft)}
+.t tbody tr:hover>td{background-color:var(--soft)}
+.t td.ed{cursor:pointer}
+.t td.ed:hover{box-shadow:inset 0 0 0 1px var(--hairline-strong)}
+.t b.p{font-weight:600;color:var(--ink)}
+.t .same{color:var(--faint)}
+.t th small{display:flex;align-items:center;gap:.25rem;font-size:.6875rem;color:var(--mute)}
+.t th small i{width:5px;height:5px;border-radius:50%;background:var(--c)}
+.t th .sn{color:var(--ink);font-weight:500;font-size:.8125rem}
+.t tr.grp>td{background:var(--soft-3);font-weight:500;color:var(--ink);border-bottom-color:var(--hairline)}
+.t tr.grp:hover>td{background:var(--soft-3)}
+.t tr.sub>td:first-child{padding-left:3.125rem}
+.t tr.last>td{border-bottom:1px solid var(--hairline-2)}
+.t tr.nest>td{background:var(--soft);padding:.5rem .75rem .875rem 3rem}
+.t tr.nest:hover>td{background:var(--soft)}
+.t tr.nest table{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-inner)}
+.t tr.nest table th{position:static;background:var(--canvas)}
+.t tr.picked>td{background:var(--accent-bg)!important}
+.chev{width:1rem;height:1rem;display:inline-block;transition:transform .2s var(--ease-out);color:var(--line-ico);vertical-align:-3px}
+.chev.open{transform:rotate(90deg)}
+
+.art{display:flex;gap:.625rem;align-items:center;min-width:0}
+.sw{width:1.75rem;height:1.75rem;border-radius:var(--r-inner);flex:none;display:grid;place-items:center;font-size:.625rem;font-weight:600;color:#fff}
+.art b{display:block;font-weight:500;color:var(--ink)}
+.art span{display:block;color:var(--mute)}
+
+/* marks: outlined pills with a 5px dot */
+.pill{display:inline-flex;align-items:center;gap:.3125rem;border:1px solid var(--hairline-2);border-radius:999px;
+  padding:0 .4375rem 0 .375rem;font-size:.6875rem;color:var(--text);white-space:nowrap;background:var(--canvas);line-height:1.5}
+.pill i{width:5px;height:5px;border-radius:50%;background:var(--c,currentColor)}
+.src-sale{--c:var(--c-sale)} .src-shop{--c:var(--c-shop)} .src-group{--c:var(--c-group)} .src-next{--c:var(--info)} .src-edit{--c:var(--accent)}
+.src-company{--c:var(--faint)}
+.st-ok{--c:var(--ok)} .st-pending{--c:var(--warn)} .st-none{--c:var(--faint)}
+.tagline{display:block;font-size:.6875rem;color:var(--mute)}
+.tagline.sale{color:var(--new-fg)} .tagline.shop{color:var(--warn-fg)} .tagline.group{color:#6b4fd6} .tagline.edit{color:var(--accent)}
+.edited{color:var(--accent)!important}
+.nx{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--info);margin-right:.25rem;vertical-align:1px}
+.cellin{width:6.5rem;text-align:right;border:1px solid transparent;border-radius:5px;padding:.1875rem .375rem;background:transparent;
+  font-variant-numeric:tabular-nums;font-size:.8125rem;transition:border-color .12s,background .12s}
+.cellin:hover{border-color:var(--hairline-2);background:var(--canvas)}
+.cellin:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg);background:var(--canvas)}
+.cellin.dirty{color:var(--accent);font-weight:600;background:var(--accent-bg)}
+.cellin::placeholder{color:var(--faint)}
+.tabs{display:flex;border-bottom:1px solid var(--hairline-2);margin-bottom:.75rem;overflow-x:auto}
+.tabs button{border:0;background:none;padding:.5rem .875rem;font-size:.8125rem;color:var(--body);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;display:flex;gap:.375rem;align-items:center}
+.tabs button i{width:5px;height:5px;border-radius:50%;background:var(--c)}
+.tabs button.on{color:var(--ink);font-weight:500;border-bottom-color:var(--ink)}
+.banner{padding:.5rem .75rem;border-radius:var(--r-inner);background:var(--warn-bg);color:var(--warn-fg);font-size:.8125rem;margin-bottom:.75rem}
+.selbar{display:flex;align-items:center;gap:.5rem;padding:.4375rem .75rem;border-radius:var(--r-inner);background:var(--accent-bg);color:var(--info-fg);margin-bottom:.75rem;font-size:.8125rem;flex-wrap:wrap}
+
+/* notes */
+.why{max-width:80rem;margin:1rem auto 0;display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem}
+.why div{background:var(--canvas);border-radius:var(--r-card);padding:.75rem 1rem;box-shadow:var(--shadow-soft)}
+.why h5{font-size:.6875rem;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:500;margin-bottom:.25rem}
+.why p{font-size:.8125rem}
+
+/* editor popover */
+.pop{position:absolute;z-index:50;width:19rem;background:var(--canvas);border-radius:var(--r-card);box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);
+  padding:.875rem;transform-origin:var(--ox,50%) 0;animation:pop .16s var(--ease-out)}
+.pop h6{font-size:.875rem;font-weight:600;color:var(--ink)}
+.pop .ctx{font-size:.75rem;color:var(--mute);margin-bottom:.625rem}
+.pop .mode{display:flex;background:var(--soft-2);border-radius:var(--r-inner);padding:.1875rem;margin-bottom:.625rem}
+.pop .mode button{flex:1;border:0;background:transparent;border-radius:5px;padding:.25rem;font-size:.8125rem;color:var(--body)}
+.pop .mode button.on{background:var(--canvas);color:var(--ink);font-weight:500;box-shadow:var(--shadow-soft)}
+.pop .in{display:flex;align-items:center;gap:.375rem;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:.375rem .625rem;background:var(--soft)}
+.pop .in:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg);background:var(--canvas)}
+.pop .in input{border:0;outline:0;background:transparent;flex:1;min-width:0;font-size:1rem;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.pop .chips{display:flex;gap:.3125rem;margin-top:.5rem;flex-wrap:wrap}
+.pop .chips button{border:1px solid var(--hairline-2);background:var(--canvas);border-radius:999px;padding:.0625rem .5rem;font-size:.75rem}
+.pop .when{display:flex;gap:.5rem;align-items:center;margin-top:.625rem;font-size:.8125rem;color:var(--body)}
+.pop .when input{border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:.1875rem .375rem;font-size:.8125rem}
+.pop .foot{display:flex;justify-content:flex-end;gap:.375rem;margin-top:.875rem}
+.pop .delta{font-size:.75rem;margin-top:.375rem;color:var(--body);min-height:1em}
+
+.pub{position:fixed;left:50%;bottom:1.25rem;z-index:40;display:flex;align-items:center;gap:.75rem;
+  background:var(--canvas);border-radius:999px;box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);padding:.4375rem .4375rem .4375rem 1.125rem;
+  max-width:calc(100vw - 2rem);animation:rise .25s var(--ease-out);transform:translateX(-50%)}
+.pub .cnt{font-weight:600;color:var(--ink);white-space:nowrap}
+.pub .list{color:var(--body);font-size:.8125rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:28rem}
+.pub .btn{border-radius:999px}
+.toast{position:fixed;left:50%;bottom:1.25rem;z-index:41;background:var(--tooltip);color:#fff;border-radius:999px;transform:translateX(-50%);
+  padding:.5625rem 1.125rem;font-size:.8125rem;animation:rise .25s var(--ease-out);box-shadow:var(--shadow-pop)}
+@keyframes rise{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+@keyframes pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:760px){
+  body{padding:1rem 1rem 6rem} .pane{padding:1rem} .lenses{margin-left:0} .why{grid-template-columns:1fr}
+  .ph .act{margin-left:0} .pub .list{display:none}
+}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div>
+    <h1>Marketing › Prices: 5 table options</h1>
+    <p>Same data, five table layouts. Click a price to change it. Publish goes straight to the shops.</p>
+  </div>
+  <div class="lenses" id="lenses">
+    <button class="lens on" data-v="1">1 · Matrix</button>
+    <button class="lens" data-v="2">2 · Regular / Sale rows</button>
+    <button class="lens" data-v="3">3 · List + expand</button>
+    <button class="lens" data-v="4">4 · By size</button>
+    <button class="lens" data-v="5">5 · One shop, editable</button>
+  </div>
+</div>
+
+<div class="pane">
+  <div class="ph">
+    <div><div class="crumb">Marketing</div><h2>Prices</h2><div class="sub" id="sub"></div></div>
+    <div class="act"><span class="muted" style="font-size:.75rem">Priced at 28 Sep, 09:20 · incl. VAT</span><button class="btn soft" id="newPrice">New price</button></div>
+  </div>
+  <label class="omni">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input id="q" placeholder="Search an article, code or SKU — or filter by division, tag or price" />
+  </label>
+  <div id="view"></div>
+</div>
+
+<div class="why" id="why"></div>
+<div id="pubHost"></div>
+
+<script>
+// ── data ─────────────────────────────────────────────────────────────
+const TODAY='2026-09-28';
+const SHOPS=[
+  {id:'KMG',name:'Kemang',city:'Jakarta',st:'ok',v:21,seen:'09:14'},
+  {id:'PIK',name:'PIK Avenue',city:'Jakarta',st:'ok',v:21,seen:'09:12'},
+  {id:'DGO',name:'Dago',city:'Bandung',st:'pending',v:20,seen:'yesterday 21:40'},
+  {id:'TJN',name:'Tunjungan',city:'Surabaya',st:'ok',v:21,seen:'09:15'},
+  {id:'MLB',name:'Malioboro',city:'Yogyakarta',st:'ok',v:21,seen:'09:02'},
+  {id:'SUN',name:'Sun Plaza',city:'Medan',st:'none',v:null,seen:null},
+  {id:'SMY',name:'Seminyak',city:'Bali',st:'ok',v:21,seen:'08:58'},
+  {id:'PNK',name:'Panakkukang',city:'Makassar',st:'ok',v:21,seen:'09:10'},
+];
+const BOOKS=[
+  {v:18,name:'September company prices',from:'2026-09-01'},
+  {v:19,name:'Premium shops',from:'2026-09-05'},
+  {v:20,name:'Bandung + Surabaya clearance',from:'2026-09-12'},
+  {v:21,name:'Seminyak tourist pricing',from:'2026-09-20'},
+  {v:22,name:'October price rise',from:'2026-10-16'},
+  {v:23,name:'Payday hoodie sale',from:'2026-10-25'},
+];
+const TOPS=['S','M','L','XL','XXL'];
+// `split`: how many of the sizes take the low end of a ranged price.
+const ART=[
+  {code:'KMJ-OXF-01',name:'Kemeja Oxford Slim',div:'Men · Tops',hue:218,sizes:TOPS,base:189000,ov:{DGO:{src:'sale',p:149000,v:20},TJN:{src:'sale',p:149000,v:20}}},
+  {code:'KOS-BSC-02',name:'Kaos Basic Crew',div:'Men · Tops',hue:28,sizes:TOPS,base:89000,ov:{},next:{p:99000,kind:'base',v:22}},
+  {code:'CLN-CHN-03',name:'Celana Chino Slim',div:'Men · Bottoms',hue:36,sizes:['28','30','32','34','36'],split:3,base:[259000,279000],ov:{SMY:{src:'shop',p:[289000,309000],v:21}},next:{p:[269000,289000],kind:'base',v:22}},
+  {code:'JKT-DNM-04',name:'Jaket Denim Trucker',div:'Men · Outer',hue:210,sizes:['M','L','XL'],base:499000,ov:{SUN:{src:'sale',p:349000,v:20},PNK:{src:'shop',p:479000,v:21}}},
+  {code:'DRS-LIN-05',name:'Dress Linen Midi',div:'Women · Dresses',hue:150,sizes:['S','M','L'],base:329000,ov:{KMG:{src:'group',p:349000,v:19,group:'Premium shops'},SMY:{src:'group',p:349000,v:19,group:'Premium shops'},PIK:{src:'group',p:349000,v:19,group:'Premium shops'}}},
+  {code:'SNK-CNV-06',name:'Sneakers Canvas Low',div:'Footwear',hue:0,sizes:['39','40','41','42','43','44'],split:4,base:[459000,499000],ov:{}},
+  {code:'PLO-PQE-07',name:'Polo Pique Classic',div:'Men · Tops',hue:260,sizes:TOPS,base:159000,ov:{DGO:{src:'sale',p:129000,v:20},TJN:{src:'sale',p:129000,v:20},MLB:{src:'shop',p:149000,v:21}}},
+  {code:'HOD-FLC-08',name:'Hoodie Fleece Zip',div:'Unisex · Outer',hue:330,sizes:TOPS,base:299000,ov:{},next:{p:239000,kind:'sale',v:23}},
+  {code:'ROK-PLS-09',name:'Rok Plisket Midi',div:'Women · Bottoms',hue:300,sizes:['S','M','L'],base:219000,ov:{},absent:['SUN','PNK']},
+  {code:'TAS-KNV-10',name:'Tas Kanvas Tote',div:'Accessories',hue:90,sizes:['One size'],base:129000,ov:{}},
+  {code:'KMJ-FLN-11',name:'Kemeja Flanel Kotak',div:'Men · Tops',hue:12,sizes:TOPS,base:229000,ov:{DGO:{src:'shop',p:199000,v:21}}},
+  {code:'JGR-TRY-12',name:'Celana Jogger Terry',div:'Unisex · Bottoms',hue:190,sizes:TOPS,base:199000,ov:{}},
+];
+
+// ── helpers ──────────────────────────────────────────────────────────
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const rng=x=>Array.isArray(x)?x:[x,x];
+const fmt=n=>n.toLocaleString('id-ID');
+const pf=p=>{p=rng(p);return p[0]===p[1]?fmt(p[0]):fmt(p[0])+'–'+fmt(p[1])};
+const df=s=>new Date(s+'T00:00:00').toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+const book=v=>BOOKS.find(b=>b.v===v);
+const shop=id=>SHOPS.find(s=>s.id===id);
+const art=c=>ART.find(a=>a.code===c);
+const SRC={company:'Company',group:'Shop group',shop:'Shop price',sale:'Sale'};
+const pct=(a,b)=>Math.round((rng(a)[0]-rng(b)[0])/rng(b)[0]*100);
+const sw=a=>`<span class="sw" style="background:hsl(${a.hue} 42% 52%)">${a.name.split(' ').slice(0,2).map(w=>w[0]).join('')}</span>`;
+const artCell=a=>`<div class="art">${sw(a)}<div><b>${esc(a.name)}</b><span class="mono">${a.code} · ${a.sizes.length} sizes</span></div></div>`;
+const stLabel=s=>s.st==='ok'?'v'+s.v+' live':s.st==='pending'?'update pending':'not confirmed';
+const nextPill=a=>a.next?`<span class="pill src-next"><i></i>${a.next.kind==='sale'?'Sale':'→'} ${pf(a.next.p)} · ${df(book(a.next.v).from)}</span>`:'';
+
+const pending=new Map(); // "CODE@SHOP" | "CODE@*" → {p, kind:'sale'|'base', from}
+let view='1', q='';
+
+/// What one shop's till charges for one style, split into regular and sale, plus any unpublished edit.
+function at(a,s){
+  if(a.absent?.includes(s)) return null;
+  const o=a.ov[s];
+  const regular=o&&o.src!=='sale'?o:null, sale=o&&o.src==='sale'?o:null;
+  const regP=rng(regular?regular.p:a.base);
+  const r={reg:regP,regSrc:regular?regular.src:'company',group:regular?.group,sale:sale?rng(sale.p):null,
+    p:sale?rng(sale.p):regP,src:o?o.src:'company',v:o?o.v:18};
+  r.pend=pending.get(a.code+'@'+s)||pending.get(a.code+'@*')||null;
+  return r;
+}
+const arts=()=>ART.filter(a=>!q||(a.name+' '+a.code+' '+a.div).toLowerCase().includes(q));
+const shopHead=s=>`<div class="sn">${s.name}</div><small class="st-${s.st}" style="justify-content:flex-end"><i></i>${stLabel(s)}</small>`;
+const legend=`<span class="key src-sale"><i></i>Sale</span><span class="key src-shop"><i></i>Shop price</span><span class="key src-group"><i></i>Shop group</span><span class="key src-next"><i></i>Changes soon</span><span class="key src-edit"><i></i>Unpublished</span>`;
+
+// ── 1 · Matrix: Article × Shop, only differences are loud ───────────
+let m1='all';
+function v1(){
+  const list=arts().filter(a=>m1==='all'||SHOPS.some(s=>{const r=at(a,s.id);return !r||r.src!=='company'}));
+  const rows=list.map(a=>`<tr><td class="stick vr">${artCell(a)}</td>
+    <td class="n vr ed" data-edit="${a.code}|*"><b class="p num">${pf(a.base)}</b>${a.next?`<span class="tagline" style="color:var(--info-fg)"><span class="nx"></span>${pf(a.next.p)} · ${df(book(a.next.v).from)}</span>`:''}</td>`+
+    SHOPS.map(s=>{const r=at(a,s.id);
+      if(!r) return `<td class="n"><span class="faint">not sold</span></td>`;
+      if(r.pend) return `<td class="n ed" data-edit="${a.code}|${s.id}"><b class="p num edited">${pf(r.pend.p)}</b><span class="tagline edit">unpublished · was ${pf(r.p)}</span></td>`;
+      if(r.src==='company') return `<td class="n ed" data-edit="${a.code}|${s.id}"><span class="same num">${pf(r.p)}</span></td>`;
+      const d=pct(r.p,a.base);
+      return `<td class="n ed" data-edit="${a.code}|${s.id}"><b class="p num">${pf(r.p)}</b><span class="tagline ${r.src}">${r.src==='group'?r.group:SRC[r.src]} ${d>0?'+':''}${d}%</span></td>`}).join('')+'</tr>').join('');
+  return `<div class="bar"><span>Grey = same as company price. Coloured = this shop differs.</span>${legend}
+    <span class="r"><span class="seg"><button data-m1="all" class="${m1==='all'?'on':''}">All styles</button><button data-m1="diff" class="${m1==='diff'?'on':''}">Only where shops differ</button></span></span></div>
+  <div class="card"><table class="t"><thead><tr><th class="stick vr">Article</th><th class="n vr">Company</th>${SHOPS.map(s=>`<th class="n">${shopHead(s)}</th>`).join('')}</tr></thead>
+  <tbody>${rows}</tbody></table></div>`;
+}
+
+// ── 2 · Regular / Sale as sub-rows (7Soft style) ────────────────────
+function v2(){
+  const rows=arts().map(a=>{
+    const rs=SHOPS.map(s=>at(a,s.id));
+    const hasSale=rs.some(r=>r&&(r.sale||r.pend?.kind==='sale'));
+    const n=hasSale?3:2;
+    const head=`<td class="stick vr" rowspan="${n}" style="vertical-align:top;border-bottom-color:var(--hairline-2)">${artCell(a)}${a.next?`<div style="margin-top:.375rem">${nextPill(a)}</div>`:''}</td>`;
+    const reg=`<tr>${head}<td class="vr muted">Regular</td>`+rs.map((r,i)=>{const s=SHOPS[i];
+      if(!r) return `<td class="n faint">not sold</td>`;
+      const pe=r.pend&&r.pend.kind==='base'?r.pend:null;
+      if(pe) return `<td class="n ed" data-edit="${a.code}|${s.id}" data-mode="base"><b class="p num edited">${pf(pe.p)}</b></td>`;
+      return `<td class="n ed" data-edit="${a.code}|${s.id}" data-mode="base">${r.regSrc==='company'?`<span class="num">${pf(r.reg)}</span>`:`<b class="p num">${pf(r.reg)}</b><span class="tagline ${r.regSrc}">${r.regSrc==='group'?r.group:SRC[r.regSrc]}</span>`}</td>`}).join('')+'</tr>';
+    const sale=hasSale?`<tr><td class="vr" style="color:var(--new-fg)">Sale</td>`+rs.map((r,i)=>{const s=SHOPS[i];
+      if(!r) return `<td class="n faint">—</td>`;
+      const pe=r.pend&&r.pend.kind==='sale'?r.pend:null;
+      if(pe) return `<td class="n ed" data-edit="${a.code}|${s.id}" data-mode="sale"><b class="p num edited">${pf(pe.p)}</b></td>`;
+      return `<td class="n ed" data-edit="${a.code}|${s.id}" data-mode="sale">${r.sale?`<b class="p num" style="color:var(--new-fg)">${pf(r.sale)}</b><span class="tagline sale">${pct(r.sale,r.reg)}% · until 30 Sep</span>`:'<span class="faint">—</span>'}</td>`}).join('')+'</tr>':'';
+    const till=`<tr class="last"><td class="vr" style="font-weight:500;color:var(--ink)">Till charges</td>`+rs.map(r=>{
+      if(!r) return `<td class="n faint">—</td>`;
+      const p=r.pend?r.pend.p:r.p;
+      return `<td class="n"><b class="p num ${r.pend?'edited':''}">${pf(p)}</b></td>`}).join('')+'</tr>';
+    return reg+sale+till;
+  }).join('');
+  return `<div class="bar"><span>Regular price, a Sale row only when a sale exists, then what the till charges. Click a Regular or Sale cell to change it.</span>${legend}</div>
+  <div class="card"><table class="t"><thead><tr><th class="stick vr">Article</th><th class="vr">Price</th>${SHOPS.map(s=>`<th class="n">${shopHead(s)}</th>`).join('')}</tr></thead>
+  <tbody>${rows}</tbody></table></div>`;
+}
+
+// ── 3 · List, one row per style, expand for the shops ───────────────
+const open3=new Set(['KMJ-OXF-01']);
+function v3(){
+  const rows=arts().map(a=>{
+    const rs=SHOPS.map(s=>({s,r:at(a,s.id)}));
+    const sold=rs.filter(x=>x.r);
+    const prices=sold.map(x=>x.r.pend?rng(x.r.pend.p):x.r.p);
+    const lo=Math.min(...prices.map(p=>p[0])),hi=Math.max(...prices.map(p=>p[1]));
+    const bLo=rng(a.base)[0],bHi=rng(a.base)[1];
+    const diff=sold.filter(x=>x.r.src!=='company'||x.r.pend);
+    const onSale=sold.filter(x=>x.r.src==='sale').length;
+    const isOpen=open3.has(a.code);
+    const main=`<tr data-open3="${a.code}" style="cursor:pointer"><td><svg class="chev ${isOpen?'open':''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg></td>
+      <td>${artCell(a)}</td><td class="muted">${a.div}</td>
+      <td class="n ed" data-edit="${a.code}|*"><b class="p num">${pf(a.base)}</b></td>
+      <td class="n num">${lo===bLo&&hi===bHi?'<span class="faint">same everywhere</span>':fmt(lo)+' – '+fmt(hi)}</td>
+      <td>${diff.length?`${diff.length} of ${sold.length} shops`:'<span class="faint">none</span>'}</td>
+      <td>${onSale?`<span class="pill src-sale"><i></i>${onSale} shop${onSale>1?'s':''}</span>`:'<span class="faint">—</span>'}</td>
+      <td>${a.absent?`<span class="muted">${a.absent.length} shops</span>`:'<span class="faint">—</span>'}</td>
+      <td>${nextPill(a)||'<span class="faint">—</span>'}</td></tr>`;
+    if(!isOpen) return main;
+    const nest=`<tr class="nest"><td colspan="9"><table class="t"><thead><tr><th>Shop</th><th>Status</th><th class="n">Regular</th><th class="n">Sale</th><th class="n">Till charges</th><th>Set by</th><th></th></tr></thead><tbody>`+
+      rs.map(({s,r})=>{
+        const name=`<td>${s.name} <span class="muted">· ${s.city}</span></td><td><span class="pill st-${s.st}"><i></i>${stLabel(s)}</span></td>`;
+        if(!r) return `<tr>${name}<td colspan="5" class="faint">Not sold here</td></tr>`;
+        const p=r.pend?r.pend.p:r.p;
+        return `<tr>${name}
+          <td class="n num">${r.regSrc==='company'?`<span class="muted">${pf(r.reg)}</span>`:`<b class="p">${pf(r.reg)}</b>`}</td>
+          <td class="n num">${r.sale?`<b class="p" style="color:var(--new-fg)">${pf(r.sale)}</b>`:'<span class="faint">—</span>'}</td>
+          <td class="n num"><b class="p ${r.pend?'edited':''}">${pf(p)}</b></td>
+          <td>${r.pend?'<span class="pill src-edit"><i></i>Unpublished</span>':`<span class="pill src-${r.src}"><i></i>${r.src==='group'?r.group:SRC[r.src]}</span> <span class="muted">v${r.v} · ${book(r.v).name}</span>`}</td>
+          <td class="n"><button class="btn sm" data-edit="${a.code}|${s.id}">Change</button></td></tr>`}).join('')+
+      `</tbody></table></td></tr>`;
+    return main+nest;
+  }).join('');
+  return `<div class="bar"><span>One row per style: the company price plus how the shops differ. Click a row to see every shop.</span></div>
+  <div class="card"><table class="t"><thead><tr><th style="width:1.5rem"></th><th>Article</th><th>Division</th><th class="n">Company price</th><th class="n">Range across shops</th><th>Different at</th><th>On sale</th><th>Not sold</th><th>Next change</th></tr></thead>
+  <tbody>${rows}</tbody></table></div>`;
+}
+
+// ── 4 · By size: style header row, size bands under it ──────────────
+const forSize=(p,a,idx)=>{p=rng(p);return idx<(a.split??a.sizes.length)?p[0]:p[1]};
+function v4(){
+  const rows=arts().map(a=>{
+    // Sizes that cost the same at every shop share one row.
+    const bands=[];
+    a.sizes.forEach((z,idx)=>{
+      const sig=SHOPS.map(s=>{const r=at(a,s.id);if(!r)return 'x';return forSize(r.pend?r.pend.p:r.p,a,idx)+':'+r.src}).join('|')+'#'+forSize(a.base,a,idx);
+      const last=bands[bands.length-1];
+      if(last&&last.sig===sig) last.sizes.push(z); else bands.push({sig,sizes:[z],idx});
+    });
+    const head=`<tr class="grp"><td class="stick vr" style="background:var(--soft-3)">${artCell(a)}</td><td colspan="${SHOPS.length+1}" style="font-weight:400;color:var(--body)">${a.div} · ${bands.length>1?`<span style="color:var(--warn-fg)">${bands.length} prices by size</span>`:'one price for every size'} ${nextPill(a)}</td></tr>`;
+    const body=bands.map((b,bi)=>`<tr class="sub ${bi===bands.length-1?'last':''}"><td class="stick vr"><span class="mono" style="color:var(--ink)">${b.sizes.length>2?b.sizes[0]+' – '+b.sizes[b.sizes.length-1]:b.sizes.join(', ')}</span> <span class="muted">· ${b.sizes.length} SKU</span></td>
+      <td class="n vr ed" data-edit="${a.code}|*"><b class="p num">${fmt(forSize(a.base,a,b.idx))}</b></td>`+
+      SHOPS.map(s=>{const r=at(a,s.id);if(!r)return `<td class="n faint">not sold</td>`;
+        const p=forSize(r.pend?r.pend.p:r.p,a,b.idx);
+        if(r.pend) return `<td class="n ed" data-edit="${a.code}|${s.id}"><b class="p num edited">${fmt(p)}</b></td>`;
+        if(r.src==='company') return `<td class="n ed" data-edit="${a.code}|${s.id}"><span class="same num">${fmt(p)}</span></td>`;
+        return `<td class="n ed" data-edit="${a.code}|${s.id}"><b class="p num">${fmt(p)}</b><span class="tagline ${r.src}">${r.src==='group'?r.group:SRC[r.src]}</span></td>`}).join('')+'</tr>').join('');
+    return head+body;
+  }).join('');
+  return `<div class="bar"><span>Sizes that cost the same everywhere share one row, so a style priced per size shows each price exactly, never a range.</span>${legend}</div>
+  <div class="card"><table class="t"><thead><tr><th class="stick vr">Article / sizes</th><th class="n vr">Company</th>${SHOPS.map(s=>`<th class="n">${shopHead(s)}</th>`).join('')}</tr></thead>
+  <tbody>${rows}</tbody></table></div>`;
+}
+
+// ── 5 · One shop at a time, cells are inputs ────────────────────────
+let shop5='DGO'; const pick5=new Set();
+function v5(){
+  const company=shop5==='*';
+  const s=company?null:shop(shop5);
+  const tabs=`<div class="tabs"><button data-shop5="*" class="${company?'on':''}">Company · every shop</button>${SHOPS.map(x=>`<button data-shop5="${x.id}" class="st-${x.st} ${x.id===shop5?'on':''}"><i></i>${x.name}</button>`).join('')}</div>`;
+  const banner=!company&&s.st==='pending'?`<div class="banner"><b>${s.name} is still on v${s.v}.</b> It last checked in ${s.seen} and hasn't picked up v21 yet. "Till charges" shows what its till charges now.</div>`
+    :!company&&s.st==='none'?`<div class="banner" style="background:var(--soft-2);color:var(--body)">${s.name} has never confirmed a price book, so nothing here is proven on its till yet.</div>`:'';
+  const list=arts();
+  const allOn=list.length>0&&list.every(a=>pick5.has(a.code));
+  const rows=list.map(a=>{
+    const key=a.code+'@'+(company?'*':s.id);
+    const pe=pending.get(key);
+    const r=company?{reg:rng(a.base),regSrc:'company',sale:null,p:rng(a.base),src:'company',v:18,pend:pe}:at(a,s.id);
+    if(!r) return `<tr><td></td><td>${artCell(a)}</td><td class="n num muted">${pf(a.base)}</td><td colspan="5" class="faint">Not sold at ${s.name}</td></tr>`;
+    const on=pick5.has(a.code);
+    const ranged=rng(a.base)[0]!==rng(a.base)[1];
+    const regVal=pe&&pe.kind==='base'?pe.p:(r.regSrc!=='company'?rng(r.reg)[0]:'');
+    const saleVal=pe&&pe.kind==='sale'?pe.p:(r.sale?rng(r.sale)[0]:'');
+    const till=r.pend?r.pend.p:r.p;
+    const companyCell=company
+      ?`<input class="cellin ${pe&&pe.kind==='base'?'dirty':''}" data-in="${a.code}|*|base" value="${pe&&pe.kind==='base'?fmt(pe.p):ranged?'':fmt(a.base)}" placeholder="${ranged?pf(a.base):''}">`
+      :`<span class="muted num">${pf(a.base)}</span>`;
+    return `<tr class="${on?'picked':''}"><td><input type="checkbox" data-pick5="${a.code}" ${on?'checked':''}></td><td>${artCell(a)}</td>
+      <td class="n">${companyCell}</td>
+      ${company?'':`<td class="n"><input class="cellin ${pe&&pe.kind==='base'?'dirty':''}" data-in="${a.code}|${s.id}|base" value="${regVal?fmt(regVal):''}" placeholder="same"></td>`}
+      <td class="n"><input class="cellin ${pe&&pe.kind==='sale'?'dirty':''}" data-in="${key.replace('@','|')}|sale" value="${saleVal?fmt(saleVal):''}" placeholder="—"></td>
+      <td class="n"><b class="p num ${r.pend?'edited':''}">${pf(till)}</b></td>
+      <td>${r.pend?'<span class="pill src-edit"><i></i>Unpublished</span>':`<span class="pill src-${r.src}"><i></i>${r.src==='group'?r.group:SRC[r.src]}</span> <span class="muted">v${r.v}</span>`}</td>
+      <td>${nextPill(a)||'<span class="faint">—</span>'}</td></tr>`}).join('');
+  const sel=pick5.size?`<div class="selbar"><b>${pick5.size} picked</b> · Sale price:
+      ${[10,20,30,50].map(x=>`<button class="btn sm" data-bulk="${x}">−${x}%</button>`).join('')}
+      <button class="btn sm ghost" data-bulk="clear">Remove sale</button><button class="btn sm ghost" data-bulk="none" style="margin-left:auto">Clear</button></div>`:'';
+  return `${tabs}${banner}${sel}<div class="bar"><span>Type straight into the cells, like a spreadsheet. An empty shop price follows the company price. Tick rows for a bulk sale.</span></div>
+  <div class="card"><table class="t"><thead><tr><th style="width:2rem"><input type="checkbox" data-pick5="*" ${allOn?'checked':''}></th><th>Article</th>
+    <th class="n">Company price</th>${company?'':`<th class="n">Shop price</th>`}<th class="n">Sale price</th><th class="n">Till charges</th><th>Set by</th><th>Next change</th></tr></thead>
+  <tbody>${rows}</tbody></table></div>`;
+}
+
+// ── notes (Indonesian, for Hari) ────────────────────────────────────
+const NOTES={
+  '1':['Matrix Article × Toko seperti sekarang, tapi harga yang sama dengan company dibuat abu-abu. Hanya yang beda yang tebal + label kecil (Sale −21%, Shop price, Premium shops). Header toko ada status v21 live / update pending.',
+       'Paling dekat dengan layar sekarang, jadi perubahannya kecil. Mata langsung ke sel yang beda.',
+       'Kalau toko 13+, tetap scroll ke samping.'],
+  '2':['Tiap style dapat 2–3 sub-baris: Regular, Sale (hanya kalau ada sale), dan Till charges. Mirip form 7Soft.',
+       'Regular vs Sale jelas terpisah, jadi markdown ga ketuker dengan harga normal. Klik sel Sale langsung set sale.',
+       'Tabel jadi 2–3x lebih tinggi, jadi lebih sedikit style yang kelihatan per layar.'],
+  '3':['Tabel list biasa, satu baris per style: harga company, range antar-toko, "beda di 2 dari 8 toko", on sale, next change. Klik baris → tabel kecil per toko (Regular / Sale / Till / versi).',
+       'Paling ringkas, enak di tablet. Jumlah kolom tetap walau toko bertambah.',
+       'Bandingin antar-toko harus expand dulu.'],
+  '4':['Header per style, lalu baris per kelompok ukuran (S–XXL, 28–32 / 34–36). Ukuran yang harganya sama di semua toko digabung jadi satu baris.',
+       'Artikel yang harganya beda per ukuran (chino, sneakers) tampil angka persis, bukan range.',
+       'Artikel dengan satu harga tetap makan 2 baris (header + 1 baris ukuran).'],
+  '5':['Satu toko per tab (plus tab Company). Kolom Shop price dan Sale price bisa langsung diketik kayak Excel. Centang baris untuk bulk sale −10/20/30/50%.',
+       'Input cepat per toko. Mirip Item Price di ERPNext tapi per toko.',
+       'Toko lain ga kelihatan. Paling cocok jadi drill-down dari header toko di opsi 1.'],
+};
+const SUBS={'1':'What each shop charges. Grey follows the company price; only differences stand out.','2':'Regular and sale prices on their own rows, then what the till charges.',
+  '3':'One row per style, with a per-shop table when you open it.','4':'Each price exactly, grouped by size.','5':'One shop at a time. Type prices straight into the table.'};
+
+// ── render + events ─────────────────────────────────────────────────
+const VIEWS={'1':v1,'2':v2,'3':v3,'4':v4,'5':v5};
+function render(){
+  $('#view').innerHTML=VIEWS[view]();
+  $('#sub').textContent=SUBS[view];
+  const n=NOTES[view];$('#why').innerHTML=`<div><h5>Idea</h5><p>${n[0]}</p></div><div><h5>Good for</h5><p>${n[1]}</p></div><div><h5>Trade-off</h5><p>${n[2]}</p></div>`;
+  renderPub();
+}
+function renderPub(){
+  const host=$('#pubHost');
+  if(!pending.size){host.innerHTML='';return}
+  const items=[...pending].map(([k,e])=>{const [c,s]=k.split('@');return `${art(c).name}${s==='*'?'':' @ '+shop(s).name} → ${pf(e.p)}${e.kind==='sale'?' sale':''}`});
+  const txt=`${pending.size} change${pending.size>1?'s':''}`;
+  if(host.querySelector('.pub')){host.querySelector('.cnt').textContent=txt;host.querySelector('.list').textContent=items.join(' · ');return}
+  host.innerHTML=`<div class="pub"><span class="cnt">${txt}</span><span class="list">${esc(items.join(' · '))}</span>
+    <button class="btn ghost" data-act="discard">Discard</button><button class="btn pri" data-act="publish">Publish to shops</button></div>`;
+}
+function publish(){
+  const v=Math.max(...BOOKS.map(b=>b.v))+1; const n=pending.size; let when=null;
+  for(const [k,e] of pending){const [c,s]=k.split('@');const a=art(c);
+    if(e.from&&e.from>TODAY){a.next={p:e.p,kind:e.kind,v};when=e.from;continue}
+    if(s==='*'){if(e.kind==='base')a.base=e.p;else SHOPS.forEach(x=>{if(!a.absent?.includes(x.id))a.ov[x.id]={src:'sale',p:e.p,v}})}
+    else if(e.kind==='base'&&e.p===rng(a.base)[0])delete a.ov[s];
+    else a.ov[s]={src:e.kind==='sale'?'sale':'shop',p:e.p,v};}
+  BOOKS.push({v,name:'Changes from Prices',from:when||TODAY});
+  pending.clear();pick5.clear();$('#pubHost').innerHTML='';
+  const t=document.createElement('div');t.className='toast';t.innerHTML=`Published <b>v${v}</b> · ${n} change${n>1?'s':''} sent to ${SHOPS.length} shops${when?' · starts '+df(when):''}`;
+  document.body.appendChild(t);setTimeout(()=>t.remove(),2600);render();
+}
+
+let popEl=null;
+function closePop(){popEl?.remove();popEl=null}
+function openEditor(anchor,targets,opts={}){
+  closePop();
+  const first=art(targets[0].code);
+  const r0=targets[0].shop==='*'?null:at(first,targets[0].shop);
+  const cur=r0?r0.p[0]:rng(first.base)[0];
+  let mode=opts.mode||(targets[0].shop==='*'?'base':'sale');
+  const title=targets.length===1?first.name:`${targets.length} prices`;
+  const ctx=targets.length===1?(targets[0].shop==='*'?'Company price · every shop':shop(targets[0].shop).name+' · till charges '+pf(r0.p)):`${targets.length} shops`;
+  const p=document.createElement('div');p.className='pop';
+  p.innerHTML=`<h6>${esc(title)}</h6><div class="ctx">${ctx}</div>
+    <div class="mode"><button data-m="sale">Sale price</button><button data-m="base">${targets[0].shop==='*'?'Company price':'Shop price'}</button></div>
+    <div class="in"><span class="muted">Rp</span><input inputmode="numeric" value="${fmt(cur)}"/></div>
+    <div class="delta"></div>
+    <div class="chips">${[10,20,30,50].map(x=>`<button data-off="${x}">−${x}%</button>`).join('')}</div>
+    <div class="when"><span>Starts</span><input type="date" value="${TODAY}" min="${TODAY}"/></div>
+    <div class="foot"><button class="btn ghost" data-x>Cancel</button><button class="btn pri" data-ok>Add to changes</button></div>`;
+  document.body.appendChild(p);popEl=p;
+  const r=anchor.getBoundingClientRect();const w=p.offsetWidth;
+  const left=Math.min(Math.max(8,r.left+window.scrollX),window.scrollX+document.documentElement.clientWidth-w-8);
+  p.style.left=left+'px';p.style.top=(r.bottom+window.scrollY+6)+'px';p.style.setProperty('--ox',(r.left+r.width/2+window.scrollX-left)+'px');
+  const input=p.querySelector('.in input');const val=()=>+input.value.replace(/\D/g,'');
+  const sync=()=>{p.querySelectorAll('[data-m]').forEach(b=>b.classList.toggle('on',b.dataset.m===mode));
+    p.querySelector('.chips').style.display=mode==='sale'?'':'none';
+    const v=val();const d=cur?Math.round((v-cur)/cur*100):0;
+    p.querySelector('.delta').innerHTML=v&&v!==cur?`${fmt(cur)} → <b style="color:var(--ink)">${fmt(v)}</b> <span style="color:${d<0?'var(--new-fg)':'var(--warn-fg)'}">${d>0?'+':''}${d}%</span>`:'&nbsp;'};
+  sync();input.focus();input.select();
+  input.addEventListener('input',()=>{const v=val();input.value=v?fmt(v):'';sync()});
+  p.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)return;
+    if(t.dataset.m){mode=t.dataset.m;sync()}
+    if(t.dataset.off){input.value=fmt(Math.round(cur*(1-t.dataset.off/100)/1000)*1000);sync()}
+    if(t.hasAttribute('data-x'))closePop();
+    if(t.hasAttribute('data-ok'))commit()});
+  input.addEventListener('keydown',e=>{if(e.key==='Enter')commit();if(e.key==='Escape')closePop()});
+  function commit(){const v=val();if(!v)return;const from=p.querySelector('.when input').value;
+    targets.forEach(t=>pending.set(t.code+'@'+t.shop,{p:v,kind:mode,from:from>TODAY?from:null}));closePop();render()}
+}
+
+document.addEventListener('click',e=>{
+  const t=e.target;
+  if(popEl&&!popEl.contains(t)&&!t.closest('[data-edit]'))closePop();
+  const lens=t.closest('.lens');if(lens){view=lens.dataset.v;document.querySelectorAll('.lens').forEach(b=>b.classList.toggle('on',b===lens));closePop();render();return}
+  const ed=t.closest('[data-edit]');if(ed){e.stopPropagation();const [code,sh]=ed.dataset.edit.split('|');openEditor(ed,sh.split(',').map(s=>({code,shop:s})),{mode:ed.dataset.mode});return}
+  const m=t.closest('[data-m1]');if(m){m1=m.dataset.m1;render();return}
+  const o3=t.closest('[data-open3]');if(o3){const c=o3.dataset.open3;open3.has(c)?open3.delete(c):open3.add(c);render();return}
+  const s5=t.closest('[data-shop5]');if(s5){shop5=s5.dataset.shop5;pick5.clear();render();return}
+  const pk=t.closest('[data-pick5]');if(pk){const c=pk.dataset.pick5;
+    if(c==='*'){const all=arts();const on=!all.every(a=>pick5.has(a.code));pick5.clear();if(on)all.forEach(a=>pick5.add(a.code))}
+    else pick5.has(c)?pick5.delete(c):pick5.add(c);render();return}
+  const bk=t.closest('[data-bulk]');if(bk){const x=bk.dataset.bulk;
+    if(x!=='none')for(const c of pick5){const a=art(c);const r=shop5==='*'?{reg:rng(a.base)}:at(a,shop5);if(!r)continue;
+      pending.set(c+'@'+shop5,x==='clear'?{p:rng(r.reg)[0],kind:'base',from:null}:{p:Math.round(rng(r.reg)[0]*(1-x/100)/1000)*1000,kind:'sale',from:null})}
+    pick5.clear();render();return}
+  const act=t.closest('[data-act]');if(act){if(act.dataset.act==='discard'){pending.clear();render()}if(act.dataset.act==='publish')publish()}
+});
+// Spreadsheet cells in option 5.
+document.addEventListener('change',e=>{const inp=e.target.closest('[data-in]');if(!inp)return;
+  const [c,s,kind]=inp.dataset.in.split('|');const v=+inp.value.replace(/\D/g,'');const key=c+'@'+s;
+  if(v)pending.set(key,{p:v,kind,from:null});else pending.delete(key);render()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closePop();
+  const inp=e.target.closest?.('[data-in]');if(inp&&e.key==='Enter')inp.blur()});
+$('#q').addEventListener('input',e=>{q=e.target.value.trim().toLowerCase();render()});
+$('#newPrice').addEventListener('click',e=>{e.stopPropagation();openEditor(e.currentTarget,[{code:ART[0].code,shop:'*'}],{mode:'base'})});
+render();
+</script>
+</body>
+</html>

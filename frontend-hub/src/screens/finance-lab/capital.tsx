@@ -145,7 +145,7 @@ export function AssetsOverview() {
             Every asset is assessed and every project is closed.
           </EmptyState>
         ) : (
-          <Table head={["Item", "Why it is here", ">Amount", ""]}>
+          <Table head={["Item", "Why It Is Here", ">Amount", ""]}>
             {items.map((i) => (
               <Row key={i.id} tone={i.tone}>
                 <Cell>
@@ -352,7 +352,6 @@ export function Projects() {
             name: "name",
             label: "What is being built",
             required: true,
-            placeholder: "Renovasi lantai 2 C006",
           },
           {
             name: "unit_id",
@@ -370,9 +369,8 @@ export function Projects() {
             label: "Budget",
             kind: "money",
             required: true,
-            placeholder: "85000000",
           },
-          { name: "started_on", label: "Started", placeholder: "2026-08-01" },
+          { name: "started_on", label: "Started" },
         ]}
         onSubmit={(v, minor) =>
           b.createProject({
@@ -646,7 +644,7 @@ function PreOpeningDetail({ row }: { row: PreOpeningRow }) {
             amortisation.
           </p>
         ) : (
-          <Table head={["Month", ">Charge", ">Carrying after"]}>
+          <Table head={["Month", ">Charge", ">Carrying After"]}>
             {Array.from({ length: Math.min(left, 12) }, (_, i) => {
               const d = new Date(TODAY)
               const m = new Date(d.getFullYear(), d.getMonth() + i, 1)
@@ -798,7 +796,7 @@ export function Depreciation() {
           <EmptyState>Nothing charges in {month}.</EmptyState>
         ) : (
           <Table
-            head={["Asset", ">Replayed", ">Client posted", "Agrees", "Note"]}
+            head={["Asset", ">Replayed", ">Client Posted", "Agrees", "Note"]}
           >
             {recon.rows.map((r) => (
               <Row
@@ -1066,13 +1064,11 @@ export function OeReplacement() {
                 <Input
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="What is being replaced"
                   className="min-w-[10rem] flex-1"
                 />
                 <Input
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  placeholder="Amount"
                   className="w-[9rem]"
                 />
                 <Button

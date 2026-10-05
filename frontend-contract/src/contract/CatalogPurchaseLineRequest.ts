@@ -44,8 +44,15 @@ variants?: Array<CatalogPurchaseLineVariant>,
 /**
  * The unit the buyer ordered in — `KODI`, `LUSIN` — and how many of it,
  * as a decimal string ("10", "9.5"). Absent means pieces. The server
- * works out the pieces from the item's own pack size or the global
- * conversion, and refuses a line whose `quantity` does not agree — or
- * whose unit quantity is not a whole number of pieces.
+ * works out the pieces from the article's own units or the global
+ * conversion (0653), and refuses a line whose `quantity` does not agree
+ * — or whose unit quantity is not a whole number of pieces.
  */
-unit_code?: string | null, unit_quantity?: string | null, };
+unit_code?: string | null, unit_quantity?: string | null, 
+/**
+ * The price agreed for ONE `unit_code` — "250000" a lusin — exactly as
+ * quoted (0656). When present the line totals unit quantity × this, and
+ * `unit_price_minor` is ignored: a piece is valued at this over the
+ * factor. Absent prices the line per piece, as before.
+ */
+order_unit_price_minor?: number | null, };

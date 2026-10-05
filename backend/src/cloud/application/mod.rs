@@ -127,7 +127,12 @@ impl AppConfig {
             .map_err(|_| AppError::Configuration("DATABASE_URL is required".into()))?;
         let frontend_dir = env::var("FRONTEND_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("../frontend"));
+            // A deployment that serves the browser from a static host names
+            // this explicitly (`render.yaml` points it at `/app/api-only`,
+            // which holds nothing on purpose). This default names a directory
+            // that holds nothing too, rather than `../frontend` — an
+            // application that no longer exists in this repository.
+            .unwrap_or_else(|_| PathBuf::from("../api-only"));
         let node_role = env::var("INVENTORY_NODE_ROLE").unwrap_or_else(|_| "CLOUD".into());
         // Edges enqueue by default; the central node has no upstream to sync to.
         let sync_enqueue_default = !node_role.eq_ignore_ascii_case("CLOUD");
@@ -1083,6 +1088,10 @@ pub struct ArticlePriceQuery {
     pub min_price: Option<i64>,
     #[serde(default)]
     pub max_price: Option<i64>,
+    /// `final=true` also prices each style the way the till does, promotions
+    /// and campaigns counted. See `ArticlePriceScope::final_prices`.
+    #[serde(default, rename = "final")]
+    pub final_prices: Option<bool>,
 }
 
 /// A comma-separated parameter as the list it means.
@@ -1137,6 +1146,11 @@ pub struct PurchaseOrderQuery {
     pub issued_from: Option<chrono::NaiveDate>,
     #[serde(default)]
     pub issued_to: Option<chrono::NaiveDate>,
+    /// Promised for delivery on or after this day, and on or before that one.
+    #[serde(default)]
+    pub delivery_from: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    pub delivery_to: Option<chrono::NaiveDate>,
     /// `issued` (the default), `po_number`, `supplier`, `value` or `expected`.
     /// Anything else is the house order rather than a 400 — see
     /// `PurchaseOrderFilter::sort`.

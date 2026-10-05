@@ -2,12 +2,17 @@ import { Popover } from "@base-ui/react/popover"
 import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react"
 import { useId, useMemo, useRef, useState } from "react"
 
-import { INVALID, useFieldAria } from "@/components/ui/field-state"
+import {
+  FORM_HALO_TRIGGER,
+  INVALID,
+  useFieldAria,
+  useInForm,
+} from "@/components/ui/field-state"
 import { BottomSheet } from "@/components/ui/picker-sheet"
 import { POPUP } from "@/lib/filter-chrome"
 import { usePickerSheet } from "@/lib/layout"
 import { dateOf, monthGrid, startOfDay, today, WEEKDAYS } from "@/lib/calendar"
-import { readDay } from "@/lib/day-parse"
+import { readDay, untilText } from "@/lib/day-parse"
 import { day } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -36,7 +41,6 @@ import { cn } from "@/lib/utils"
 export function Day({
   value,
   onChange,
-  placeholder = "Any day",
   presets,
   notBefore,
   notAfter,
@@ -53,7 +57,6 @@ export function Day({
   /// `type="date"` box this replaces already held.
   value: string
   onChange: (value: string) => void
-  placeholder?: string
   /// The two or three answers people actually give, one press each.
   presets?: readonly { readonly label: string; readonly value: string }[]
   /// Days before this one are drawn dead. The end of a window passes the
@@ -87,6 +90,13 @@ export function Day({
 }) {
   const [open, setOpen] = useState(false)
   const aria = useFieldAria({ invalid, required })
+  // On a form, the form's box (`FORM_BOX` in `field-state.ts`) — spelled out
+  // here because its `px` would take the right padding the clear × needs.
+  const form = useInForm()
+  const formBox = form && [
+    "h-[var(--form-box,2.75rem)] pl-3.5 text-[0.9375rem]",
+    FORM_HALO_TRIGGER,
+  ]
   const canClear =
     value !== "" &&
     clearable &&
@@ -182,40 +192,43 @@ export function Day({
         aria-label={`Type ${label ?? "a day"}`}
         aria-describedby={typed.trim() === "" ? undefined : `${typeId}-read`}
         aria-invalid={typed.trim() !== "" && (read === null || outside)}
-        placeholder="Type: besok, jumat, 15/10, akhir bulan"
         autoComplete="off"
         spellCheck={false}
         className={cn(
           "w-full rounded-inner border border-hairline-2 bg-canvas px-2.5 text-ink transition-colors outline-none placeholder:text-mute focus:border-accent",
           "aria-[invalid=true]:border-bad",
-          touch ? "h-tap text-[1rem]" : "h-8 text-[0.875rem]"
+          touch ? "h-tap text-[1rem]" : "h-10 text-[0.875rem]"
         )}
       />
-      <p
-        id={`${typeId}-read`}
-        aria-live="polite"
-        className={cn(
-          "mt-1 mb-2 min-h-5 px-0.5 text-[0.875rem]",
-          read === null || outside ? "text-bad" : "text-body"
-        )}
-      >
-        {typed.trim() === "" ? (
-          <span className="text-mute">
-            {touch ? "Or pick one above." : "Or pick one below."}
-          </span>
-        ) : read === null ? (
-          "Not a day this can read."
-        ) : outside ? (
-          <>{longDay(read)} is outside what this field allows.</>
-        ) : touch ? (
-          longDay(read)
-        ) : (
-          <>
-            {longDay(read)}
-            <span className="text-mute"> — Enter to take it</span>
-          </>
-        )}
-      </p>
+      {typed.trim() !== "" && (
+        <p
+          id={`${typeId}-read`}
+          aria-live="polite"
+          className={cn(
+            "mt-2 min-h-5 px-0.5 text-[0.875rem]",
+            read === null || outside ? "text-bad" : "text-body"
+          )}
+        >
+          {read === null ? (
+            "Not a day this can read."
+          ) : outside ? (
+            <>{longDay(read)} is outside what this field allows.</>
+          ) : touch ? (
+            <>
+              {longDay(read)}
+              <span className="text-mute"> · {untilText(read, now)}</span>
+            </>
+          ) : (
+            <>
+              {longDay(read)}
+              <span className="text-mute">
+                {" "}
+                · {untilText(read, now)} — Enter to take it
+              </span>
+            </>
+          )}
+        </p>
+      )}
       {/* A phone's keyboard may not say "Enter" anywhere on it, so the
           reading gets a button of its own. */}
       {touch && read !== null && !outside && (
@@ -237,7 +250,7 @@ export function Day({
       {!touch && typeBlock(false)}
 
       {presets && presets.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-1.5 border-b border-hairline pb-2.5">
+        <div className="mt-3 mb-1 flex flex-wrap gap-2 border-b border-hairline pb-3.5">
           {presets.map((one) => (
             <button
               key={one.label}
@@ -256,13 +269,13 @@ export function Day({
         </div>
       )}
 
-      <div className="mb-1.5 flex items-center justify-between">
+      <div className="mt-4 mb-3 flex items-center justify-between">
         <button
           type="button"
           aria-label="Previous month"
           className={cn(
             "grid place-items-center rounded-full text-line-ico transition-colors hover:bg-soft-2 hover:text-ink",
-            touch ? "size-tap" : "size-7"
+            touch ? "size-tap" : "size-8"
           )}
           onClick={() => step(-1)}
         >
@@ -274,7 +287,7 @@ export function Day({
             touch ? "text-[0.9375rem]" : "text-[0.875rem]"
           )}
         >
-          {month.toLocaleDateString("id-ID", {
+          {month.toLocaleDateString("en-GB", {
             month: "long",
             year: "numeric",
           })}
@@ -284,7 +297,7 @@ export function Day({
           aria-label="Next month"
           className={cn(
             "grid place-items-center rounded-full text-line-ico transition-colors hover:bg-soft-2 hover:text-ink",
-            touch ? "size-tap" : "size-7"
+            touch ? "size-tap" : "size-8"
           )}
           onClick={() => step(1)}
         >
@@ -292,13 +305,13 @@ export function Day({
         </button>
       </div>
 
-      <div className="grid grid-cols-7 gap-0.5">
+      <div className="grid grid-cols-7 gap-1">
         {WEEKDAYS.map((name) => (
           <span
             key={name}
             className={cn(
               "grid place-items-center font-mono text-eyebrow tracking-[0.04em] text-mute uppercase",
-              touch ? "h-8" : "h-6"
+              touch ? "h-8" : "h-8"
             )}
           >
             {name.slice(0, 1)}
@@ -315,7 +328,7 @@ export function Day({
               disabled={dead}
               className={cn(
                 "grid place-items-center rounded-full tabular-nums transition-colors",
-                touch ? "h-11 text-[0.9375rem]" : "h-7 text-[0.875rem]",
+                touch ? "h-11 text-[0.9375rem]" : "h-9 text-[0.875rem]",
                 dead
                   ? "cursor-default text-faint"
                   : iso === value
@@ -368,6 +381,7 @@ export function Day({
               "hover:border-hairline-strong",
               "focus-visible:border-accent data-[popup-open]:border-accent",
               "disabled:opacity-50",
+              formBox,
               INVALID,
               canClear ? "pr-14" : "pr-9",
               // The caller's classes reach BOTH boxes. A toolbar asks for `h-8`
@@ -383,7 +397,7 @@ export function Day({
                 value ? "text-ink" : "text-mute"
               )}
             >
-              {value === "" ? placeholder : day(startOfDay(value))}
+              {value === "" ? "" : day(startOfDay(value))}
             </span>
             <CalendarDays className="absolute right-3 size-3.5 shrink-0 text-line-ico" />
           </button>
@@ -433,6 +447,7 @@ export function Day({
             "hover:border-hairline-strong",
             "focus-visible:border-accent data-[popup-open]:border-accent",
             "disabled:opacity-50",
+            formBox,
             INVALID,
             "aria-[invalid=true]:data-[popup-open]:border-bad",
             canClear ? "pr-14" : "pr-9",
@@ -449,7 +464,7 @@ export function Day({
               value ? "text-ink" : "text-mute"
             )}
           >
-            {value === "" ? placeholder : day(startOfDay(value))}
+            {value === "" ? "" : day(startOfDay(value))}
           </span>
           {/* A calendar, not a chevron. A chevron says "there is a list under
               here"; what is under here is a month grid, and on a box that
@@ -489,7 +504,14 @@ export function Day({
               opposite of what a tap on a calendar asked for. */}
           <Popover.Popup
             initialFocus={typeBox}
-            className={cn(POPUP, "w-[17.5rem] p-2.5")}
+            // Escape shuts the calendar and nothing under it: a sheet this
+            // field stands in must not hear the same key.
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") return
+              event.stopPropagation()
+              changeOpen(false)
+            }}
+            className={cn(POPUP, "w-[20.5rem] p-4")}
           >
             {calendar(false)}
           </Popover.Popup>
@@ -515,7 +537,7 @@ function isDead(
 /// the weekday is how somebody checks that "jumat" landed on the Friday they
 /// meant.
 function longDay(iso: string): string {
-  return dateOf(iso).toLocaleDateString("id-ID", {
+  return dateOf(iso).toLocaleDateString("en-GB", {
     weekday: "long",
     day: "numeric",
     month: "long",

@@ -2,7 +2,6 @@ import type { ScreenMap } from "@/screens/registry"
 import { ActivityLog } from "@/screens/system/activity"
 import { Devices } from "@/screens/system/devices"
 import { Notifications } from "@/screens/system/notifications"
-import { Organisation } from "@/screens/system/organisation"
 import { StoreServers } from "@/screens/system/servers"
 import { Users } from "@/screens/system/users"
 
@@ -22,7 +21,6 @@ import { Users } from "@/screens/system/users"
 /// from every path this leaves behind.
 export const screens: ScreenMap = {
   "/system/users": Users,
-  "/system/units": Organisation,
   "/system/servers": StoreServers,
   "/system/devices": Devices,
   "/system/notifications": Notifications,

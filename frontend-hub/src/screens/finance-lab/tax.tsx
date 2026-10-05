@@ -114,7 +114,7 @@ export function TaxOverview() {
         {items.length === 0 ? (
           <EmptyState>Every period is filed.</EmptyState>
         ) : (
-          <Table head={["Tax", "Unit", "Why it is here", ">Net position", ""]}>
+          <Table head={["Tax", "Unit", "Why It Is Here", ">Net Position", ""]}>
             {items.map((i) => (
               <Row key={i.id} tone={i.tone}>
                 <Cell>
@@ -456,7 +456,7 @@ export function TaxPayments() {
             "Unit",
             "Due",
             "Filed",
-            ">To pay",
+            ">To Pay",
             "Status",
             "",
           ]}

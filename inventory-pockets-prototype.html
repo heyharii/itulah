@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Inventory pockets</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Inventory is pockets. Every place stock can stand in is a pocket; a
+   movement is a piece leaving one pocket for another. Big pockets hold small
+   ones: the Gudang holds its stages, Stores holds each store.
+   Same pocket as Articles (articles-pockets-prototype.html): soft grey, one
+   dashed stitch, colour only on the pieces. Hub tokens, Inter 14, charcoal
+   sidebar. What the pocket shows, besides its number:
+     • pieces peeking out of the top — what is in it (fuller = more);
+     • a piece fallen under the point — missing stock;
+     • a ghost piece — a tag the reader saw somewhere else;
+     • a faded pocket — its store server is silent, we can't see inside;
+     • "Checked 21 Sep" under the name, amber after three weeks.
+   Nothing below 14px.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f9fb; --soft-2:#f0f2f5; --soft-3:#f5f6f8; --pk:#eef0f3; --pk-in:#fff;
+  --hairline:#e7eaf0; --hairline-2:#dce1e8; --stitch:#c3c9d2;
+  --accent:#2563eb; --accent-ink:#1d4ed8; --accent-bg:#eff5ff;
+  --warn:#d99a2b; --warn-fg:#b45309; --bad:#e25555; --bad-fg:#c0263b;
+  --rail:#242526; --rail-2:#303234; --rail-3:#393b3d; --rail-ink:#fff; --rail-text:#c3c4c7; --rail-mute:#a1a3a8; --rail-hair:#343638;
+  --r-card:12px; --ease-out:cubic-bezier(.23,1,.32,1); --spring:cubic-bezier(.34,1.3,.64,1); --ease-drawer:cubic-bezier(.32,.72,0,1);
+  --shadow-pop:0 4px 8px rgb(24 39 60/4%),0 16px 40px rgb(24 39 60/12%);
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --ink:#f1f3f6; --text:#d3d7de; --body:#a4aab4; --mute:#8b919b; --faint:#5b616b; --line-ico:#8b919b;
+  --canvas:#17181a; --soft:#1e2023; --soft-2:#26282c; --soft-3:#1c1e21; --pk:#2a2c30; --pk-in:#202225;
+  --hairline:#2c2f34; --hairline-2:#363a40; --stitch:#50555e;
+  --accent:#4f83f5; --accent-ink:#8cb0ff; --accent-bg:#1c2a44; --warn-fg:#f0b44f; --bad-fg:#ff8a8a;
+  --rail:#101112; --rail-2:#1c1d1f; --rail-3:#26272a; --rail-hair:#222325; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --ink:#f1f3f6; --text:#d3d7de; --body:#a4aab4; --mute:#8b919b; --faint:#5b616b; --line-ico:#8b919b;
+  --canvas:#17181a; --soft:#1e2023; --soft-2:#26282c; --soft-3:#1c1e21; --pk:#2a2c30; --pk-in:#202225;
+  --hairline:#2c2f34; --hairline-2:#363a40; --stitch:#50555e;
+  --accent:#4f83f5; --accent-ink:#8cb0ff; --accent-bg:#1c2a44; --warn-fg:#f0b44f; --bad-fg:#ff8a8a;
+  --rail:#101112; --rail-2:#1c1d1f; --rail-3:#26272a; --rail-hair:#222325; color-scheme:dark}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--canvas)}
+body{font:400 14px/20px Inter,system-ui,sans-serif;color:var(--text);-webkit-font-smoothing:antialiased}
+button,input{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer;text-align:left}
+svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.num{font-variant-numeric:tabular-nums}
+
+/* prototype bar */
+.proto{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:8px 20px;background:var(--soft);border-bottom:1px solid var(--hairline);color:var(--body)}
+.proto b{color:var(--ink);font-weight:600}
+.tg{display:flex;align-items:center;gap:8px}
+.seg{display:flex;gap:2px;padding:3px;border-radius:9px;background:var(--canvas);box-shadow:inset 0 0 0 1px var(--hairline)}
+.seg button{height:28px;padding:0 10px;border-radius:7px;color:var(--body);font-weight:500;white-space:nowrap}
+.seg button[aria-pressed=true]{background:var(--soft-2);color:var(--ink)}
+.proto .sp{flex:1}
+.proto .th{height:30px;width:34px;border-radius:8px;box-shadow:inset 0 0 0 1px var(--hairline);text-align:center}
+
+/* shell */
+.app{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:calc(100vh - 45px)}
+.side{background:var(--rail);color:var(--rail-text);padding:14px 10px;display:flex;flex-direction:column;gap:1px;position:sticky;top:45px;height:calc(100vh - 45px);overflow:auto}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 8px 16px;color:var(--rail-ink);font-weight:600;font-size:15px}
+.mark{width:26px;height:26px;border-radius:7px;background:#000;box-shadow:inset 0 0 0 1px #3a3b3d;display:grid;place-items:center;font-weight:600;color:#fff;position:relative}
+.mark::after{content:"";position:absolute;right:4px;bottom:5px;width:5px;height:5px;border-radius:50%;background:#2563eb}
+.row{display:flex;align-items:center;gap:10px;height:34px;padding:0 8px;border-radius:8px;color:var(--rail-text);white-space:nowrap;width:100%}
+.row:hover{background:var(--rail-2);color:var(--rail-ink)}
+.row .i{color:var(--rail-mute)}
+.row.on{color:var(--rail-ink);font-weight:500}
+.row.on .i{color:var(--rail-ink)}
+.row .ct{margin-left:auto;color:var(--rail-mute)}
+.subs{margin:2px 0 8px 16px;padding-left:12px;border-left:1px solid var(--rail-hair);display:flex;flex-direction:column;gap:1px}
+.sub{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:7px;color:var(--rail-text);width:100%}
+.sub:hover{background:var(--rail-2);color:var(--rail-ink)}
+.sub[aria-current]{background:var(--rail-3);color:var(--rail-ink);font-weight:500}
+.sub .ct{margin-left:auto;color:var(--rail-mute)}
+
+main{min-width:0;padding:22px 32px 96px}
+.wrap{max-width:1160px;margin:0 auto}
+.hd{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.hd h1{font-size:17px;line-height:24px;font-weight:600;color:var(--ink);letter-spacing:-.02em}
+.hd .pcs{color:var(--body);margin-bottom:1px}
+.hd .act{margin-left:auto;display:flex;gap:8px}
+.btn{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-radius:8px;font-weight:500;white-space:nowrap;transition:background-color .15s,transform .16s var(--ease-out)}
+.btn:active{transform:scale(.98)}
+.btn-g{box-shadow:inset 0 0 0 1px var(--hairline-2);color:var(--text);background:var(--canvas)}
+.btn-g:hover{background:var(--soft)}
+.btn-g .i{color:var(--line-ico)}
+.btn-p{background:var(--ink);color:var(--canvas)}
+.big{position:relative;display:flex;align-items:center;gap:10px;height:44px;padding:0 12px;background:var(--canvas);border:1px solid var(--hairline-2);border-radius:8px;box-shadow:0 1px 3px rgb(24 39 60/4%);transition:border-color .15s,box-shadow .15s}
+.big:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.big .i{color:var(--line-ico)}
+.big input{flex:1;min-width:0;border:0;outline:0;background:transparent;font-size:15px;color:var(--ink)}
+.big input::placeholder{color:var(--mute)}
+.scope{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 4px 0 10px;border-radius:6px;background:var(--accent-bg);color:var(--accent-ink);font-weight:500;white-space:nowrap}
+.scope button{color:var(--accent-ink);border-radius:4px;width:22px;height:22px;display:grid;place-items:center}
+.sugg{position:absolute;top:48px;left:0;right:0;z-index:30;background:var(--canvas);border:1px solid var(--hairline);border-radius:10px;box-shadow:var(--shadow-pop);padding:6px;display:none}
+.big.open .sugg{display:block;animation:pop .16s var(--ease-out)}
+.sugg button{display:flex;width:100%;gap:10px;align-items:center;padding:6px 8px;border-radius:7px}
+.sugg button:hover,.sugg button.hl{background:var(--soft-2)}
+.sugg .gm{width:30px;height:30px}
+.sugg .c{margin-left:auto;color:var(--mute)}
+.hint{display:flex;gap:18px;flex-wrap:wrap;color:var(--mute);margin:8px 2px 0}
+.hint .w{color:var(--warn-fg)}
+.hint .b{color:var(--bad-fg)}
+@keyframes pop{from{opacity:0;transform:translateY(-4px)}}
+
+/* ── big pocket: a place that holds places ─────────────────────────── */
+.hold{position:relative;margin-top:28px;padding:18px 20px 44px;isolation:isolate}
+.hold>.bg{position:absolute;inset:0;z-index:-1;background:var(--soft-3);clip-path:polygon(0 0,100% 0,100% calc(100% - 30px),50% 100%,0 calc(100% - 30px));border-radius:14px 14px 0 0}
+.hold>.bg svg{position:absolute;inset:6px 6px 4px;width:calc(100% - 12px);height:calc(100% - 10px);overflow:visible}
+.hold>header{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.hold>header .nm{display:flex;align-items:center;gap:6px;font-weight:600;color:var(--ink);font-size:15px}
+.hold>header .nm .tw{width:22px;height:22px;display:grid;place-items:center;border-radius:6px;color:var(--mute);transition:transform .25s var(--ease-out),background-color .15s}
+.hold>header .nm:hover .tw{background:var(--soft-2);color:var(--ink)}
+.hold.shut>header .nm .tw{transform:rotate(-90deg)}
+.hold>header .v{font-weight:600;color:var(--ink);font-size:20px;line-height:26px;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.hold>header .s{color:var(--mute)}
+.hold>header .p{color:var(--warn-fg)}
+.hold .inner{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:22px 14px;margin-top:14px}
+.hold .inner.road{grid-template-columns:repeat(auto-fill,minmax(170px,1fr))}
+/* a hold inside a hold (a city inside Stores) */
+.hold .hold{margin-top:0;padding:14px 12px 36px;grid-column:span 2;min-width:0}
+.hold .hold>.bg{background:var(--canvas)}
+.hold .hold .inner{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+.hold .hold .pk{background:var(--pk)}
+.thread{height:28px;margin:0 auto;width:0;border-left:1.5px dashed var(--stitch)}
+
+/* ── small pocket: one place ───────────────────────────────────────── */
+.pocket{position:relative;border-radius:var(--r-card);padding:8px 8px 10px;cursor:pointer;outline:0;transition:background-color .15s}
+.pocket:hover,.pocket:focus-visible,.pocket[aria-current]{background:var(--canvas);box-shadow:0 0 0 1px var(--hairline)}
+.hold .hold .pocket:hover,.hold .hold .pocket[aria-current]{background:var(--soft-3)}
+.bag{position:relative;height:118px}
+.peek{position:absolute;inset:0 0 auto;height:70px;z-index:1}
+.peek .gm{position:absolute;width:62px;height:62px;left:calc(50% - 31px);top:4px;filter:drop-shadow(0 3px 4px rgb(24 39 60/.12));transition:transform .45s var(--spring)}
+.peek .gm:nth-child(1){transform:translate(-24px,12px) rotate(-12deg)}
+.peek .gm:nth-child(2){transform:translate(0,4px)}
+.peek .gm:nth-child(3){transform:translate(24px,12px) rotate(12deg)}
+.peek .gm:only-child{transform:translate(0,14px)}
+.pocket:hover .peek .gm:nth-child(1){transform:translate(-30px,2px) rotate(-16deg)}
+.pocket:hover .peek .gm:nth-child(2){transform:translate(0,-6px)}
+.pocket:hover .peek .gm:nth-child(3){transform:translate(30px,2px) rotate(16deg)}
+.pocket:hover .peek .gm:only-child{transform:translate(0,4px)}
+.peek .gm.ghost{opacity:.55;filter:none}
+.peek .gm.ghost path{fill:none!important;stroke:var(--warn)!important;stroke-dasharray:3 3}
+.pk{position:absolute;left:6%;right:6%;bottom:0;height:62px;z-index:2;background:var(--pk-in);box-shadow:inset 0 0 0 1px var(--hairline);clip-path:polygon(0 0,100% 0,100% 72%,50% 100%,0 72%)}
+.hold .pk{background:var(--pk-in)}
+.pk svg.st{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.pk .n{position:absolute;left:0;right:0;top:12px;text-align:center;color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums;font-size:15px}
+.fell{position:absolute;z-index:3;right:4%;bottom:-16px;width:36px;height:36px;transform:rotate(28deg);filter:drop-shadow(0 2px 3px rgb(24 39 60/.15));animation:fall 1.1s var(--spring) both}
+.fell.extra{left:4%;right:auto;transform:rotate(-24deg)}
+@keyframes fall{from{transform:translate(-14px,-30px) rotate(0);opacity:0}}
+.fell .gm{width:36px;height:36px}
+.pocket.silent .bag{opacity:.45;filter:grayscale(1)}
+.lb{margin-top:12px;text-align:center;min-width:0}
+.lb b{display:block;color:var(--ink);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lb span{display:block;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lb .old{color:var(--warn-fg)}
+.lb .pw{color:var(--warn-fg)}
+.lb .pb{color:var(--bad-fg)}
+.search-on .pk .n{color:var(--accent-ink)}
+
+/* a folded hold: one wide pocket with its small pockets peeking out */
+.folded{display:flex;justify-content:center;margin-top:10px}
+.folded .pocket{width:260px}
+.folded .bag{height:130px}
+.folded .peek .mini{position:absolute;width:62px;height:52px;left:calc(50% - 31px);top:10px;transition:transform .45s var(--spring)}
+.folded .peek .mini:nth-child(1){transform:translate(-56px,14px) rotate(-10deg)}
+.folded .peek .mini:nth-child(2){transform:translate(0,2px)}
+.folded .peek .mini:nth-child(3){transform:translate(56px,14px) rotate(10deg)}
+.folded .pocket:hover .peek .mini:nth-child(2){transform:translate(0,-8px)}
+.mini .pk{position:absolute;inset:0;height:auto;left:0;right:0;background:var(--pk)}
+.mini .pk .n{top:8px;font-size:14px;font-weight:500;color:var(--body)}
+
+/* ── the panel for one pocket ─────────────────────────────────────── */
+.scrim{position:fixed;inset:0;z-index:60;background:rgb(255 255 255/.5);opacity:0;pointer-events:none;transition:opacity .25s var(--ease-out)}
+:root[data-theme=dark] .scrim{background:rgb(0 0 0/.45)}
+.sheet{position:fixed;top:12px;right:12px;bottom:12px;width:min(440px,calc(100vw - 24px));z-index:61;background:var(--canvas);border:1px solid var(--hairline);border-radius:16px;box-shadow:var(--shadow-pop);transform:translateX(calc(100% + 24px));transition:transform .38s var(--ease-drawer);display:flex;flex-direction:column;overflow:hidden}
+.open .scrim{opacity:1;pointer-events:auto}
+.open .sheet{transform:none}
+.sh{display:flex;gap:12px;padding:18px 20px 14px;border-bottom:1px solid var(--hairline)}
+.sh .tx{flex:1;min-width:0}
+.sh .k{color:var(--mute)}
+.sh h2{font-size:17px;line-height:24px;font-weight:600;color:var(--ink)}
+.sh .v{margin-top:4px;font-size:30px;line-height:36px;font-weight:600;color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.sh .v small{font-size:14px;font-weight:400;color:var(--mute);letter-spacing:0;margin-left:6px}
+.x{width:34px;height:34px;border-radius:8px;display:grid;place-items:center;color:var(--body);flex:none}
+.x:hover{background:var(--soft-2)}
+.sb{flex:1;overflow:auto;padding:0 20px 20px}
+.h2{margin:18px 0 6px;font-weight:600;color:var(--ink)}
+.h2 span{font-weight:400;color:var(--mute)}
+.eq button{display:flex;align-items:center;width:100%;min-height:40px;gap:10px;border-bottom:1px solid var(--hairline);padding:0 4px}
+.eq button:hover{background:var(--soft)}
+.eq .op{width:14px;color:var(--mute);text-align:center}
+.eq .k{flex:1}
+.eq .k small{font-size:inherit;color:var(--mute);margin-left:6px}
+.eq .n{font-variant-numeric:tabular-nums}
+.eq .start{color:var(--body);cursor:default}
+.eq .tot{font-weight:600;color:var(--ink);border-bottom:0;border-top:1px solid var(--hairline-2);cursor:default}
+.eq .start:hover,.eq .tot:hover{background:none}
+.mv{display:grid;grid-template-rows:0fr;transition:grid-template-rows .28s var(--ease-out)}
+.mv.on{grid-template-rows:1fr}
+.mv>div{min-height:0;overflow:hidden}
+.mv p{display:flex;gap:10px;padding:8px 4px 8px 28px;color:var(--body);border-bottom:1px solid var(--hairline)}
+.mv p span:last-child{margin-left:auto;font-variant-numeric:tabular-nums}
+.chk{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--hairline)}
+.chk .tx{flex:1}
+.t2{color:var(--mute)}
+.prob{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--hairline)}
+.prob .dot{margin-top:7px;width:6px;height:6px;border-radius:50%;background:var(--warn);flex:none}
+.prob.bad .dot{background:var(--bad)}
+.prob .tx{flex:1}
+.go{color:var(--accent-ink);font-weight:500;white-space:nowrap}
+.none{color:var(--mute);padding:10px 0}
+.inside{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px 8px;margin-top:4px}
+.inside div{display:flex;flex-direction:column;align-items:center;padding:6px 0;border-radius:8px}
+.inside .gm{width:44px;height:44px}
+.inside span{color:var(--body);font-variant-numeric:tabular-nums}
+
+/* counts / setup */
+.list{margin-top:8px;border-top:1px solid var(--hairline)}
+.lg{margin-top:22px;color:var(--mute);font-weight:500}
+.li{display:flex;align-items:center;gap:14px;min-height:52px;padding:8px 10px;border-bottom:1px solid var(--hairline);width:100%}
+.li:hover{background:var(--soft)}
+.li .i{color:var(--line-ico)}
+.li .tx{flex:1;min-width:0}
+.li .t1{color:var(--ink);font-weight:500}
+.li .r{color:var(--body);font-variant-numeric:tabular-nums}
+.li .r.b{color:var(--bad-fg)}
+.page{animation:page-in .3s var(--ease-out)}
+@keyframes page-in{from{opacity:0;transform:translateY(6px)}}
+.gm{display:block;overflow:visible}
+
+@media (max-width:900px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .side{position:static;height:auto;flex-direction:row;flex-wrap:wrap;gap:4px;padding:10px 16px}
+  .side .brand,.side .row:not(.on){display:none}
+  .side .subs{flex-direction:row;margin:0;border:0;padding:0}
+  main{padding:18px 16px 80px}
+  .hold{padding:14px 12px 40px}
+  .hold .inner{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .hold .hold{grid-column:1/-1}
+  .proto{padding:8px 16px;gap:10px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<linearGradient id="g-shade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".16"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".14"/></linearGradient>
+</defs></svg>
+<div class="proto">
+  <b>Inventory as pockets</b>
+  <div class="tg">Stores <div class="seg" data-tg="city"><button data-v="flat">one pocket</button><button data-v="city">pocket per city</button></div></div>
+  <div class="tg">Gudang <div class="seg" data-tg="gd"><button data-v="open">open</button><button data-v="shut">folded</button></div></div>
+  <div class="sp"></div>
+  <button class="th" id="theme" title="Light / dark">◐</button>
+</div>
+<div class="app">
+  <nav class="side" id="side" aria-label="Sidebar"></nav>
+  <main><div class="wrap" id="main"></div></main>
+</div>
+<div id="pw"><div class="scrim" data-close></div><aside class="sheet" id="sheet" aria-label="Pocket"></aside></div>
+
+<script>
+const I = {
+  home:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
+  cart:'<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.2a1.5 1.5 0 0 0 1.5 1.3h8.6a1.5 1.5 0 0 0 1.5-1.2L21 8H6"/>',
+  shirt:'<path d="M8 3 3 6l2 5 2-1v11h10V10l2 1 2-5-5-3a4 4 0 0 1-8 0z"/>',
+  forklift:'<path d="M4 17V7h6l3 5v5M13 12h4V4M17 17h4"/><circle cx="6" cy="18" r="2"/><circle cx="12" cy="18" r="2"/>',
+  box:'<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  tag:'<path d="M3 3h8l10 10-8 8L3 11z"/><circle cx="7.5" cy="7.5" r="1.3"/>',
+  receipt:'<path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
+  wallet:'<path d="M3 7a2 2 0 0 1 2-2h13v4"/><path d="M3 7v11a2 2 0 0 0 2 2h15V9H5a2 2 0 0 1-2-2z"/>',
+  person:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  building:'<path d="M4 21V4h10v17M14 9h6v12M8 8h2M8 12h2M8 16h2"/>',
+  cog:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+  chev:'<path d="m6 9 6 6 6-6"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  scan:'<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M8 9v6M11 9v6M14 9v6M17 9v6"/>',
+  x:'<path d="M18 6 6 18M6 6l12 12"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  count:'<path d="M9 4h6v3H9z"/><path d="M8 5H5v16h14V5h-3"/><path d="m9 14 2 2 4-4"/>',
+  ruler:'<path d="M3 17 17 3l4 4L7 21z"/><path d="m7 13 2 2M10 10l2 2M13 7l2 2"/>',
+  flow:'<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M9 6h5a3 3 0 0 1 3 3v6"/>',
+  pin:'<path d="M12 21s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/>',
+  radio:'<circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4"/>',
+  pulse:'<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+}
+const ic = (k) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${I[k] || ""}</svg>`
+const nf = new Intl.NumberFormat("id-ID"), n = (v) => nf.format(v)
+
+/* ── the pieces (same drawings as Articles) ─────────────────────── */
+const SHAPES = {
+  tee:{d:'M31 14 L41 10 Q50 18 59 10 L69 14 L88 29 L80 41 L72 36 L72 90 L28 90 L28 36 L20 41 L12 29 Z',x:'M41 10 Q50 20 59 10'},
+  shirt:{d:'M33 12 L42 9 L50 15 L58 9 L67 12 L84 24 L91 72 L81 74 L74 38 L74 92 L26 92 L26 38 L19 74 L9 72 L16 24 Z',x:'M42 9 L50 20 L58 9 M50 20 L50 92 M56 32 h10 v9 h-10 z'},
+  jacket:{d:'M32 14 L42 11 Q50 18 58 11 L68 14 L84 26 L91 78 L81 79 L74 40 L74 92 L26 92 L26 40 L19 79 L9 78 L16 26 Z',x:'M42 11 L50 22 L58 11 M50 22 L50 92 M31 60 L41 60 M59 60 L69 60 M26 86 L74 86'},
+  pants:{d:'M29 8 L71 8 L76 93 L58 93 L50 34 L42 93 L24 93 Z',x:'M29 15 L71 15 M50 15 L50 34 M36 15 Q38 24 30 26 M64 15 Q62 24 70 26'},
+  bag:{d:'M22 40 L78 40 L74 91 L26 91 Z',x:'M36 40 Q36 14 50 14 Q64 14 64 40 M22 48 L78 48'},
+  shoe:{d:'M7 63 Q9 45 23 43 L39 38 Q51 51 66 51 L86 56 Q95 60 93 73 L7 73 Z',x:'M39 38 L46 52 M43 43 L52 41 M47 48 L56 46',sole:'M7 73 L93 73 L93 79 Q93 82 90 82 L10 82 Q7 82 7 79 Z'},
+  sandal:{d:'M12 70 Q10 60 28 60 L84 62 Q93 64 91 72 Q89 77 80 77 L20 77 Q12 77 12 70 Z',strap:'M38 61 Q52 38 68 62'},
+  koli:{d:'M16 36 L50 22 L84 36 L84 80 L50 94 L16 80 Z',x:'M16 36 L50 50 L84 36 M50 50 L50 94 M33 29 L67 43'},
+}
+function edge(hex){const v=parseInt(hex.slice(1),16),r=v>>16,g=v>>8&255,b=v&255,l=(r*299+g*587+b*114)/255000
+  const f=l<.25?c=>Math.round(c+(255-c)*.28):c=>Math.round(c*.7);return `rgb(${f(r)},${f(g)},${f(b)})`}
+function garment(kind, hex, cls = "") {
+  const s = SHAPES[kind], e = edge(hex)
+  if (kind === "sandal") return `<svg class="gm ${cls}" viewBox="0 0 100 100"><path d="${s.strap}" fill="none" stroke="${hex}" stroke-width="8" stroke-linecap="round"/><path d="${s.d}" fill="#c9a27a" stroke="#8a6440" stroke-width="1.2"/></svg>`
+  return `<svg class="gm ${cls}" viewBox="0 0 100 100"><path d="${s.d}" fill="${hex}" stroke="${e}" stroke-width="1.2" stroke-linejoin="round"/><path d="${s.d}" fill="url(#g-shade)"/>${s.sole ? `<path d="${s.sole}" fill="#f7f6f2" stroke="#b9b4aa" stroke-width="1.2"/>` : ""}${s.x ? `<path d="${s.x}" fill="none" stroke="${e}" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" opacity=".75"/>` : ""}</svg>`
+}
+const ART = [
+  {c:"11020341", a:"Sneaker Arka Low", k:"shoe", h:"#f2f0ea", s:.058}, {c:"11020377", a:"Loafer Senja", k:"shoe", h:"#7a4a2c", s:.036},
+  {c:"11040112", a:"Sandal Rinjani", k:"sandal", h:"#2f3e5c", s:.14}, {c:"21010208", a:"Kemeja Linen Bara", k:"shirt", h:"#e8dcc2", s:.061},
+  {c:"21030044", a:"Kaos Oversize Nara", k:"tee", h:"#2f3e5c", s:.21}, {c:"21050019", a:"Celana Chino Laras", k:"pants", h:"#b99a6b", s:.026},
+  {c:"21070031", a:"Jaket Denim Kala", k:"jacket", h:"#4d6b93", s:.028}, {c:"31010007", a:"Tote Kanvas Rupa", k:"bag", h:"#d9c7a3", s:.082},
+]
+const GREY = "#c9cdd3"
+
+/* ── the pockets ─────────────────────────────────────────────────
+   Leaves hold the number; a big pocket is the sum of what is in it.
+   `ck` = last checked (count or RFID sweep, whichever is later).
+   `pb` = a problem, only when there is one; `look` = how it shows.   */
+const TODAY = new Date(2026, 8, 28), STALE = 21
+const days = (d) => d ? Math.round((TODAY - new Date(2026, d[0] - 1, d[1])) / 864e5) : null
+const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+
+const GUDANG = [
+  {id:"g-setup", name:"Not set up yet", v:88, grey:true, note:"no article code yet"},
+  {id:"g-wh", name:"Warehouse", v:4180, ck:[9,19], pb:{t:"4 short in the count", c:"w", look:"fell", q:4, art:"21070031"}},
+  {id:"g-pick", name:"Being picked", v:752, ck:[9,26]},
+  {id:"g-pack", name:"Packed", v:212, koli:true, pb:{t:"2 missing since 09:10", c:"w", look:"fell", q:2, art:"11020341"}},
+  {id:"g-ret", name:"Returns to inspect", v:74},
+  {id:"g-rej", name:"Reject", v:31, grey:true},
+]
+const ROAD = [
+  {id:"sj-004", name:"→ Kemang", sub:"SJ-280926-004 · 6 koli", v:180},
+  {id:"sj-002", name:"→ PIK Avenue", sub:"SJ-280926-002 · 8 koli", v:240},
+  {id:"sj-011", name:"→ Bandung Dago", sub:"SJ-270926-011 · 4 koli", v:120, pb:{t:"Store got 2 fewer", c:"w", look:"fell", q:2}},
+  {id:"sj-009", name:"Senopati → Gudang", sub:"SJ-270926-009 · 2 koli", v:46},
+  {id:"sj-014", name:"→ Surabaya Galaxy", sub:"SJ-260926-014 · 3 koli", v:88, pb:{t:"Store got 1 we didn't send", c:"b", look:"extra", q:1}},
+]
+const STORES = [
+  {id:"s-kemang", name:"Kemang", city:"Jakarta", v:3120, ck:[9,21]},
+  {id:"s-senopati", name:"Senopati", city:"Jakarta", v:2480, ck:[9,14], pb:{t:"3 missing for 16 days", c:"b", look:"fell", q:3, art:"11020377"}},
+  {id:"s-pik", name:"PIK Avenue", city:"Jakarta", v:2915, ck:[9,28], pb:{t:"7 read somewhere else", c:"w", look:"ghost", q:7, art:"21030044"}},
+  {id:"s-bintaro", name:"Bintaro Xchange", city:"Jakarta", v:1870, ck:[9,2], pb:{t:"Server silent for 3 h", c:"w", look:"silent"}},
+  {id:"s-dago", name:"Bandung Dago", city:"Bandung", v:2060, ck:[9,19]},
+  {id:"s-galaxy", name:"Surabaya Galaxy", city:"Surabaya", v:1857, ck:[9,7]},
+  {id:"s-medan", name:"Medan Sun Plaza", city:"Medan", v:1644, ck:[8,20]},
+  {id:"s-bali", name:"Bali Beachwalk", city:"Bali", v:1392, ck:[9,24]},
+]
+
+const state = {city:"flat", gd:"open", page:"stock", art:null, place:null, shut:{}}
+const hash = (s) => { let h = 2166136261; for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return ((h >>> 0) % 1000) / 1000 }
+const vOf = (l) => state.art ? Math.round(l.v * state.art.s * (0.4 + 1.2 * hash(l.id + state.art.c))) : l.v
+const pbOf = (l) => !l.pb ? null : !state.art ? l.pb : (l.pb.art === state.art.c ? l.pb : null)
+const sum = (ls) => ls.reduce((a, l) => a + vOf(l), 0)
+const allLeaves = () => [...GUDANG, ...ROAD, ...STORES]
+
+/* What peeks out: fuller pockets show more pieces. */
+function peek(l, max) {
+  if (state.art) { const v = vOf(l); return v ? Array.from({length: v > 40 ? 3 : v > 8 ? 2 : 1}, () => garment(state.art.k, state.art.h)).join("") : "" }
+  if (l.koli || l.id.startsWith("sj")) return Array.from({length: l.v > 150 ? 3 : 2}, () => garment("koli", "#cfa574")).join("")
+  const count = l.v > max * .45 ? 3 : l.v > max * .12 ? 2 : 1
+  const pick = [...ART].sort((a, b) => hash(l.id + a.c) - hash(l.id + b.c)).slice(0, count)
+  let out = pick.map(a => garment(a.k, l.grey ? GREY : a.h))
+  const p = pbOf(l)
+  if (p && p.look === "ghost") out[out.length - 1] = garment(pick[pick.length - 1].k, "#ffffff", "ghost")
+  return out.join("")
+}
+function ckLine(l) {
+  if (l.note) return `<span>${l.note}</span>`
+  if (!l.ck) return ""
+  const d = days(l.ck)
+  return `<span class="${d > STALE ? "old" : ""}">${d === 0 ? "Checked today" : `Checked ${l.ck[1]} ${MON[l.ck[0] - 1]}`}${d > STALE ? ` · ${d} days` : ""}</span>`
+}
+const stitch = () => `<svg class="st" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M5 12 L95 12 L95 68 L50 90 L5 68 Z" stroke="var(--stitch)" stroke-width="1.2" stroke-dasharray="4 3" vector-effect="non-scaling-stroke" fill="none"/></svg>`
+function pocket(l, max) {
+  const p = pbOf(l), v = vOf(l)
+  // the piece that fell out is the article that is missing, when we know it
+  const who = state.art || ART.find(a => a.c === p?.art)
+  const boxy = !who && (l.koli || l.id.startsWith("sj"))
+  const fell = p && (p.look === "fell" || p.look === "extra")
+    ? `<div class="fell${p.look === "extra" ? " extra" : ""}" title="${p.t}">${boxy ? garment("koli", "#cfa574") : garment((who || ART[0]).k, (who || ART[0]).h)}</div>` : ""
+  return `<div class="pocket${p?.look === "silent" ? " silent" : ""}" tabindex="0" role="button" data-id="${l.id}"${state.place === l.id ? " aria-current=true" : ""}>
+    <div class="bag"><div class="peek">${peek(l, max)}</div><div class="pk">${stitch()}<span class="n">${n(v)}</span></div>${fell}</div>
+    <div class="lb"><b>${l.name}</b>${l.sub ? `<span>${l.sub}</span>` : ""}${ckLine(l)}${p ? `<span class="${p.c === "b" ? "pb" : "pw"}">${p.t}</span>` : ""}</div></div>`
+}
+const bigStitch = `<svg viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M0.5 0.5 H99.5 V92 L50 99.5 L0.5 92 Z" stroke="var(--stitch)" stroke-width="1.2" stroke-dasharray="5 4" vector-effect="non-scaling-stroke" fill="none"/></svg>`
+function hold(id, name, leaves, opts = {}) {
+  const shut = opts.folded ?? state.shut[id]
+  const ps = leaves.map(pbOf).filter(Boolean)
+  const max = Math.max(...leaves.map(l => l.v))
+  const head = `<header><button class="nm" data-fold="${id}"><span class="tw">${ic("chev")}</span>${name}</button><span class="v">${n(sum(leaves))}</span>${opts.sub ? `<span class="s">${opts.sub}</span>` : ""}${ps.length ? `<span class="p">${ps.length} with a problem</span>` : ""}</header>`
+  const body = shut
+    ? `<div class="folded"><div class="pocket" data-fold="${id}"><div class="bag"><div class="peek">${leaves.slice(0, 3).map(l => `<div class="mini"><div class="pk">${stitch()}<span class="n">${n(vOf(l))}</span></div></div>`).join("")}</div><div class="pk">${stitch()}<span class="n">${n(sum(leaves))}</span></div></div><div class="lb"><span>${leaves.length} pockets inside · open to see them</span></div></div></div>`
+    : `<div class="inner${opts.road ? " road" : ""}">${opts.inner || leaves.map(l => pocket(l, max)).join("")}</div>`
+  return `<section class="hold${shut ? " shut" : ""}" data-hold="${id}"${opts.span ? ` style="grid-column:span ${opts.span}"` : ""}><div class="bg">${bigStitch}</div>${head}${body}</section>`
+}
+
+function storesBody() {
+  if (state.city !== "city") return null
+  const cities = [...new Set(STORES.map(s => s.city))]
+  const max = Math.max(...STORES.map(s => s.v))
+  return cities.map(c => {
+    const ks = STORES.filter(s => s.city === c)
+    return ks.length === 1 ? pocket(ks[0], max) : hold("c-" + c, c, ks, {sub: `${ks.length} stores`, span: Math.min(ks.length, 4)})
+  }).join("")
+}
+
+function stockPage() {
+  const probs = allLeaves().filter(pbOf).length, stale = STORES.filter(s => days(s.ck) > STALE).length
+  const total = sum(allLeaves())
+  return `<div class="page">
+    <div class="hd"><h1>Stock</h1><span class="pcs num">${state.art ? `${state.art.a} · ` : ""}${n(total)} pieces · ${GUDANG.length + ROAD.length + STORES.length} pockets</span>
+      <div class="act"><button class="btn btn-g">${ic("clock")}Now</button><button class="btn btn-g">PCS</button></div></div>
+    <label class="big${state.art ? "" : ""}" id="big">${ic("search")}${state.art ? `<span class="scope">${state.art.a}<button data-clear aria-label="Clear">${ic("x")}</button></span>` : ""}<input id="q" placeholder="${state.art ? "" : "One article? Name, code, or scan its tag"}" autocomplete="off" />${ic("scan")}<div class="sugg" id="sugg"></div></label>
+    <div class="hint">${state.art ? `<span>Every pocket now counts ${state.art.a} only.</span>` : `<span>Pieces peeking out: what's inside</span><span>A piece under the pocket: missing</span><span>A dashed piece: read somewhere else</span>`}
+      ${probs ? `<span class="${allLeaves().some(l => pbOf(l)?.c === "b") ? "b" : "w"}">${probs} pocket${probs > 1 ? "s have" : " has"} a problem</span>` : ""}${!state.art && stale ? `<span class="w">${stale} stores unchecked for 3 weeks</span>` : ""}</div>
+    <div class="${state.art ? "search-on" : ""}">
+      ${hold("gudang", "Gudang", GUDANG, {folded: state.gd === "shut" ? (state.shut.gudang ?? true) : state.shut.gudang})}
+      <div class="thread"></div>
+      ${hold("road", "On the road", ROAD, {sub: `${ROAD.length} surat jalan`, road: true})}
+      <div class="thread"></div>
+      ${hold("stores", "Stores", STORES, {sub: `${STORES.length} stores`, inner: storesBody()})}
+    </div></div>`
+}
+
+/* ── one pocket, opened ───────────────────────────────────────── */
+const MV = {"Went in":["SJ-210926-003 · 96", "SJ-240926-008 · 84"], "Sold":["POS 1 · 212 receipts", "POS 2 · 176 receipts"], "Came back":["4 returns at the till"], "Went out":["SJ-270926-009", "Picked for 3 allotments"], "Missing":["Count CNT-0926", "Not found on the last sweep"]}
+function openPocket(id) {
+  const l = allLeaves().find(x => x.id === id); if (!l) return
+  state.place = id
+  const now = vOf(l), h = hash(l.id + (state.art?.c || "")), sc = Math.max(1, now / 20)
+  const store = l.id.startsWith("s-")
+  const lines = store
+    ? [["+", "Went in", "from the Gudang", Math.round(sc * (2 + 2 * h))], ["+", "Came back", "customer returns", Math.round(sc * .08 * (1 + h))], ["−", "Sold", "", Math.round(sc * (2.5 + h))], ["−", "Went out", "back to HO", Math.round(sc * .3 * h)]]
+    : [["+", "Went in", "", Math.round(sc * (1.2 + h))], ["−", "Went out", "", Math.round(sc * (1 + h))]]
+  const p = pbOf(l)
+  if (p?.look === "fell") lines.push(["−", "Missing", "", p.q])
+  const start = now - lines.reduce((a, x) => a + (x[0] === "+" ? x[3] : -x[3]), 0)
+  const inside = (state.art ? [state.art] : [...ART].sort((a, b) => hash(l.id + b.c) - hash(l.id + a.c)).slice(0, 6))
+  const d = l.ck ? days(l.ck) : null
+  document.getElementById("sheet").innerHTML = `<div class="sh"><div class="tx"><div class="k">${l.sub ? l.sub : state.art ? state.art.a + " in" : "Pocket"}</div><h2>${l.name}</h2><div class="v">${n(now)}<small>pieces</small></div></div><button class="x" data-close aria-label="Close">${ic("x")}</button></div>
+    <div class="sb">
+      <div class="h2">This week <span>· since Monday 22 Sep</span></div>
+      <div class="eq"><button class="start"><span class="op"></span><span class="k">On Monday</span><span class="n">${n(start)}</span></button>
+      ${lines.map(([op, k, s, v], i) => `<button data-mv="${i}"><span class="op">${op}</span><span class="k">${k}${s ? `<small>${s}</small>` : ""}</span><span class="n">${n(v)}</span></button><div class="mv" id="mv${i}"><div>${(MV[k] || ["—"]).map(t => `<p><span>${t}</span></p>`).join("")}</div></div>`).join("")}
+      <button class="tot"><span class="op">=</span><span class="k">Now</span><span class="n">${n(now)}</span></button></div>
+      ${l.id.startsWith("sj") ? "" : `<div class="h2">Last checked</div><div class="chk"><div class="tx">${d == null ? `<span class="t2">Never counted</span>` : `<div>${d === 0 ? "Today" : `${d} days ago`}${d > STALE ? ` <span style="color:var(--warn-fg)">· due</span>` : ""}</div><div class="t2">${l.id === "s-pik" ? "RFID sweep" : "Count"}</div>`}</div><button class="btn btn-g">${ic("count")}Count now</button></div>`}
+      <div class="h2">Problems <span>· ${p ? 1 : "none"}</span></div>
+      ${p ? `<div class="prob ${p.c === "b" ? "bad" : ""}"><span class="dot"></span><div class="tx">${p.t}<div class="t2">${p.c === "b" ? "This pocket's number can't be trusted until it's answered." : "Somebody should look."}</div></div><button class="go">${p.look === "silent" ? "Open the store" : p.look === "ghost" ? "Put them right" : l.id.startsWith("sj") ? "Check the SJ" : /count/.test(p.t) ? "Approve" : "Found or write off"}</button></div>` : `<div class="none">Nothing. This number is as good as its last check.</div>`}
+      <div class="h2">Most of what's inside</div>
+      <div class="inside">${inside.map(a => `<div>${garment(a.k, a.h)}<span>${n(Math.max(1, Math.round(now * (state.art ? 1 : a.s * 1.6))))}</span></div>`).join("")}</div>
+    </div>`
+  document.getElementById("pw").classList.add("open")
+  document.querySelectorAll(".pocket[aria-current]").forEach(e => e.removeAttribute("aria-current"))
+  document.querySelector(`.pocket[data-id="${id}"]`)?.setAttribute("aria-current", "true")
+}
+function closePocket() { state.place = null; document.getElementById("pw").classList.remove("open"); document.querySelectorAll(".pocket[aria-current]").forEach(e => e.removeAttribute("aria-current")) }
+
+/* ── Counts and Setup ────────────────────────────────────────── */
+function countsPage() {
+  const g = (label, rows) => `<div class="lg">${label}</div><div class="list">${rows.map(([t, s, r, c]) => `<button class="li">${ic("count")}<div class="tx"><div class="t1">${t}</div><div class="t2">${s}</div></div><span class="r ${c || ""}">${r}</span></button>`).join("")}</div>`
+  return `<div class="page"><div class="hd"><h1>Counts</h1><span class="pcs">1 to approve · 2 stores due</span><div class="act"><button class="btn btn-p">${ic("count")}Count a pocket</button></div></div>`
+    + g("Waiting for approval", [["Gudang · Warehouse", "Count · closed yesterday by Rina", "4 short", "b"]])
+    + g("Counting now", [["PIK Avenue", "RFID sweep · started 10:12", "2.140 of 2.915 read"]])
+    + g("Due", [["Medan Sun Plaza", "Last checked 20 Aug", "39 days", "b"], ["Bintaro Xchange", "Last checked 2 Sep", "26 days", "b"]])
+    + g("Done lately", [["Kemang", "Count · 21 Sep", "12 over"], ["Bandung Dago", "RFID sweep · 19 Sep", "11 short"], ["Gudang · Being picked", "Count · 26 Sep", "exact"]]) + `</div>`
+}
+function setupPage() {
+  const it = [["ruler", "Units & conversions", "PCS, LUSIN, KODI and how many pieces each is"], ["flow", "Goods flows", "The stages each route of goods runs, and who does them"], ["pin", "Pockets", "The places stock can stand in, and which hold which"], ["radio", "Readers", "Handhelds and arches, and the raw log of what they read"], ["pulse", "Ledger health", "Replay, repost and the time machine, for support"]]
+  return `<div class="page"><div class="hd"><h1>Setup</h1><span class="pcs">Set once, changed rarely</span></div><div class="list">${it.map(([i, t, s]) => `<button class="li">${ic(i)}<div class="tx"><div class="t1">${t}</div><div class="t2">${s}</div></div></button>`).join("")}</div></div>`
+}
+
+/* ── shell ──────────────────────────────────────────────────── */
+const MODS = [["home","Home"],["cart","Buying"],["shirt","Merchandise"],["forklift","Operations",12],["box","Inventory"],["tag","Marketing"],["receipt","Sales"],["wallet","Finance",3],["person","HR"],["building","GA"],["cog","System"]]
+function side() {
+  const subs = [["stock","Stock"],["counts","Counts",1],["setup","Setup"]]
+  return `<div class="brand"><span class="mark">C</span>Central</div>` + MODS.map(([i, l, c]) => l === "Inventory"
+    ? `<button class="row on">${ic(i)}<span>Inventory</span></button><div class="subs">${subs.map(([id, t, ct]) => `<button class="sub" data-page="${id}"${state.page === id ? " aria-current=page" : ""}>${t}${ct ? `<span class="ct">${ct}</span>` : ""}</button>`).join("")}</div>`
+    : `<button class="row">${ic(i)}<span>${l}</span>${c ? `<span class="ct">${c}</span>` : ""}</button>`).join("")
+}
+function render() {
+  document.querySelectorAll(".seg").forEach(s => s.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", state[s.dataset.tg] === b.dataset.v)))
+  document.querySelectorAll(".proto .tg").forEach(t => t.style.visibility = state.page === "stock" ? "" : "hidden")
+  document.getElementById("side").innerHTML = side()
+  document.getElementById("main").innerHTML = state.page === "counts" ? countsPage() : state.page === "setup" ? setupPage() : stockPage()
+}
+
+/* ── search ─────────────────────────────────────────────────── */
+let hl = 0
+function suggest(q) {
+  const m = ART.filter(a => !q || a.a.toLowerCase().includes(q.toLowerCase()) || a.c.includes(q)); hl = 0
+  document.getElementById("sugg").innerHTML = m.map((a, i) => `<button data-art="${a.c}" class="${i ? "" : "hl"}">${garment(a.k, a.h)}<span>${a.a}</span><span class="c">${a.c}</span></button>`).join("") || `<div class="none" style="padding:8px">No article like that</div>`
+  document.getElementById("big").classList.add("open")
+}
+document.addEventListener("focusin", (e) => { if (e.target.id === "q" && !state.art) suggest(e.target.value) })
+document.addEventListener("input", (e) => { if (e.target.id === "q") suggest(e.target.value) })
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { closePocket(); document.getElementById("big")?.classList.remove("open"); return }
+  if (e.key === "/" && e.target.tagName !== "INPUT") { e.preventDefault(); document.getElementById("q")?.focus() }
+  if (e.target.id === "q") {
+    const bs = [...document.querySelectorAll("#sugg button")]
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); hl = (hl + (e.key === "ArrowDown" ? 1 : -1) + bs.length) % bs.length; bs.forEach((b, i) => b.classList.toggle("hl", i === hl)) }
+    if (e.key === "Enter" && bs[hl]) bs[hl].click()
+    if (e.key === "Backspace" && !e.target.value && state.art) { state.art = null; render(); document.getElementById("q").focus() }
+  }
+  if ((e.key === "Enter" || e.key === " ") && e.target.classList?.contains("pocket")) { e.preventDefault(); e.target.click() }
+})
+document.addEventListener("click", (e) => {
+  const t = e.target
+  if (!t.closest("#big")) document.getElementById("big")?.classList.remove("open")
+  const seg = t.closest(".seg button"); if (seg) { state[seg.parentElement.dataset.tg] = seg.dataset.v; if (seg.parentElement.dataset.tg === "gd") delete state.shut.gudang; render(); return }
+  const pg = t.closest("[data-page]"); if (pg) { state.page = pg.dataset.page; closePocket(); render(); return }
+  const art = t.closest("[data-art]"); if (art) { e.preventDefault(); state.art = ART.find(a => a.c === art.dataset.art); render(); return }
+  if (t.closest("[data-clear]")) { e.preventDefault(); state.art = null; render(); return }
+  const fold = t.closest("[data-fold]"); if (fold) {
+    const id = fold.dataset.fold, isShut = !!document.querySelector(`[data-hold="${id}"]`)?.classList.contains("shut")
+    state.shut[id] = !isShut; render(); return
+  }
+  const mv = t.closest("[data-mv]"); if (mv) { document.getElementById("mv" + mv.dataset.mv).classList.toggle("on"); return }
+  if (t.closest("[data-close]")) { closePocket(); return }
+  const pk = t.closest(".pocket[data-id]"); if (pk) openPocket(pk.dataset.id)
+})
+document.getElementById("theme").addEventListener("click", () => {
+  const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches
+  r.dataset.theme = dark ? "light" : "dark"
+})
+render()
+</script>
+</body>
+</html>

@@ -4,11 +4,11 @@
  * `POST /api/v1/stores/{unit}/server/install`: the code to type at the shop,
  * shown once, with its QR and where the installer is.
  */
-export type StoreServerInstall = { enrolment_id: string,
+export type StoreServerInstall = { enrolment_id: string, 
 /**
  * In its display form, `K7Q2M-X4PZ9`.
  */
-code: string, expires_at: string, installer_url: string,
+code: string, expires_at: string, installer_url: string, 
 /**
  * An inline `<svg>` of a QR code that encodes `code`.
  */

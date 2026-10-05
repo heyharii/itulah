@@ -182,7 +182,7 @@ export function Reports() {
           />
         )}
         <Checkbox
-          label="Per location"
+          label="Per unit"
           checked={spread}
           disabled={kind === "PROFIT_LOSS"}
           onChange={(next) => setPerLocation(next)}
@@ -690,7 +690,7 @@ function LocationSpread({
                 <div className="grid gap-x-6 gap-y-4 px-4 py-3 xl:grid-cols-[minmax(0,1fr)_20rem]">
                   <div>
                     <h4 className="mb-2 text-eyebrow font-semibold text-mute uppercase">
-                      By location, largest first
+                      By unit, largest first
                     </h4>
                     <LocationBars
                       units={data.units}
@@ -701,14 +701,14 @@ function LocationSpread({
                     <TotalsLadder
                       rows={[]}
                       total={{
-                        label: "Every location",
+                        label: "Every unit",
                         value: money(data.grand_total_minor),
                       }}
                     />
                     <p className="mt-1 text-[0.875rem] text-mute">
                       The server's total for this level, and the column heads
-                      are its per-location totals. Neither is a sum of the rows
-                      on screen.
+                      are its per-unit totals. Neither is a sum of the rows on
+                      screen.
                     </p>
                   </div>
                 </div>
@@ -760,10 +760,7 @@ function LocationBars({
   )
 
   return (
-    <RankedBars
-      rows={rows}
-      empty="Nothing at any location under this heading."
-    />
+    <RankedBars rows={rows} empty="Nothing at any unit under this heading." />
   )
 }
 

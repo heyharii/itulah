@@ -35,7 +35,12 @@ import {
 import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { Choice } from "@/screens/inventory/parts"
-import { signed, useActor } from "@/screens/inventory/shared"
+import { useActor } from "@/screens/inventory/shared"
+import {
+  DisplayUnitPicker,
+  useDisplayUnit,
+  type DisplayUnit,
+} from "@/screens/inventory/unit-display"
 
 /// Does the projection still equal the ledger?
 ///
@@ -57,125 +62,142 @@ import { signed, useActor } from "@/screens/inventory/shared"
 /// `difference` is ledger minus projection, so a positive number is stock the
 /// projection has lost.
 
-const rowDifferences: ColumnDef<TableSetup, ProjectionDifference>[] = [
-  {
-    accessorKey: "place_id",
-    header: "Place",
-    size: 260,
-    /// `text`, not `option`: a place is `<pool>:<state>`, so "contains
-    /// :missing" and "starts with store-07" are the two questions somebody
-    /// debugging a divergence actually asks, and a facet of every place in a
-    /// broken fleet is a list as long as the table.
-    meta: { filter: { kind: "text" } },
-    cell: ({ row }) => (
-      <AppLink
-        to="/inventory/pools"
-        sheet={{
-          key: "pool",
-          value: row.original.place_id.replace(/:.*$/, ""),
-        }}
-        className="font-mono text-id text-body hover:text-ink hover:underline"
-      >
-        {row.original.place_id}
-      </AppLink>
-    ),
-  },
-  {
-    accessorKey: "subject_id",
-    header: "Subject",
-    size: 300,
-    // A subject is a uuid carried here from somewhere else. Nobody narrows a
-    // list by one; they paste it into the time machine.
-    cell: ({ row }) => (
-      <span className="font-mono text-id text-mute">
-        {row.original.subject_id}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "ledger_quantity",
-    header: "Ledger",
-    size: 110,
-    meta: { align: "right" },
-    cell: ({ row }) => count(row.original.ledger_quantity),
-  },
-  {
-    accessorKey: "projection_quantity",
-    header: "Projection",
-    size: 120,
-    meta: { align: "right" },
-    cell: ({ row }) => count(row.original.projection_quantity),
-  },
-  {
-    accessorKey: "difference",
-    header: "Difference",
-    size: 120,
-    /// Ledger minus projection, so the sign is the direction of the drift —
-    /// "at least 1" is stock the projection has lost, "at most -1" is stock it
-    /// has invented. The one filter on this table somebody uses twice a day.
-    meta: {
-      align: "right",
-      filter: { kind: "number", unit: "pcs" },
-    },
-    cell: ({ row }) => (
-      <span className="font-medium text-bad-fg">
-        {signed(row.original.difference)}
-      </span>
-    ),
-  },
-]
+/// `signed`, in whatever unit the viewer chose to read pieces in — "+3 lusin"
+/// rather than "+36", the sign kept out front where `formatInUnit`'s own
+/// negative handling would otherwise bury it after the whole-unit count.
+function signedInUnit(value: number, display: DisplayUnit): string {
+  return value > 0 ? `+${display.format(value)}` : display.format(value)
+}
 
-const stageDifferences: ColumnDef<TableSetup, RollupDifference>[] = [
-  {
-    accessorKey: "parent_pool_id",
-    header: "Stage",
-    size: 260,
-    meta: { filter: { kind: "text" } },
-    cell: ({ row }) => (
-      <span className="font-mono text-id text-body">
-        {row.original.parent_pool_id}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "state",
-    header: "State",
-    size: 120,
-    meta: { filter: { kind: "option" } },
-  },
-  {
-    accessorKey: "ledger_quantity",
-    header: "Ledger",
-    size: 110,
-    meta: { align: "right" },
-    cell: ({ row }) => count(row.original.ledger_quantity),
-  },
-  {
-    accessorKey: "projection_quantity",
-    header: "Projection",
-    size: 120,
-    meta: { align: "right" },
-    cell: ({ row }) => count(row.original.projection_quantity),
-  },
-  {
-    accessorKey: "difference",
-    header: "Difference",
-    size: 120,
-    meta: {
-      align: "right",
-      filter: { kind: "number", unit: "pcs" },
+function rowDifferences(
+  display: DisplayUnit
+): ColumnDef<TableSetup, ProjectionDifference>[] {
+  return [
+    {
+      accessorKey: "place_id",
+      header: "Place",
+      size: 260,
+      /// `text`, not `option`: a place is `<pool>:<state>`, so "contains
+      /// :missing" and "starts with store-07" are the two questions somebody
+      /// debugging a divergence actually asks, and a facet of every place in
+      /// a broken fleet is a list as long as the table.
+      meta: { filter: { kind: "text" } },
+      cell: ({ row }) => (
+        <AppLink
+          to="/inventory/pools"
+          sheet={{
+            key: "pool",
+            value: row.original.place_id.replace(/:.*$/, ""),
+          }}
+          className="font-mono text-id text-body hover:text-ink hover:underline"
+        >
+          {row.original.place_id}
+        </AppLink>
+      ),
     },
-    cell: ({ row }) => (
-      <span className="font-medium text-bad-fg">
-        {signed(row.original.difference)}
-      </span>
-    ),
-  },
-]
+    {
+      accessorKey: "subject_id",
+      header: "Subject",
+      size: 300,
+      // A subject is a uuid carried here from somewhere else. Nobody narrows
+      // a list by one; they paste it into the time machine.
+      cell: ({ row }) => (
+        <span className="font-mono text-id text-mute">
+          {row.original.subject_id}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "ledger_quantity",
+      header: "Ledger",
+      size: 110,
+      meta: { align: "right" },
+      cell: ({ row }) => display.format(row.original.ledger_quantity),
+    },
+    {
+      accessorKey: "projection_quantity",
+      header: "Projection",
+      size: 120,
+      meta: { align: "right" },
+      cell: ({ row }) => display.format(row.original.projection_quantity),
+    },
+    {
+      accessorKey: "difference",
+      header: "Difference",
+      size: 120,
+      /// Ledger minus projection, so the sign is the direction of the drift —
+      /// "at least 1" is stock the projection has lost, "at most -1" is stock
+      /// it has invented. The one filter on this table somebody uses twice a
+      /// day — filtering stays in pieces regardless of what the column prints.
+      meta: {
+        align: "right",
+        filter: { kind: "number", unit: "pcs" },
+      },
+      cell: ({ row }) => (
+        <span className="font-medium text-bad-fg">
+          {signedInUnit(row.original.difference, display)}
+        </span>
+      ),
+    },
+  ]
+}
+
+function stageDifferences(
+  display: DisplayUnit
+): ColumnDef<TableSetup, RollupDifference>[] {
+  return [
+    {
+      accessorKey: "parent_pool_id",
+      header: "Stage",
+      size: 260,
+      meta: { filter: { kind: "text" } },
+      cell: ({ row }) => (
+        <span className="font-mono text-id text-body">
+          {row.original.parent_pool_id}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "state",
+      header: "State",
+      size: 120,
+      meta: { filter: { kind: "option" } },
+    },
+    {
+      accessorKey: "ledger_quantity",
+      header: "Ledger",
+      size: 110,
+      meta: { align: "right" },
+      cell: ({ row }) => display.format(row.original.ledger_quantity),
+    },
+    {
+      accessorKey: "projection_quantity",
+      header: "Projection",
+      size: 120,
+      meta: { align: "right" },
+      cell: ({ row }) => display.format(row.original.projection_quantity),
+    },
+    {
+      accessorKey: "difference",
+      header: "Difference",
+      size: 120,
+      meta: {
+        align: "right",
+        filter: { kind: "number", unit: "pcs" },
+      },
+      cell: ({ row }) => (
+        <span className="font-medium text-bad-fg">
+          {signedInUnit(row.original.difference, display)}
+        </span>
+      ),
+    },
+  ]
+}
 
 export function Control() {
   const client = useQueryClient()
   const actor = useActor()
+  const display = useDisplayUnit()
   const [tab, setTab] = useState("rows")
   const [site, setSite] = useState("")
   const [pool, setPool] = useState("")
@@ -233,11 +255,14 @@ export function Control() {
     [status.data]
   )
 
+  const rowColumns = useMemo(() => rowDifferences(display), [display])
+  const stageColumns = useMemo(() => stageDifferences(display), [display])
+
   /// A parameter each, because both tables have a `difference` and a
   /// `state`-shaped question: one key would carry a clause from the tab being
   /// read onto the tab beside it.
-  const rowFilters = useFilters(rowDifferences)
-  const stageFilters = useFilters(stageDifferences, "f2")
+  const rowFilters = useFilters(rowColumns)
+  const stageFilters = useFilters(stageColumns, "f2")
 
   const rowTable = useTable(
     useMemo(
@@ -389,13 +414,11 @@ export function Control() {
                       setPool("")
                     }}
                     options={sites}
-                    placeholder="Whole ledger"
                   />
                   <Choice
                     value={pool}
                     onChange={setPool}
                     options={pools}
-                    placeholder="Every pool"
                     className="max-w-72"
                   />
                   <Toolbar.Spacer />
@@ -445,6 +468,8 @@ export function Control() {
               ) : (
                 <FilterPanel model={stageFilters} table={stageTable} />
               )}
+              <Toolbar.Spacer />
+              <DisplayUnitPicker display={display} />
             </Toolbar>
 
             <Card className="overflow-hidden">

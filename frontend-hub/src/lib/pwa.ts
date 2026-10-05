@@ -2,8 +2,6 @@
 import { useSyncExternalStore } from "react"
 import { registerSW } from "virtual:pwa-register"
 
-import { toast } from "@/lib/toast"
-
 /// The hub as an installed app: its service worker, its updates, and the
 /// browser's offer to install it.
 ///
@@ -13,25 +11,21 @@ import { toast } from "@/lib/toast"
 
 // ── The service worker and its updates ──────────────────────────────────────
 
-/// Register the worker and say when a newer build is waiting.
+/// Register the worker and take a newer build in quietly.
 ///
-/// The toast stays until it is answered: a new build is loaded when the person
-/// chooses, because reloading under somebody halfway through a receipt is not
-/// an update. Checked hourly as well as on load, since the hub is left open on
-/// a shop's counter for a whole shift.
+/// No prompt (the owner, 2026-10-05: hide the "A new version is available"
+/// toast). A waiting build is activated without reloading the page: reloading
+/// under somebody halfway through a receipt is not an update, so the tab keeps
+/// running what it loaded and the next load — or the next lazy chunk — is the
+/// new build. Old chunks stay on the server for exactly that reason. Checked
+/// hourly as well as on load, since the hub is left open on a shop's counter
+/// for a whole shift.
 export function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return
   const update = registerSW({
     immediate: true,
     onNeedRefresh() {
-      toast("Versi baru tersedia — muat ulang", {
-        id: "pwa-update",
-        duration: Infinity,
-        action: {
-          label: "Muat ulang",
-          onClick: () => void update(true),
-        },
-      })
+      void update(false)
     },
     onRegisteredSW(_url, registration) {
       if (registration === undefined) return

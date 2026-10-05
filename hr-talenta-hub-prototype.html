@@ -1,0 +1,805 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HR · Talenta in Central</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* Hub tokens (frontend-hub/src/styles/index.css · E Quiet · airy charcoal). Inter 14, nothing under 14px. */
+:root{--ink:#20242c;--text:#394150;--body:#626b78;--mute:#737c89;--faint:#b9c0c9;--line-ico:#89919d;--canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--soft-3:#f6f6f7;
+  --hairline:#e6e6e9;--hairline-2:#dadade;--hairline-strong:#c6c6cc;--backdrop:#e0e0e4;--scrim:rgba(246,246,247,.72);
+  --accent:#2563eb;--accent-bg:#eff5ff;--ok:#36b827;--ok-fg:#15803d;--ok-bg:#d9f4d2;--warn:#c9892e;--warn-bg:#faeacd;--warn-fg:#b45309;--bad:#d05151;--bad-bg:#fbeaea;--bad-fg:#be123c;
+  --rail:#242526;--rail-2:#303234;--rail-3:#393b3d;--rail-text:#c3c4c7;--rail-mute:#a1a3a8;--rail-hair:#343638;--app-hr:#e9604f;
+  --r-shell:16px;--r-card:10px;--r-inner:7px;
+  --shadow-soft:0 1px 3px rgb(24 39 60/4%);--shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);--shadow-shell:0 10px 34px rgb(24 39 60/8%);
+  --ease:cubic-bezier(.23,1,.32,1);--ease-drawer:cubic-bezier(.32,.72,0,1)}
+*{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px}
+body{font:14px/20px Inter,system-ui,sans-serif;color:var(--text);background:var(--backdrop);-webkit-font-smoothing:antialiased;padding:16px 16px 40px}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+a{color:inherit;text-decoration:none}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px;letter-spacing:-.02em}
+.num{font-variant-numeric:tabular-nums}
+.mute{color:var(--mute)}.faint{color:var(--faint)}.body{color:var(--body)}.ink{color:var(--ink)}
+svg.i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer;flex:none}
+
+/* prototype chrome */
+.top{max-width:98rem;margin:0 auto 12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.top h1{font-size:15px;font-weight:600;color:var(--ink)}
+.top p{color:var(--body);max-width:46rem}
+.lenses{margin-left:auto;display:flex;gap:2px;background:var(--canvas);padding:3px;border-radius:999px;box-shadow:0 0 0 1px var(--hairline);flex-wrap:wrap}
+.lens{border:0;background:none;border-radius:999px;padding:5px 14px;color:var(--body)}
+.lens.on{background:var(--ink);color:#fff;font-weight:500}
+.tog{display:flex;align-items:center;gap:8px;color:var(--body);background:var(--canvas);border-radius:999px;padding:5px 12px;box-shadow:0 0 0 1px var(--hairline);cursor:pointer;user-select:none}
+
+/* shell */
+.shell{max-width:98rem;margin:0 auto;display:flex;height:min(60rem,calc(100vh - 6rem));min-height:40rem;background:var(--canvas);border-radius:var(--r-shell);box-shadow:var(--shadow-shell);overflow:clip;position:relative}
+.nav{width:14.5rem;flex:none;background:var(--rail);color:var(--rail-text);padding:14px 10px;display:flex;flex-direction:column;gap:2px;overflow:auto}
+.brand{display:flex;align-items:center;gap:9px;color:#fff;font-weight:600;padding:2px 8px 14px}
+.brand b{width:24px;height:24px;border-radius:7px;background:#fff;color:var(--rail);display:grid;place-items:center;font-weight:700;position:relative}
+.brand b::after{content:"";position:absolute;right:4px;bottom:4px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.nrow{display:flex;align-items:center;gap:10px;min-height:34px;padding:0 10px;border-radius:8px;color:var(--rail-text);border:0;background:none;width:100%;text-align:left;transition:background .12s}
+.nrow:hover{background:var(--rail-2)}
+.nrow.dept.on{color:#fff;font-weight:500}
+.nrow svg.i{color:var(--rail-mute)}
+.nrow .n{margin-left:auto;color:var(--rail-mute);font-variant-numeric:tabular-nums}
+.guide{margin:2px 0 8px 19px;border-left:1px solid var(--rail-hair);padding-left:8px;display:flex;flex-direction:column;gap:1px}
+.guide .nrow{padding-left:10px;color:var(--rail-mute)}
+.guide .nrow.on{background:var(--rail-2);color:#fff}
+.nav .foot{margin-top:auto;padding:10px 10px 2px;color:var(--rail-mute);border-top:1px solid var(--rail-hair)}
+.sub{width:15rem;flex:none;border-right:1px solid var(--hairline);padding:26px 12px 16px;overflow:auto;display:flex;flex-direction:column;gap:1px}
+.sub h2{padding:0 10px 8px;font-size:14px;font-weight:500;color:var(--mute)}
+.sub .sec{padding:14px 10px 6px;color:var(--mute)}
+.sub .sec:first-of-type{padding-top:4px}
+.srow{display:flex;align-items:center;gap:10px;min-height:36px;padding:0 10px;border-radius:var(--r-inner);color:var(--body);transition:background .12s,color .12s}
+.srow:hover{background:var(--soft);color:var(--ink)}
+.srow.on{background:var(--soft-2);color:var(--ink);font-weight:500}
+.srow span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.srow i{margin-left:auto;width:6px;height:6px;border-radius:50%;flex:none}
+.srow i.p{background:var(--warn)}.srow i.n{background:var(--bad)}.srow i.x{background:var(--faint)}
+body:not(.cmp-on) .srow i{display:none}
+body.v-menus .sub,body.v-map .sub{display:none!important}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}
+.bar{height:52px;flex:none;display:flex;align-items:center;gap:8px;padding:0 20px;border-bottom:1px solid var(--hairline);color:var(--body)}
+.bar b{color:var(--ink);font-weight:500}
+.bar .sp{flex:1}
+.kbd{height:36px;display:flex;align-items:center;gap:8px;border:1px solid transparent;border-radius:999px;padding:0 12px;background:var(--soft-2);color:var(--mute);min-width:15rem;cursor:text}
+.kbd:hover{border-color:var(--hairline-2)}
+.kbd span{margin-left:auto;color:var(--faint)}
+.menu-btn{display:none}
+.scroll{flex:1;min-height:0;overflow:auto}
+.page{padding:28px 32px 40px;max-width:78rem}
+.page.wide{max-width:none}
+@media (max-width:1280px){.nav{width:60px;padding:14px 8px}.nav .t,.nav .n,.nav .guide,.nav .foot{display:none}.nrow{justify-content:center;padding:0}.brand{justify-content:center;padding:2px 0 14px}.nrow.dept.on{background:var(--rail-2)}.sub{width:14rem}}
+@media (max-width:900px){.nav,.sub{display:none}.menu-btn{display:inline-flex}.kbd{min-width:0;flex:1}body.navopen .nav{display:flex;position:absolute;z-index:40;inset:0 auto 0 0}body.navopen .sub{display:flex;position:absolute;z-index:40;inset:0 0 0 14.5rem;background:var(--canvas)}}
+@media (max-width:700px){.kbd{min-width:0;flex:none;padding:0 11px}.kbd .kt,.kbd span{display:none}.bar{padding:0 12px}body{padding:8px 8px 24px}.page{padding:18px 16px 28px}body.navopen .sub{left:0;top:auto;height:55%;border-top:1px solid var(--hairline)}body.navopen .nav{bottom:55%;width:100%}}
+
+/* page parts */
+.ph{display:flex;align-items:flex-end;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+.ph h2{font-size:22px;line-height:30px;font-weight:600;color:var(--ink);letter-spacing:-.02em}
+.ph .cap{color:var(--body);margin-top:2px;max-width:44rem}
+.ph .act{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.btn{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 13px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);color:var(--ink);font-weight:500;white-space:nowrap;transition:background .12s,transform .1s}
+.btn:hover{background:var(--soft)}.btn:active{transform:scale(.97)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}.btn.pri:hover{background:#1d4ed8}
+.btn.ghost{border-color:transparent;background:none;color:var(--body)}.btn.ghost:hover{background:var(--soft-2);color:var(--ink)}
+.btn.lg{height:44px;padding:0 18px}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.btn svg.i{color:var(--line-ico)}.btn.pri svg.i{color:#fff}
+.btn .ct{min-width:20px;height:20px;border-radius:999px;background:var(--ink);color:#fff;display:inline-grid;place-items:center;padding:0 6px;font-weight:500}
+.tabs{display:flex;gap:22px;border-bottom:1px solid var(--hairline);margin-bottom:16px;overflow-x:auto;scrollbar-width:none}
+.tab{border:0;background:none;height:40px;color:var(--body);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+.tab:hover{color:var(--ink)}
+.tab.on{color:var(--ink);border-bottom-color:var(--ink);font-weight:500}
+.tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.tools .sp{flex:1}
+.search{position:relative;flex:0 1 16rem}
+.search svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--line-ico)}
+.search input{width:100%;height:36px;border:1px solid transparent;border-radius:999px;padding:0 12px 0 34px;background:var(--soft-2);outline:0}
+.search input:hover{border-color:var(--hairline-2)}.search input:focus{border-color:var(--hairline-strong);background:var(--canvas)}
+.sel{height:36px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 10px;background:var(--canvas);color:var(--ink)}
+.card{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:clip;margin-bottom:18px;background:var(--canvas)}
+.chead{display:flex;align-items:center;gap:10px;padding:0 16px;min-height:52px;border-bottom:1px solid var(--hairline)}
+.chead h4{font-size:15px;font-weight:600;color:var(--ink)}
+.chead .sp{flex:1}
+.pad{padding:16px}
+.tw{overflow-x:auto}
+table{border-collapse:collapse}
+table.list{width:100%}
+table.list th{font-weight:400;color:var(--body);text-align:left;padding:0 14px;height:40px;border-bottom:1px solid var(--hairline);white-space:nowrap;position:sticky;top:0;background:var(--canvas)}
+table.list th button{border:0;background:none;color:inherit;display:inline-flex;gap:4px;align-items:center}
+table.list th button:hover{color:var(--ink)}
+table.list td{padding:0 14px;height:52px;border-bottom:1px solid var(--hairline);white-space:nowrap;max-width:22rem;overflow:hidden;text-overflow:ellipsis}
+table.list tr:last-child td{border-bottom:0}
+table.list tbody tr.click{cursor:pointer;transition:background .12s}
+table.list tbody tr.click:hover{background:var(--soft)}
+table.list td.first{color:var(--ink);font-weight:500}
+table.list td.wrap{white-space:normal;line-height:20px;padding-top:10px;padding-bottom:10px;max-width:none}
+table.list tr.grp td{height:40px;background:var(--soft);color:var(--ink);font-weight:500}
+.r{text-align:right!important}
+.status{display:inline-flex;align-items:center;gap:7px;color:var(--ink)}
+.status i{width:5px;height:5px;border-radius:50%;background:var(--faint);flex:none}
+.status.ok i{background:var(--ok)}.status.warn i{background:var(--warn)}.status.bad i{background:var(--bad)}.status.acc i{background:var(--accent)}
+.status.warn{color:var(--warn-fg)}.status.bad{color:var(--bad-fg)}
+.tfoot{display:flex;align-items:center;gap:10px;padding:0 16px;height:52px;border-top:1px solid var(--hairline);color:var(--body)}
+.tfoot .sp{flex:1}
+.empty{padding:56px 24px;text-align:center;color:var(--body)}
+.empty h5{font-size:15px;font-weight:600;color:var(--ink);margin-bottom:4px}
+.empty .btn{margin-top:14px}
+.banner{display:flex;gap:10px;align-items:flex-start;border-radius:var(--r-inner);padding:10px 12px;background:var(--soft);color:var(--text);margin-bottom:14px}
+.banner.warn{background:var(--warn-bg);color:#6b4410}
+.banner.bad{background:var(--bad-bg);color:#7f1d1d}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+.kpis.five{grid-template-columns:repeat(5,1fr)}
+.kpi{border:1px solid var(--hairline);border-radius:var(--r-card);padding:12px 14px;background:var(--canvas)}
+.kpi span{color:var(--body)}.kpi b{display:block;font-size:22px;line-height:30px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.kpi em{font-style:normal;color:var(--mute)}
+@media (max-width:760px){.kpis,.kpis.five{grid-template-columns:1fr 1fr}}
+
+/* comparison strip under a page title */
+.cmp{display:none;grid-template-columns:1fr 1fr auto;border:1px solid var(--hairline);border-radius:var(--r-card);margin-bottom:18px;overflow:clip}
+body.cmp-on .cmp{display:grid}
+.cmp>div{padding:10px 14px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.cmp>div+div{border-left:1px solid var(--hairline)}
+.cmp span.l{color:var(--mute)}
+.cmp b{font-weight:500;color:var(--ink)}
+.cmp .note{grid-column:1/-1;border-top:1px solid var(--hairline);border-left:0!important;color:var(--body);background:var(--soft)}
+@media (max-width:700px){.cmp{grid-template-columns:1fr}.cmp>div+div{border-left:0;border-top:1px solid var(--hairline)}}
+
+/* home */
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(22rem,1fr));gap:18px;align-items:start}
+.alist a{display:flex;align-items:center;gap:12px;min-height:52px;padding:8px 16px;border-bottom:1px solid var(--hairline);transition:background .12s}
+.alist a:last-child{border-bottom:0}
+.alist a:hover{background:var(--soft)}
+.alist .w{flex:1;min-width:0}
+.alist .w b{display:block;font-weight:500;color:var(--ink)}
+.alist .w span{color:var(--body)}
+.alist .n{color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums}
+.glist{display:grid;grid-template-columns:1fr 1fr}
+.glist a{display:flex;align-items:center;gap:10px;min-height:52px;padding:0 16px;border-bottom:1px solid var(--hairline);color:var(--ink)}
+.glist a:nth-child(odd){border-right:1px solid var(--hairline)}
+.glist a:hover{background:var(--soft)}
+.glist a span{margin-left:auto;color:var(--mute)}
+.glist svg.i{color:var(--line-ico)}
+
+/* forms */
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:18px 16px}
+.fgrid .full{grid-column:1/-1}
+@media (max-width:700px){.fgrid{grid-template-columns:1fr}}
+.field label.lb{display:block;color:var(--ink);font-weight:500;margin-bottom:6px}
+.field label.lb em{font-style:normal;color:var(--mute);font-weight:400}
+.field input:not([type=checkbox]),.field select,.field textarea{width:100%;height:47px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 13px;background:var(--canvas);font-size:15px;color:var(--ink);outline:0;transition:border-color .12s,box-shadow .12s}
+.field textarea{height:96px;padding:12px 13px;resize:vertical}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgb(37 99 235/.14)}
+.field.err input,.field.err select,.field.err textarea{border-color:var(--bad)}
+.field .hint{color:var(--mute);margin-top:6px}
+.field.err .hint{color:var(--bad-fg)}
+.check{display:flex;align-items:center;gap:10px;min-height:47px;color:var(--ink)}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:18px 20px}
+.facts div span{display:block;color:var(--mute);margin-bottom:2px}
+.facts div b{font-weight:400;color:var(--ink);word-break:break-word}
+@media (max-width:700px){.facts{grid-template-columns:1fr 1fr}}
+.steps{display:flex;gap:8px;margin-bottom:18px}
+.steps span{flex:1;border-top:2px solid var(--hairline);padding-top:8px;color:var(--mute)}
+.steps span.on{border-color:var(--ink);color:var(--ink);font-weight:500}
+.steps span.done{border-color:var(--ok);color:var(--body)}
+
+/* sheet, popovers, palette, toast */
+.scrim{position:absolute;inset:0;background:var(--scrim);opacity:0;pointer-events:none;transition:opacity .2s;z-index:50}
+.scrim.on{opacity:1;pointer-events:auto}
+.sheet{position:absolute;top:10px;right:10px;bottom:10px;width:min(46rem,calc(100% - 20px));background:var(--canvas);border-radius:var(--r-shell);box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);display:flex;flex-direction:column;transform:translateX(calc(100% + 24px));transition:transform .42s var(--ease-drawer);z-index:51}
+.sheet.on{transform:none}
+.shead{padding:20px 22px 14px;display:flex;gap:12px;align-items:flex-start}
+.shead h3{font-size:20px;line-height:26px;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+.shead .cap{color:var(--body);margin-top:3px}
+.x{width:36px;height:36px;border:0;background:none;border-radius:8px;display:grid;place-items:center;color:var(--body);flex:none;margin-left:auto}.x:hover{background:var(--soft-2)}
+.sbody{flex:1;min-height:0;overflow:auto;padding:4px 22px 22px}
+.sbody .tabs{margin-bottom:18px}
+.sfoot{border-top:1px solid var(--hairline);padding:12px 22px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.sfoot .sp{flex:1}
+.pop{position:absolute;z-index:60;min-width:17rem;max-width:22rem;background:var(--canvas);border-radius:var(--r-card);box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);padding:6px;display:none;max-height:26rem;overflow:auto}
+.pop.on{display:block;animation:pop .16s var(--ease)}
+.pop label.opt{display:flex;width:100%;padding:8px 10px;border-radius:6px;gap:10px;align-items:center;cursor:pointer}
+.pop label.opt:hover{background:var(--soft-2)}
+.pop .fl{padding:6px 8px}
+.pop .fl span{display:block;color:var(--body);margin-bottom:4px}
+.pop .fl select{width:100%}
+.pop .pf{display:flex;gap:8px;justify-content:flex-end;padding:8px;border-top:1px solid var(--hairline);margin-top:6px;position:sticky;bottom:-6px;background:var(--canvas)}
+@keyframes pop{from{opacity:0;transform:translateY(-4px) scale(.98)}}
+.pal{position:absolute;left:50%;top:70px;transform:translateX(-50%);width:min(36rem,calc(100% - 32px));z-index:70;background:var(--canvas);border-radius:var(--r-card);box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);display:none;overflow:clip}
+.pal.on{display:block;animation:pop .16s var(--ease)}
+.pal input{width:100%;height:52px;border:0;border-bottom:1px solid var(--hairline);padding:0 18px;font-size:15px;outline:0}
+.pal .res{max-height:22rem;overflow:auto;padding:6px}
+.pal .res a{display:flex;gap:10px;align-items:center;padding:9px 12px;border-radius:7px;color:var(--ink)}
+.pal .res a span{margin-left:auto;color:var(--mute)}
+.pal .res a.hl,.pal .res a:hover{background:var(--soft-2)}
+.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,20px);background:var(--ink);color:#fff;border-radius:10px;padding:11px 16px;opacity:0;pointer-events:none;transition:opacity .2s,transform .3s var(--ease);z-index:90;max-width:calc(100% - 32px)}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+
+/* calendar */
+.cal{display:grid;grid-template-columns:repeat(7,1fr)}
+.cal div{min-height:92px;border-right:1px solid var(--hairline);border-bottom:1px solid var(--hairline);padding:8px 10px;color:var(--body)}
+.cal div:nth-child(7n){border-right:0}
+.cal .dn{min-height:0;height:40px;display:flex;align-items:center;color:var(--mute);padding:0 10px}
+.cal .today b{background:var(--ink);color:#fff;border-radius:999px;padding:1px 7px}
+.cal b{font-weight:500;color:var(--ink)}
+.cal .ev{display:block;margin-top:6px;color:var(--ink);border-left:2px solid var(--accent);padding-left:6px;line-height:18px}
+.cal .ev.off{border-color:var(--warn)}
+
+/* menus side by side */
+.cols3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;align-items:start}
+@media (max-width:1100px){.cols3{grid-template-columns:1fr}}
+.mcol .chead small{margin-left:auto;color:var(--mute);font-size:14px}
+.mtree{padding:6px 0 10px}
+.mg{padding:12px 16px 4px;color:var(--ink);font-weight:500;display:flex;gap:8px;align-items:center}
+.mg span{margin-left:auto;color:var(--mute);font-weight:400}
+.mi{display:flex;align-items:center;gap:8px;padding:5px 16px 5px 28px;color:var(--body);line-height:20px}
+.mi.s{color:var(--mute);padding-top:10px}
+.mi.h{color:var(--mute)}
+.mi.h::after{content:"hidden";margin-left:auto;color:var(--faint)}
+.mi i{width:6px;height:6px;border-radius:50%;flex:none;background:var(--hairline-2)}
+.mi i.y{background:var(--ok)}.mi i.p{background:var(--warn)}.mi i.n{background:var(--bad)}.mi i.x{background:var(--faint)}
+.mi a:hover{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
+.mhr{height:1px;background:var(--hairline);margin:8px 16px}
+.legend{display:flex;gap:18px;flex-wrap:wrap;color:var(--body);margin-bottom:16px}
+.legend span{display:inline-flex;align-items:center;gap:7px}
+.legend i{width:6px;height:6px;border-radius:50%}
+.gaps{counter-reset:g}
+.gaps li{list-style:none;display:grid;grid-template-columns:28px 1fr;gap:4px 10px;padding:14px 16px;border-bottom:1px solid var(--hairline)}
+.gaps li:last-child{border-bottom:0}
+.gaps li::before{counter-increment:g;content:counter(g);color:var(--mute);font-variant-numeric:tabular-nums}
+.gaps li b{color:var(--ink);font-weight:500}
+.gaps li p{grid-column:2;color:var(--body)}
+</style>
+</head>
+<body class="cmp-on">
+
+<div class="top">
+  <div>
+    <h1>HR · Talenta in Central</h1>
+    <p>The Talenta HRIS prototype (141 pages, <span class="mono">hr-talenta-prototype/</span>) redrawn in the hub's design system, compared with Frappe HRMS and the HR menu Central has today. Synthetic data; nothing is sent anywhere.</p>
+  </div>
+  <label class="tog" title="Show where each Talenta page lives in Frappe HRMS and in Central"><input type="checkbox" id="cmpToggle" checked /> Compare</label>
+  <div class="lenses" id="lenses">
+    <button class="lens on" data-view="app">Talenta in Central</button>
+    <button class="lens" data-view="menus">Menus side by side</button>
+    <button class="lens" data-view="map">Page mapping</button>
+  </div>
+</div>
+
+<div class="shell" id="shell">
+  <nav class="nav" id="nav"></nav>
+  <aside class="sub" id="sub"></aside>
+  <div class="main">
+    <div class="bar" id="bar"></div>
+    <div class="scroll" id="scroll"><div class="page" id="page"></div></div>
+    <div class="scrim" id="scrim"></div>
+    <section class="sheet" id="sheet" aria-modal="true" role="dialog"></section>
+    <div class="pal" id="pal"><input id="palIn" placeholder="Search 141 HR pages…" autocomplete="off" /><div class="res" id="palRes"></div></div>
+  </div>
+  <div class="pop" id="pop"></div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="hr-talenta-prototype/schema.js"></script>
+<script>
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const PAGES=(window.PAGES||[]).map(p=>({...p}));
+
+/* ---------- icons ---------- */
+const P={
+ home:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
+ users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+ brief:'<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>',
+ clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+ receipt:'<path d="M4 3h16v18l-3-2-3 2-2-2-2 2-3-2-3 2z"/><path d="M8 8h8M8 12h8"/>',
+ bank:'<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>',
+ check:'<rect x="3" y="3" width="18" height="18" rx="3"/><path d="m8 12 3 3 5-6"/>',
+ building:'<rect x="4" y="2" width="16" height="20" rx="1"/><path d="M9 22v-4h6v4M8 6h.01M12 6h.01M16 6h.01M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01"/>',
+ gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+ grid:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+ plug:'<path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4"/>',
+ search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+ filter:'<path d="M3 5h18M6 12h12M10 19h4"/>',
+ cols:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/>',
+ down:'<path d="M12 3v12m0 0 5-5m-5 5-5-5M4 21h16"/>',
+ plus:'<path d="M12 5v14M5 12h14"/>',
+ x:'<path d="M6 6l12 12M18 6 6 18"/>',
+ menu:'<path d="M4 7h16M4 12h16M4 17h16"/>',
+ left:'<path d="m15 18-6-6 6-6"/>',right:'<path d="m9 18 6-6-6-6"/>',
+ sort:'<path d="m8 9 4-4 4 4M8 15l4 4 4-4"/>',
+ cart:'<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.6 12.4a1 1 0 0 0 1 .8h9.7a1 1 0 0 0 1-.8L21 7H6"/>',
+ tag:'<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
+ truck:'<path d="M1 3h15v13H1zM16 8h4l3 3v5h-7"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',
+ box:'<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
+ spark:'<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/>',
+ chart:'<path d="M3 3v18h18"/><path d="M7 15v-4M12 15V8M17 15v-7"/>',
+ wallet:'<path d="M20 7H5a2 2 0 0 1 0-4h13v4"/><path d="M3 5v14a2 2 0 0 0 2 2h15V7"/><path d="M16 14h.01"/>',
+ wrench:'<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-2.5z"/>',
+};
+const ico=(k,cls='i')=>`<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${P[k]||''}</svg>`;
+
+/* ---------- Talenta's menu, regrouped for the hub ---------- */
+const GROUPS=[
+ {key:'Employees',icon:'users',from:['Employees']},
+ {key:'Recruitment',icon:'brief',from:['Recruitment','Recruitment settings'],secs:{'Recruitment settings':'Settings'}},
+ {key:'Time',icon:'clock',from:['Time']},
+ {key:'Finance',icon:'receipt',from:['Finance']},
+ {key:'Payroll',icon:'bank',from:['Payroll']},
+ {key:'Productivity',icon:'check',from:['Productivity']},
+ {key:'Company',icon:'building',from:['Company']},
+ {key:'Settings',icon:'gear',from:['Settings · Account','Settings · Company','Settings · Time','Settings · Payroll','Settings · Finance','Settings · ESS','Settings · Users'],secs:{'Settings · Account':'Account','Settings · Company':'Company','Settings · Time':'Time','Settings · Payroll':'Payroll','Settings · Finance':'Finance','Settings · ESS':'Self-service','Settings · Users':'Users'}},
+ {key:'Apps & integrations',icon:'plug',from:['Applications','Integrations'],secs:{Applications:'Applications',Integrations:'Integrations'}},
+];
+const groupOf=p=>GROUPS.find(g=>g.from.includes(p.group));
+
+/* ---------- mapping: Talenta page → [Frappe HRMS, Central today, verdict, note] ----------
+   verdict: y = in Central · p = partial · n = missing · x = not ours (outside retail HR, or a vendor add-on) */
+const M={
+ 'Employees/Employee list':['Employee','Employees','y','Directory + employee sheet (Record, Leave, Claims, Contracts, Pay, Uniforms, Exit, Change). No org chart tab.'],
+ 'Employees/Employee transfer':['Employee Transfer · Employee Promotion','Employees › Change › Where they are posted','p','Central moves a posting on the sheet; there is no transfer document with type, effective date and approval line.'],
+ 'Employees/Mass resignation':['Employee Separation (one by one)','Employees › Exit tab','p','Exit interview + F&F one person at a time; no bulk resignation.'],
+ 'Employees/Import/export prorate':['—','—','n','Payroll proration import; Central prorates from attendance days instead.'],
+ 'Employees/PTKP status adjustment':['—','Employees › Change › Amend personal data','p','PTKP is stored as an identity field; no dated adjustment log for tax.'],
+ 'Employees/Manpower planning':['Staffing Plan · Job Requisition','—','n','Headcount plan per place and budget. Central has hire requests, not a plan.'],
+ 'Employees/New joiner submission':['Job Offer → Employee','New employees (hire request)','y','A place asks, head office decides; the candidate becomes a record afterwards.'],
+ 'Employees/Onboarding':['Employee Onboarding (+ template)','—','n','Checklist per new joiner. Central opens contract/posting/account by hand.'],
+ 'Employees/Offboarding':['Employee Separation (+ template)','Employees › Exit tab','p','Exit interview and F&F exist; no task checklist.'],
+ 'Employees/Reprimand':['—','—','n','Surat peringatan (SP1–SP3) with validity. Neither Frappe nor Central has it; Grievances is the reverse direction.'],
+ 'Recruitment/Overview':['Recruitment dashboard','Recruitment (hidden, from Employees)','p'],
+ 'Recruitment/Job listings':['Job Opening','—','n','Central recruits from an approved hire request, not a published listing.'],
+ 'Recruitment/Candidates':['Job Applicant · Hiring Pipeline','Recruitment (hidden)','p','Applicant intake and interviews from the request that brought them.'],
+ 'Recruitment/Calendar':['Interview','Recruitment (hidden)','p'],
+ 'Recruitment/Activity log':['Version / Activity','—','n'],
+ 'Recruitment/Time to hire report':['Recruitment Analytics','—','n'],
+ 'Recruitment/Talent pool':['—','—','n'],
+ 'Recruitment/Assessments':['Interview Feedback · Skill','—','n'],
+ 'Recruitment settings/Users':['User · Role','System › Users','y'],
+ 'Recruitment settings/Roles & permissions':['Role Permission Manager','Job roles','p','Central roles are job roles with sections, not per-feature grants.'],
+ 'Recruitment settings/Hiring stages':['Interview Round · Interview Type','—','n'],
+ 'Recruitment settings/Email templates':['Email Template','—','n'],
+ 'Recruitment settings/Restricted candidates':['—','—','n'],
+ 'Recruitment settings/Integrations':['—','—','x','Job boards (JobStreet, LinkedIn…).'],
+ 'Recruitment settings/Career page':['Job Portal (/jobs)','—','n'],
+ 'Recruitment settings/Subscription':['—','—','x','Vendor billing.'],
+ 'Time/Time off requests':['Leave Application','Overview & requests','y','Employees ask in /me or the employee app; managers decide on the Overview.'],
+ 'Time/Time off transaction':['Leave Allocation · Leave Control Panel','Employees › Leave tab','p','Balances move by the scheduler\'s accruals; no bulk assign screen.'],
+ 'Time/Balance history':['Leave Ledger · Leave Balance report','Employees › Leave tab','p'],
+ 'Time/Roster leave':['Leave Block List','Roster','p'],
+ 'Time/Attendance data':['Attendance · Monthly Attendance Sheet','Attendance','y','Days derived from punches, roster and leave; Period close from its header.'],
+ 'Time/Attendance activity':['Employee Checkin','Attendance · Punch stations','y','Fingerprint stations + employee-app punch.'],
+ 'Time/Absence deduction':['Salary Component (leave without pay)','Payroll (from attendance days)','p'],
+ 'Time/Overtime requests':['Overtime Slip','Overtime (from Roster)','y','Employer orders, worker consents — stricter than a request.'],
+ 'Time/Calendar':['Holiday List','Settings › Holidays','p','Holidays only; no birthdays or time-off calendar.'],
+ 'Time/Scheduler':['Shift Schedule · Roster','Roster','y'],
+ 'Time/Time Reports':['Monthly Attendance Sheet · Shift Attendance','Reports › Time & absence','y'],
+ 'Time/On-call schedule':['—','—','x','Not a retail pattern.'],
+ 'Time/On-call activity':['—','—','x'],
+ 'Time/On-call category':['—','—','x'],
+ 'Time/Liveness':['Employee Checkin (geolocation)','Employee app punch','p','No face liveness check.'],
+ 'Finance/All requests':['Expense Claim','Claims','y','Per-line sanction, maker ≠ checker, payout via Finance.'],
+ 'Finance/Assign or update':['Expense Claim Type','Claims › Types','p','No per-employee reimbursement balance.'],
+ 'Finance/Disbursement':['Payment Entry','Finance (claim payout)','p'],
+ 'Finance/Loan':['Employee Advance · Loan (lending app)','Finance advances (read)','p'],
+ 'Payroll/Payroll processing':['Payroll Entry','Payroll','y','Place submits, head office approves, hands to Finance.'],
+ 'Payroll/Payroll history':['Salary Slip','Payroll (runs + slips)','y'],
+ 'Payroll/Import Payroll':['Data Import','—','n'],
+ 'Payroll/Payroll component adjustment':['Additional Salary','Payroll › one-off adjustments','y'],
+ 'Payroll/Salary Tax Calculator':['Income Tax Computation (India slabs)','—','n','PPh 21 TER — Indonesia-only; neither has it.'],
+ 'Payroll/Reports':['Salary Register','Reports › Payroll cost','p','No tax / BPJS reports.'],
+ 'Payroll/Ex Employee Allowance':['Gratuity','Employees › Exit › F&F','p'],
+ 'Payroll/NPP Transaction History':['—','—','n','BPJS NPP — Indonesia-only.'],
+ 'Payroll/Cost Center':['Payroll Cost Center','Units (each unit is a cost place)','p'],
+ 'Payroll/General Ledger Mapper':['Salary Component accounts','Payroll → Finance handover (COA map)','y'],
+ 'Payroll/PKWT Compensation':['—','Employees › Contracts (PKWT only)','p','Contract kinds exist; kompensasi PKWT is not calculated.'],
+ 'Payroll/PPh21 DTP':['—','—','n','Indonesia-only.'],
+ 'Payroll/Run THR':['—','—','n','THR — Indonesia-only.'],
+ 'Payroll/Tax/Recalculate':['—','—','n'],
+ 'Payroll/BPJS New Rate':['—','—','n','Indonesia-only.'],
+ 'Productivity/Projects':['Project (ERPNext)','—','x'],
+ 'Productivity/Tasks':['Task (ERPNext)','—','x'],
+ 'Productivity/Group for payroll':['—','—','x'],
+ 'Productivity/Time Tracker':['Timesheet','—','x'],
+ 'Productivity/Activities':['Activity Type','—','x'],
+ 'Productivity/Summary':['Employee Hours Utilization','—','x'],
+ 'Productivity/Tracker Report':['Timesheet report','—','x'],
+ 'Productivity/Forms & surveys':['Web Form (Frappe)','—','n'],
+ 'Productivity/My submissions':['—','—','n'],
+ 'Productivity/Document Template':['Appointment Letter Template · Print Format','Letters (GA)','p'],
+ 'Productivity/Generated documents':['Appointment Letter','Letters (GA)','p'],
+ 'Company/Assets list':['Asset (ERPNext)','GA › Assets','y','Lives in GA, not HR.'],
+ 'Company/Assigned assets':['Asset Movement','GA › Assets · Employees › Uniforms','y'],
+ 'Company/Asset category':['Asset Category','GA › Assets','y'],
+ 'Company/Announcements':['Note / Newsletter','—','n','Nothing reaches the employee app today.'],
+ 'Company/User Activity Log':['Activity Log','System › Audit','p'],
+ 'Company/Queue activity':['RQ Job','—','x'],
+ 'Company/Notification':['Notification Log','Notification bell','y'],
+ 'Company/Company files':['File','Files','p'],
+ 'Company/Report Builder':['Report Builder','Reports','p','Three fixed reports; no builder.'],
+ 'Settings · Account/Profile picture':['User','/me','y'],
+ 'Settings · Account/Password payslip':['Payroll Settings (encrypt slip)','—','n'],
+ 'Settings · Account/Change password':['User','/me','y'],
+ 'Settings · Account/Talenta labs':['—','—','x'],
+ 'Settings · Company/Company info':['Company','Setup (business)','y'],
+ 'Settings · Company/Group structure':['Department tree · Organizational Chart','—','n'],
+ 'Settings · Company/Branch':['Branch','Units (stores, DC, HO)','y'],
+ 'Settings · Company/Organization':['Department','—','n'],
+ 'Settings · Company/Strategic business unit':['—','—','x'],
+ 'Settings · Company/Job level':['Employee Grade','—','n','Grade masters were dropped by the owner; position is free text.'],
+ 'Settings · Company/Job position':['Designation','Job roles','p'],
+ 'Settings · Company/Grade & class':['Employee Grade','—','n','Dropped with the grade masters.'],
+ 'Settings · Company/Auto generate format':['Naming Series','Employees › Change › employee number','p'],
+ 'Settings · Company/Files':['File settings','—','x'],
+ 'Settings · Company/Custom field':['Custom Field','—','n'],
+ 'Settings · Company/NPP':['—','—','n','BPJS NPP — Indonesia-only.'],
+ 'Settings · Company/Employment status':['Employment Type','Contracts (PKWT / PKWTT)','y'],
+ 'Settings · Company/Notification':['Notification · HR Settings','—','p'],
+ 'Settings · Company/Restricted employee':['User Permission','Reach (per place)','y'],
+ 'Settings · Time/Shift':['Shift Type','Settings › Shifts','y'],
+ 'Settings · Time/Break':['Shift Type (break)','Settings › Shifts','p'],
+ 'Settings · Time/Machine':['Biometric device (Employee Checkin)','Punch stations','y'],
+ 'Settings · Time/Auto schedule':['Shift Schedule · Auto attendance','Scheduler (next week\'s roster)','p'],
+ 'Settings · Time/Location set up':['Shift Location (geofence)','—','n'],
+ 'Settings · Time/Mobile set up':['HR Settings (PWA check-in)','Employee app','p'],
+ 'Settings · Time/Portal':['—','—','x'],
+ 'Settings · Time/Time off':['Leave Type · Leave Policy','Settings › Leave types','y'],
+ 'Settings · Time/Overtime':['Overtime Type','Overtime policy (no screen)','p'],
+ 'Settings · Time/Holiday':['Holiday List','Settings › Holidays','y'],
+ 'Settings · Time/Timesheet':['Timesheet','—','x'],
+ 'Settings · Payroll/Payroll schedule':['Payroll Settings','Payroll (monthly)','p'],
+ 'Settings · Payroll/Cut Off & Tax Settings':['Payroll Settings · Income Tax Slab','Attendance › Period close','p'],
+ 'Settings · Payroll/Payroll component':['Salary Component · Salary Structure','Pay agreement (no component screen)','p'],
+ 'Settings · Payroll/Payslip templates':['Print Format','—','n'],
+ 'Settings · Payroll/Taxslip':['—','—','n','Bukti potong 1721-A1 — Indonesia-only.'],
+ 'Settings · Payroll/Pro-rate':['Payroll Settings (payroll based on)','Payroll (attendance days)','p'],
+ 'Settings · Payroll/Absence':['Leave Type (LWP)','Payroll (attendance days)','p'],
+ 'Settings · Payroll/THR':['—','—','n','Indonesia-only.'],
+ 'Settings · Payroll/Time off compensation':['Leave Encashment','—','n'],
+ 'Settings · Payroll/Payment schedule':['Salary Payout (bank entry)','Payroll → Finance','p'],
+ 'Settings · Payroll/Resign compensation':['Gratuity Rule','Employees › Exit › F&F','p'],
+ 'Settings · Payroll/Custom compensation':['Additional Salary','Payroll › one-off adjustments','p'],
+ 'Settings · Finance/Reimbursement':['Expense Claim Type','Claims › Types','y'],
+ 'Settings · Finance/Loan':['Loan Product (lending app)','—','n'],
+ 'Settings · ESS/Approval':['Leave/Expense Approver · Workflow','Fixed ladder (roles + Reach)','p'],
+ 'Settings · ESS/New approval':['Workflow','—','p'],
+ 'Settings · ESS/Delegation':['—','—','n'],
+ 'Settings · ESS/Module':['HR Settings','—','x'],
+ 'Settings · Users/Users':['User','System › Users','y'],
+ 'Settings · Users/Invitation to Talenta':['User (welcome email)','Invitations','y'],
+ 'Settings · Users/Access role':['Role · Role Profile','Job roles','y'],
+ 'Settings · Users/Onboarding setting':['Employee Onboarding Template','—','n'],
+ 'Settings · Users/Onboarding task':['Onboarding Activity','—','n'],
+ 'Settings · Users/Offboarding task template':['Employee Separation Template','—','n'],
+ 'Settings · Users/Offboarding forms and docs':['Exit Interview','Employees › Exit tab','p'],
+ 'Applications/Mekari Expense':['—','Claims','x','Vendor product.'],
+ 'Applications/Mekari Flex':['—','—','x','Earned-wage access; vendor product.'],
+ 'Applications/Insurance':['Employee Benefit (Tax & Benefits)','—','x'],
+ 'Applications/LMS':['Training Program · Training Event','Training programmes (hidden)','x'],
+ 'Integrations/Product':['—','—','x'],
+ 'Integrations/API Data Masking':['—','—','x'],
+};
+PAGES.forEach(p=>{const m=M[p.group+'/'+p.name]||['—','—','n'];p.hrms=m[0];p.central=m[1];p.v=m[2];p.note=m[3]||''});
+const VERD={y:['In Central','ok'],p:['Partial','warn'],n:['Missing','bad'],x:['Not ours','']};
+const vStatus=v=>`<span class="status ${VERD[v][1]}"><i></i>${VERD[v][0]}</span>`;
+
+/* ---------- synthetic data ---------- */
+const PEOPLE=['Alya Putri','Bima Santoso','Citra Lestari','Dimas Pratama','Eka Wulandari','Fajar Nugroho','Gita Maharani','Hendra Wijaya','Intan Permata','Joko Susilo','Kartika Sari','Lukman Hakim'];
+const PLACES=['HO Jakarta','Cikupa','Balaraja','Serang','Cilegon','DC Tangerang'];
+const ORGS=['Store operations','Merchandise','Finance','Distribution','People'];
+const POS=['Store manager','Cashier','Sales associate','Warehouse staff','Buyer','Admin'];
+const rp=n=>'Rp '+n.toLocaleString('id-ID');
+function opts(label){const l=label.toLowerCase();
+ if(/employee|assignee|approver|manager|watcher|pic|from employee|to employee/.test(l)&&!/status|type|id/.test(l))return PEOPLE;
+ if(/employment status/.test(l))return['PKWTT','PKWT','Probation','Daily worker'];
+ if(/transfer type/.test(l))return['Promotion','Mutation','Rotation','Demotion','Extend contract'];
+ if(/status/.test(l))return['Waiting','Approved','Rejected','Draft','Cancelled'];
+ if(/branch|location|place|unit/.test(l))return PLACES;
+ if(/organi[sz]ation|department/.test(l))return ORGS;
+ if(/job position|position/.test(l))return POS;
+ if(/job level|level/.test(l))return['Staff','Supervisor','Manager','Head'];
+ if(/ptkp/.test(l))return['TK/0','TK/1','TK/2','K/0','K/1','K/2','K/3'];
+ if(/gender/.test(l))return['Female','Male'];
+ if(/religion/.test(l))return['Islam','Protestant','Catholic','Hindu','Buddhist','Konghucu'];
+ if(/marital/.test(l))return['Single','Married','Widowed'];
+ if(/policy|time off type|leave/.test(l))return['Annual leave','Sick leave','Maternity leave','Unpaid leave'];
+ if(/shift|schedule/.test(l)&&!/date/.test(l))return['Morning 07–15','Middle 11–19','Closing 14–22','Office 08–17'];
+ if(/category/.test(l))return['Laptop','Handheld scanner','Uniform','Printer'];
+ if(/reimbursement|claim type/.test(l))return['Medical','Transport','Meals','Petty cash'];
+ if(/tax configuration|tax method/.test(l))return['Gross','Gross up','Net'];
+ if(/role/.test(l))return['Owner','HR admin','Store manager','Cashier'];
+ if(/project/.test(l))return['Store opening Cilegon','Stock take Q4','Uniform refresh'];
+ if(/type/.test(l))return['Monthly','One time','Daily','Adjustment'];
+ if(/format/.test(l))return['XLSX','CSV'];
+ return null}
+function sample(col,i,page){const l=col.toLowerCase(),p=PEOPLE[(i+page.name.length)%PEOPLE.length];
+ if(/e-?mail/.test(l))return p.split(' ')[0].toLowerCase()+'@example.invalid';
+ if(/nik|npwp|phone|address|coordinate|passport|token|password|barcode|account no|bank account|kk/.test(l))return'—';
+ if(/employee id|emp id|^id$|employee no/.test(l))return'E-'+String(1041+i*7);
+ if(/transaction id|request id|submission id|queue id|^no$|number/.test(l))return(page.name.slice(0,2).toUpperCase())+'-26'+String(900+i*3);
+ if(/employee name|^employee$|^employees$|full ?name|^name$|assignee|resignee|candidate|requester|requested by|created by|uploader|pic/.test(l))return p;
+ if(/employment status/.test(l))return['PKWTT','PKWT','Probation'][i%3];
+ if(/status/.test(l))return['Waiting','Approved','Approved','Rejected','Draft'][i%5];
+ if(/transfer type/.test(l))return['Promotion','Mutation','Rotation'][i%3];
+ if(/branch|location|place/.test(l))return PLACES[i%PLACES.length];
+ if(/organi[sz]ation|department/.test(l))return ORGS[i%ORGS.length];
+ if(/job position|position/.test(l))return POS[i%POS.length];
+ if(/job level|level/.test(l))return['Staff','Supervisor','Manager'][i%3];
+ if(/grade/.test(l))return['G3','G4','G5'][i%3];
+ if(/class/.test(l))return['A','B'][i%2];
+ if(/gender/.test(l))return['Female','Male'][i%2];
+ if(/religion/.test(l))return['Islam','Protestant','Catholic','Hindu'][i%4];
+ if(/marital/.test(l))return['Married','Single'][i%2];
+ if(/birth place/.test(l))return['Tangerang','Serang','Jakarta','Bandung'][i%4];
+ if(/year/.test(l))return'2026';
+ if(/month|period/.test(l))return['September 2026','August 2026','July 2026'][i%3];
+ if(/date|modified|updated|created|time$|since|until|expired/.test(l))return String(1+(i*3)%28).padStart(2,'0')+' Sep 2026';
+ if(/amount|salary|price|allowance|severance|pay|compensation|limit|cost|value|balance amount|nominal|installment|total amount/.test(l))return rp([250000,480000,1250000,3750000,5200000][i%5]);
+ if(/clock in|check in|schedule in|start/.test(l))return['07:02','10:58','13:55','08:01'][i%4];
+ if(/clock out|check out|schedule out|end$/.test(l))return['15:04','19:10','22:03','17:05'][i%4];
+ if(/duration|hours|overtime/.test(l))return['2h 00m','1h 30m','3h 00m'][i%3];
+ if(/balance|days|remaining|taken/.test(l))return String([12,8,3,0,5][i%5]);
+ if(/policy|time off/.test(l))return['Annual leave','Sick leave','Unpaid leave'][i%3];
+ if(/shift|schedule/.test(l))return['Morning 07–15','Middle 11–19','Closing 14–22'][i%3];
+ if(/asset name/.test(l))return['ThinkPad L14','Zebra TC21','Uniform set M','Epson TM-T82'][i%4];
+ if(/category/.test(l))return['Laptop','Handheld scanner','Uniform','Printer'][i%4];
+ if(/asset (number|code)/.test(l))return'AST-'+String(310+i);
+ if(/project/.test(l))return['Store opening Cilegon','Stock take Q4','Uniform refresh'][i%3];
+ if(/reimbursement|claim/.test(l))return['Medical','Transport','Meals'][i%3];
+ if(/role/.test(l))return['HR admin','Store manager','Cashier'][i%3];
+ if(/type/.test(l))return['Monthly','One time','Adjustment'][i%3];
+ if(/reason|description|notes|remark|message/.test(l))return['Family event','Doctor\'s note attached','Covering Cikupa closing','—'][i%4];
+ if(/progress|%/.test(l))return[20,55,80,100][i%4]+'%';
+ if(/total|count|members|tasks|headcount|qty|quantity|employees$/.test(l))return String([4,9,14,21][i%4]);
+ if(/attachment|photo|file|document|report/.test(l))return i%2?'1 file':'—';
+ if(/name|title|subject/.test(l))return page.name+' '+(i+1);
+ if(/approval|approver/.test(l))return PEOPLE[(i+3)%PEOPLE.length];
+ return['Yes','No'][i%2]}
+
+/* ---------- state ---------- */
+const S={view:'app',page:'home',ui:{},drafts:{},deleted:{}};
+const st=id=>S.ui[id]||=(()=>{const p=byId(id);const cols=p?p.columns:[];return{tab:p&&p.tabs[0]||'',q:'',f:{},sort:'',dir:1,pg:1,mode:'data',hidden:cols.slice(8)}})();
+const byId=id=>PAGES.find(p=>p.id===id);
+function rows(p){const s=st(p.id);if(s.mode!=='data')return[];const n=p.name==='Employee list'?12:p.v==='x'?4:7;
+ const base=Array.from({length:n},(_,i)=>{const r={_id:p.id+'-'+i};[...new Set([...p.columns,...p.filters])].forEach(c=>r[c]=sample(c,i,p));return r});
+ return[...(S.drafts[p.id]||[]),...base].filter(r=>!(S.deleted[p.id]||[]).includes(r._id))}
+function visible(p){const s=st(p.id);let rs=rows(p);if(s.q){const q=s.q.toLowerCase();rs=rs.filter(r=>Object.values(r).join(' ').toLowerCase().includes(q))}
+ for(const[k,v]of Object.entries(s.f))if(v)rs=rs.filter(r=>String(r[k]??'')===v);
+ if(s.sort)rs=[...rs].sort((a,b)=>String(a[s.sort]).localeCompare(String(b[s.sort]),'id',{numeric:true})*s.dir);return rs}
+
+/* ---------- shell ---------- */
+const DEPTS=[['Buying','cart'],['Merchandise','tag'],['Ops','truck'],['Inventory','box'],['Marketing','spark'],['Sales','chart'],['Finance','wallet'],['HR','users'],['GA','wrench']];
+function curGroup(){if(S.page==='home')return null;const p=byId(S.page);return p?groupOf(p):null}
+function renderNav(){const g=curGroup();
+ $('#nav').innerHTML=`<div class="brand"><b>C</b><span class="t">Central</span></div>
+  <button class="nrow" data-dept="Home" title="Home">${ico('home')}<span class="t">Home</span></button>
+  ${DEPTS.map(([d,k])=>d==='HR'?`<button class="nrow dept on" data-go="home" title="HR">${ico(k)}<span class="t">HR</span><span class="n">141</span></button>
+   <div class="guide"><button class="nrow ${S.page==='home'?'on':''}" data-go="home">Overview</button>${GROUPS.map(G=>{const first=PAGES.find(p=>G.from.includes(p.group));return`<button class="nrow ${g===G?'on':''}" data-go="${first.id}">${esc(G.key)}</button>`}).join('')}</div>`:`<button class="nrow" data-dept="${d}" title="${d}">${ico(k)}<span class="t">${d}</span></button>`).join('')}
+  <div class="foot">Prototype · HR only</div>`;
+ const G=g||GROUPS[0];let html=`<h2>${g?esc(G.key):'HR'}</h2>`;
+ if(!g){html+=`<a class="srow on" href="#home"><span>Overview</span></a>`+GROUPS.map(X=>{const first=PAGES.find(p=>X.from.includes(p.group));return`<a class="srow" href="#${first.id}">${ico(X.icon)}<span>${esc(X.key)}</span></a>`}).join('')}
+ else{let lastSec=null;PAGES.filter(p=>G.from.includes(p.group)).forEach(p=>{const sec=G.secs?G.secs[p.group]:null;if(sec&&sec!==lastSec){html+=`<div class="sec">${esc(sec)}</div>`;lastSec=sec}
+   html+=`<a class="srow ${S.page===p.id?'on':''}" href="#${p.id}" title="${esc(VERD[p.v][0])}"><span>${esc(p.name)}</span>${p.v==='y'?'':`<i class="${p.v}"></i>`}</a>`})}
+ $('#sub').innerHTML=html}
+function renderBar(){const p=byId(S.page),g=curGroup();
+ const crumb=S.view==='menus'?'<b>Menus side by side</b>':S.view==='map'?'<b>Page mapping</b>':p?`HR <span class="faint">/</span> ${esc(g.key)} <span class="faint">/</span> <b>${esc(p.name)}</b>`:'HR <span class="faint">/</span> <b>Overview</b>';
+ $('#bar').innerHTML=`<button class="btn ghost menu-btn" data-do="navtoggle" aria-label="Menu">${ico('menu')}</button><span>${crumb}</span><span class="sp"></span><button class="kbd" data-do="palette">${ico('search')}<em class="kt" style="font-style:normal">Search HR</em><span>⌘K</span></button>`}
+
+/* ---------- pages ---------- */
+function cmpStrip(p){return`<div class="cmp"><div><span class="l">Frappe HRMS</span><b>${esc(p.hrms)}</b></div><div><span class="l">Central today</span><b>${esc(p.central)}</b></div><div><span class="l">Verdict</span>${vStatus(p.v)}</div>${p.note?`<div class="note">${esc(p.note)}</div>`:''}</div>`}
+function head(title,cap,act=''){return`<div class="ph"><div><h2>${esc(title)}</h2>${cap?`<div class="cap">${cap}</div>`:''}</div><div class="act">${act}</div></div>`}
+function renderHome(){
+ const waiting=[['Time off requests','6 waiting on you','6'],['Overtime requests','Ordered, not yet answered','3'],['Employee transfer','Effective 1 Oct, awaiting approval','2'],['All requests','Reimbursements to sanction','4'],['Payroll processing','September run is open','1'],['Reprimand','SP1 ending this week','1']];
+ return head('HR overview','What is waiting, and where every Talenta page landed in Central.')+`
+ <div class="kpis"><div class="kpi"><span>Employees</span><b>248</b><em>6 places</em></div><div class="kpi"><span>In today</span><b>211</b><em>of 226 rostered</em></div><div class="kpi"><span>Waiting on you</span><b>17</b><em>across 6 queues</em></div><div class="kpi"><span>Payroll · September</span><b>Open</b><em>cut-off 25 Sep</em></div></div>
+ <div class="two"><div class="card"><div class="chead"><h4>Waiting on you</h4></div><div class="alist">${waiting.map(([n,s,c])=>`<a href="#${PAGES.find(p=>p.name===n).id}"><div class="w"><b>${esc(n)}</b><span>${esc(s)}</span></div><span class="n">${c}</span>${ico('right')}</a>`).join('')}</div></div>
+ <div class="card"><div class="chead"><h4>Talenta's menu</h4><span class="sp"></span><span class="mute">141 pages</span></div><div class="glist">${GROUPS.map(G=>{const ps=PAGES.filter(p=>G.from.includes(p.group));return`<a href="#${ps[0].id}">${ico(G.icon)}${esc(G.key)}<span>${ps.length}</span></a>`}).join('')}</div></div></div>`}
+function renderPage(p){const s=st(p.id);
+ const act=p.action&&p.columns.length?`<button class="btn pri" data-do="primary">${/export|download/i.test(p.action)?ico('down'):ico('plus')}${esc(p.action)}</button>`:'';
+ let h=head(p.name,p.verified?'':'Talenta lists this page, but its columns were not recorded in the inventory.',act)+cmpStrip(p);
+ if(p.tabs.length)h+=`<div class="tabs">${p.tabs.map(t=>`<button class="tab ${s.tab===t?'on':''}" data-do="tab" data-v="${esc(t)}">${esc(t)}</button>`).join('')}</div>`;
+ if(p.name==='Payroll processing')h+=payrollIntro();
+ if(p.group==='Time'&&p.name==='Calendar')return h+calendar();
+ if(p.columns.length)h+=tableCard(p);
+ else if(p.fields.length)h+=inlineForm(p);
+ else h+=`<div class="card"><div class="empty"><h5>Not recorded</h5><p>The Talenta inventory names this page but not what is on it, so nothing is invented here.</p></div></div>`;
+ return h}
+function tableCard(p){const s=st(p.id),fc=Object.values(s.f).filter(Boolean).length;
+ return`<div class="tools"><label class="search">${ico('search')}<input id="q" placeholder="Search ${esc(p.name.toLowerCase())}" value="${esc(s.q)}" /></label>
+  ${p.filters.length?`<button class="btn" data-do="filters">${ico('filter')}Filter${fc?` <span class="ct">${fc}</span>`:''}</button>`:''}
+  ${p.columns.length>4?`<button class="btn" data-do="columns">${ico('cols')}Columns</button>`:''}
+  <span class="sp"></span>
+  <select class="sel" id="mode" aria-label="Prototype state"><option value="data" ${s.mode==='data'?'selected':''}>With data</option><option value="empty" ${s.mode==='empty'?'selected':''}>Empty</option><option value="error" ${s.mode==='error'?'selected':''}>Error</option></select>
+  <button class="btn ghost" data-do="export">${ico('down')}Export</button></div>
+  <div class="card" id="tbl">${tableBody(p)}</div>`}
+function tableBody(p){const s=st(p.id);
+ if(s.mode==='error')return`<div class="empty"><h5>This list did not load</h5><p>Check the connection, then try again. Nothing was changed.</p><button class="btn" data-do="retry">Try again</button></div>`;
+ const all=visible(p),cols=p.columns.filter(c=>!s.hidden.includes(c));
+ if(!all.length)return s.mode==='empty'?`<div class="empty"><h5>No ${esc(p.name.toLowerCase())} yet</h5><p>When there is one, it shows here.</p>${p.action?`<button class="btn pri" data-do="primary">${ico('plus')}${esc(p.action)}</button>`:''}</div>`:`<div class="empty"><h5>Nothing matches</h5><p>Try a different word, or clear the filters.</p><button class="btn" data-do="clear">Clear search and filters</button></div>`;
+ const size=10,max=Math.max(1,Math.ceil(all.length/size));s.pg=Math.min(s.pg,max);const chunk=all.slice((s.pg-1)*size,s.pg*size);
+ return`<div class="tw"><table class="list"><thead><tr>${cols.map(c=>`<th><button data-do="sort" data-v="${esc(c)}">${esc(c)}${s.sort===c?(s.dir>0?' ↑':' ↓'):''}</button></th>`).join('')}</tr></thead><tbody>${chunk.map(r=>`<tr class="click" data-row="${esc(r._id)}">${cols.map((c,i)=>`<td class="${i===0?'first':''}">${cell(c,r[c],r)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+ <div class="tfoot"><span>${all.length} ${all.length===1?'row':'rows'}${(S.drafts[p.id]||[]).length?` · ${(S.drafts[p.id]||[]).length} added in this tab`:''}</span><span class="sp"></span>${max>1?`<button class="btn ghost" data-do="pg" data-v="-1" ${s.pg===1?'disabled':''}>${ico('left')}</button><span>${s.pg} / ${max}</span><button class="btn ghost" data-do="pg" data-v="1" ${s.pg===max?'disabled':''}>${ico('right')}</button>`:''}</div>`}
+function cell(c,v,r){v=v??'—';const l=c.toLowerCase();
+ if(/status/.test(l)&&!/employment|marital|ptkp/.test(l)){const k=/approved|active|done|paid|completed|published/i.test(v)?'ok':/waiting|pending|progress/i.test(v)?'warn':/reject|cancel|fail/i.test(v)?'bad':/draft/i.test(v)?'':'acc';return`<span class="status ${k}"><i></i>${esc(v)}</span>`}
+ if(/^(E|[A-Z][A-Za-z&]?)-\d/.test(v)||/^AST-/.test(v))return`<span class="mono">${esc(v)}</span>`;
+ if(/^Rp /.test(v))return`<span class="num">${esc(v)}</span>`;
+ return esc(v)}
+function inlineForm(p){return`<div class="card"><div class="pad"><form id="inl" class="fgrid" novalidate>${p.fields.map((f,i)=>fieldHtml(f,i)).join('')}</form></div><div class="tfoot"><span class="mute">Nothing is saved outside this tab.</span><span class="sp"></span><button class="btn pri" data-do="inlinesave">${esc(p.action||'Save changes')}</button></div></div>`}
+function fieldHtml(raw,i,val=''){const req=raw.endsWith('!'),chk=raw.endsWith('?'),label=raw.replace(/[!?]$/,''),id='f'+i,o=opts(label),l=label.toLowerCase();
+ if(chk)return`<div class="field full"><label class="check"><input type="checkbox" name="${id}" ${val?'checked':''}/> ${esc(label)}</label></div>`;
+ let ctl;if(o)ctl=`<select id="${id}" name="${id}" ${req?'required':''}><option value="">Choose…</option>${o.map(x=>`<option ${x===val?'selected':''}>${esc(x)}</option>`).join('')}</select>`;
+ else if(/date|birthdate|effective|period start|period end/.test(l))ctl=`<input id="${id}" name="${id}" type="date" ${req?'required':''} value="${esc(val)}"/>`;
+ else if(/reason|description|notes|message|remark|address|content/.test(l))ctl=`<textarea id="${id}" name="${id}" ${req?'required':''}>${esc(val)}</textarea>`;
+ else if(/attachment|file|upload|photo|picture|logo/.test(l))ctl=`<input id="${id}" name="${id}" type="file" />`;
+ else if(/amount|salary|nominal|limit|rate|price|value|allowance/.test(l))ctl=`<input id="${id}" name="${id}" inputmode="numeric" placeholder="Rp" ${req?'required':''} value="${esc(val)}"/>`;
+ else if(/password/.test(l))ctl=`<input id="${id}" name="${id}" type="password" autocomplete="new-password" ${req?'required':''}/>`;
+ else ctl=`<input id="${id}" name="${id}" ${req?'required':''} value="${esc(val)}"/>`;
+ const full=/textarea/.test(ctl)?' full':'';
+ return`<div class="field${full}"><label class="lb" for="${id}">${esc(label)}${req?'':' <em>optional</em>'}</label>${ctl}<div class="hint" hidden>Required</div></div>`}
+function payrollIntro(){return`<div class="card"><div class="pad"><div class="steps"><span class="on">1 · Set up</span><span>2 · Review</span><span>3 · Summary</span></div><p class="body">Pick the period and the people, review what each slip adds up to, then hand the run to head office. Nothing is calculated in this prototype.</p></div></div>`}
+function calendar(){const s=st(S.page);s.m??=8;const y=2026,first=new Date(y,s.m,1),off=(first.getDay()+6)%7,last=new Date(y,s.m+1,0).getDate(),cells=Math.ceil((off+last)/7)*7;
+ const ev={1:['Staff briefing · HO'],12:['Annual leave · Citra','off'],17:['Maulid Nabi','off'],24:['Payroll cut-off'],29:['Stock take · Cikupa']};
+ return`<div class="card"><div class="chead"><h4>${first.toLocaleDateString('en-GB',{month:'long',year:'numeric'})}</h4><span class="sp"></span><button class="btn ghost" data-do="month" data-v="-1">${ico('left')}</button><button class="btn" data-do="month" data-v="0">Today</button><button class="btn ghost" data-do="month" data-v="1">${ico('right')}</button></div>
+ <div class="cal">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d=>`<div class="dn">${d}</div>`).join('')}${Array.from({length:cells},(_,i)=>{const d=i-off+1,ok=d>0&&d<=last,e=s.m===8&&ev[d];return`<div class="${ok&&s.m===8&&d===30?'today':''}">${ok?`<b>${d}</b>${e?`<span class="ev ${e[1]||''}">${esc(e[0])}</span>`:''}`:''}</div>`}).join('')}</div></div>`}
+
+/* ---------- menus side by side ---------- */
+const HRMS=[
+ ['HR Setup',['Employee','Organizational Chart',{s:'Setup'},'Company','Branch','Department','Designation','Employee Group','Employee Grade']],
+ ['Recruitment',['Hiring Pipeline','Job Opening','Job Applicant','Interview','Job Offer','Appointment Letter',{s:'Planning'},'Job Requisition','Staffing Plan','Employee Referral',{s:'Reports'},'Recruitment Analytics',{s:'Setup'},'Interview Type','Job Opening Template','Appointment Letter Template','Job Offer Term Template','Job Portal']],
+ ['Tenure',['Employee Onboarding','Employee Separation','Employee Grievance',{s:'Reports'},'Employee Exits','Employee Birthday','Employee Information','Employee Analytics',{s:'Setup'},'Employee Skill Map','Grievance Type','Training Program','Training Event','Training Feedback','Training Result']],
+ ['Shift & Attendance',['Roster','Employee Attendance Tool','Employee Checkin','Shift Request','Attendance Request',{s:'Overtime'},'Overtime Type','Overtime Slip',{s:'Reports'},'Monthly Attendance Sheet','Shift Attendance','Employee Hours Utilization',{s:'Setup'},'Shift Type','Shift Location','Shift Schedule','Activity Type','Timesheet']],
+ ['Leaves',['Leave Application','Leave Encashment','Leave Control Panel','Leave Policy Assignment','Leave Allocation',{s:'Reports'},'Leave Balance','Leave Balance Summary','Employees Working on a Holiday',{s:'Setup'},'Holiday List','Holiday List Assignment','Leave Period','Leave Policy','Leave Block List','Leave Type']],
+ ['Expenses',['Employee Advance','Expense Claim',{s:'Travel'},'Purpose of Travel','Travel Request','Vehicle Log',{s:'Reports'},'Unpaid Expense Claim','Vehicle Expenses',{s:'Setup'},'Expense Claim Type','Driver','Vehicle']],
+ ['Payroll',['Payroll Entry','Salary Structure Assignment','Salary Slip','Additional Salary','Salary Withholding',{s:'Reports'},'Employee CTC Break-up','Salary Register','Income Tax Deductions',{s:'Setup'},'Salary Component','Salary Structure','Payroll Settings']],
+ ['Tax & Benefits',['Exemption Declaration','Exemption Submission Proof','Benefit Application','Benefit Claim',{s:'Reports'},'Income Tax Computation','Accrued Earnings Report',{s:'Setup'},'Income Tax Slab','Exemption Category']],
+ ['Performance',['Goal','Appraisal Cycle','Appraisal','Employee Performance Feedback','Employee Promotion',{s:'Reports'},'Appraisal Overview',{s:'Setup'},'Appraisal Template','KRA','Employee Feedback Criteria']],
+];
+const CENTRAL=[
+ [null,['Overview & requests','Employees',{h:'New employees'},{h:'Recruitment'},{h:'Training programmes'},{h:'Performance'},'Invitations','Job roles']],
+ [null,['Roster',{h:'Overtime'},'Attendance',{h:'Period close'}]],
+ [null,['Claims','Payroll']],
+ [null,['Reports','Grievances · head office','Settings · head office',{h:'Punch stations'},{h:'Scheduler'}]],
+];
+const CENTRAL_EXTRA=[['Employee sheet tabs','Record · Leave · Claims · Contracts · Pay · Uniforms · Exit · Change'],['Settings tabs','Attendance · Shifts · Leave types · Holidays'],['Reports','Workforce · Time & absence · Payroll cost'],['Employees themselves','/me and the employee app: profile, leave, overtime, attendance, corrections, payslip']];
+function renderMenus(){
+ const cnt=v=>PAGES.filter(p=>p.v===v).length;
+ const tal=GROUPS.map(G=>{const ps=PAGES.filter(p=>G.from.includes(p.group));let last=null;return`<div class="mg">${ico(G.icon)}${esc(G.key)}<span>${ps.length}</span></div>`+ps.map(p=>{const sec=G.secs?G.secs[p.group]:null;let pre='';if(sec&&sec!==last){pre=`<div class="mi s">${esc(sec)}</div>`;last=sec}return pre+`<div class="mi"><i class="${p.v}"></i><a href="#${p.id}" data-open="${p.id}">${esc(p.name)}</a></div>`}).join('')}).join('');
+ const hr=HRMS.map(([w,items])=>`<div class="mg">${esc(w)}<span>${items.filter(x=>typeof x==='string').length}</span></div>`+items.map(x=>typeof x==='string'?`<div class="mi">${esc(x)}</div>`:`<div class="mi s">${esc(x.s)}</div>`).join('')).join('');
+ const ce=CENTRAL.map(([_,items],i)=>(i?'<div class="mhr"></div>':'')+items.map(x=>typeof x==='string'?`<div class="mi" style="color:var(--ink)">${esc(x)}</div>`:`<div class="mi h">${esc(x.h)}</div>`).join('')).join('')+'<div class="mhr"></div>'+CENTRAL_EXTRA.map(([a,b])=>`<div class="mi s">${esc(a)}</div><div class="mi">${esc(b)}</div>`).join('');
+ return head('Three HR menus','Talenta (from the 29 Sep inventory), Frappe HRMS <span class="mono">develop</span> @ b47aef4 (28 Sep 2026, v16 workspace sidebars), and Central\'s People module today (<span class="mono">frontend-hub/src/screens/people/nav.ts</span>).')+`
+ <div class="kpis five"><div class="kpi"><span>Talenta pages</span><b>141</b><em>10 groups</em></div><div class="kpi"><span>In Central</span><b>${cnt('y')}</b><em>same job, own screen or tab</em></div><div class="kpi"><span>Partial</span><b>${cnt('p')}</b><em>part of the job is there</em></div><div class="kpi"><span>Missing</span><b>${cnt('n')}</b><em>${PAGES.filter(p=>p.v==='n'&&/Indonesia/.test(p.note)).length} of them Indonesia-only</em></div><div class="kpi"><span>Not ours</span><b>${cnt('x')}</b><em>vendor add-ons, office work</em></div></div>
+ <div class="legend"><span><i style="background:var(--ok)"></i>In Central</span><span><i style="background:var(--warn)"></i>Partial</span><span><i style="background:var(--bad)"></i>Missing</span><span><i style="background:var(--faint)"></i>Not ours</span></div>
+ <div class="cols3"><div class="card mcol"><div class="chead"><h4>Talenta</h4><small>141 pages</small></div><div class="mtree">${tal}</div></div>
+ <div class="card mcol"><div class="chead"><h4>Frappe HRMS</h4><small>9 workspaces</small></div><div class="mtree">${hr}</div></div>
+ <div><div class="card mcol"><div class="chead"><h4>Central today</h4><small>11 rows · 9 at a store</small></div><div class="mtree">${ce}</div></div>
+ <div class="card"><div class="chead"><h4>Only Central has</h4></div><ul class="gaps">
+  <li><b>Confidential grievances</b><p>Head office's queue only, so a complaint about a store manager is never read by that manager.</p></li>
+  <li><b>Overtime as order + consent</b><p>The employer orders, the worker agrees, daily and weekly caps. Talenta and Frappe treat it as a request.</p></li>
+  <li><b>Encrypted fingerprint stations</b><p>Templates never reach a browser and are wiped when employment ends.</p></li>
+  <li><b>Period close and a payroll maker/checker</b><p>A place closes its month and submits payroll; head office approves and hands it to Finance.</p></li>
+ </ul></div></div></div>`}
+
+/* ---------- mapping ---------- */
+function renderMap(){const s=S.ui.__map||={v:'',g:'',q:''};
+ let ps=PAGES.filter(p=>(!s.v||p.v===s.v)&&(!s.g||groupOf(p).key===s.g)&&(!s.q||[p.name,p.hrms,p.central,p.note].join(' ').toLowerCase().includes(s.q.toLowerCase())));
+ let body='',last=null;ps.forEach(p=>{const G=groupOf(p).key;if(G!==last){body+=`<tr class="grp"><td colspan="5">${esc(G)}</td></tr>`;last=G}
+  body+=`<tr class="click" data-open="${p.id}"><td class="first">${esc(p.name)}</td><td>${esc(p.hrms)}</td><td>${esc(p.central)}</td><td>${vStatus(p.v)}</td><td class="wrap body">${esc(p.note)}</td></tr>`});
+ return head('Page mapping','Every Talenta page, the nearest Frappe HRMS doctype or report, and where the same job is done in Central today. Open a row to see the page redrawn.')+`
+ <div class="card"><div class="chead"><h4>Worth taking into Central</h4><span class="sp"></span><span class="mute">ranked by how often a retail HR team needs it</span></div><ul class="gaps">
+  <li><b>Indonesian payroll statutory — PPh 21 TER, BPJS, THR, bukti potong 1721-A1</b><p>Talenta has all of it; Frappe HRMS has none (its tax is India slabs); Central stores NPWP/PTKP/BPJS as identity only. The largest real gap, and one Frappe cannot fill.</p></li>
+  <li><b>Transfer / promotion as a dated document</b><p>Talenta and Frappe both keep one with type, effective date and approval. Central changes a posting on the sheet, so a mutation to Cikupa has no paper trail.</p></li>
+  <li><b>Onboarding and offboarding checklists</b><p>Both others have templates of tasks. Central's Exit tab has the interview and F&amp;F, but no list of things to hand back or set up.</p></li>
+  <li><b>Reprimand (SP1–SP3)</b><p>Talenta only. Indonesian practice, with validity dates that matter at termination.</p></li>
+  <li><b>Organization and job level</b><p>Both others model departments, levels and positions. Central dropped the grade masters on purpose — worth confirming that still holds.</p></li>
+  <li><b>Announcements to the employee app</b><p>Talenta only. Nothing reaches employees from head office today.</p></li>
+ </ul></div>
+ <div class="tools"><label class="search">${ico('search')}<input id="mq" placeholder="Search pages, doctypes, screens" value="${esc(s.q)}" /></label>
+ <select class="sel" id="mv"><option value="">Every verdict</option>${Object.entries(VERD).map(([k,v])=>`<option value="${k}" ${s.v===k?'selected':''}>${v[0]} · ${PAGES.filter(p=>p.v===k).length}</option>`).join('')}</select>
+ <select class="sel" id="mg"><option value="">Every group</option>${GROUPS.map(G=>`<option ${s.g===G.key?'selected':''}>${esc(G.key)}</option>`).join('')}</select><span class="sp"></span><span class="mute">${ps.length} of 141</span></div>
+ <div class="card"><div class="tw"><table class="list"><thead><tr><th>Talenta</th><th>Frappe HRMS</th><th>Central today</th><th>Verdict</th><th>Note</th></tr></thead><tbody>${body||'<tr><td colspan="5"><div class="empty"><h5>Nothing matches</h5></div></td></tr>'}</tbody></table></div></div>`}
+
+/* ---------- render ---------- */
+function render(){document.body.classList.remove('navopen');document.body.classList.toggle('v-menus',S.view==='menus');document.body.classList.toggle('v-map',S.view==='map');
+ $$('.lens').forEach(b=>b.classList.toggle('on',b.dataset.view===S.view));
+ renderNav();renderBar();const pg=$('#page');pg.classList.toggle('wide',S.view!=='app');
+ if(S.view==='menus')pg.innerHTML=renderMenus();
+ else if(S.view==='map')pg.innerHTML=renderMap();
+ else{const p=byId(S.page);pg.innerHTML=p?renderPage(p):renderHome()}
+ $('#scroll').scrollTop=0}
+function route(){const h=decodeURIComponent(location.hash.slice(1));if(h==='menus'||h==='map'){S.view=h}else{S.view='app';S.page=byId(h)?h:'home'}closeSheet(true);closePop();render()}
+
+/* ---------- sheet ---------- */
+let sheetDirty=false;
+function openSheet(title,cap,body,foot){$('#sheet').innerHTML=`<div class="shead"><div><h3>${esc(title)}</h3>${cap?`<div class="cap">${cap}</div>`:''}</div><button class="x" data-do="close" aria-label="Close">${ico('x')}</button></div><div class="sbody">${body}</div>${foot?`<div class="sfoot">${foot}</div>`:''}`;
+ $('#sheet').classList.add('on');$('#scrim').classList.add('on');sheetDirty=false;setTimeout(()=>{const f=$('#sheet input:not([type=checkbox]),#sheet select');f&&f.focus({preventScroll:true})},300)}
+function closeSheet(force){if(!$('#sheet').classList.contains('on'))return;if(sheetDirty&&!force&&!confirm('Discard what you typed?'))return;$('#sheet').classList.remove('on');$('#scrim').classList.remove('on');sheetDirty=false}
+function createSheet(p,rec){const title=rec?'Edit · '+p.name:p.action;
+ if(!p.fields.length){openSheet(title,'The inventory records the button, not its form.',`<div class="empty"><h5>Form not recorded</h5><p>Talenta shows “${esc(p.action)}” here, but the fields were not captured, so none are invented.</p></div>`,`<span class="sp"></span><button class="btn" data-do="close">Close</button>`);return}
+ openSheet(title,'Saved in this browser tab only.',`<form id="cf" class="fgrid" novalidate>${p.fields.map((f,i)=>fieldHtml(f,i,rec?rec[f.replace(/[!?]$/,'')]||'':'')).join('')}</form>`,`<span class="sp"></span><button class="btn" data-do="close">Cancel</button><button class="btn pri" data-do="save" data-v="${rec?esc(rec._id):''}">${rec?'Save changes':'Save'}</button>`)}
+function validate(form){let ok=true;form.querySelectorAll('[required]').forEach(el=>{const bad=!el.value.trim();const f=el.closest('.field');f.classList.toggle('err',bad);f.querySelector('.hint').hidden=!bad;if(bad&&ok){el.focus();ok=false}});return ok}
+function save(p,editId){const form=$('#cf');if(!validate(form))return;const fd=new FormData(form),vals={};p.fields.forEach((f,i)=>{const k=f.replace(/[!?]$/,'');const v=fd.get('f'+i);vals[k]=v instanceof File?v.name:(v??'')});
+ const list=S.drafts[p.id]||=[];let rec=editId&&list.find(r=>r._id===editId);
+ if(!rec){rec={_id:'new-'+Date.now()};list.unshift(rec);if(editId)(S.deleted[p.id]||=[]).push(editId)}
+ const keys=Object.keys(vals),lc=x=>x.toLowerCase();
+ p.columns.forEach((c,i)=>{const C=lc(c);const k=keys.find(x=>lc(x)===C)||keys.find(x=>lc(x).length>3&&(C.includes(lc(x))||lc(x).includes(C)))||(/name/.test(C)&&keys.find(x=>/name/.test(lc(x))));
+  rec[c]=k&&vals[k]?vals[k]:/^status$/.test(C)?'Draft':/created|submitted|request(ed)? date|transaction date/.test(C)?'30 Sep 2026':i===0?(Object.values(vals).find(Boolean)||'New'):'—'});
+ st(p.id).mode='data';closeSheet(true);render();toast(editId?'Changes saved in this tab':'Added. It lives in this tab until you reload.')}
+function detailSheet(p,id){const r=rows(p).find(x=>x._id===id);if(!r)return;
+ const facts=cols=>`<div class="facts">${cols.map(c=>`<div><span>${esc(c)}</span><b>${esc(r[c]??'—')}</b></div>`).join('')}</div>`;
+ const isEmp=p.name==='Employee list';const title=r[p.columns.find(c=>/name|employee$/i.test(c))]||r[p.columns[0]];
+ let body;if(isEmp){const T={'Record':['Employee ID','Branch','Organization','Job position','Job level','Employment status','Join date','End date'],'Personal':['Email','Gender','Birth date','Birth place','Religion','Marital status','Address','Phone number'],'Identity':['NIK','Barcode','Grade','Class']};
+  body=`<div class="tabs">${Object.keys(T).map((t,i)=>`<button class="tab ${i?'':'on'}" data-do="stab" data-v="${t}">${t}</button>`).join('')}</div>${Object.entries(T).map(([t,c],i)=>`<div data-pane="${t}" ${i?'hidden':''}>${facts(c)}</div>`).join('')}<div class="banner" style="margin-top:22px">NIK, phone and address stay blank: Central keeps personal data behind its own key, off the directory.</div>`}
+ else body=facts(p.columns);
+ openSheet(title,esc(p.name),body,`<button class="btn ghost" data-do="del" data-v="${esc(id)}">Delete</button><span class="sp"></span>${isEmp?`<button class="btn" data-do="gotransfer">Transfer</button>`:''}<button class="btn" data-do="edit" data-v="${esc(id)}">Edit</button>`)}
+
+/* ---------- popovers, palette, toast ---------- */
+function openPop(anchor,html){const pop=$('#pop'),sh=$('#shell').getBoundingClientRect(),a=anchor.getBoundingClientRect();pop.innerHTML=html;pop.classList.add('on');let left=a.left-sh.left;const w=pop.offsetWidth;if(left+w>sh.width-8)left=sh.width-w-8;pop.style.left=left+'px';pop.style.top=(a.bottom-sh.top+6)+'px'}
+function closePop(){$('#pop').classList.remove('on')}
+function filterPop(p,anchor){const s=st(p.id);const R=rows(p);openPop(anchor,p.filters.map((f,i)=>{const vals=[...new Set(R.map(r=>r[f]).filter(v=>v&&v!=='—'))];return`<div class="fl"><span>${esc(f)}</span><select class="sel" data-filter="${esc(f)}"><option value="">Any</option>${vals.map(v=>`<option ${s.f[f]===v?'selected':''}>${esc(v)}</option>`).join('')}</select></div>`}).join('')+`<div class="pf"><button class="btn ghost" data-do="fclear">Clear</button><button class="btn pri" data-do="fapply">Apply</button></div>`)}
+function colPop(p,anchor){const s=st(p.id);openPop(anchor,p.columns.map(c=>`<label class="opt"><input type="checkbox" data-col="${esc(c)}" ${s.hidden.includes(c)?'':'checked'}/>${esc(c)}</label>`).join(''))}
+let tt;function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('on'),3200)}
+let palIdx=0;function palette(open){const pal=$('#pal');if(!open){pal.classList.remove('on');return}pal.classList.add('on');$('#palIn').value='';palRender('');$('#palIn').focus()}
+function palRender(q){q=q.toLowerCase();const res=PAGES.filter(p=>!q||(p.name+' '+groupOf(p).key+' '+p.hrms).toLowerCase().includes(q)).slice(0,40);palIdx=0;$('#palRes').innerHTML=res.map((p,i)=>`<a href="#${p.id}" class="${i?'':'hl'}">${esc(p.name)}<span>${esc(groupOf(p).key)}</span></a>`).join('')||'<div class="empty"><p>No page by that name.</p></div>'}
+function csv(p){const s=st(p.id),cols=p.columns.filter(c=>!s.hidden.includes(c)),q=v=>'"'+String(v??'').replace(/^([=+@-])/,"'$1").replace(/"/g,'""')+'"';
+ const blob=new Blob(['﻿'+[cols.map(q).join(','),...visible(p).map(r=>cols.map(c=>q(r[c])).join(','))].join('\r\n')],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=p.id+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);toast('Exported '+visible(p).length+' synthetic rows')}
+
+/* ---------- events ---------- */
+document.addEventListener('click',e=>{
+ const lens=e.target.closest('.lens');if(lens){location.hash=lens.dataset.view==='app'?(S.page||'home'):lens.dataset.view;if(lens.dataset.view==='app'&&location.hash.slice(1)===S.page)route();return}
+ const dept=e.target.closest('[data-dept]');if(dept){toast(dept.dataset.dept+' is not part of this prototype');return}
+ const go=e.target.closest('[data-go]');if(go){location.hash=go.dataset.go;return}
+ const op=e.target.closest('[data-open]');if(op&&!e.target.closest('#pop')){e.preventDefault();location.hash=op.dataset.open;return}
+ const tr=e.target.closest('tr[data-row]');if(tr){detailSheet(byId(S.page),tr.dataset.row);return}
+ if(!e.target.closest('#pop')&&!e.target.closest('[data-do=filters],[data-do=columns]'))closePop();
+ if(!e.target.closest('#pal')&&!e.target.closest('[data-do=palette]'))palette(false);
+ if(e.target.closest('.pal a'))palette(false);
+ const b=e.target.closest('[data-do]');if(!b)return;const a=b.dataset.do,v=b.dataset.v,p=byId(S.page),s=p?st(p.id):null;
+ switch(a){
+  case'navtoggle':document.body.classList.toggle('navopen');break;
+  case'palette':palette(true);break;
+  case'tab':s.tab=v;s.pg=1;render();break;
+  case'stab':$$('#sheet .tab').forEach(t=>t.classList.toggle('on',t.dataset.v===v));$$('#sheet [data-pane]').forEach(d=>d.hidden=d.dataset.pane!==v);break;
+  case'primary':if(/export|download/i.test(p.action))csv(p);else if(/^refresh$/i.test(p.action))toast('Up to date');else createSheet(p);break;
+  case'filters':filterPop(p,b);break;
+  case'columns':colPop(p,b);break;
+  case'fapply':$$('#pop [data-filter]').forEach(el=>s.f[el.dataset.filter]=el.value);s.pg=1;closePop();render();break;
+  case'fclear':s.f={};closePop();render();break;
+  case'clear':s.q='';s.f={};render();break;
+  case'retry':s.mode='data';render();break;
+  case'export':csv(p);break;
+  case'sort':if(s.sort===v)s.dir*=-1;else{s.sort=v;s.dir=1}$('#tbl').innerHTML=tableBody(p);break;
+  case'pg':s.pg+=+v;$('#tbl').innerHTML=tableBody(p);break;
+  case'close':closeSheet();break;
+  case'save':save(p,v);break;
+  case'edit':{const r=rows(p).find(x=>x._id===v);const rec={_id:v};p.fields.forEach(f=>{const k=f.replace(/[!?]$/,'');const c=p.columns.find(c=>c.toLowerCase()===k.toLowerCase());rec[k]=c?r[c]:''});createSheet(p,rec);break}
+  case'del':if(confirm('Delete this row? It comes back when you reload.')){(S.deleted[p.id]||=[]).push(v);closeSheet(true);render();toast('Deleted')}break;
+  case'gotransfer':closeSheet(true);location.hash='employees-employee-transfer';break;
+  case'inlinesave':{const f=$('#inl');const fs=[...f.querySelectorAll('[required]')];let ok=true;fs.forEach(el=>{const bad=!el.value.trim();const fd=el.closest('.field');fd.classList.toggle('err',bad);fd.querySelector('.hint').hidden=!bad;ok=ok&&!bad});if(ok)toast('Saved in this tab');break}
+  case'month':s.m=v==='0'?8:s.m+ +v;if(s.m<0)s.m=0;if(s.m>11)s.m=11;render();break;
+ }});
+document.addEventListener('input',e=>{if(e.target.closest('#sheet'))sheetDirty=true;{const fd=e.target.closest('.field.err');if(fd&&e.target.value.trim()){fd.classList.remove('err');fd.querySelector('.hint').hidden=true}}
+ if(e.target.id==='q'){const p=byId(S.page),s=st(p.id);s.q=e.target.value;s.pg=1;$('#tbl').innerHTML=tableBody(p)}
+ if(e.target.id==='palIn')palRender(e.target.value);
+ if(e.target.id==='mq'){S.ui.__map.q=e.target.value;const pos=e.target.selectionStart;render();const n=$('#mq');n.focus();n.setSelectionRange(pos,pos)}});
+document.addEventListener('change',e=>{const p=byId(S.page);
+ if(e.target.id==='mode'){st(p.id).mode=e.target.value;$('#tbl').innerHTML=tableBody(p)}
+ if(e.target.dataset.col){const s=st(p.id),c=e.target.dataset.col;s.hidden=e.target.checked?s.hidden.filter(x=>x!==c):[...s.hidden,c];$('#tbl').innerHTML=tableBody(p)}
+ if(e.target.id==='mv'){S.ui.__map.v=e.target.value;render()}
+ if(e.target.id==='mg'){S.ui.__map.g=e.target.value;render()}
+ if(e.target.id==='cmpToggle')document.body.classList.toggle('cmp-on',e.target.checked)});
+document.addEventListener('keydown',e=>{
+ if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();palette(!$('#pal').classList.contains('on'));return}
+ if(e.key==='Escape'){if($('#pal').classList.contains('on'))palette(false);else if($('#pop').classList.contains('on'))closePop();else closeSheet()}
+ if($('#pal').classList.contains('on')){const as=$$('#palRes a');if(!as.length)return;if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();palIdx=(palIdx+(e.key==='ArrowDown'?1:-1)+as.length)%as.length;as.forEach((x,i)=>x.classList.toggle('hl',i===palIdx));as[palIdx].scrollIntoView({block:'nearest'})}if(e.key==='Enter'){e.preventDefault();location.hash=as[palIdx].getAttribute('href').slice(1);palette(false)}}});
+$('#scrim').addEventListener('click',()=>closeSheet());
+window.addEventListener('hashchange',route);
+if(!PAGES.length)document.getElementById('page').innerHTML='<div class="banner bad">hr-talenta-prototype/schema.js did not load. Open this file from the repo root.</div>';else route();
+</script>
+</body>
+</html>

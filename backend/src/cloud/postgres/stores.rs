@@ -102,6 +102,10 @@ pub struct StoreTills {
     pub online: i64,
     /// Tills waiting for a supervisor at the shop, as the server last said.
     pub waiting: i64,
+    /// How many till seats the counter has — Kasir 1 to Kasir N
+    /// (`site.till_count`, 0714). Head office's number: a machine sits at a
+    /// seat, it does not add one. Nought for a store with no shop yet.
+    pub seats: i32,
 }
 
 /// One store, as the Stores list shows it.
@@ -245,6 +249,7 @@ struct StoreFacts {
     approved_enrolment: Option<Uuid>,
     tills_active: i64,
     tills_online: i64,
+    till_seats: i32,
     test_print_ok_at: Option<DateTime<Utc>>,
     test_print_failed_at: Option<DateTime<Utc>>,
     people: i64,
@@ -264,11 +269,12 @@ const STORE_FACTS: &str = "
         SELECT u.id AS unit_id, u.code, u.name, u.status AS unit_status, u.opened_at,
                (now() AT TIME ZONE unit_business_timezone(u.id))::date AS today,
                shop.id AS site_id, shop.code AS site_code, shop.city,
+               COALESCE(shop.till_count, 0) AS till_seats,
                CASE WHEN shop.id IS NULL THEN NULL
                     ELSE site_business_timezone(shop.id) END AS timezone
           FROM unit u
           LEFT JOIN LATERAL (
-              SELECT s.id, s.code, s.city
+              SELECT s.id, s.code, s.city, s.till_count
                 FROM site s
                WHERE s.unit_id = u.id
                ORDER BY (s.kind = 'STORE') DESC, s.id
@@ -278,7 +284,7 @@ const STORE_FACTS: &str = "
            AND ($1::text IS NULL OR u.id = $1)
     )
     SELECT st.unit_id, st.code, st.name, st.unit_status, st.opened_at,
-           st.site_id, st.site_code, st.city, st.timezone,
+           st.site_id, st.site_code, st.city, st.timezone, st.till_seats,
            pic.employee_id AS pic_employee_id, pic.pic_name, pic.pic_code,
            node.origin_id IS NOT NULL AS has_node,
            hb.received_at AS heartbeat_at,
@@ -449,6 +455,7 @@ async fn store_facts(
                 approved_enrolment: row.try_get("approved_enrolment_id")?,
                 tills_active: row.try_get("tills_active")?,
                 tills_online: row.try_get("tills_online")?,
+                till_seats: row.try_get("till_seats")?,
                 test_print_ok_at: row.try_get("test_print_ok_at")?,
                 test_print_failed_at: row.try_get("test_print_failed_at")?,
                 people: row.try_get("people")?,
@@ -739,6 +746,7 @@ fn summary_of(facts: &StoreFacts, judged: &[Judged], now: DateTime<Utc>) -> Stor
             active: facts.tills_active,
             online: facts.tills_online,
             waiting: facts.tills_waiting,
+            seats: facts.till_seats,
         },
     }
 }
@@ -968,6 +976,76 @@ pub async fn open_store(
         opened_at,
         opened_by: actor.to_owned(),
     })
+}
+
+// ── the seats at the counter ────────────────────────────────────────────
+
+/// Set how many till seats a store's counter has: Kasir 1 to Kasir `count`.
+///
+/// Head office's number and nobody else's — the owner's rule that a till is a
+/// seat the store has, not a machine that joined. Fewer seats never ends a
+/// shift: a drawer open at a seat that is gone stays listed at the shop until
+/// it is closed, and no new one opens there. The store's nodes are sent a
+/// fresh policy so the shop hears now rather than at the twelve-hourly
+/// renewal; a node that cannot be reached hears then, and the number stands.
+pub async fn set_till_seats(
+    pool: &PgPool,
+    unit_id: &str,
+    count: i32,
+    actor: &str,
+) -> Result<StoreDetail, AppError> {
+    if !(1..=50).contains(&count) {
+        return Err(AppError::Validation(
+            "a store has between 1 and 50 till seats".into(),
+        ));
+    }
+    let mut tx = pool.begin().await?;
+    let kind: Option<String> = sqlx::query_scalar("SELECT kind FROM unit WHERE id = $1 FOR UPDATE")
+        .bind(unit_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    match kind.as_deref() {
+        Some("STORE") => {}
+        Some(_) => {
+            return Err(AppError::Conflict(format!(
+                "{unit_id} is not a store; only a store has till seats"
+            )))
+        }
+        None => return Err(AppError::NotFound(format!("store {unit_id}"))),
+    }
+    let updated = sqlx::query(
+        "UPDATE site SET till_count = $2
+          WHERE id = (SELECT s.id FROM site s WHERE s.unit_id = $1
+                       ORDER BY (s.kind = 'STORE') DESC, s.id LIMIT 1)",
+    )
+    .bind(unit_id)
+    .bind(count)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if updated == 0 {
+        return Err(AppError::Conflict(format!(
+            "{unit_id} has no shop yet; add its premises before its till seats"
+        )));
+    }
+    tx.commit().await?;
+
+    let origins: Vec<String> = sqlx::query_scalar(
+        "SELECT c.origin_id
+           FROM sync_origin_credential c
+           JOIN site s ON s.id = c.site_id
+          WHERE s.unit_id = $1
+          ORDER BY c.origin_id",
+    )
+    .bind(unit_id)
+    .fetch_all(pool)
+    .await?;
+    for origin in origins {
+        if let Err(error) = publish_auth_policy(pool, &origin, actor).await {
+            tracing::warn!(%origin, %error, "the store's node was not sent its new till seats now; it hears at the next renewal");
+        }
+    }
+    store_detail(pool, unit_id, true).await
 }
 
 // ── installing the server ───────────────────────────────────────────────

@@ -879,7 +879,6 @@ function ReconcileDialog({
                 <AccountAndCategory
                   value={account}
                   onChange={setAccount}
-                  placeholder="Which account is the other side of this"
                   accept={(one) => (one.is_active ? null : "cancelled")}
                   categoryLabel="What this charge was"
                   explain
@@ -943,7 +942,6 @@ function ReconcileDialog({
                 <Input
                   value={who}
                   onChange={(event) => setWho(event.target.value)}
-                  placeholder="Pemasok C"
                 />
               </Field>
               <Field label="Note" hint="Optional. Stays on the line for good.">

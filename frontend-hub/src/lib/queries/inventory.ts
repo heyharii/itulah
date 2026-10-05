@@ -1,6 +1,11 @@
 import { node } from "@/lib/api"
 import type { Filter } from "@/lib/filters"
-import type { MovementCause } from "@itulah/contract"
+import type {
+  AllotmentCloseShortRequest,
+  ArticleHistory,
+  MovementCause,
+  UnfilledList,
+} from "@itulah/contract"
 
 /// Inventory reads and writes, and the keys they are held under.
 ///
@@ -268,6 +273,7 @@ export interface Movement {
   readonly subject_id: string
   readonly epc: string | null
   readonly sku_code: string | null
+  readonly article_name: string | null
   readonly quantity: number
   readonly from: string
   readonly to: string
@@ -388,10 +394,16 @@ export interface MissingItem {
   readonly epc: string | null
   readonly barcode: string | null
   readonly sku_code: string | null
+  readonly article_name: string | null
   readonly quantity: number
   readonly site_id: string
   readonly origin_pool: string
   readonly pool_label: string
+  /// The cause and document of the movement that first carried it into
+  /// Missing — where it went missing.
+  readonly missing_cause: string | null
+  readonly missing_reference_type: string | null
+  readonly missing_reference_id: string | null
   readonly missing_since: string | null
   /// Hours since it went missing. The decision metric: an hour is a mislaid
   /// box, a fortnight is a write-off nobody has taken.
@@ -750,10 +762,42 @@ export interface WhatIfResult {
 // Allotments
 // ---------------------------------------------------------------------------
 
+/// The three fulfillment statuses the UI contract may show (allotment V1 §8,
+/// §12). Legacy storage (`IN_PROGRESS`, `DC_COMPLETED`, `CANCELLED`,
+/// `REJECTED`) is mapped to one of these three when read, never written —
+/// `AllotmentStatus` below stays the legacy wire shape for the screens that
+/// have not moved onto this yet.
+export type FulfillmentStatus = "ACTIVE" | "COMPLETED" | "CLOSED"
+
+/// The commitment arithmetic's five travelling stages, plus the two totals
+/// that close the invariant (allotment V1 §3, §12's "quantity pipeline, not a
+/// stepper"). Read straight off the server's canonical view — never
+/// recomputed here (ALT-INV-16): no screen may subtract `received` and
+/// `cancelled` from `quantity` to guess `to_receive`.
+///
+/// `receiving_gap_qty` is the receiving difference (§3 ALT-INV-01) — not a
+/// fulfillment stage, never a pipeline column (§14 #6). MD's own "Shipment"
+/// figure is `at_shipment_qty + at_loaded_qty` (ALT-D06); `at_loaded_qty`
+/// stays its own field here so a screen can do that merge rather than losing
+/// it.
+export interface FulfillmentStages {
+  readonly to_pack_qty: number
+  readonly at_packed_qty: number
+  readonly at_shipment_qty: number
+  readonly at_loaded_qty: number
+  readonly at_in_transit_qty: number
+  readonly received_qty: number
+  readonly closed_short_qty: number
+  readonly to_receive_qty: number
+  readonly receiving_gap_qty: number
+}
+
 /// What the allotment is for. The three are not variations on a theme: each
 /// has its own legal source pool and its own legal destination, checked by
 /// `validate_create_line` on the server.
-export type AllotmentType = "TO_STORE" | "RETURN_TO_DC" | "RETURN_TO_SUPPLIER"
+/// `TO_SITE` is what the cloud now writes for the first; it is the same thing.
+export type AllotmentType =
+  "TO_STORE" | "TO_SITE" | "RETURN_TO_DC" | "RETURN_TO_SUPPLIER"
 
 export type DestinationType = "STORE" | "DC" | "SUPPLIER"
 
@@ -801,7 +845,7 @@ export interface AllotmentStages {
   readonly remaining_quantity: number
 }
 
-export interface AllotmentRow extends AllotmentStages {
+export interface AllotmentRow extends AllotmentStages, FulfillmentStages {
   readonly id: string
   readonly allotment_number: string
   /// The size of the thing, counted three ways, because "a hundred pieces" is
@@ -810,8 +854,28 @@ export interface AllotmentRow extends AllotmentStages {
   readonly line_count: number
   readonly sku_count: number
   readonly destination_count: number
+  /// How many distinct articles the allotment's lines name — the UI
+  /// contract's own "Articles" column (§12), never `sku_count` (a colourway
+  /// is not a garment).
+  readonly article_count: number
+  /// Who the goods came from, as words — several, comma-joined, when the
+  /// articles came in from more than one. Null when none can be traced.
+  /// Absent from a cloud older than this field.
+  readonly supplier_names?: string | null
+  /// The stores the lines go to, by name, in name order.
+  readonly destination_names?: readonly string[]
   readonly type: AllotmentType
   readonly status: AllotmentStatus
+  /// The V1 status (§8) — Active · Completed · Closed. The only status the
+  /// UI contract may show (§8); `status` above is the legacy field.
+  readonly fulfillment_status: FulfillmentStatus
+  /// `to_pack_qty + at_packed_qty + at_shipment_qty + at_loaded_qty == 0` — a
+  /// milestone, not a status (§8 "DC_FULFILLED is a milestone, not a status").
+  readonly dc_fulfilled: boolean
+  readonly edge_application_status: EdgeApplicationStatus | null
+  /// Set when a DC owns this allotment — see `AllotmentDetail`'s own field of
+  /// the same name.
+  readonly activation_target_origin_id: string | null
   readonly edge_cancellation_status: EdgeCancellationStatus | null
   readonly created_by: string
   readonly notes: string | null
@@ -856,6 +920,10 @@ export interface ArticleRollup extends AllotmentStages {
   /// or a whole size run to the fleet.
   readonly sku_count: number
   readonly destination_count: number
+  /// The UI contract's own "By article" figure (§12) — read off the
+  /// canonical view, never derived from `total_quantity` (ALT-INV-16).
+  readonly to_receive_qty: number
+  readonly receiving_gap_qty: number
 }
 
 export interface ArticleAllotmentList {
@@ -884,6 +952,17 @@ export interface StoreSkuSummary {
   readonly received_quantity: number
   readonly cancelled_quantity: number
   readonly remaining_quantity: number
+  /// The fulfillment-stage reading of the same lifetime pipeline (allotment
+  /// V1 §3, §12's "By store" contract) — read off the canonical view, beside
+  /// the legacy counters above rather than in place of them.
+  readonly to_pack_qty: number
+  readonly at_packed_qty: number
+  readonly at_shipment_qty: number
+  readonly at_loaded_qty: number
+  readonly at_in_transit_qty: number
+  readonly closed_short_qty: number
+  readonly to_receive_qty: number
+  readonly receiving_gap_qty: number
 }
 
 /// The same list scoped to one store, plus that store's **lifetime** per-SKU
@@ -917,10 +996,17 @@ export interface AllotmentLine {
   readonly source_pool_id: string
   readonly destination_type: DestinationType
   readonly destination_id: string
+  /// The destination's own name, for the sheet's line matrix — never the raw
+  /// id (§14 #17).
+  readonly destination_name: string | null
   readonly sku_id: string
   readonly sku_code: string
+  readonly article_id: string
   readonly article_code: string
   readonly article_name: string
+  readonly image_url: string | null
+  readonly colour: string | null
+  readonly size: string | null
   readonly quantity: number
   readonly accepted_quantity: number
   readonly picked_quantity: number
@@ -931,6 +1017,17 @@ export interface AllotmentLine {
   readonly received_quantity: number
   readonly cancelled_quantity: number
   readonly remaining_allotted: number
+  /// The fulfillment-stage reading of this same line (allotment V1 §3), read
+  /// off the canonical view rather than derived from the legacy counters
+  /// above.
+  readonly to_pack_qty: number
+  readonly at_packed_qty: number
+  readonly at_shipment_qty: number
+  readonly at_loaded_qty: number
+  readonly at_in_transit_qty: number
+  readonly closed_short_qty: number
+  readonly to_receive_qty: number
+  readonly receiving_gap_qty: number
   readonly cancellation_requested_quantity: number | null
   readonly cancellation_actual_cancelled_quantity: number | null
   /// What the DC could not cancel because it had already been picked.
@@ -988,11 +1085,17 @@ export interface AllotmentCancellation {
   readonly blocked_picked_quantity: number | null
 }
 
-export interface AllotmentDetail extends AllotmentStages {
+export interface AllotmentDetail extends AllotmentStages, FulfillmentStages {
   readonly id: string
   readonly allotment_number: string
   readonly type: AllotmentType
   readonly status: AllotmentStatus
+  /// The V1 status (§8) — Active · Completed · Closed; see `AllotmentRow`.
+  readonly fulfillment_status: FulfillmentStatus
+  readonly article_count: number
+  /// `to_pack_qty + at_packed_qty + at_shipment_qty + at_loaded_qty == 0` —
+  /// see `AllotmentRow`.
+  readonly dc_fulfilled: boolean
   readonly created_by: string
   readonly notes: string | null
   readonly created_at: string
@@ -1170,6 +1273,7 @@ export interface CountLine {
   readonly subject_id?: string
   readonly epc: string
   readonly sku_code: string
+  readonly article_name?: string | null
   readonly expected_quantity: number
   readonly found_quantity: number
 }
@@ -1391,6 +1495,7 @@ export const inventoryKeys = {
   allotmentList: (type: string, status: string) =>
     ["inventory", "allotments", "list", type, status] as const,
   allotment: (id: string) => ["inventory", "allotments", "detail", id] as const,
+  allotmentsUnfilled: () => ["inventory", "allotments", "unfilled"] as const,
   allotmentsByStore: (storeId: string) =>
     ["inventory", "allotments", "by-store", storeId] as const,
   allotmentsByArticle: (destinationId: string) =>
@@ -1423,6 +1528,9 @@ export const inventoryKeys = {
     scope === undefined
       ? (["inventory", "movements"] as const)
       : (["inventory", "movements", "scoped", scope] as const),
+
+  articleHistory: (articleCode: string) =>
+    ["inventory", "article-history", articleCode] as const,
 
   control: () => ["inventory", "control"] as const,
   timeMachineState: (seq: string, poolId: string) =>
@@ -1591,6 +1699,25 @@ export function listAllotments(
   )
 }
 
+/// Every allotment that is over: received, and the ones closed short or
+/// cancelled, which the server only returns under `CANCELLED`. Two reads
+/// merged newest first, so a screen shows one list.
+export async function listFinishedAllotments(
+  type: string,
+  signal?: AbortSignal
+): Promise<AllotmentList> {
+  const [done, closed] = await Promise.all([
+    listAllotments(type, "COMPLETED", signal),
+    listAllotments(type, "CANCELLED", signal),
+  ])
+  const seen = new Set(done.items.map((one) => one.id))
+  const items = [
+    ...done.items,
+    ...closed.items.filter((one) => !seen.has(one.id)),
+  ].sort((left, right) => right.created_at.localeCompare(left.created_at))
+  return { ...done, items }
+}
+
 /// The same book, narrowed to what one shelf has been promised out of.
 ///
 /// Narrowed at the server rather than here: the filter is a clause on the
@@ -1602,6 +1729,26 @@ export function allotmentsByPool(poolId: string, signal?: AbortSignal) {
   return node.get<AllotmentList>(
     `/api/v1/inventory/allotments${search({ source_pool_id: poolId, limit: 200 })}`,
     { signal }
+  )
+}
+
+/// Lines the Gudang cannot fill after the count, and the ones already closed
+/// short. Every open row is actionable: the server lists a line only once the
+/// RFID count has booked its pieces Missing.
+export function allotmentsUnfilled(signal?: AbortSignal) {
+  return node.get<UnfilledList>("/api/v1/inventory/allotments/unfilled", {
+    signal,
+  })
+}
+
+/// Close short on named lines of one allotment.
+export function closeShortAllotment(
+  id: string,
+  request: AllotmentCloseShortRequest
+) {
+  return node.post<unknown>(
+    `/api/v1/inventory/allotments/${id}/close-short`,
+    request
   )
 }
 
@@ -1874,6 +2021,16 @@ export function movementsPage(scope: MovementScope, signal?: AbortSignal) {
       limit: scope.limit ?? MOVEMENTS_LIMIT,
       cursor: scope.cursor,
     })}`,
+    { signal }
+  )
+}
+
+/// The whole history of one article, newest first, in one answer — ordered,
+/// allotted, and every movement of its SKUs. No paging: an article is bought
+/// once, so it is short.
+export function articleHistory(articleCode: string, signal?: AbortSignal) {
+  return node.get<ArticleHistory>(
+    `/api/v1/inventory/articles/${encodeURIComponent(articleCode)}/history`,
     { signal }
   )
 }

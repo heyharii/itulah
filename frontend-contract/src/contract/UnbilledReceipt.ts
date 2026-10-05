@@ -11,7 +11,7 @@ export type UnbilledReceipt = { receipt_id: string, receipt_number: string, supp
 /**
  * The CENTRE's name for the unit — `dc`, `store-07` — which is the
  * spelling every other finance read answers in and the one the unit
- * pickers and `org_place` are keyed on.
+ * pickers and `site` are keyed on.
  */
 site_id: string, 
 /**

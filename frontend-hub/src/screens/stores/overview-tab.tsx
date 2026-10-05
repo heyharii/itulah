@@ -87,7 +87,6 @@ export function OverviewTab({ detail }: { detail: StoreDetailAnswer }) {
                 reason={{
                   label: "Note (optional)",
                   optional: true,
-                  placeholder: "Anything worth recording",
                 }}
                 onConfirm={(note) => open.mutateAsync(note)}
               />

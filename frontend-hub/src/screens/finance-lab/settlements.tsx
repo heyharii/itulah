@@ -153,7 +153,7 @@ export function Settlements() {
               "Channel",
               "Payer",
               "Store",
-              "Settles into",
+              "Settles Into",
               "Captured",
               "Expected",
               ">Gross",
@@ -326,7 +326,6 @@ function BatchDetail({
   const x = b.cardBatches.find((c) => c.batch_id === batchId)!
   const acct = BANK_ACCOUNTS.find((a) => a.bank_account_id === x.settles_into)
   const [note, setNote] = useState("")
-  const overdueDays = !x.settled_on ? late(x.expected_on) : 0
 
   return (
     <div className="flex flex-col gap-5">
@@ -356,11 +355,6 @@ function BatchDetail({
             <Input
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder={
-                overdueDays > 0
-                  ? `${days(overdueDays)} past the expected date — what happened?`
-                  : "Note for the payer"
-              }
               className="min-w-[14rem] flex-1"
             />
             <Button
@@ -381,7 +375,7 @@ function BatchDetail({
           <p className="mt-2 text-meta text-mute">None raised.</p>
         ) : (
           <Table
-            head={["Raised", "By", "Reference", "Status", "What they said", ""]}
+            head={["Raised", "By", "Reference", "Status", "What They Said", ""]}
           >
             {inquiries.map((q) => (
               <Row

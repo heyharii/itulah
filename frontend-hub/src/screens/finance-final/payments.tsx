@@ -19,7 +19,7 @@ import {
   Textarea,
 } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
 import { SubHead } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts } from "@/components/ui/sheet"
@@ -44,21 +44,15 @@ import { useUnits } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { useDebounced } from "@/lib/use-debounced"
-import {
-  CardRow,
-  Grid,
-  Note,
-  NumberCard,
-  Td,
-  Th,
-  TotalRow,
-} from "@/screens/finance-final/parts"
+import { cn } from "@/lib/utils"
+import { Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import { parseMinor, todayIso } from "@/screens/finance/chart"
 import {
   moneyAccountValue,
   parseMoneyAccountValue,
   useMeaningLabel,
-  useMoneyAccounts,
+  useMoneyAccountChoices,
+  useSupplierName,
 } from "@/screens/finance/hooks"
 import {
   AccountMeaning,
@@ -141,20 +135,6 @@ function allocated(payment: SupplierPayment): number {
   return payment.allocations.reduce((sum, row) => sum + row.amount_minor, 0)
 }
 
-/// Who a payment answered. It has as many parties as its allocations do: one
-/// bank line settling two suppliers is an ordinary Friday, so there is no party
-/// on the payment itself.
-function partiesOf(payment: SupplierPayment): readonly string[] {
-  const seen = new Map<string, string>()
-  for (const allocation of payment.allocations) {
-    seen.set(
-      allocation.supplier_id,
-      allocation.supplier_name ?? allocation.supplier_id
-    )
-  }
-  return [...seen.values()]
-}
-
 export function Payments() {
   const [unit, setUnit] = useState("")
   const [status, setStatus] = useState("")
@@ -190,24 +170,6 @@ export function Payments() {
     placeholderData: (previous) => previous,
   })
 
-  // In draft is its own question, asked of the server: the register pages, so
-  // adding up the drafts among the loaded rows would be a figure about how far
-  // somebody scrolled. One row is asked for; the sum is what is wanted.
-  const drafts = useQuery({
-    queryKey: [...financeKeys.payments("DRAFT", unit || null, null), "sum", q],
-    queryFn: ({ signal }) =>
-      listPayments(
-        {
-          status: "DRAFT",
-          unit: unit || undefined,
-          q: q || undefined,
-          limit: 1,
-        },
-        signal
-      ),
-    enabled: status !== "POSTED",
-  })
-
   const rows = useMemo(
     () => payments.data?.pages.flatMap((page) => page.rows) ?? [],
     [payments.data]
@@ -215,22 +177,18 @@ export function Payments() {
   const head = payments.data?.pages[0]
   const matched = head?.total ?? rows.length
   const paid = head?.total_minor ?? 0
-  const open = rows.reduce((sum, row) => sum + unallocated(row), 0)
-  const draft = status === "POSTED" ? 0 : (drafts.data?.total_minor ?? null)
 
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance · Payables"
-        title="Payments"
-        sub="Money leaving and arriving, against the documents it settles."
+        crumb="Finance · Payments"
+        title="Payment Entry"
         actions={
           <>
             <Input
               value={needle}
               onChange={(event) => setNeedle(event.target.value)}
-              placeholder="Number, reference or supplier"
-              className="h-8 w-48"
+              className="h-control w-48"
             />
             <Button variant="primary" onClick={() => setComposing(true)}>
               Record payment
@@ -243,14 +201,14 @@ export function Payments() {
         <UnitSelect
           value={unit}
           onChange={setUnit}
-          className="h-8 w-44"
+          className="h-control w-44"
           aria-label="Unit"
         />
         <span className="inline-flex w-40 shrink-0">
           <Select
             value={status}
             onChange={setStatus}
-            className="h-8 w-40"
+            className="h-control w-40"
             aria-label="Status"
           >
             <option value="">Draft and posted</option>
@@ -267,28 +225,6 @@ export function Payments() {
       </Toolbar>
 
       <div className="flex flex-col gap-4">
-        <CardRow columns={3}>
-          <NumberCard
-            label="Paid"
-            value={paid}
-            note={`${count(matched)} ${matched === 1 ? "payment" : "payments"} matched, draft and posted together`}
-          />
-          {/* ERPNext's own term, and not an error state: a payment on account
-              is legitimate there and waits to be told what it settled. Drawn
-              plain, therefore — no tone, no warning colour. */}
-          <NumberCard
-            label="Unallocated amount"
-            value={open}
-            note={`What was paid less what it was pointed at, over the ${count(rows.length)} loaded. Structurally zero here — see below.`}
-          />
-          <NumberCard
-            label="In draft"
-            value={draft ?? 0}
-            tone={draft !== null && draft > 0 ? "warn" : undefined}
-            note="Recorded, not posted: no ledger row, and no money has left."
-          />
-        </CardRow>
-
         {queryState(payments, {
           loading: "Reading the payment register…",
           refused: (
@@ -313,19 +249,16 @@ export function Payments() {
                 <Grid>
                   <thead>
                     <tr>
-                      <Th width="6.5rem">Date</Th>
-                      <Th width="9rem">Payment</Th>
-                      <Th width="5rem">Type</Th>
+                      <Th width="7.5rem">Date</Th>
+                      <Th width="10rem">Payment</Th>
                       <Th>Party</Th>
                       <Th width="11rem">Paid from</Th>
-                      <Th width="8rem">Unit</Th>
+                      <Th width="7rem">Mode</Th>
+                      <Th>Reference</Th>
                       <Th align="right" width="9.5rem">
                         Paid amount
                       </Th>
-                      <Th align="right" width="9.5rem">
-                        Unallocated
-                      </Th>
-                      <Th width="6rem">Status</Th>
+                      <Th width="7rem">Status</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -333,26 +266,20 @@ export function Payments() {
                       <tr
                         key={row.payment_id}
                         onClick={() => reading.open(row.payment_id)}
-                        className="cursor-pointer hover:bg-soft"
+                        className="cursor-pointer"
                       >
-                        <Td>{day(row.payment_date)}</Td>
-                        <Td>
-                          <span className="block font-mono text-[0.875rem] text-ink">
+                        <Td className="whitespace-nowrap">
+                          {day(row.payment_date)}
+                        </Td>
+                        <Td className="whitespace-nowrap">
+                          <span className="font-mono text-[0.875rem] text-ink">
                             {row.payment_number}
                           </span>
-                          <span className="block text-[0.875rem] text-mute">
-                            {row.reference ?? label(row.method)}
-                          </span>
-                        </Td>
-                        <Td>
-                          {/* One value in every row, and that is the point — see
-                            the head of this file. */}
-                          <Pill>Pay</Pill>
                         </Td>
                         <Td>
                           <Parties payment={row} />
                         </Td>
-                        <Td>
+                        <Td className="whitespace-nowrap">
                           <AccountMeaning
                             meaning={row.account_key}
                             qualifier={row.account_qualifier}
@@ -360,25 +287,31 @@ export function Payments() {
                             name={row.account_name}
                           />
                         </Td>
-                        <Td>
-                          <UnitName id={row.unit_id} />
+                        {/* ERPNext's Mode of Payment, its own column rather than
+                            a tail on the account. */}
+                        <Td className="whitespace-nowrap">
+                          {label(row.method)}
                         </Td>
-                        <Td align="right">
-                          <span className="font-medium text-ink">
-                            {money(row.total_minor)}
+                        <Td className="max-w-0">
+                          <span
+                            className={cn(
+                              "block truncate",
+                              row.reference === null
+                                ? "text-faint"
+                                : "text-body"
+                            )}
+                            title={row.reference ?? undefined}
+                          >
+                            {row.reference ?? "—"}
                           </span>
                         </Td>
-                        <Td align="right">
-                          {unallocated(row) === 0 ? (
-                            <span className="text-hairline-strong">·</span>
-                          ) : (
-                            money(unallocated(row))
-                          )}
+                        <Td align="right" className="whitespace-nowrap">
+                          {money(row.total_minor)}
                         </Td>
                         <Td>
-                          <Pill tone={toneFor(row.status)}>
+                          <Status tone={toneFor(row.status)}>
                             {label(row.status)}
-                          </Pill>
+                          </Status>
                         </Td>
                       </tr>
                     ))}
@@ -386,20 +319,15 @@ export function Payments() {
                       filters match — not a sum of the pages scrolled so far.
                       Unallocated is summed over what is loaded, and says so. */}
                     <TotalRow>
-                      <Td />
                       <Td>Total</Td>
-                      <Td />
-                      <Td className="font-normal text-mute">
-                        all {count(matched)} matched
+                      <Td className="font-normal whitespace-nowrap text-mute">
+                        {count(matched)} payments
                       </Td>
+                      <Td />
+                      <Td />
                       <Td />
                       <Td />
                       <Td align="right">{money(paid)}</Td>
-                      <Td align="right">
-                        <span title={`Over the ${count(rows.length)} loaded`}>
-                          {money(open)}
-                        </span>
-                      </Td>
                       <Td />
                     </TotalRow>
                   </tbody>
@@ -408,19 +336,6 @@ export function Payments() {
               </>
             ),
         })}
-
-        <Note>
-          <b>Two things this register cannot be.</b> Every row is a <b>Pay</b>:
-          there is no Receive document — customer money is taken at the till and
-          becomes a sale — and no Internal Transfer, so moving money between two
-          of our own pots is a manual journal entry. <b>Unallocated amount</b>{" "}
-          is ERPNext&rsquo;s word for money on account and is a perfectly good
-          state there; here it can never be anything but zero, because{" "}
-          <code>POST /finance/payments</code> refuses a payment that names no
-          bill and takes the total from the allocations. The <b>Total</b> row is
-          the server&rsquo;s own sum over everything the search and the filters
-          match, however far the list has been scrolled.
-        </Note>
       </div>
 
       <PaymentPanel id={reading.value ?? null} onClose={reading.close} />
@@ -435,12 +350,23 @@ export function Payments() {
 /// A component and not a helper because the lookup is a hook, and the master
 /// list is what turns a uuid into the name somebody recognises.
 function Parties({ payment }: { payment: SupplierPayment }) {
-  const names = partiesOf(payment)
+  const lookup = useSupplierName()
+  const names = [
+    ...new Map(
+      payment.allocations.map(
+        (one) =>
+          [one.supplier_id, lookup(one.supplier_id, one.supplier_name)] as const
+      )
+    ).values(),
+  ]
   if (names.length === 0) {
     return <span className="text-faint">nothing allocated</span>
   }
   return (
-    <span className="block truncate text-ink" title={names.join(" · ")}>
+    <span
+      className="block max-w-[16rem] truncate text-ink"
+      title={names.join(" · ")}
+    >
       {names.length === 1
         ? names[0]
         : `${names[0]} + ${count(names.length - 1)} more`}
@@ -533,11 +459,11 @@ function PaymentPanel({
                 </Banner>
               )}
 
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <Pill>Pay</Pill>
-                <Pill tone={toneFor(payment.status)}>
+                <Status tone={toneFor(payment.status)}>
                   {label(payment.status)}
-                </Pill>
+                </Status>
                 {!posted && (
                   <Pill tone="warn">Reserved against these bills</Pill>
                 )}
@@ -675,19 +601,10 @@ function PaymentPanel({
               </div>
 
               {posted ? (
-                <Note>
-                  <b>This payment is evidence now.</b> The journal entry quotes
-                  these amounts, so the database refuses to change either the
-                  payment or the bills it named —{" "}
-                  <i>
-                    &ldquo;payment {payment.payment_number} is posted; the bills
-                    it settled cannot be changed afterwards&rdquo;
-                  </i>
-                  . Correcting an allocation means reversing its journal entry
-                  and recording the payment again; there is no re-pointing of a
-                  settled payment, which is what ERPNext&rsquo;s Payment
-                  Reconciliation does and what that screen has no door for.
-                </Note>
+                <p className="text-[0.875rem] text-body">
+                  Posted. To correct it, reverse its journal entry and record
+                  the payment again.
+                </p>
               ) : (
                 <div className="flex flex-wrap items-end justify-between gap-3 border-t border-hairline pt-4">
                   <Field
@@ -695,11 +612,7 @@ function PaymentPanel({
                     hint="Empty posts it on the payment date."
                     className="w-44"
                   >
-                    <Day
-                      value={postingDate}
-                      onChange={setPostingDate}
-                      placeholder={day(payment.payment_date)}
-                    />
+                    <Day value={postingDate} onChange={setPostingDate} />
                   </Field>
                   <div className="flex items-center gap-2">
                     <span className="text-[0.875rem] text-mute">
@@ -1027,7 +940,6 @@ function ComposerPanel({
                 <Day
                   value={giroDueDate}
                   onChange={setGiroDueDate}
-                  placeholder="Choose a day"
                   notBefore={paymentDate}
                 />
               </Field>
@@ -1043,7 +955,7 @@ function ComposerPanel({
                 : undefined
             }
           >
-            <Money value={total} onChange={setTotal} placeholder="0" />
+            <Money value={total} onChange={setTotal} />
           </Field>
           <Field label="Reference" hint="The bank's, if there is one.">
             <Input
@@ -1250,7 +1162,7 @@ function ComposerPanel({
             disabled={!ready}
             onClick={() => record.mutate()}
           >
-            {record.isPending ? "Recording…" : "Record"}
+            {record.isPending ? "Submitting…" : "Submit"}
           </Button>
         </div>
       </div>
@@ -1274,7 +1186,7 @@ function AccountField({
   value: string
   onChange: (value: string) => void
 }) {
-  const accounts = useMoneyAccounts(unit)
+  const { accounts, pending } = useMoneyAccountChoices(unit)
   const meaning = useMeaningLabel()
 
   return (
@@ -1284,9 +1196,11 @@ function AccountField({
       hint={
         unit === ""
           ? "Choose a unit first."
-          : accounts.length === 0
-            ? "No cash or bank meaning is mapped at this unit. Map one first — a posting that needs it is refused."
-            : undefined
+          : pending
+            ? "Reading the accounts…"
+            : accounts.length === 0
+              ? "No cash or bank meaning is mapped at this unit. Map one first — a posting that needs it is refused."
+              : undefined
       }
     >
       <Select

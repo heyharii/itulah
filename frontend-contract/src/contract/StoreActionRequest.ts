@@ -3,16 +3,16 @@
 /**
  * `POST /api/v1/stores/{unit}/actions/{key}`.
  */
-export type StoreActionRequest = {
+export type StoreActionRequest = { 
 /**
  * Required for a device action.
  */
-device_id?: string | null,
+device_id?: string | null, 
 /**
  * Why; shown in the history and on the server. Required to suspend or
  * revoke a device. At most 300 characters.
  */
-note?: string | null,
+note?: string | null, 
 /**
  * Must be `true` for a dangerous action.
  */

@@ -890,6 +890,14 @@ export function createUser(request: CreateUserRequest, signal?: AbortSignal) {
 /// Suspend or restore an account everywhere at once. The server revokes every
 /// live session for that user and republishes the policy to each node they are
 /// assigned to, so the answer carries both.
+/// Lift a wrong-password lockout now (Admin).
+export function unlockUser(id: string) {
+  return node.post<{ id: string; username: string; unlocked: boolean }>(
+    `/api/v1/auth/users/${encodeURIComponent(id)}/unlock`,
+    {}
+  )
+}
+
 export function setUserActive(
   id: string,
   request: SetUserActiveRequest,

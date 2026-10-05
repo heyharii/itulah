@@ -1,5 +1,5 @@
-//! `store diagnose`: everything a person needs to know about this node, in one
-//! report, without logging in anywhere.
+//! `store diagnose` / `dc diagnose`: everything a person needs to know about
+//! this node, in one report, without logging in anywhere.
 //!
 //! The first question on every support call is the same list — is it running,
 //! can it reach head office, is its key still accepted, is the database whole,
@@ -11,8 +11,11 @@
 //! Read-only against the node: it opens the database for reading, asks the
 //! cloud questions that change nothing, and touches no configuration. Safe to
 //! run while the node is serving.
+//!
+//! Both roles run this one report; the words follow the role, so a Gudang's
+//! operator is not told about "the store's internet".
 
-use crate::edge::{enrolment, node};
+use crate::edge::{enrolment, node, EdgeRole};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -20,6 +23,30 @@ use std::{
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
+
+/// How this node's own binary names itself in a heading.
+const fn node_name(role: EdgeRole) -> &'static str {
+    match role {
+        EdgeRole::Dc => "itulah DC Server",
+        EdgeRole::Store => "itulah Store Server",
+    }
+}
+
+/// The noun for a node of this role, for a sentence a person reads.
+const fn role_noun(role: EdgeRole) -> &'static str {
+    match role {
+        EdgeRole::Dc => "Gudang's node",
+        EdgeRole::Store => "shop's node",
+    }
+}
+
+/// The prefix its log files carry (`edge::node::init_logging`).
+const fn role_prefix(role: EdgeRole) -> &'static str {
+    match role {
+        EdgeRole::Dc => "dc",
+        EdgeRole::Store => "store",
+    }
+}
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -47,6 +74,8 @@ fn check(name: &'static str, verdict: Verdict, saying: impl Into<String>) -> Che
 
 #[derive(Debug, Serialize)]
 pub struct Report {
+    /// What this node is, as its own binary names itself.
+    pub node_name: &'static str,
     pub taken_at: DateTime<Utc>,
     pub version: &'static str,
     pub platform: String,
@@ -81,13 +110,13 @@ fn redacted_env(dir: &Path) -> Value {
     json!(lines)
 }
 
-fn log_tail(dir: &Path, lines: usize) -> Vec<String> {
+fn log_tail(role: EdgeRole, dir: &Path, lines: usize) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(dir.join("logs")) else {
         return Vec::new();
     };
     let newest = entries
         .filter_map(Result::ok)
-        .filter(|entry| entry.file_name().to_string_lossy().starts_with("store"))
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with(role_prefix(role)))
         .max_by_key(|entry| entry.metadata().and_then(|m| m.modified()).ok());
     let Some(newest) = newest else {
         return Vec::new();
@@ -109,12 +138,12 @@ fn megabytes(bytes: u64) -> String {
 }
 
 /// The database: whole, how big, how much is waiting to go up.
-fn database_checks(path: &Path, checks: &mut Vec<Check>, detail: &mut Value) {
+fn database_checks(role: EdgeRole, path: &Path, checks: &mut Vec<Check>, detail: &mut Value) {
     if !path.exists() {
         checks.push(check(
             "database",
             Verdict::Warn,
-            "No database yet — this node has never run as a store.",
+            format!("No database yet — this node has never run as a {}.", role_noun(role)),
         ));
         return;
     }
@@ -235,7 +264,7 @@ async fn cloud_checks(checks: &mut Vec<Check>, detail: &mut Value) {
             checks.push(check(
                 "cloud",
                 Verdict::Fail,
-                format!("Cannot reach head office — check the store's internet. ({error})"),
+                format!("Cannot reach head office — check the node's internet. ({error})"),
             ));
             return;
         }
@@ -307,11 +336,11 @@ async fn cloud_checks(checks: &mut Vec<Check>, detail: &mut Value) {
 }
 
 /// Is the node itself answering on this machine?
-async fn local_checks(checks: &mut Vec<Check>) {
+async fn local_checks(role: EdgeRole, checks: &mut Vec<Check>) {
     let port = std::env::var("BIND_ADDR")
         .ok()
         .and_then(|addr| addr.rsplit(':').next().map(str::to_owned))
-        .unwrap_or_else(|| "8082".into());
+        .unwrap_or_else(|| crate::edge::node::default_port(role).to_string());
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .build()
@@ -326,12 +355,12 @@ async fn local_checks(checks: &mut Vec<Check>) {
         None => false,
     };
     checks.push(if answered {
-        check("service", Verdict::Ok, format!("Store server running on port {port}."))
+        check("service", Verdict::Ok, format!("{role} node running on port {port}."))
     } else {
         check(
             "service",
             Verdict::Fail,
-            format!("Store server not answering on port {port} — the service is off, restarting, or still waiting for enrolment."),
+            format!("{role} node not answering on port {port} — the service is off, restarting, or still waiting for enrolment."),
         )
     });
 }
@@ -375,7 +404,7 @@ fn incident_checks(dir: &Path, checks: &mut Vec<Check>, detail: &mut Value) {
 }
 
 /// Run every check. `data_dir` is the installed node's directory, if any.
-pub async fn diagnose(data_dir: Option<&Path>) -> Report {
+pub async fn diagnose(role: EdgeRole, data_dir: Option<&Path>) -> Report {
     let mut checks = Vec::new();
     let mut detail = json!({});
     match data_dir {
@@ -395,15 +424,18 @@ pub async fn diagnose(data_dir: Option<&Path>) -> Report {
                 check(
                     "enrolment",
                     Verdict::Warn,
-                    "Not enrolled — open http://localhost:8082/setup on this machine.",
+                    format!(
+                        "Not enrolled — open http://localhost:{}/setup on this machine.",
+                        crate::edge::node::default_port(role)
+                    ),
                 )
             });
             let database = std::env::var("INVENTORY_DATABASE_PATH")
                 .map(PathBuf::from)
-                .unwrap_or_else(|_| dir.join("store-edge.sqlite3"));
-            database_checks(&database, &mut checks, &mut detail);
+                .unwrap_or_else(|_| dir.join(crate::edge::node::default_database_file(role)));
+            database_checks(role, &database, &mut checks, &mut detail);
             incident_checks(dir, &mut checks, &mut detail);
-            detail["log_tail"] = json!(log_tail(dir, 200));
+            detail["log_tail"] = json!(log_tail(role, dir, 200));
         }
         None => checks.push(check(
             "installation",
@@ -411,9 +443,10 @@ pub async fn diagnose(data_dir: Option<&Path>) -> Report {
             "Not an installation (ITULAH_DATA_DIR not set) — checking connections only.",
         )),
     }
-    local_checks(&mut checks).await;
+    local_checks(role, &mut checks).await;
     cloud_checks(&mut checks, &mut detail).await;
     Report {
+        node_name: node_name(role),
         taken_at: Utc::now(),
         version: env!("CARGO_PKG_VERSION"),
         platform: format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
@@ -437,7 +470,8 @@ pub fn print_and_save(report: &Report) -> Option<PathBuf> {
         Verdict::Fail => "FAIL ",
     };
     println!(
-        "itulah Store Server {} — diagnosis {}",
+        "{} {} — diagnosis {}",
+        report.node_name,
         report.version,
         report.taken_at.format("%Y-%m-%d %H:%M UTC")
     );

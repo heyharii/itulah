@@ -20,7 +20,7 @@
 
 use super::sqlite::db;
 use super::{
-    EdgeError, EdgeRole, InventoryState, MovementCause, MovementCommand, MovementGroupId,
+    EdgeError, InventoryState, MovementCause, MovementCommand, MovementGroupId,
     MovementLine, NodeContext, OperationalPool, Place, SubjectId,
 };
 use crate::sync::flow::{
@@ -549,14 +549,16 @@ pub fn return_inspection(
 }
 
 /// Where damaged goods go at this site: its reject pool.
+///
+/// One spelling for both roles: `{site}.reject`, which is what the centre's
+/// template gives every site kind (0610). A Gudang used to write
+/// `{site}.reject.dc`, an id the centre holds no row for unless that Gudang is
+/// the seeded one — so damaged goods at a warehouse opened later stood in a
+/// pool the hub could not name. The old spelling is still read
+/// (`DcRejectDc`), never written.
 fn reject_pool(node: &NodeContext) -> OperationalPool {
-    match node.role {
-        EdgeRole::Dc => OperationalPool::DcRejectDc {
-            dc_id: node.site_id.clone(),
-        },
-        EdgeRole::Store => OperationalPool::StoreReject {
-            store_id: node.site_id.clone(),
-        },
+    OperationalPool::Reject {
+        site_id: node.site_id.clone(),
     }
 }
 

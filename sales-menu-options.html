@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sales menu options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@500;600&display=swap" rel="stylesheet" />
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Sales menu: today, five options, and the research behind them.
+   Same shell as inventory-menu-options.html and finance-menu-options.html:
+   hub v2 · E Quiet. Inter 14, 36px controls, 52px rows, Poppins only for the
+   28px title and figures. No chips; status is a dot and a word; colour only
+   on exceptions. Nothing below 14px.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --font-ui:"Inter",system-ui,-apple-system,sans-serif;
+  --font-display:"Poppins","Inter",system-ui,sans-serif;
+  --canvas:#f7f8fa; --surface:#fff; --well:#f6f7f9; --side:#f8f9fb;
+  --hairline:#e7eaf0; --rule:#eef0f4; --line-ctl:#d3d8e0;
+  --ink-900:#20242c; --ink-800:#2b313c; --ink-700:#394150; --ink-600:#4a5261; --ink-500:#626b78; --ink-400:#737c89; --ink-300:#aab1bb; --ink-200:#d5dae1;
+  --primary:#2563eb; --primary-ink:#1d4ed8; --primary-soft:#eef4ff;
+  --sel:#eceff3; --sel-subtle:#f8f9fb;
+  --ok:#22a55a; --ok-fg:#15803d; --info:#2563eb; --warn:#d99a2b; --warn-fg:#b45309; --bad:#e25555; --bad-fg:#be123c; --bad-bg:#fcecec;
+  --new:#7c3aed; --meter:#394150;
+  --h-ctl:36px; --h-row:52px; --h-nav:36px;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --canvas:#15171b; --surface:#1c1f24; --well:#23262c; --side:#191b20;
+    --hairline:#2c3038; --rule:#262a31; --line-ctl:#3a3f48;
+    --ink-900:#f1f3f6; --ink-800:#e2e5ea; --ink-700:#c9ced6; --ink-600:#b3b9c3; --ink-500:#9aa1ad; --ink-400:#858d99; --ink-300:#5c636e; --ink-200:#3a3f48;
+    --primary:#4f83f5; --primary-ink:#8cb0ff; --primary-soft:#1d2a44; --sel:#2a2e36; --sel-subtle:#20232a;
+    --ok-fg:#5fd08a; --warn-fg:#f0b44f; --bad-fg:#ff8a8a; --bad-bg:#3a1f22; --new:#a78bfa; --meter:#c9ced6;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --canvas:#15171b; --surface:#1c1f24; --well:#23262c; --side:#191b20;
+  --hairline:#2c3038; --rule:#262a31; --line-ctl:#3a3f48;
+  --ink-900:#f1f3f6; --ink-800:#e2e5ea; --ink-700:#c9ced6; --ink-600:#b3b9c3; --ink-500:#9aa1ad; --ink-400:#858d99; --ink-300:#5c636e; --ink-200:#3a3f48;
+  --primary:#4f83f5; --primary-ink:#8cb0ff; --primary-soft:#1d2a44; --sel:#2a2e36; --sel-subtle:#20232a;
+  --ok-fg:#5fd08a; --warn-fg:#f0b44f; --bad-fg:#ff8a8a; --bad-bg:#3a1f22; --new:#a78bfa; --meter:#c9ced6;
+  color-scheme:dark;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--canvas)}
+body{font:400 14px/20px var(--font-ui);color:var(--ink-700);-webkit-font-smoothing:antialiased;min-height:100vh}
+button,select,input{font:inherit;color:inherit}
+button{cursor:pointer;background:none;border:0}
+svg.i{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+
+/* ── Prototype bar ── */
+.proto{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:16px;padding:10px 20px;background:var(--surface);border-bottom:1px solid var(--hairline)}
+.proto .t{font-weight:600;color:var(--ink-900);white-space:nowrap}
+.proto .t span{color:var(--ink-400);font-weight:400}
+.seg{display:flex;gap:2px;padding:3px;border-radius:10px;background:var(--well);overflow-x:auto;scrollbar-width:none}
+.seg button{height:30px;padding:0 12px;border-radius:8px;color:var(--ink-500);font-weight:500;white-space:nowrap;transition:background-color .2s var(--ease-out),color .2s}
+.seg button:hover{color:var(--ink-900)}
+.seg button[aria-pressed=true]{background:var(--surface);color:var(--ink-900);box-shadow:0 1px 2px rgb(24 39 60/.1),0 0 0 1px var(--hairline)}
+.seg button .star{color:var(--primary)}
+.proto .sp{flex:1}
+.proto .theme{height:30px;padding:0 10px;border-radius:8px;color:var(--ink-500)}
+.proto .theme:hover{background:var(--well);color:var(--ink-900)}
+
+/* ── Hub shell ── */
+.app{display:grid;grid-template-columns:256px minmax(0,1fr) 340px;min-height:calc(100vh - 51px)}
+.side{background:var(--side);border-right:1px solid var(--hairline);padding:14px 10px;display:flex;flex-direction:column;gap:2px;position:sticky;top:51px;height:calc(100vh - 51px);overflow:auto}
+.chip{display:flex;align-items:center;gap:10px;padding:4px 8px 14px}
+.mark{width:28px;height:28px;border-radius:8px;background:#111114;color:#fff;display:grid;place-items:center;font:600 15px/1 var(--font-display);position:relative}
+.mark::after{content:"";position:absolute;right:5px;bottom:6px;width:5px;height:5px;border-radius:50%;background:#2563eb}
+.chip b{font-weight:600;color:var(--ink-900)}
+.chip small{display:block;font-size:14px;color:var(--ink-400)}
+.row{display:flex;align-items:center;gap:10px;height:var(--h-nav);padding:0 8px;border-radius:9px;color:var(--ink-600);font-weight:500;white-space:nowrap;text-align:left;width:100%;transition:background-color .15s var(--ease-out),color .15s}
+.row:hover{background:var(--well);color:var(--ink-900)}
+.row .i{color:var(--ink-400)}
+.row.inert{cursor:default}
+.row.inert:hover{background:none;color:var(--ink-600)}
+.row.dep{color:var(--ink-900);font-weight:600}
+.row.dep .i{color:var(--ink-900)}
+.row .ct{margin-left:auto;font-weight:500;color:var(--ink-400)}
+.row .ct.bad,.sub .ct.bad{color:var(--bad-fg)}
+.subs{margin:2px 0 6px 17px;padding-left:12px;border-left:1px solid var(--hairline);display:flex;flex-direction:column;gap:1px}
+.sub{display:flex;align-items:center;gap:8px;min-height:32px;padding:0 10px;border-radius:8px;color:var(--ink-600);text-align:left;width:100%;transition:background-color .15s,color .15s}
+.sub:hover{background:var(--well);color:var(--ink-900)}
+.sub[aria-current]{background:var(--sel);color:var(--ink-900);font-weight:600}
+.sub .ct{margin-left:auto;font-weight:500;color:var(--ink-400)}
+.sub .nw{margin-left:auto;color:var(--new);font-weight:500}
+.sub.more{color:var(--ink-400)}
+.sub.more .i{width:16px;height:16px;transition:transform .2s var(--ease-out)}
+.sub.more[aria-expanded=true] .i{transform:rotate(180deg)}
+.sub.dim{color:var(--ink-400)}
+.grp{padding:10px 10px 2px;color:var(--ink-400);font-weight:500}
+.subs .anim{animation:sub-in .32s var(--ease-out) both}
+@keyframes sub-in{from{opacity:0;transform:translateY(-4px)}}
+
+/* ── Page ── */
+main{min-width:0;padding:28px 32px 64px}
+.page{animation:page-in .28s var(--ease-out)}
+@keyframes page-in{from{opacity:0;transform:translateY(6px)}}
+.crumb{color:var(--ink-400)}
+.head{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+.head .tx{flex:1;min-width:260px}
+.h1{margin-top:2px;font:600 28px/36px var(--font-display);letter-spacing:-.025em;color:var(--ink-900)}
+.desc{margin-top:4px;color:var(--ink-500);max-width:640px}
+.desc .nwt{color:var(--new);font-weight:500}
+.acts{display:flex;gap:8px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:8px;height:var(--h-ctl);padding:0 14px;border-radius:10px;font-weight:500;white-space:nowrap;transition:background-color .2s,transform .16s var(--ease-out)}
+.btn:active{transform:scale(.98)}
+.btn-g{background:var(--surface);box-shadow:inset 0 0 0 1px var(--line-ctl);color:var(--ink-700)}
+.btn-g:hover{background:var(--well)}
+.btn-g .i{color:var(--ink-400)}
+.btn-p{background:var(--primary);color:#fff;font-weight:600;box-shadow:inset 0 1px 0 rgb(255 255 255/.18),0 0 0 1px rgb(0 0 0/.08)}
+.btn-p:hover{background:var(--primary-ink)}
+.figs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--hairline);border-radius:14px;background:var(--surface);margin-bottom:20px}
+.fig{padding:16px 20px}
+.fig+.fig{border-left:1px solid var(--rule)}
+.fig .l{color:var(--ink-500)}
+.fig .v{margin-top:2px;font:600 30px/38px var(--font-display);letter-spacing:-.03em;color:var(--ink-900);font-variant-numeric:tabular-nums}
+.fig .v small{font-size:18px;color:var(--ink-400);font-weight:500}
+.fig .s{color:var(--ink-400)}
+.panel{background:var(--surface);border:1px solid var(--hairline);border-radius:14px;overflow:hidden}
+.bar{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--rule);flex-wrap:wrap}
+.search{flex:1;min-width:180px;display:flex;align-items:center;gap:8px;height:var(--h-ctl);padding:0 12px;border-radius:10px;box-shadow:inset 0 0 0 1px var(--line-ctl);color:var(--ink-400)}
+.search input{border:0;outline:0;background:none;flex:1;min-width:0;color:var(--ink-900)}
+.sel{position:relative;display:inline-flex;align-items:center}
+.sel select{appearance:none;height:var(--h-ctl);padding:0 34px 0 12px;border-radius:10px;border:0;background:var(--surface);box-shadow:inset 0 0 0 1px var(--line-ctl);color:var(--ink-800);font-weight:500;cursor:pointer}
+.sel select:hover{background:var(--well)}
+.sel .i{position:absolute;right:10px;pointer-events:none;color:var(--ink-400);width:16px;height:16px}
+.h2{padding:14px 16px 4px;font-weight:600;color:var(--ink-900);font-size:15px}
+table{width:100%;border-collapse:collapse}
+th{height:40px;padding:0 16px;text-align:left;font-weight:500;color:var(--ink-500);border-bottom:1px solid var(--hairline);white-space:nowrap}
+td{height:var(--h-row);padding:0 16px;border-bottom:1px solid var(--rule);color:var(--ink-700);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+th.n,td.n{text-align:right;font-variant-numeric:tabular-nums}
+tbody tr.link{cursor:pointer}
+tbody tr.link:hover td{background:var(--sel-subtle)}
+tr.kid td{height:44px;color:var(--ink-500);background:var(--sel-subtle)}
+tr.kid td:first-child{padding-left:44px}
+.caret{display:inline-block;width:18px;color:var(--ink-400);transition:transform .2s var(--ease-out)}
+tr.open .caret{transform:rotate(90deg)}
+.t1{color:var(--ink-900);font-weight:500}
+.t2{color:var(--ink-400)}
+.up{color:var(--ok-fg)} .down{color:var(--bad-fg)}
+.dot{display:inline-flex;align-items:center;gap:7px;font-weight:500;color:var(--ink-600)}
+.dot::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--ink-300)}
+.dot.ok::before{background:var(--ok)} .dot.info::before{background:var(--info)}
+.dot.warn{color:var(--warn-fg)} .dot.warn::before{background:var(--warn)}
+.dot.bad{color:var(--bad-fg)} .dot.bad::before{background:var(--bad)}
+.meter{display:flex;align-items:center;gap:10px;min-width:150px}
+.meter i{flex:1;height:4px;background:var(--rule);border-radius:4px;position:relative;overflow:hidden}
+.meter i b{position:absolute;inset:0 auto 0 0;background:var(--meter);border-radius:4px}
+.meter i b.ok{background:var(--ok)} .meter i b.bad{background:var(--bad)}
+.meter span{width:40px;text-align:right;font-variant-numeric:tabular-nums}
+.tw{overflow-x:auto}
+.foot{padding:12px 16px;color:var(--ink-400);border-top:1px solid var(--rule)}
+.list .it{display:flex;align-items:center;gap:14px;min-height:var(--h-row);padding:10px 16px;border-top:1px solid var(--rule);cursor:pointer}
+.list .it:first-child{border-top:0}
+.list .it:hover{background:var(--sel-subtle)}
+.list .it .tx{flex:1;min-width:0}
+.list .it .i{color:var(--ink-300)}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:16px}
+.picker{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+.picker > div{border-right:1px solid var(--rule)}
+.board{display:grid;grid-template-columns:repeat(5,minmax(160px,1fr));gap:12px;overflow-x:auto}
+.col h4{font-weight:500;color:var(--ink-500);margin-bottom:8px}
+.col h4 span{color:var(--ink-400);font-weight:400}
+.card{background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:12px 14px;margin-bottom:8px}
+.card b{display:block;color:var(--ink-900);font-weight:500}
+.card span{display:block;color:var(--ink-400)}
+.card .v{color:var(--ink-900);margin-top:6px;font-variant-numeric:tabular-nums}
+
+/* ── Right column ── */
+.about{border-left:1px solid var(--hairline);background:var(--surface);padding:24px 20px 48px;position:sticky;top:51px;height:calc(100vh - 51px);overflow:auto}
+.about .k{color:var(--ink-400)}
+.about h3{margin-top:2px;font:600 20px/28px var(--font-display);color:var(--ink-900);letter-spacing:-.015em}
+.about p{margin-top:8px;color:var(--ink-600)}
+.about .meta{display:flex;gap:16px;margin-top:14px;padding:12px 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.about .meta div{flex:1}
+.about .meta b{display:block;font:600 22px/28px var(--font-display);color:var(--ink-900)}
+.about .meta span{color:var(--ink-500)}
+.about h4{margin-top:20px;font-weight:600;color:var(--ink-900)}
+.map{margin-top:6px;display:flex;flex-direction:column}
+.map div{display:grid;grid-template-columns:1fr 16px 1fr;gap:6px;padding:6px 0;border-bottom:1px solid var(--rule);align-items:start}
+.map .a{color:var(--ink-500)}
+.map .b{color:var(--ink-900);font-weight:500}
+.map .ar{color:var(--ink-300)}
+.pc{margin-top:6px;padding-left:18px;color:var(--ink-600)}
+.pc li{margin-top:4px}
+.rec{margin-top:14px;padding:12px 14px;border-radius:12px;background:var(--primary-soft);color:var(--ink-800)}
+.rec b{color:var(--primary-ink)}
+
+/* ── Research ── */
+.research{max-width:1100px;margin:0 auto;padding:32px 24px 72px}
+.research .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:20px}
+.research .rc{background:var(--surface);border:1px solid var(--hairline);border-radius:14px;padding:16px 18px}
+.research .rc h3{font-weight:600;color:var(--ink-900);font-size:15px}
+.research .rc .pat{color:var(--ink-400)}
+.research .rc .rows{margin-top:8px;color:var(--ink-700)}
+.research .rc .rows b{font-weight:600;color:var(--ink-900)}
+.research .rc .why{margin-top:8px;color:var(--ink-500)}
+.research .panel{margin-top:20px}
+.research td{white-space:normal;padding-top:10px;padding-bottom:10px;height:auto}
+
+@media (max-width:1280px){
+  .app{grid-template-columns:232px minmax(0,1fr)}
+  .about{grid-column:2;position:static;height:auto;border-left:0;border-top:1px solid var(--hairline);padding:24px 32px 48px}
+}
+@media (max-width:860px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--hairline)}
+  .side .row:not(.dep){display:none}
+  main{padding:20px 16px 48px}
+  .about{grid-column:1;padding:20px 16px 40px}
+  .figs{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .fig:nth-child(3){border-left:0}
+  .fig:nth-child(n+3){border-top:1px solid var(--rule)}
+  .two,.picker,.research .grid{grid-template-columns:minmax(0,1fr)}
+  .proto{padding:10px 16px;gap:10px}
+  .proto .t span,.proto .theme{display:none}
+  .research{padding:24px 16px 56px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="t">Sales menu <span>· prototype</span></div>
+  <div class="seg" id="seg" role="group" aria-label="Option"></div>
+  <div class="sp"></div>
+  <button class="theme" id="theme" title="Light / dark">◐</button>
+</div>
+<div id="root"></div>
+
+<script>
+/* ───────────────────────── icons (lucide-ish, inline) ───────────────── */
+const I={
+  home:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
+  shirt:'<path d="M8 3 3 6l2 5 2-1v11h10V10l2 1 2-5-5-3a4 4 0 0 1-8 0z"/>',
+  box:'<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  truck:'<path d="M2 6h12v10H2zM14 9h4l4 4v3h-8"/><circle cx="6.5" cy="17.5" r="1.8"/><circle cx="17.5" cy="17.5" r="1.8"/>',
+  cart:'<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.2a1.5 1.5 0 0 0 1.5 1.3h8.6a1.5 1.5 0 0 0 1.5-1.2L21 8H6"/>',
+  mega:'<path d="M3 11v2a1 1 0 0 0 1 1h3l6 4V6L7 10H4a1 1 0 0 0-1 1zM17 9a4 4 0 0 1 0 6"/>',
+  trend:'<path d="M3 17 9 11l4 4 8-8"/><path d="M15 7h6v6"/>',
+  wallet:'<path d="M3 7a2 2 0 0 1 2-2h13v4"/><path d="M3 7v11a2 2 0 0 0 2 2h15V9H5a2 2 0 0 1-2-2z"/><circle cx="16" cy="14.5" r="1"/>',
+  users:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2 .8 3.5 3 3.5 6"/>',
+  person:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  filter:'<path d="M3 5h18M6 12h12M10 19h4"/>',
+  chev:'<path d="m6 9 6 6 6-6"/>',
+  right:'<path d="m9 6 6 6-6 6"/>',
+  down:'<path d="M12 4v12M6 12l6 6 6-6M4 21h16"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+}
+const ic=(n,cls="i")=>`<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${I[n]||""}</svg>`
+const nf=new Intl.NumberFormat("id-ID")
+const n=v=>nf.format(v)
+const pct=v=>v===0?'<span class="t2">—</span>':`<span class="${v>0?'up':'down'}">${v>0?'+':'−'}${Math.abs(v)}%</span>`
+const meter=(v,tone)=>`<div class="meter"><i><b class="${tone||''}" style="width:${Math.min(v,100)}%"></b></i><span>${v}%</span></div>`
+const sel=(opts,onchange)=>`<label class="sel"><select ${onchange?`onchange="${onchange}"`:''}>${opts.map((o,i)=>`<option ${onchange&&i===S.view?'selected':''}>${o}</option>`).join('')}</select>${ic('chev')}</label>`
+const search=ph=>`<label class="search">${ic('search')}<input placeholder="${ph}"></label>`
+
+/* ───────────────────────── sample data ──────────────────────────────── */
+// store, code, net yesterday, receipts, vs LY %, month vs target %, manager, tills, state
+const ST=[
+  ['Senayan City','SNC',78412500,212,12,92,'Rina Wulandari',4,'Trading'],
+  ['Grand Indonesia','GI',71905000,188,6,88,'Andi Saputra',4,'Trading'],
+  ['Kemang','KMG',64230000,176,9,95,'Maya Kusuma',3,'Trading'],
+  ['PIM 2','PIM',61540500,169,-4,81,'Yoga Prasetyo',3,'Trading'],
+  ['Tunjungan Plaza','TP',58710000,151,3,86,'Sari Handayani',3,'Trading'],
+  ['Paris Van Java','PVJ',55102500,147,15,97,'Dedi Kurnia',2,'Trading'],
+  ['Pakuwon Mall','PKW',49820000,121,-7,74,'Lina Marlina',2,'Trading'],
+  ['Beachwalk Bali','BWK',46630000,50,21,102,'Komang Adi',2,'Trading'],
+]
+const STORES=['All stores',...ST.map(s=>s[0])]
+const PERIOD=['This month','Last 7 days','Yesterday','This season','Custom…']
+// article, code, division, pcs sold (month), net, sell-through %, stock left, weeks of cover
+const ART=[
+  ['Kaos Oversize Nara','21030044','Apparel',1184,177600000,62,726,3],
+  ['Sandal Rinjani','11040112','Footwear',842,210500000,48,912,5],
+  ['Sneaker Arka Low','11020341','Footwear',516,386970000,71,212,2],
+  ['Kemeja Linen Bara','21010208','Apparel',402,140700000,58,291,4],
+  ['Tote Kanvas Rupa','31010007','Accessories',388,77600000,44,494,7],
+  ['Jaket Denim Kala','21070031','Apparel',136,108800000,39,212,9],
+  ['Loafer Senja','11020377','Footwear',121,96800000,64,68,3],
+  ['Celana Chino Laras','21050019','Apparel',88,39600000,17,430,26],
+]
+// PO, supplier, received, pcs bought, pcs sold, net, weeks on floor
+const PO=[
+  ['PO-2607-014','CV Sinar Garmen, Bandung','14 Jul',2400,1846,276900000,11],
+  ['PO-2607-022','PT Langkah Jaya, Tangerang','22 Jul',1600,1142,571000000,9],
+  ['PO-2608-003','CV Rupa Kriya, Yogyakarta','5 Aug',900,396,79200000,7],
+  ['PO-2608-017','CV Sinar Garmen, Bandung','19 Aug',1200,402,140700000,5],
+  ['PO-2608-029','Koperasi Denim Kudus','28 Aug',600,136,108800000,4],
+  ['PO-2609-006','CV Tekstil Laras, Pekalongan','6 Sep',1400,238,107100000,3],
+]
+// division, net, pcs, sell-through, vs LY, gross margin
+const DIV=[
+  ['Footwear',694270000,1479,58,14,46],['Apparel',466700000,1810,49,6,55],['Accessories',77600000,388,44,-3,61],['Kids',41200000,206,35,22,52],
+]
+const DAYS=[['Sat 27 Sep',486350500,1214,8],['Fri 26 Sep',402118000,1033,7],['Thu 25 Sep',318904500,861,-2],['Wed 24 Sep',301227000,812,4],['Tue 23 Sep',289460500,779,1],['Mon 22 Sep',276003000,744,-5],['Sun 21 Sep',512880000,1302,11]]
+const MEM=[['Ayu Lestari','4471','Senayan City','Yesterday',18420000,'VIP',1842],['Budi Santoso','2208','Kemang','3 days ago',6250000,'Regular',625],['Citra Maharani','9015','Grand Indonesia','Yesterday',12980000,'VIP',1298],['Dimas Pratama','6630','PIM 2','41 days ago',2140000,'Lapsed',214],['Eka Putri','1187','Paris Van Java','Today',890000,'New',89],['Fajar Nugroho','5542','Tunjungan Plaza','12 days ago',4470000,'Regular',447],['Hendra Wijaya','8826','Pakuwon Mall','96 days ago',3050000,'Lapsed',305]]
+const CASH=['Nita','Rizky','Putri','Agus','Wulan','Bayu','Dewi','Fikri']
+const TX=Array.from({length:10},(_,i)=>{const s=ST[i%8];const type=i===3?'Refund':i===8?'Void':'Sale';const ch=i===5?'Wholesale':i===9?'Online':'Store'
+  return {no:`${s[1]}-2709-${String(214-i*7).padStart(4,'0')}`,time:`${20-Math.floor(i/2)}:${String((i*17)%60).padStart(2,'0')}`,store:s[0],till:1+(i%3),cashier:CASH[i%8],type,ch,items:1+(i*3)%5,total:(type==='Refund'?-1:1)*[389000,749000,1249000,459000,899000,5480000,329000,1598000,699000,1149000][i]}})
+
+/* ───────────────────────── screens ──────────────────────────────────── */
+const head=(r,acts='')=>`<div class="head"><div class="tx"><div class="crumb">Sales${S.more?'':''}</div><div class="h1">${r.label}</div><div class="desc">${r.desc||''}${r.isNew?' <span class="nwt">New screen.</span>':''}</div></div><div class="acts">${acts}</div></div>`
+const exp=`<button class="btn btn-g">${ic('down')}Export</button>`
+const needs=[
+  ['bad','Drawer short Rp 250.000','PIM 2 · till 2 · Putri · last night'],
+  ['bad','Yesterday’s cash not banked','Tunjungan Plaza · Rp 21.480.000'],
+  ['warn','Sneaker Arka Low will sell out in 2 weeks','71% sold · 212 pcs left across 8 stores'],
+  ['warn','Celana Chino Laras is barely moving','17% sold after 3 weeks · 430 pcs on the floor'],
+  ['warn','Refund above Rp 1 million','Senayan City · SNC-2709-0193 · needs a second look'],
+]
+const T={
+overview:r=>`${head(r,exp)}
+  <div class="figs">
+    <div class="fig"><div class="l">Net sales, yesterday</div><div class="v"><small>Rp</small> 486,4<small> jt</small></div><div class="s">${pct(8)} vs last Saturday</div></div>
+    <div class="fig"><div class="l">Pieces sold</div><div class="v">1.871</div><div class="s">${pct(5)} vs last Saturday</div></div>
+    <div class="fig"><div class="l">Average basket</div><div class="v"><small>Rp</small> 400.600</div><div class="s">1.214 receipts</div></div>
+    <div class="fig"><div class="l">September to date</div><div class="v">89<small>%</small></div><div class="s">of target · 3 days left</div></div>
+  </div>
+  <div class="two">
+    <div class="panel"><div class="h2">Needs someone <span class="t2" style="font-weight:400">5</span></div><div class="list">
+      ${needs.map(x=>`<div class="it"><span class="dot ${x[0]}"></span><div class="tx"><div class="t1">${x[1]}</div><div class="t2">${x[2]}</div></div>${ic('right')}</div>`).join('')}
+    </div></div>
+    <div class="panel"><div class="h2">Stores, yesterday</div><div class="tw"><table><thead><tr><th>Store</th><th class="n">Net sales (Rp)</th><th class="n">vs last week</th><th>Month vs target</th></tr></thead><tbody>
+      ${ST.map(s=>`<tr class="link"><td class="t1">${s[0]}</td><td class="n">${n(s[2])}</td><td class="n">${pct(s[4])}</td><td>${meter(s[5],s[5]>=100?'ok':'')}</td></tr>`).join('')}
+    </tbody></table></div></div>
+  </div>`,
+
+byStore:r=>`${head(r,exp)}<div class="panel"><div class="bar">${r.views?sel(r.views.map(v=>v.label),'setView(this.selectedIndex)'):''}${sel(PERIOD)}${sel(['vs last year','vs last period','vs target'])}</div><div class="tw"><table>
+  <thead><tr><th>Store</th><th class="n">Net sales (Rp)</th><th class="n">Pieces</th><th class="n">Receipts</th><th class="n">Avg basket</th><th class="n">vs last year</th><th>Month vs target</th></tr></thead><tbody>
+  ${ST.map(s=>`<tr class="link"><td class="t1">${s[0]}</td><td class="n">${n(s[2]*26)}</td><td class="n">${n(Math.round(s[3]*26*1.54))}</td><td class="n">${n(s[3]*26)}</td><td class="n">${n(Math.round(s[2]/s[3]/100)*100)}</td><td class="n">${pct(s[4])}</td><td>${meter(s[5],s[5]>=100?'ok':'')}</td></tr>`).join('')}
+  </tbody></table></div><div class="foot">A store opens its page: its days, its articles, its cashiers.</div></div>`,
+
+byArticle:r=>`${head(r,exp)}<div class="panel"><div class="bar">${r.views?sel(r.views.map(v=>v.label),'setView(this.selectedIndex)'):''}${search('Article name or code')}${sel(PERIOD)}${sel(STORES)}${sel(['All divisions','Footwear','Apparel','Accessories','Kids'])}</div><div class="tw"><table>
+  <thead><tr><th>Article</th><th>Division</th><th class="n">Pieces sold</th><th class="n">Net sales (Rp)</th><th>Sell-through</th><th class="n">Stock left</th><th class="n">Weeks of cover</th></tr></thead><tbody>
+  ${ART.map(a=>`<tr class="link"><td><div class="t1">${a[0]}</div><div class="t2">${a[1]}</div></td><td>${a[2]}</td><td class="n">${n(a[3])}</td><td class="n">${n(a[4])}</td><td>${meter(a[5])}</td><td class="n">${n(a[6])}</td><td class="n">${a[7]<=2?`<span class="dot warn">${a[7]}</span>`:a[7]>=20?`<span class="dot warn">${a[7]}</span>`:a[7]}</td></tr>`).join('')}
+  </tbody></table></div><div class="foot">An article opens its sizes and colours by store. Weeks of cover is marked only when it is 2 or less (will run out) or 20 or more (not moving).</div></div>`,
+
+byPO:r=>`${head(r,exp)}<div class="panel"><div class="bar">${r.views?sel(r.views.map(v=>v.label),'setView(this.selectedIndex)'):''}${search('PO number or supplier')}${sel(['Received this season','Received last 90 days','All'])}${sel(['All suppliers','CV Sinar Garmen','PT Langkah Jaya','CV Rupa Kriya'])}</div><div class="tw"><table>
+  <thead><tr><th>Purchase order</th><th>Received</th><th class="n">Bought</th><th class="n">Sold</th><th>Sell-through</th><th class="n">Net sales (Rp)</th><th class="n">Weeks on floor</th></tr></thead><tbody>
+  ${PO.map(p=>{const st=Math.round(p[4]/p[3]*100);const slow=st/p[6]<6;return `<tr class="link"><td><div class="t1">${p[0]}</div><div class="t2">${p[1]}</div></td><td>${p[2]}</td><td class="n">${n(p[3])}</td><td class="n">${n(p[4])}</td><td>${meter(st)}</td><td class="n">${n(p[5])}</td><td class="n">${slow?`<span class="dot warn">${p[6]}</span>`:p[6]}</td></tr>`}).join('')}
+  </tbody></table></div><div class="foot">The buyer’s question: did what we bought sell? A PO opens its articles, each with sell-through by store. Marked when it sells under 6% a week.</div></div>`,
+
+byDivision:r=>`${head(r,exp)}<div class="panel"><div class="bar">${r.views?sel(r.views.map(v=>v.label),'setView(this.selectedIndex)'):''}${sel(PERIOD)}${sel(STORES)}</div><div class="tw"><table>
+  <thead><tr><th>Division</th><th class="n">Net sales (Rp)</th><th class="n">Share</th><th class="n">Pieces</th><th>Sell-through</th><th class="n">Gross margin</th><th class="n">vs last year</th></tr></thead><tbody>
+  ${DIV.map((d,i)=>`<tr class="link" onclick="toggleKids(this)"><td class="t1"><span class="caret">›</span>${d[0]}</td><td class="n">${n(d[1])}</td><td class="n">${Math.round(d[1]/1279770000*100)}%</td><td class="n">${n(d[2])}</td><td>${meter(d[3])}</td><td class="n">${d[5]}%</td><td class="n">${pct(d[4])}</td></tr>
+    ${ART.filter(a=>a[2]===d[0]).map(a=>`<tr class="kid" hidden><td>${a[0]}</td><td class="n">${n(a[4])}</td><td></td><td class="n">${n(a[3])}</td><td>${meter(a[5])}</td><td></td><td></td></tr>`).join('')}`).join('')}
+  </tbody></table></div><div class="foot">A division unfolds into its articles.</div></div>`,
+
+byDay:r=>`${head(r,exp)}<div class="panel"><div class="bar">${r.views?sel(r.views.map(v=>v.label),'setView(this.selectedIndex)'):''}${search('Receipt number')}${sel(['Last 7 days','This month','Last month'])}${sel(STORES)}</div><div class="tw"><table>
+  <thead><tr><th>Trading day</th><th class="n">Receipts</th><th class="n">Avg basket</th><th class="n">Net sales (Rp)</th><th class="n">vs last year</th></tr></thead><tbody>
+  ${DAYS.map(d=>`<tr class="link" onclick="toggleKids(this)"><td class="t1"><span class="caret">›</span>${d[0]}</td><td class="n">${n(d[2])}</td><td class="n">${n(Math.round(d[1]/d[2]/100)*100)}</td><td class="n">${n(d[1])}</td><td class="n">${pct(d[3])}</td></tr>
+   ${ST.map(s=>`<tr class="kid" hidden><td>${s[0]}</td><td class="n">${n(Math.round(d[2]*s[3]/1214))}</td><td class="n">${n(Math.round(s[2]/s[3]/100)*100)}</td><td class="n">${n(Math.round(d[1]*s[2]/486350500/500)*500)}</td><td class="n">${pct(s[4])}</td></tr>`).join('')}`).join('')}
+  </tbody></table></div><div class="foot">A day unfolds into its stores; a store-day opens its receipts.</div></div>`,
+
+tx:r=>`${head(r,exp)}<div class="panel"><div class="bar">${r.views?sel(r.views.map(v=>v.label),'setView(this.selectedIndex)'):''}${search('Receipt number, member or phone')}${sel(['Yesterday','Today','Last 7 days'])}${sel(STORES)}${sel(r.channel?['All channels','Stores','Wholesale','Online']:['All types','Sales','Refunds','Voids','Exchanges'])}</div><div class="tw"><table>
+  <thead><tr><th>${r.channel?'Order':'Receipt'}</th><th>Time</th><th>${r.channel?'Channel':'Store · till'}</th><th>Cashier</th><th>Type</th><th class="n">Items</th><th class="n">Total (Rp)</th></tr></thead><tbody>
+  ${TX.map(t=>`<tr class="link"><td class="t1">${t.no}</td><td>${t.time}</td><td>${r.channel?t.ch:`${t.store} <span class="t2">· ${t.till}</span>`}</td><td>${t.ch==='Store'?t.cashier:'<span class="t2">—</span>'}</td><td>${t.type==='Sale'?'Sale':`<span class="dot ${t.type==='Void'?'warn':''}">${t.type}</span>`}</td><td class="n">${t.items}</td><td class="n">${t.total<0?'−'+n(-t.total):n(t.total)}</td></tr>`).join('')}
+  </tbody></table></div></div>`,
+
+returns:r=>`${head(r,exp)}<div class="panel"><div class="bar">${r.views?sel(r.views.map(v=>v.label),'setView(this.selectedIndex)'):''}${search('Receipt number')}${sel(['Last 7 days','This month'])}${sel(STORES)}${sel(['All reasons','Wrong size','Defect','Changed mind'])}</div><div class="tw"><table>
+  <thead><tr><th>Return</th><th>Against sale</th><th>Store</th><th>Reason</th><th class="n">Items</th><th class="n">Refunded (Rp)</th><th>How</th></tr></thead><tbody>
+  ${[['SNC-2709-0193','SNC-2409-0088','Senayan City','Defect',2,1249000,'Card, reversed'],['KMG-2709-0151','KMG-2609-0140','Kemang','Wrong size',1,0,'Exchange'],['GI-2609-0212','GI-2209-0031','Grand Indonesia','Changed mind',1,459000,'Cash'],['TP-2509-0090','TP-2109-0145','Tunjungan Plaza','Defect',1,749000,'QRIS, reversed'],['PIM-2509-0133','PIM-2009-0019','PIM 2','Changed mind',3,1598000,'Store credit']].map(x=>`<tr class="link"><td class="t1">${x[0]}</td><td>${x[1]}</td><td>${x[2]}</td><td>${x[3]}</td><td class="n">${x[4]}</td><td class="n">${x[5]?n(x[5]):'<span class="t2">—</span>'}</td><td>${x[6]}</td></tr>`).join('')}
+  </tbody></table></div></div>`,
+
+closings:r=>`${head(r)}<div class="panel"><div class="bar">${sel(['Yesterday','Today','Last 7 days'])}${sel(STORES)}${sel(['Every closing','With a difference','Not banked'])}</div><div class="tw"><table>
+  <thead><tr><th>Store</th><th>Till · shift</th><th>Cashier</th><th class="n">Expected cash (Rp)</th><th class="n">Counted</th><th class="n">Difference</th><th>Banked</th></tr></thead><tbody>
+  ${[['Senayan City','1 · 2','Nita',8420000,8420000,1],['PIM 2','2 · 2','Putri',5290000,5040000,1],['Tunjungan Plaza','1 · 2','Agus',7710000,7710000,0],['Kemang','1 · 2','Wulan',4980000,5000000,1],['Pakuwon Mall','2 · 2','Bayu',null,null,0],['Paris Van Java','1 · 2','Dewi',6320000,6320000,1]].map(x=>{const d=x[3]==null?null:x[4]-x[3];return `<tr class="link"><td class="t1">${x[0]}</td><td>${x[1]}</td><td>${x[2]}</td><td class="n">${x[3]==null?'<span class="t2">—</span>':n(x[3])}</td><td class="n">${x[4]==null?'<span class="dot warn">Not closed</span>':n(x[4])}</td><td class="n">${d==null?'':d===0?'<span class="t2">0</span>':d<0?`<span class="dot bad">−${n(-d)}</span>`:'+'+n(d)}</td><td>${x[5]?'Yes':'<span class="dot bad">Not yet</span>'}</td></tr>`}).join('')}
+  </tbody></table></div></div>`,
+
+reports:r=>`${head(r)}<div class="panel"><div class="bar">${search('Find a report')}</div><div class="picker">
+  ${[['Stores',[['Sales by store','Which store carried the period'],['Sales by day and hour','When the tills are busy'],['Store vs target','Distance from this month’s number']]],
+     ['Merchandise',[['Sales by article','Pieces, rupiah, sell-through'],['Sales by PO','Did what we bought sell?'],['Sales by division','Which part of the range moves']]],
+     ['People',[['Sales by cashier','Receipts, basket, refunds per person'],['Sales by salesperson','For commission']]],
+     ['Money',[['Payment methods','Cash, cards, QRIS, vouchers, points'],['Discounts and promotions','Given away and brought in'],['Refunds and voids','Every reversal and who approved it']]]]
+   .map(g=>`<div><div class="h2">${g[0]}</div><div class="list">${g[1].map(x=>`<div class="it"><div class="tx"><div class="t1">${x[0]}</div><div class="t2">${x[1]}</div></div>${ic('right')}</div>`).join('')}</div></div>`).join('')}
+  </div></div>`,
+
+members:r=>`${head(r,exp)}<div class="panel"><div class="bar">${r.views?sel(r.views.map(v=>v.label),'setView(this.selectedIndex)'):''}${search('Name or phone')}${r.views?'':sel(['All members','VIP','Regular','New','Lapsed'])}</div><div class="tw"><table>
+  <thead><tr><th>Member</th><th>Phone</th><th>Home store</th><th>Last visit</th><th class="n">Spend, 12 months (Rp)</th><th class="n">Points</th><th>Segment</th></tr></thead><tbody>
+  ${MEM.map(m=>`<tr class="link"><td class="t1">${m[0]}</td><td>0812 •••• ${m[1]}</td><td>${m[2]}</td><td>${m[3]}</td><td class="n">${n(m[4])}</td><td class="n">${n(m[6])}</td><td>${m[5]==='Lapsed'?'<span class="dot warn">Lapsed</span>':m[5]}</td></tr>`).join('')}
+  </tbody></table></div><div class="foot">A member opens their history as a sheet.</div></div>`,
+
+segments:r=>`${head(r,`<button class="btn btn-p">${ic('plus')}New segment</button>`)}<div class="panel"><div class="bar">${r.views?sel(r.views.map(v=>v.label),'setView(this.selectedIndex)'):''}</div><div class="tw"><table>
+  <thead><tr><th>Segment</th><th>Rule</th><th class="n">Members</th><th class="n">Spend, 12 months (Rp)</th><th class="n">Share of sales</th></tr></thead><tbody>
+  ${[['VIP','Spent above Rp 10 jt in 12 months',412,5870400000,'31%'],['Regular','Bought in the last 60 days',3905,9120600000,'48%'],['New','Joined in the last 30 days',688,610200000,'3%'],['Lapsed','No purchase for 90 days',2140,1840000000,'10%']].map(x=>`<tr class="link"><td class="t1">${x[0]}</td><td>${x[1]}</td><td class="n">${n(x[2])}</td><td class="n">${n(x[3])}</td><td class="n">${x[4]}</td></tr>`).join('')}
+  </tbody></table></div></div>`,
+
+shopfloor:r=>`${head(r)}<div class="figs"><div class="fig"><div class="l">Tills open now</div><div class="v">19</div><div class="s">of 23, in 8 stores</div></div><div class="fig"><div class="l">Sales so far today</div><div class="v"><small>Rp</small> 212,8<small> jt</small></div><div class="s">up to 15:40</div></div><div class="fig"><div class="l">Baskets left open</div><div class="v">2</div><div class="s">oldest 3 hours</div></div><div class="fig"><div class="l">Tills offline</div><div class="v">1</div><div class="s">Pakuwon Mall · till 2</div></div></div>
+  <div class="panel"><div class="tw"><table><thead><tr><th>Store</th><th>Till</th><th>Cashier</th><th>Open since</th><th class="n">This shift (Rp)</th><th>State</th></tr></thead><tbody>
+  ${[['Senayan City',1,'Nita','10:00',14820000,''],['Kemang',1,'Wulan','10:00',9110000,'warn:Basket open 3h'],['PIM 2',2,'Putri','14:00',2740000,''],['Pakuwon Mall',2,'—','—',0,'bad:Offline 25 min'],['Beachwalk Bali',1,'Fikri','10:00',6380000,'']].map(x=>{const [k,w]=(x[5]||':').split(':');return `<tr class="link"><td class="t1">${x[0]}</td><td>${x[1]}</td><td>${x[2]}</td><td>${x[3]}</td><td class="n">${x[4]?n(x[4]):'<span class="t2">—</span>'}</td><td>${k?`<span class="dot ${k}">${w}</span>`:'Trading'}</td></tr>`}).join('')}
+  </tbody></table></div></div>`,
+
+exceptions:r=>`${head(r)}<div class="panel"><div class="bar">${sel(['Open','Unacknowledged','Acknowledged','Resolved','All'])}${sel(STORES)}${sel(['Every kind','Shift left open','Drawer short','Cash not banked','Delivery not received','Charged with no sale'])}</div><div class="tw"><table>
+  <thead><tr><th>What</th><th>Store</th><th>Since</th><th class="n">Amount (Rp)</th><th>State</th></tr></thead><tbody>
+  ${[['Drawer short','PIM 2 · till 2','Yesterday 22:10',250000,'bad:Unacknowledged'],['Cash not banked','Tunjungan Plaza','Today 10:00',21480000,'bad:Unacknowledged'],['Shift left open','Pakuwon Mall · till 2','Yesterday 22:00',null,'warn:Acknowledged'],['Charged with no sale','Senayan City · EDC BCA','Yesterday 19:42',459000,'bad:Unacknowledged']].map(x=>{const [k,w]=x[4].split(':');return `<tr class="link"><td class="t1">${x[0]}</td><td>${x[1]}</td><td>${x[2]}</td><td class="n">${x[3]?n(x[3]):'<span class="t2">—</span>'}</td><td><span class="dot ${k}">${w}</span></td></tr>`}).join('')}
+  </tbody></table></div></div>`,
+
+storeList:r=>`${head(r,`<button class="btn btn-p">${ic('plus')}Open a store</button>`)}<div class="panel"><div class="bar">${search('Search stores')}${sel(['All states','Trading','Opening','Closed'])}</div><div class="tw"><table>
+  <thead><tr><th>Store</th><th>State</th><th>Manager</th><th class="n">Tills</th><th>Open exceptions</th></tr></thead><tbody>
+  ${[...ST,['Summarecon Bekasi','SMB',0,0,0,0,'Tomi Hidayat',2,'Opening 12 Oct']].map((s,i)=>`<tr class="link"><td class="t1">${s[0]} <span class="t2">${s[1]}</span></td><td>${s[8]==='Trading'?'Trading':`<span class="dot info">${s[8]}</span>`}</td><td>${s[6]}</td><td class="n">${s[7]}</td><td>${i===3?'<span class="dot bad">Drawer short</span>':i===4?'<span class="dot bad">Cash not banked</span>':'<span class="t2">None</span>'}</td></tr>`).join('')}
+  </tbody></table></div></div>`,
+
+board:r=>`${head(r,`<button class="btn btn-p">${ic('plus')}New quote</button>`)}
+  <div class="board">
+   ${[['Quote',[['Q-0418','Butik Anggun, Medan','180 pcs',27900000]]],
+      ['Ordered',[['SO-0412','Toko Berkah, Tanah Abang','240 pcs',38400000],['SO-0415','CV Sinar Mode, Solo','96 pcs',14880000]]],
+      ['Picked & sent',[['SO-0409','Zalora (consignment)','320 pcs · SJ-0925-031',51200000]]],
+      ['Invoiced',[['INV-0391','Toko Berkah','Due 10 Oct',33600000],['INV-0388','Butik Anggun','Due 3 Oct',21150000]]],
+      ['Paid',[['INV-0380','CV Sinar Mode','Paid 25 Sep',18720000]]]]
+    .map(c=>`<div class="col"><h4>${c[0]} <span>${c[1].length}</span></h4>${c[1].map(k=>`<div class="card"><b>${k[0]}</b><span>${k[1]}</span><span>${k[2]}</span><div class="v">Rp ${n(k[3])}</div></div>`).join('')}</div>`).join('')}
+  </div>`,
+
+inventory:()=>`<div class="head"><div class="tx"><div class="crumb">Inventory</div><div class="h1">Stock</div><div class="desc">Inventory is here for reference: six rows today, seven more screens routed but hidden. Its rule is the one Sales copies: a row is a place somebody looks for by name and opens at least weekly. Other readings of the same table become a view or a link.</div></div></div>
+  <div class="panel"><div class="list">${[['Stock','the one page; Availability, Pools, Missing, As of, Control and Time machine sit under it'],['Counts','the only thing allowed to tell the ledger it is wrong'],['Movements','the ledger itself'],['Observations','the evidence from tag readers'],['Satuan & conversions','master data, looked for by name'],['Goods flows','route templates, looked for by name']].map(x=>`<div class="it"><div class="tx"><div class="t1">${x[0]}</div><div class="t2">${x[1]}</div></div></div>`).join('')}</div></div>`,
+}
+
+/* ───────────────────────── options ──────────────────────────────────── */
+const R=(label,tpl,o={})=>({label,tpl,...o})
+const today=[
+  {grp:'Stores'},R('Stores','storeList',{desc:'Every store, its state and its manager.'}),R('Exceptions','exceptions',{ct:4,bad:1,desc:'What goes wrong in a store’s own money and goods.'}),
+  {grp:'Sales'},R('Sales','byDay',{desc:'The fleet by trading day, unfolding into the stores.'}),R('Sales analytics','byStore',{desc:'The same numbers across the estate: a row is a store.'}),R('Returns','returns',{desc:'Every refund and exchange, against the sale it reverses.'}),R('Member','members',{desc:'One shopper’s history of buying.'}),R('Shop floor','shopfloor',{desc:'Which tills are open right now and what is stuck.'}),
+  {grp:'Members'},R('Members','members',{desc:'The people who buy.'}),R('Segments','segments',{desc:'The directory read as groups.'}),
+]
+const DIMS=[
+  R('By store','byStore',{desc:'Which store carried the period, against last year and against target.',was:'Sales analytics'}),
+  R('By article','byArticle',{desc:'What sold, in pieces and rupiah, with sell-through and how long the stock left will last.',isNew:1}),
+  R('By PO','byPO',{desc:'Did what we bought sell? Every received purchase order with its sell-through.',isNew:1}),
+  R('By division','byDivision',{desc:'Which part of the range is moving, unfolding into its articles.',isNew:1}),
+]
+const MORE_A=[R('By day','byDay',{desc:'The fleet by trading day.'}),R('Returns','returns',{desc:'Every refund and exchange.'}),R('Shop floor','shopfloor',{desc:'Tills open right now.'}),R('Exceptions','exceptions',{desc:'What goes wrong in a store’s money and goods.'}),R('Members','members',{desc:'The people who buy.'}),R('Segments','segments',{desc:'Members read as groups.'})]
+const OPTS={
+ today:{name:'Today',rows:today,title:'Today, as built',sum:'Three modules under Selling: Stores (2), Sales (5), Members (2). Nine rows under three labels.',
+   meta:[9,0,0],map:[],pros:['Every screen exists and is wired.','Stores and Members can be given to their own people.'],cons:['Nine rows, where Inventory has six.','Sales and Sales analytics are one table read two ways.','Member and Members are two rows about the same people.','Nothing answers the buyer: by article, by PO, by division.']},
+ a:{name:'A · Your list',rows:[...DIMS],more:MORE_A,title:'A · Your four rows',sum:'Exactly the list from 28 Sep: Sales = by store, by articles, by PO, by division. Everything else goes under More, and nothing is deleted.',
+   meta:[4,6,3],map:[['Sales analytics','By store'],['(new)','By article'],['(new)','By PO'],['(new)','By division'],['Sales, Returns, Shop floor, Exceptions, Members, Segments','More']],
+   pros:['Your own words, four rows.','It answers the merchandiser and the buyer, who today have no screen.','It follows the More rule you picked: nothing is lost.'],
+   cons:['There is no landing page: the day’s problems (drawer short, not banked) have nowhere to show.','Returns and Members are one click deeper.','Three new screens, and By PO needs sales joined to receiving.']},
+ b:{name:'B · Overview + your list',star:1,rows:[R('Overview','overview',{ct:5,bad:1,desc:'Yesterday’s trade, the month against target, and one list of what needs someone.',was:'Shop floor, Exceptions'}),...DIMS],more:MORE_A.filter(x=>x.label!=='Shop floor'&&x.label!=='Exceptions'),title:'B · Overview + your list',sum:'Your four rows, with an Overview on top, like Finance and Inventory B. The Overview holds the figures and one “Needs someone” list: money problems from the stores, and articles about to sell out or not moving.',
+   meta:[5,4,4],map:[['Shop floor + Exceptions','Overview'],['Sales analytics','By store'],['(new)','By article · By PO · By division'],['Sales, Returns, Members, Segments','More']],
+   pros:['The same shape as Finance and Inventory: Overview first, then the places.','Your four rows are unchanged.','Store money problems and merchandise problems sit in one list, in order of urgency.'],
+   cons:['Five rows instead of four.','The Overview’s “sell out / not moving” lines need By article to exist first.']},
+ c:{name:'C · One table',rows:[R('Sales','byStore',{desc:'One sales table. The first dropdown chooses what a row is.',views:[{label:'By store',tpl:'byStore'},{label:'By article',tpl:'byArticle'},{label:'By PO',tpl:'byPO'},{label:'By division',tpl:'byDivision'},{label:'By day',tpl:'byDay'}]}),R('Returns','returns',{desc:'Every refund and exchange.'}),R('Members','members',{desc:'The people who buy.',views:[{label:'All members',tpl:'members'},{label:'Segments',tpl:'segments'}]})],more:[R('Shop floor','shopfloor',{}),R('Exceptions','exceptions',{})],title:'C · One table, a “Group by”',sum:'Your four readings are one table grouped four ways, so they become one dropdown on one row, as the calm rules say for kinds of one table.',
+   meta:[3,2,3],map:[['Sales, Sales analytics, by article/PO/division','Sales, grouped by …'],['Returns','Returns'],['Members, Member, Segments','Members'],['Shop floor, Exceptions','More']],
+   pros:['Three rows, the quietest option.','Switching from store to article keeps the period and store filter.','One screen to build, with four groupings.'],
+   cons:['Nobody sees “By PO” in the menu, so the buyer has to know the dropdown.','Columns change as the grouping changes, which can feel like a different page on the same row.']},
+ d:{name:'D · Till first',rows:[R('Overview','overview',{ct:5,bad:1,desc:'Yesterday’s trade and what needs someone.'}),R('Transactions','tx',{desc:'Every receipt, refund, void and exchange in one ledger. Type is a dropdown.',was:'Sales, Returns'}),R('Closings','closings',{ct:2,bad:1,desc:'Every till closing: expected against counted cash, and whether it was banked.',isNew:1}),R('Reports','reports',{desc:'Every sales report in one picker, including by article, PO and division.'}),R('Members','members',{desc:'The people who buy.'})],more:[R('Stores','storeList',{}),R('Segments','segments',{})],title:'D · The till first',sum:'Filed the way POS back offices file it (Lightspeed, Square, Moka): the ledger of what the tills did, each till’s closing, a report library, customers.',
+   meta:[5,2,1],map:[['Sales, Returns','Transactions'],['Exceptions (money)','Closings'],['Sales analytics + your four','Reports'],['Shop floor','Overview']],
+   pros:['Finance and store managers get the drawer and banking questions in one place.','One ledger finds any receipt without knowing the day.','Reports stop competing for rows.'],
+   cons:['Your four readings become reports, one click deeper.','It is built for the store and finance, less for the buyer.']},
+ e:{name:'E · Channels',rows:[R('Overview','overview',{ct:5,bad:1,desc:'Yesterday’s trade across every channel.'}),R('Orders','tx',{channel:1,desc:'Every sale from every channel in one list: tills, wholesale, online. Channel is a dropdown.'}),R('Wholesale','board',{desc:'Orders to resellers and consignment partners: Quote → Ordered → Picked & sent → Invoiced → Paid.',isNew:1}),R('Performance','byStore',{desc:'Your four readings in one dropdown.',views:[{label:'By store',tpl:'byStore'},{label:'By article',tpl:'byArticle'},{label:'By PO',tpl:'byPO'},{label:'By division',tpl:'byDivision'}]}),R('Customers','members',{desc:'Members and wholesale customers in one directory.'})],more:[R('Stores','storeList',{}),R('Shop floor','shopfloor',{})],title:'E · Every channel',sum:'A sale is a sale wherever it happened (Shopify). Wholesale and consignment get a board, the document flow of Accurate or Odoo drawn as one row.',
+   meta:[5,2,2],map:[['Sales, Returns','Orders'],['(new)','Wholesale'],['Sales analytics + your four','Performance'],['Members, Segments','Customers']],
+   pros:['Ready for wholesale, consignment and marketplaces without another redesign.','A reseller and a member are both customers.'],
+   cons:['Only worth it if wholesale is weekly business.','“Orders” is a new word for stores that think in receipts.','Wholesale needs a backend (quote, order, invoice) that does not exist.']},
+}
+const ORDER=['today','a','b','c','d','e','research']
+const DEPTS=[['home','home','Home'],['buy','cart','Buying'],['merch','shirt','Merchandise'],['ops','truck','Ops'],['inv','box','Inventory'],['mkt','mega','Marketing'],['sales','trend','Sales'],['fin','wallet','Finance'],['hr','users','HR'],['ga','person','GA']]
+
+/* ───────────────────────── state and render ─────────────────────────── */
+const S={opt:'b',row:0,view:0,more:false,moreOpen:false,dept:'sales'}
+try{const v=JSON.parse(localStorage.getItem('sales-menu-options')||'null');if(v&&ORDER.includes(v.opt))S.opt=v.opt;const th=localStorage.getItem('sales-menu-theme');if(th)document.documentElement.dataset.theme=th}catch(e){}
+const cur=()=>{const o=OPTS[S.opt];const list=S.more?o.more:o.rows.filter(r=>!r.grp);return list[S.row]||list[0]}
+
+function side(){
+  const o=OPTS[S.opt]
+  let h=`<div class="chip"><div class="mark">C</div><div><b>Central</b><small>Head office</small></div></div>`
+  for(const [id,icn,label] of DEPTS){
+    const open=S.dept===id, live=id==='sales'||id==='inv'
+    h+=`<button class="row ${open?'dep':''} ${live?'':'inert'}" ${live?`onclick="dept('${id}')"`:'title="Prototype: only Sales and Inventory open"'}>${ic(icn)}${label}${id==='sales'&&!open?'<span class="ct bad">5</span>':''}</button>`
+    if(open&&id==='sales'){
+      let i=-1
+      h+=`<div class="subs">${o.rows.map(r=>{if(r.grp)return `<div class="grp">${r.grp}</div>`;i++;const k=i;return `<button class="sub anim" style="animation-delay:${k*30}ms" ${!S.more&&k===S.row?'aria-current="page"':''} onclick="go(${k},false)">${r.label}${r.ct?`<span class="ct ${r.bad?'bad':''}">${r.ct}</span>`:r.isNew?'<span class="nw">New</span>':''}</button>`}).join('')}
+      ${o.more&&o.more.length?`<button class="sub more" aria-expanded="${S.moreOpen}" onclick="toggleMore()">More ${ic('chev')}</button>${S.moreOpen?o.more.map((r,k)=>`<button class="sub dim anim" style="animation-delay:${k*25}ms" ${S.more&&k===S.row?'aria-current="page"':''} onclick="go(${k},true)">${r.label}</button>`).join(''):''}`:''}</div>`
+    }
+    if(open&&id==='inv') h+=`<div class="subs">${['Stock','Counts','Movements','Observations','Satuan & conversions','Goods flows'].map((l,k)=>`<button class="sub anim" ${k===0?'aria-current="page"':''}>${l}</button>`).join('')}</div>`
+  }
+  return h
+}
+function page(){
+  if(S.dept==='inv') return T.inventory()
+  const r=cur(); const v=r.views?r.views[S.view]:null
+  return T[v?v.tpl:r.tpl](r)
+}
+function about(){
+  const o=OPTS[S.opt]
+  return `<div class="k">${S.opt==='today'?'As built':'Option'}</div><h3>${o.title}${o.star?' <span style="color:var(--primary)">★</span>':''}</h3><p>${o.sum}</p>
+  <div class="meta"><div><b>${o.meta[0]}</b><span>rows</span></div><div><b>${o.meta[1]}</b><span>under More</span></div><div><b>${o.meta[2]}</b><span>new screens</span></div></div>
+  ${o.map.length?`<h4>Where today’s rows go</h4><div class="map">${o.map.map(m=>`<div><span class="a">${m[0]}</span><span class="ar">→</span><span class="b">${m[1]}</span></div>`).join('')}</div>`:''}
+  <h4>Good</h4><ul class="pc">${o.pros.map(x=>`<li>${x}</li>`).join('')}</ul>
+  <h4>Costs</h4><ul class="pc">${o.cons.map(x=>`<li>${x}</li>`).join('')}</ul>
+  ${o.star?`<div class="rec"><b>Proposed.</b> Your four rows stay as you listed them. Overview goes on top because every other department now starts with one, and a drawer short or cash not banked needs a place to show up. Returns, Members and Segments go under More.</div>`:''}`
+}
+const RES=[
+ ['Odoo · Sales + Point of Sale','Document flow; the till is a separate app',[['Sales','Orders (Quotations, Orders, Teams, Customers) · To invoice · Products · Reporting · Configuration'],['POS','Dashboard · Orders (Orders, Sessions, Payments, Customers) · Products · Reporting · Configuration']],'The session (a till’s shift) is the unit of the POS back office.'],
+ ['ERPNext · Selling','Document flow',[['Rows','Quotation · Sales Order · Delivery Note · Sales Invoice (POS Invoice beside it) · Customer · Reports (Sales analytics, Sales register, Item-wise sales)']],'Every row is a document; analysis is a report list at the bottom.'],
+ ['Accurate Online · Penjualan','Document flow, Indonesian',[['Rows','Penawaran · Pesanan · Pengiriman · Faktur · Uang muka · Penerimaan · Retur']],'Seven rows of paperwork for B2B. POS is a separate product.'],
+ ['Shopify admin','One order list; channel is a filter',[['Rows','Orders (Drafts, Abandoned checkouts) · Products · Customers (Segments) · Marketing · Discounts · Analytics (Reports, Live view) · Sales channels']],'A shop is a location; adding a channel never adds a row.'],
+ ['Lightspeed Retail X-Series','The till first',[['Sell','Sell · Open/close register · Sales history · Cash management'],['Reporting','Retail dashboard · Sales · Payments · Register closures']],'Closings are their own place; reports are grouped by what they read.'],
+ ['Square Dashboard','Transactions and a report library',[['Rows','Items · Payments (Transactions, Orders, Invoices, Disputes) · Reports (Sales summary, Item, Category, Team, Payment methods) · Customers · Staff']],'Report names are dimensions: by item, by category, by team.'],
+ ['Moka · Majoo (Indonesian POS)','Flat reports',[['Laporan','Ringkasan · per item · per kategori · per karyawan · metode bayar · tipe order'],['Other','Riwayat transaksi (refund and void inside) · Pelanggan']],'Your “by store / by article / by division” list is exactly how Indonesian retail reads sales.'],
+ ['Retail merchandising (Nedap, Retail Pro)','By PO and sell-through',[['Rows','Sell-through by receipt/PO · by style · by size · weeks of cover · open-to-buy']],'“By PO” is a buyer’s report: it only exists in tools that link receiving to sales.'],
+]
+function research(){
+  return `<div class="research"><div class="crumb">Research</div><div class="h1">How other software files Sales</div><div class="desc">Eight products and their Sales menus, summarised from product knowledge rather than a live crawl, so it is worth a spot-check before building.</div>
+  <div class="grid">${RES.map(p=>`<div class="rc"><h3>${p[0]}</h3><div class="pat">${p[1]}</div>${p[2].map(x=>`<div class="rows"><b>${x[0]}:</b> ${x[1]}</div>`).join('')}<div class="why">${p[3]}</div></div>`).join('')}</div>
+  <div class="panel"><div class="h2">What it says for Central</div><div class="tw"><table><thead><tr><th>Pattern</th><th>Who</th><th>For us</th></tr></thead><tbody>
+   <tr><td class="t1">Documents as rows</td><td>Odoo, ERPNext, Accurate, BC</td><td>B2B paperwork. A shop’s receipt is none of these documents, so it does not fit the stores. Used only for wholesale in option E.</td></tr>
+   <tr><td class="t1">Till first</td><td>Lightspeed, Square, Moka</td><td>Transactions, closings, reports. Option D.</td></tr>
+   <tr><td class="t1">One order list</td><td>Shopify</td><td>Channel is a filter, never a row. Option E.</td></tr>
+   <tr><td class="t1">Reports named by dimension</td><td>Square, Moka, Majoo, retail merchandising</td><td>Your list (store, article, PO, division). Options A, B and C.</td></tr>
+   <tr><td class="t1">No “Analytics” department</td><td>All of them</td><td>Reports sit beside what they read, as the hub ruled on 3 Sep.</td></tr>
+   <tr><td class="t1">Customers beside Sales</td><td>All of them</td><td>Members stays in Sales, not Marketing.</td></tr>
+  </tbody></table></div></div></div>`
+}
+function render(){
+  document.getElementById('seg').innerHTML=ORDER.map(k=>`<button aria-pressed="${S.opt===k}" onclick="pick('${k}')">${k==='research'?'Research':OPTS[k].name}${OPTS[k]&&OPTS[k].star?' <span class="star">★</span>':''}</button>`).join('')
+  const root=document.getElementById('root')
+  if(S.opt==='research'){root.innerHTML=research()}
+  else root.innerHTML=`<div class="app"><aside class="side">${side()}</aside><main><div class="page">${page()}</div></main><aside class="about">${about()}</aside></div>`
+  try{localStorage.setItem('sales-menu-options',JSON.stringify({opt:S.opt}))}catch(e){}
+}
+function pick(k){Object.assign(S,{opt:k,row:0,view:0,more:false,moreOpen:false,dept:'sales'});render();scrollTo(0,0)}
+function go(k,more){Object.assign(S,{row:k,view:0,more,dept:'sales'});render();scrollTo(0,0)}
+function setView(i){S.view=i;render()}
+function toggleMore(){S.moreOpen=!S.moreOpen;render()}
+function dept(id){S.dept=id;render()}
+function toggleKids(tr){tr.classList.toggle('open');let x=tr.nextElementSibling;while(x&&x.classList.contains('kid')){x.hidden=!x.hidden;x=x.nextElementSibling}}
+document.getElementById('theme').onclick=()=>{const r=document.documentElement;const dark=r.dataset.theme?r.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;r.dataset.theme=dark?'light':'dark';try{localStorage.setItem('sales-menu-theme',r.dataset.theme)}catch(e){}}
+render()
+</script>
+</body>
+</html>

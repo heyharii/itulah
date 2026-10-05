@@ -37,7 +37,15 @@ import {
   NoMatch,
 } from "@/components/ui/states"
 import { useFilters } from "@/lib/filters"
-import { count, day, label, money, moment, toneFor } from "@/lib/format"
+import {
+  count,
+  dateText,
+  day,
+  label,
+  money,
+  moment,
+  toneFor,
+} from "@/lib/format"
 import {
   financeKeys,
   listBills,
@@ -120,14 +128,15 @@ import type { SupplierBill, SupplierPayment } from "@itulah/contract"
 /// the id it falls back to is a word nobody types and nobody sees.
 function supplierNames(
   payment: SupplierPayment,
-  resolve?: (id: string) => string
+  resolve?: (id: string, name?: string | null) => string
 ): readonly string[] {
   const seen = new Map<string, string>()
   for (const allocation of payment.allocations) {
     seen.set(
       allocation.supplier_id,
-      allocation.supplier_name ??
-        (resolve ? resolve(allocation.supplier_id) : allocation.supplier_id)
+      resolve
+        ? resolve(allocation.supplier_id, allocation.supplier_name)
+        : (allocation.supplier_name ?? allocation.supplier_id)
     )
   }
   return [...seen.values()]
@@ -160,7 +169,7 @@ function Suppliers({ payment }: { payment: SupplierPayment }) {
 const columns: ColumnDef<TableSetup, SupplierPayment>[] = [
   {
     accessorKey: "payment_number",
-    header: "Payment no.",
+    header: "Payment No.",
     size: 150,
     cell: ({ row }) => (
       <span className="font-mono text-id text-body">
@@ -194,7 +203,7 @@ const columns: ColumnDef<TableSetup, SupplierPayment>[] = [
   {
     id: "account",
     accessorFn: (row) => `${row.account_key} ${row.account_qualifier}`,
-    header: "From account",
+    header: "From Account",
     size: 200,
     enableSorting: false,
     // Which pot the money left, and the one narrowing on this screen that
@@ -473,7 +482,6 @@ export function Payments() {
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search"
               className="h-8 w-48"
             />
             <Button variant="primary" onClick={() => setComposing(true)}>
@@ -528,7 +536,7 @@ export function Payments() {
               series={OUTFLOW_SERIES}
               format={money}
               labelOf={(bucket) =>
-                new Date(`${bucket}-01T00:00:00`).toLocaleDateString("id-ID", {
+                dateText(new Date(`${bucket}-01T00:00:00`), {
                   month: "short",
                 })
               }
@@ -789,7 +797,7 @@ function PaymentSheet({
                     before that rule and is worth asking about.
                   </p>
                 ) : (
-                  <MiniTable head={["Bill", "Paid", "Outstanding after"]}>
+                  <MiniTable head={["Bill", "Paid", "Outstanding After"]}>
                     {payment.allocations.map((allocation) => (
                       <MiniRow key={allocation.invoice_id}>
                         <MiniCell>
@@ -1100,7 +1108,7 @@ function ComposerSheet({
                   disabled={!totals.ready}
                   onClick={() => form.handleSubmit()}
                 >
-                  {record.isPending ? "Recording…" : "Record"}
+                  {record.isPending ? "Submitting…" : "Submit"}
                 </Button>
               </div>
             )
@@ -1215,7 +1223,6 @@ function ComposerSheet({
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={field.handleChange}
-                  placeholder="0"
                 />
               </Field>
             )}

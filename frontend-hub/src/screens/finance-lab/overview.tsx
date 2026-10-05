@@ -489,7 +489,7 @@ export function LabOverview() {
         {items.length === 0 ? (
           <EmptyState>Nothing is waiting.</EmptyState>
         ) : (
-          <Table head={["Item", "Group", "Why it is here", ">Amount", ""]}>
+          <Table head={["Item", "Group", "Why It Is Here", ">Amount", ""]}>
             {items.map((i) => (
               <Row key={i.id} tone={i.tone}>
                 <Cell>

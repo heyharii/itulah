@@ -525,14 +525,12 @@ function SwapQueue({
 function Verdict({
   reason,
   onReason,
-  placeholder,
   busy,
   failed,
   onDecide,
 }: {
   reason: string
   onReason: (reason: string) => void
-  placeholder: string
   busy: boolean
   failed: string | null
   onDecide: (approve: boolean) => void
@@ -555,7 +553,6 @@ function Verdict({
           <Input
             value={reason}
             onChange={(event) => onReason(event.target.value)}
-            placeholder={placeholder}
           />
         </Field>
         <ButtonGroup>
@@ -654,7 +651,6 @@ function RequestSheet({
       <Verdict
         reason={reason}
         onReason={setReason}
-        placeholder="toko cukup orang"
         busy={decide.isPending}
         failed={failed}
         onDecide={(approve) => decide.mutate(approve)}
@@ -743,7 +739,6 @@ function CorrectionSheet({
       <Verdict
         reason={reason}
         onReason={setReason}
-        placeholder="sesuai jadwal dan CCTV"
         busy={decide.isPending}
         failed={failed}
         onDecide={(approve) => decide.mutate(approve)}
@@ -812,7 +807,6 @@ function SwapSheet({
       <Verdict
         reason={reason}
         onReason={setReason}
-        placeholder="keduanya sudah setuju"
         busy={decide.isPending}
         failed={failed}
         onDecide={(approve) => decide.mutate(approve)}

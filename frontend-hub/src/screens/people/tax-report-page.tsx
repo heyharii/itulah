@@ -107,10 +107,10 @@ export function TaxReportPage() {
                 head={[
                   "Employee",
                   { label: "PTKP · TER", align: "left" },
-                  { label: "Taxable gross", align: "right" },
+                  { label: "Taxable Gross", align: "right" },
                   { label: "PPh 21", align: "right" },
-                  { label: "BPJS employee", align: "right" },
-                  { label: "BPJS company", align: "right" },
+                  { label: "BPJS Employee", align: "right" },
+                  { label: "BPJS Company", align: "right" },
                 ]}
               >
                 {rows.map((row) => (

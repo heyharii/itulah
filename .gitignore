@@ -9,6 +9,7 @@
 **/.DS_Store
 **/node_modules/
 **/dist/
+**/dist-web/
 semantic-review/
 **/semantic-review/
 
@@ -45,3 +46,8 @@ runs/
 # Third-party repositories cloned for research
 research/erpnext-indonesia/agile-technica/
 research/erpnext-indonesia/andrimuhyidin/
+
+# Secrets for deploy/gcp/deploy.sh (see cloud.env.example).
+deploy/gcp/cloud.env
+deploy/gcp/cloud-demo.env
+deploy/gcp/cloud-sandbox.env

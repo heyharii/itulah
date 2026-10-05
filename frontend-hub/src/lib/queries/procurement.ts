@@ -1,4 +1,5 @@
 import { ApiError } from "@itulah/contract/client"
+import type { PurchaseOrderLineReceipt } from "@itulah/contract"
 import type {
   AddToBasketRequest,
   BasketLine,
@@ -70,11 +71,19 @@ export interface PurchaseOrderRow {
   readonly net_minor: number
   /// Ordered minus cancelled — what the order still expects.
   readonly expected_stock_units: number
+  /// As the order says it — "5 kodi", "10 kodi + 2 pcs" — and null when the
+  /// order predates the order unit being kept.
+  readonly ordered_label: string | null
   /// Summed from the DC's goods receipts on every read, never stored.
   readonly received_stock_units: number
   readonly outstanding_stock_units: number
   /// Quantities covered by non-rejected, non-void supplier bills.
   readonly invoiced_stock_units: number
+  /// Quantity that arrived beyond the order, all of it.
+  readonly excess_stock_units: number
+  /// The part of it nobody has put on a purchase return yet (0710): what
+  /// the order's buyer still has to send back.
+  readonly excess_pending_stock_units: number
   readonly fully_received: boolean
   /// What the pieces received so far are worth, net of the discount
   /// allocated to them. PPN is not split out: the net value is what is paid.
@@ -99,6 +108,9 @@ export interface PurchaseOrderScope {
   /// ISO days, inclusive at both ends.
   readonly issuedFrom?: string
   readonly issuedTo?: string
+  /// Promised for delivery between these ISO days, inclusive.
+  readonly deliveryFrom?: string
+  readonly deliveryTo?: string
 }
 
 export interface PurchaseOrderLine {
@@ -128,7 +140,19 @@ export interface PurchaseOrderLine {
   readonly cancelled_quantity: number
   readonly expected_stock_units: number
   readonly received_quantity: number
+  /// This line's share of the order's discount, when the server sends it.
+  readonly discount_minor?: number
+  /// Each receiving against this line, oldest first; empty when none.
+  readonly receipts?: readonly PurchaseOrderLineReceipt[]
   readonly outstanding_stock_units: number
+  /// Quantity that arrived beyond this line, all of it (0710).
+  readonly excess_quantity: number
+  /// The part of the excess nobody has put on a purchase return yet — what
+  /// the "Return {n} pcs to supplier" button on the order still offers.
+  readonly excess_pending_quantity: number
+  /// The part of what arrived the checker counted as not the article the
+  /// order names (0829). Inside the excess; it goes back with it.
+  readonly wrong_quantity: number
   /// Set when the buyer stopped waiting. The shortfall is still reported:
   /// "settled" and "arrived" are not the same thing.
   readonly closed_short_units: number | null
@@ -150,6 +174,10 @@ export interface PurchaseOrderLine {
   readonly order_unit_code?: string | null
   readonly order_unit_quantity?: string | null
   readonly unit_factor?: string | null
+  /// The price agreed for ONE `order_unit_code`, exactly as quoted (0656).
+  /// Present only when the line was priced per order unit; `unit_price_minor`
+  /// above is then the per-piece figure the server derived from it.
+  readonly order_unit_price_minor?: number | null
 }
 
 export interface PurchaseOrderDetail {
@@ -160,6 +188,17 @@ export interface PurchaseOrderDetail {
   /// orders raised line by line rather than from a catalogue.
   readonly supplier_ref_id: string | null
   readonly notes: string | null
+  /// The optional payment terms template chosen on the order, and its name.
+  /// Optional on the type so an older server reads as "none".
+  readonly payment_terms_code?: string | null
+  readonly payment_terms_name?: string | null
+  /// How the order is paid: GIRO, TRANSFER or CASH. Absent on an older server.
+  readonly payment_method?: string | null
+  /// The terms and conditions printed on the order; absent or null means the
+  /// default text. Optional until the server sends it.
+  readonly terms_and_conditions?: string | null
+  /// The discount as a percentage in hundredths (1250 is 12,50 %), as given.
+  readonly discount_bps?: number | null
   /// Whether the order can still be rewritten, and if not, why — asked of the
   /// server on every read so Edit is offered only where a save would be taken.
   readonly editable: boolean
@@ -195,6 +234,39 @@ export interface PurchaseOrderDetail {
   /// Every saved edit, newest first: who, when, and what changed.
   readonly revisions?: readonly PurchaseOrderRevisionEntry[]
   readonly lines: readonly PurchaseOrderLine[]
+  /// Purchase returns raised against this order's excess, newest first.
+  readonly returns: readonly PurchaseReturn[]
+}
+
+/// Excess beyond an order, on its way back to the supplier (0710): the PO
+/// creator raises one over whatever excess is still pending, and the Gudang
+/// closes it by handing the goods to the supplier in Ops Receiving.
+export interface PurchaseReturn {
+  readonly return_id: string
+  readonly return_number: string
+  readonly purchase_order_id: string
+  readonly po_number: string
+  readonly supplier_id: string
+  readonly supplier_name: string | null
+  readonly site_id: string
+  readonly status: "OPEN" | "HANDED_OVER"
+  readonly note: string | null
+  readonly raised_by: string
+  readonly raised_at: string
+  readonly handed_over_by: string | null
+  readonly handed_over_at: string | null
+  /// The Gudang's person in charge, named when the surat jalan was generated;
+  /// null until it is (0917).
+  readonly note_pic?: string | null
+  readonly note_generated_at?: string | null
+  readonly quantity: number
+  readonly lines: readonly {
+    readonly receipt_line_id: string
+    readonly po_line_id: string
+    readonly article_code: string
+    readonly article_name: string
+    readonly quantity: number
+  }[]
 }
 
 /// What the server says after it raises an order from the catalogue: the order
@@ -226,6 +298,15 @@ export interface DirectPurchaseLine {
   readonly division_code?: string | null
   readonly tags?: readonly string[]
   readonly promised_date?: string | null
+  /// What it was ordered in, when not the base unit — "KODI" at "10". The
+  /// server still requires `ordered_quantity` in pieces and refuses a line
+  /// where it does not equal `unit_quantity` times the unit's own factor.
+  readonly unit_code?: string | null
+  readonly unit_quantity?: string | null
+  /// The price agreed for ONE `unit_code`, exactly as quoted (0656). When
+  /// present the line totals `unit_quantity` × this and `unit_price_minor`
+  /// is ignored by the server; absent prices the line per piece as before.
+  readonly order_unit_price_minor?: number | null
 }
 
 export interface DirectPurchaseOrder {
@@ -301,6 +382,23 @@ export interface UnidentifiedReceipt {
   readonly image_url: string | null
   readonly site_id: string
   readonly po_number: string
+  /// What the piece cost, per the PO line. Always present — a session cannot
+  /// price a SKU below what it cost without knowing what that was.
+  readonly purchase_price_minor: number
+  /// The buyer's selling price for the line, if the PO carried one. `null`
+  /// leaves the composer's base price for a person to set.
+  readonly base_price_minor: number | null
+  /// The markup that price is over cost, in basis points — 35.5% is 3550.
+  readonly markup_bps: number | null
+  /// The PO's own colour x size split, prefilling the grid a session is
+  /// otherwise filled into by hand. A SKU's `base_price_minor` here is its
+  /// OWN price, only set when it differs from the line's.
+  readonly variants: readonly {
+    readonly colour_code: string | null
+    readonly size_code: string | null
+    readonly quantity: number
+    readonly base_price_minor: number | null
+  }[]
 }
 
 export interface SetupSessionRow {
@@ -524,7 +622,7 @@ export interface SourcingScope {
   readonly cursor?: string
   /// Which book: `MERCHANDISE`, `EXPENSE` or `AFFILIATE`.
   ///
-  /// The two menus each name theirs — Buying shows merchandise, Finance shows
+  /// The two menus each name theirs — Procurement shows merchandise, Finance shows
   /// the parties that send bills — and a screen that named neither would show
   /// PLN in the middle of the garment factories. See migration 0212.
   readonly category?: SupplierCategory
@@ -558,6 +656,14 @@ export const procurementKeys = {
     scope === undefined
       ? (["procurement", "purchase-orders"] as const)
       : (["procurement", "purchase-orders", "scoped", scope] as const),
+  /// The same book read as a PAGE — rows plus facet counts. A different shape
+  /// from `orders` above, so it needs a different key: with the same scope
+  /// both shared one cache entry, and whichever screen opened first left the
+  /// other holding an object where it expected a list (`.filter is not a
+  /// function` on Ops › Stock). The prefix is shared on purpose, so invalidating
+  /// `orders()` still reaches both.
+  ordersPage: (scope: PurchaseOrderScope = {}) =>
+    ["procurement", "purchase-orders", "page", scope] as const,
   order: (id: string) => ["procurement", "purchase-orders", id] as const,
   destinations: () => ["procurement", "purchase-destinations"] as const,
   /// The supplier book. Scoped exactly as `orders` above is, and for the same
@@ -598,6 +704,13 @@ export const procurementKeys = {
     ["procurement", "catalogue", "item-image", supplierCode, itemCode] as const,
   articleImage: (articleCode: string, colour: string) =>
     ["procurement", "catalogue", "article-image", articleCode, colour] as const,
+  /// Purchase returns — the excess-beyond-the-order book. Scoped by status
+  /// exactly as `orders` is: an unscoped read (the whole book, for the "Over-
+  /// delivery returns" card) stays its own entry from a status-narrowed one.
+  returns: (status?: string) =>
+    status === undefined
+      ? (["procurement", "purchase-returns"] as const)
+      : (["procurement", "purchase-returns", "scoped", status] as const),
 }
 
 /// The headers a supplier write carries.
@@ -663,6 +776,10 @@ function orderBookUrl(scope: PurchaseOrderScope): string {
   if (scope.issuedFrom !== undefined)
     params.set("issued_from", scope.issuedFrom)
   if (scope.issuedTo !== undefined) params.set("issued_to", scope.issuedTo)
+  if (scope.deliveryFrom !== undefined)
+    params.set("delivery_from", scope.deliveryFrom)
+  if (scope.deliveryTo !== undefined)
+    params.set("delivery_to", scope.deliveryTo)
   const query = params.toString()
   return query === ""
     ? "/api/v1/purchase-orders"
@@ -711,6 +828,9 @@ export function orderScopeFromFilters(
     else if (column === "issued_at") {
       if (operator === "gte") scope.issuedFrom = values[0]
       else if (operator === "lte") scope.issuedTo = values[0]
+    } else if (column === "expected_arrival") {
+      if (operator === "gte") scope.deliveryFrom = values[0]
+      else if (operator === "lte") scope.deliveryTo = values[0]
     }
   }
   return scope
@@ -738,6 +858,18 @@ export function purchaseDestinations(signal?: AbortSignal) {
   })
 }
 
+/// The order's optional payment terms: a template code from the payment
+/// terms book. Widened here until the contract carries it. On a revision
+/// absent leaves it unchanged, a code sets it, `null` clears it.
+export interface WithPaymentTerms {
+  readonly payment_terms_code?: string | null
+  /// GIRO (default), TRANSFER or CASH; absent leaves a revised order as it was.
+  readonly payment_method?: string | null
+  /// The terms and conditions printed on the order (optional; blank prints
+  /// the default text). Widened here until the contract carries it.
+  readonly terms_and_conditions?: string | null
+}
+
 /// Raise an order against the supplier's catalogue.
 ///
 /// Prices are not sent: the server snapshots each line from the supplier item
@@ -745,7 +877,7 @@ export function purchaseDestinations(signal?: AbortSignal) {
 /// The idempotency key is the caller's and is held across retries — a
 /// double-clicked Create raises one order and gets the same receipt twice.
 export function createCatalogPurchaseOrder(
-  request: CatalogPurchaseOrderRequest,
+  request: CatalogPurchaseOrderRequest & WithPaymentTerms,
   idempotencyKey: string,
   signal?: AbortSignal
 ) {
@@ -759,7 +891,7 @@ export function createCatalogPurchaseOrder(
 /// The whole order as it should now read, for an order nothing has happened
 /// against yet. The supplier and destination are fixed: changing either is a
 /// different order.
-export interface CatalogPurchaseOrderRevision {
+export interface CatalogPurchaseOrderRevision extends WithPaymentTerms {
   readonly notes: string | null
   readonly discount_minor: number | null
   readonly lines: CatalogPurchaseOrderRequest["lines"]
@@ -796,6 +928,33 @@ export function cancelPurchaseOrder(
     { reason },
     { signal, headers: { "Idempotency-Key": idempotencyKey } }
   )
+}
+
+/// Put an order's excess on a purchase return, for the Gudang to hand to the
+/// supplier. Empty/omitted `po_line_ids` means all of the order's pending
+/// excess — the "Return N pcs to supplier" button on the sheet asks for the
+/// whole order rather than line by line. 409 when nothing is pending.
+export function raisePurchaseReturn(
+  orderId: string,
+  body: { po_line_ids?: readonly string[]; note?: string | null },
+  idempotencyKey: string,
+  signal?: AbortSignal
+) {
+  return node.post<PurchaseReturn>(
+    `/api/v1/purchase-orders/${orderId}/returns`,
+    body,
+    { signal, headers: { "Idempotency-Key": idempotencyKey } }
+  )
+}
+
+/// The purchase-return book, or the slice of it a status narrows to.
+export function purchaseReturns(status?: string, signal?: AbortSignal) {
+  const query = status === undefined ? "" : `?status=${status}`
+  return node
+    .get<{ items: PurchaseReturn[] }>(`/api/v1/purchase-returns${query}`, {
+      signal,
+    })
+    .then((body) => body.items)
 }
 
 /// Raise an order line by line, for goods no supplier catalogue carries.
@@ -929,10 +1088,12 @@ export interface SupplierScope {
   readonly cursor?: string
   /// Which book: `MERCHANDISE`, `EXPENSE` or `AFFILIATE`.
   ///
-  /// The two menus each name theirs — Buying shows merchandise, Finance shows
+  /// The two menus each name theirs — Procurement shows merchandise, Finance shows
   /// the parties that send bills — and a screen that named neither would show
   /// PLN in the middle of the garment factories. See migration 0212.
   readonly category?: SupplierCategory
+  /// Only suppliers with an order still open — the "Active order" switch.
+  readonly activeOrders?: boolean
 }
 
 /// The scope as the route it addresses.
@@ -941,6 +1102,7 @@ function supplierBookUrl(scope: SupplierScope): string {
   if (scope.q !== undefined && scope.q.trim() !== "")
     params.set("q", scope.q.trim())
   if (scope.status !== undefined) params.set("status", scope.status)
+  if (scope.activeOrders === true) params.set("active_orders", "true")
   if (scope.sort !== undefined) params.set("sort", scope.sort)
   // Only the word the server looks for. Anything else — including `asc` — is
   // ascending, so sending it would be a parameter that means nothing.
@@ -952,16 +1114,37 @@ function supplierBookUrl(scope: SupplierScope): string {
   return query === "" ? "/api/v1/suppliers" : `/api/v1/suppliers?${query}`
 }
 
+/// A thousand a page, and ten pages at most: the pickers want the whole book,
+/// and a book past ten thousand parties wants a search box, not a list.
+const BOOK_PAGE = 1000
+const BOOK_PAGES = 10
+
 /// Every supplier the scope matches, as the rows alone.
 ///
 /// The pickers that call this want a list of names and nothing else, so the
 /// envelope is unwrapped here rather than in nine screens. `supplierPage`
 /// below is the same read for anybody who needs the count, the facets or the
 /// cursor.
-export function listSuppliers(status?: SupplierStatus, signal?: AbortSignal) {
-  return node
-    .get<SupplierPage>(supplierBookUrl({ status }), { signal })
-    .then((body) => body.rows)
+///
+/// It follows the cursor. The endpoint answers 200 rows unless asked for more,
+/// so a single request left every supplier past the 200th without its legal
+/// form in the order list and out of the order picker altogether.
+export async function listSuppliers(
+  status?: SupplierStatus,
+  signal?: AbortSignal
+) {
+  const rows: SupplierPage["rows"][number][] = []
+  let cursor: string | undefined
+  for (let page = 0; page < BOOK_PAGES; page++) {
+    const body = await node.get<SupplierPage>(
+      supplierBookUrl({ status, limit: BOOK_PAGE, cursor }),
+      { signal }
+    )
+    rows.push(...body.rows)
+    if (!body.next_cursor) break
+    cursor = body.next_cursor
+  }
+  return rows
 }
 
 /// The same read, keeping the count and the facet the filter panel prints.
@@ -1485,6 +1668,39 @@ export function openSetupSession(
   signal?: AbortSignal
 ) {
   return node.post<SetupSession>("/api/v1/article-setups", request, { signal })
+}
+
+/// One article of a delivery line split into several: its own colourways and
+/// its own share of the pieces.
+export interface NewSetupPart {
+  readonly colours: NewSetupSession["colours"]
+  readonly variants: readonly NewSetupVariant[]
+}
+
+/// One delivery line set up as several sibling articles (0825): the same name,
+/// division, tags and price, each with its own minted code and SKUs. No parent
+/// article. Every part becomes an ordinary session, all opened in one
+/// transaction — every one opens or none does — and each is then issued on
+/// its own with `issueSetupSession`.
+export interface NewSplitSetup {
+  readonly receipt_line_id: string
+  readonly article_name: string
+  readonly division_code: string
+  readonly tags: readonly string[]
+  readonly image_url?: string | null
+  readonly currency: string
+  readonly articles: readonly NewSetupPart[]
+  readonly created_by: string
+}
+
+/// Open every article of a split line. The sessions come back in the order
+/// the parts were sent, which is the order their codes were minted in.
+export function openSplitSetup(request: NewSplitSetup, signal?: AbortSignal) {
+  return node
+    .post<{
+      items: SetupSession[]
+    }>("/api/v1/article-setups/split", request, { signal })
+    .then((body) => body.items)
 }
 
 export function setupSessionDetail(id: string, signal?: AbortSignal) {

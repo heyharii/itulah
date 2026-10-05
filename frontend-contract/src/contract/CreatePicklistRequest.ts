@@ -16,4 +16,15 @@ export type CreatePicklistRequest = {
  * The rack the goods come off. One per picklist: a round is a walk
  * through one place, and a sheet spanning two of them is two sheets.
  */
-source_pool_id: string, lines: Array<PickLine>, actor_id: string, note: string | null, idempotency_key: string, };
+source_pool_id: string, lines: Array<PickLine>, actor_id: string, note: string | null, idempotency_key: string, 
+/**
+ * The shop the round is walked for. A picklist is per shop since the
+ * owner's ruling of 29 Sep 2026, so packing can take a shop's carton
+ * straight off its picklist. Optional on the wire for older callers.
+ */
+destination_id: string | null, 
+/**
+ * The allotment the round answers. A picklist exists per allotment ×
+ * shop (owner, 29 Sep 2026); accepting one sends both.
+ */
+allotment_id: string | null, };

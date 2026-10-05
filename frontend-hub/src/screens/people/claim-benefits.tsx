@@ -67,7 +67,7 @@ export function ClaimBalances({
             <MiniTable
               head={[
                 "Kind",
-                { label: "A year", align: "right" },
+                { label: "A Year", align: "right" },
                 { label: "Used", align: "right" },
                 { label: "Left", align: "right" },
               ]}
@@ -108,7 +108,6 @@ export function ClaimBalances({
           <Field label="Their own figure for">
             <PickOne
               label="Kind"
-              placeholder="Choose…"
               choices={(balances.data ?? []).map((one) => ({
                 value: one.type_code,
                 label: one.type_name,

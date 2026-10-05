@@ -103,7 +103,13 @@ async fn run_diagnose(
     if !from.ip().is_loopback() {
         return not_here();
     }
-    let report = diagnose::diagnose(console.data_dir.as_deref()).await;
+    let role = console
+        .source
+        .connection
+        .lock()
+        .map(|guard| crate::edge::node::resident_role(&guard))
+        .unwrap_or(crate::edge::EdgeRole::Store);
+    let report = diagnose::diagnose(role, console.data_dir.as_deref()).await;
     let saved = diagnose::save(&report);
     Json(json!({ "report": report, "saved_to": saved })).into_response()
 }

@@ -5,12 +5,17 @@ import * as React from "react"
 
 import {
   FieldContext,
+  FORM_BOX,
+  FORM_HALO,
+  FORM_HALO_TRIGGER,
   INVALID,
   useFieldAria,
+  useInForm,
 } from "@/components/ui/field-state"
 import { PickerSheet } from "@/components/ui/picker-sheet"
 import { usePickerSheet } from "@/lib/layout"
 import { ITEM, PANEL } from "@/lib/filter-chrome"
+import { numberFieldOf, numberKeyDown, numberText } from "@/lib/number-input"
 import { cn } from "@/lib/utils"
 
 /// A labelled input, and the one place a field's chrome is described.
@@ -77,9 +82,9 @@ export function Field({
   )
 
   return (
-    <label className={cn("flex flex-col gap-[0.4375rem]", className)}>
+    <label className={cn("flex flex-col gap-2", className)}>
       <span className="flex items-baseline justify-between gap-2">
-        <span className="min-w-0 text-[0.875rem] font-medium text-text">
+        <span className="min-w-0 text-[0.9375rem] font-medium text-text capitalize">
           {label}
           {required === true && (
             <>
@@ -128,13 +133,36 @@ export function Input({
     required,
     describedBy: props["aria-describedby"],
   })
+  const form = useInForm()
+  const number = numberFieldOf(props)
   return (
     <input
       {...props}
       {...aria}
+      onKeyDown={
+        number.numeric
+          ? (event) => {
+              numberKeyDown(number.decimal, event)
+              props.onKeyDown?.(event)
+            }
+          : props.onKeyDown
+      }
+      onChange={
+        number.numeric
+          ? (event) => {
+              // Held back before the caller sees it: what arrives is the
+              // figure, never the wreckage a paste or an autofill carried in.
+              const clean = numberText(event.target.value, number.decimal)
+              if (clean !== event.target.value) event.target.value = clean
+              props.onChange?.(event)
+            }
+          : props.onChange
+      }
       className={cn(
-        "h-10 w-full rounded-inner border border-hairline-2 bg-canvas px-3 text-[0.875rem] text-ink transition-colors outline-none",
+        "h-10 w-full rounded-inner border border-hairline-2 bg-canvas px-3 text-[0.9375rem] text-ink transition-[border-color,box-shadow] outline-none",
         "placeholder:text-mute hover:border-hairline-strong focus:border-accent",
+        // On a form, the form's box — see `FORM_BOX`.
+        form && [FORM_BOX, FORM_HALO],
         "disabled:opacity-50",
         // Read, not typed — a record open for reading shows its answers in
         // the same boxes, without the hover that invites a click.
@@ -174,13 +202,15 @@ export function Textarea({
     required,
     describedBy: props["aria-describedby"],
   })
+  const form = useInForm()
   return (
     <textarea
       {...props}
       {...aria}
       className={cn(
-        "w-full rounded-inner border border-hairline-2 bg-canvas px-3 py-2.5 text-[0.875rem] leading-[1.375rem] text-ink transition-colors outline-none",
+        "w-full rounded-inner border border-hairline-2 bg-canvas px-3 py-2.5 text-[0.9375rem] leading-[1.375rem] text-ink transition-[border-color,box-shadow] outline-none",
         "placeholder:text-mute hover:border-hairline-strong focus:border-accent",
+        form && ["px-3.5 py-3 text-[0.9375rem] leading-6", FORM_HALO],
         // It had none, so a locked note read exactly like one waiting to be
         // written in — the one control on a locked record that looked open.
         "disabled:opacity-50",
@@ -245,7 +275,7 @@ export function Checkbox({
           box and toggles it exactly once. */}
       <label
         className={cn(
-          "inline-flex items-center gap-2 text-[0.875rem] text-text",
+          "inline-flex items-center gap-2 text-[0.875rem] text-text capitalize",
           disabled === true ? "opacity-55" : "cursor-pointer"
         )}
       >
@@ -341,16 +371,14 @@ export function Money({
   signed,
   prefix,
   suffix,
-  placeholder,
   label,
   disabled,
   autoFocus,
   invalid,
   className,
 }: {
-  /// Digits, as `onChange` last gave them. `""` is empty, and what empty MEANS
-  /// — unlimited, nothing, not yet answered — is the caller's to say in the
-  /// placeholder.
+  /// Digits, as `onChange` last gave them. `""` is empty — unlimited,
+  /// nothing, not yet answered — and what that means is the caller's to say.
   value: string
   onChange: (digits: string) => void
   /// For the form libraries that count a field as touched only once it has
@@ -362,7 +390,6 @@ export function Money({
   prefix?: string
   /// Set after it — "%", "units", "baskets".
   suffix?: string
-  placeholder?: string
   label?: string
   disabled?: boolean
   autoFocus?: boolean
@@ -412,7 +439,6 @@ export function Money({
         value={groupedOf(value)}
         inputMode="numeric"
         aria-label={label}
-        placeholder={placeholder}
         disabled={disabled}
         autoFocus={autoFocus}
         invalid={invalid}
@@ -518,7 +544,6 @@ export function Select({
   value,
   onChange,
   disabled,
-  placeholder = "Choose…",
   invalid,
   required,
   "aria-label": label,
@@ -533,12 +558,6 @@ export function Select({
   children: React.ReactNode
   className?: string
   disabled?: boolean
-  /// Drawn, muted, while nothing is chosen — `value` is `""` and no option
-  /// carries `""`. The trigger was blank there before, and a blank box reads
-  /// as a control that failed to load rather than a question not yet answered.
-  /// An `<option value="">` still wins: that is a caller who has a word for
-  /// "none" and wants it chosen like any other.
-  placeholder?: string
   /// Refused, outside a `<Field>`. Inside one the field says it.
   invalid?: boolean
   required?: boolean
@@ -549,6 +568,7 @@ export function Select({
   const sheet = usePickerSheet()
   const [open, setOpen] = React.useState(false)
   const aria = useFieldAria({ invalid, required })
+  const form = useInForm()
   const unanswered = !items.some((one) => one.value === value)
 
   // A phone: the same sheet `<PickOne>` opens. The desk's panel overlaps the
@@ -565,7 +585,8 @@ export function Select({
           onClick={() => setOpen(true)}
           {...aria}
           className={cn(
-            "flex h-10 w-full items-center rounded-inner border border-hairline-2 bg-canvas px-3 text-left text-[0.875rem] text-ink disabled:opacity-50",
+            "flex h-10 w-full items-center rounded-inner border border-hairline-2 bg-canvas px-3 text-left text-[0.9375rem] text-ink disabled:opacity-50",
+            form && FORM_BOX,
             INVALID,
             className
           )}
@@ -573,7 +594,7 @@ export function Select({
           <span
             className={cn("min-w-0 flex-1 truncate", unanswered && "text-mute")}
           >
-            {chosen?.label ?? placeholder}
+            {chosen?.label}
           </span>
           <ChevronDown className="ml-2 size-3.5 shrink-0 text-line-ico" />
         </button>
@@ -604,7 +625,7 @@ export function Select({
         aria-label={label}
         {...aria}
         className={cn(
-          "flex h-10 w-full items-center rounded-inner border border-hairline-2 bg-canvas py-0 pr-3 pl-3 text-left text-[0.875rem] text-ink transition-colors outline-none",
+          "flex h-10 w-full items-center rounded-inner border border-hairline-2 bg-canvas py-0 pr-3 pl-3 text-left text-[0.9375rem] text-ink transition-[border-color,box-shadow] outline-none",
           // The two states `<Input>` and `<PickOne>` already wear, because a
           // form row holding a text box, a typeahead and a select was giving
           // three different answers to "is the pointer on me": a darker
@@ -619,12 +640,17 @@ export function Select({
           // one field nobody could see they were on.
           "focus-visible:border-accent data-[popup-open]:border-accent",
           "data-disabled:opacity-50",
+          form && [FORM_BOX, FORM_HALO_TRIGGER],
           INVALID,
           className
         )}
       >
         <BaseSelect.Value
-          placeholder={placeholder}
+          // Base UI counts `""` as nothing chosen, and with no placeholder the
+          // unanswered trigger is blank. A caller's own
+          // `<option value="">Every type</option>` is still its word: that
+          // option's label is handed over as the placeholder.
+          placeholder={items.find((one) => one.value === "")?.label}
           className="min-w-0 flex-1 truncate data-[placeholder]:text-mute"
         />
         <BaseSelect.Icon className="ml-2 shrink-0 text-line-ico">

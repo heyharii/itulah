@@ -1,4 +1,5 @@
 import {
+  BookOpen,
   Boxes,
   Landmark,
   LayoutDashboard,
@@ -22,7 +23,7 @@ import { homeNav } from "@/screens/home/nav"
 import { meNav } from "@/screens/me/nav"
 import { mobileNav } from "@/screens/mobile/nav"
 import { inventoryNav } from "@/screens/inventory/nav"
-import { masterNav } from "@/screens/master/nav"
+import { masterNav, useNewArticlesCount } from "@/screens/master/nav"
 import { membersNav } from "@/screens/members/nav"
 import { operationsNav } from "@/screens/operations/nav"
 import { peopleNav } from "@/screens/people/nav"
@@ -136,12 +137,36 @@ export interface NavItem {
   /// leaves every row in the column unlit — and a sidebar with nothing lit
   /// reads as a screen that does not belong to anything.
   readonly alsoLights?: readonly string[]
+  /// Drawn under the department's **More** fold rather than as a row of its
+  /// own.
+  ///
+  /// The owner's menu of 2026-09-28 names the handful of screens each
+  /// department is opened for. Everything else that exists stays one click
+  /// further down, under a fold at the foot of the department — not hidden,
+  /// not deleted. Routed, linkable and in ⌘K exactly as before: this moves
+  /// where the sidebar draws the row and nothing else.
+  readonly more?: boolean
+  /// Named in the menu, not built yet: drawn greyed with a "Soon" mark, inert,
+  /// and left out of ⌘K.
+  ///
+  /// The path is still declared, and routes to `Placeholder` like any path
+  /// with no screen, so the day the screen lands is one line in its folder's
+  /// screen map and the flag coming off — not a menu edit.
+  readonly soon?: boolean
 }
 
 export interface NavSection {
   /// Absent for the first group, which sits directly under the workspace chip.
   readonly label?: string
   readonly items: readonly NavItem[]
+  /// Drawn among the department's own rows as a sub-menu: a heading that
+  /// folds its rows.
+  ///
+  /// Closed until you are inside it — arriving at one of its rows opens it.
+  /// Folded, the heading wears its rows' counts: a stoppage inside a closed
+  /// group is still seen. Needs a `label`; without one the rows are drawn
+  /// flat, as before.
+  readonly fold?: boolean
 }
 
 export interface AppModule {
@@ -332,6 +357,30 @@ export function shown(audience?: Audience | null): (item: NavItem) => boolean {
     !item.hidden && (item.audience === undefined || item.audience === audience)
 }
 
+/// The rows a module draws as its own: visible, and not under More.
+export function primaryItems(
+  module: AppModule,
+  audience?: Audience | null
+): readonly NavItem[] {
+  return visibleItems(module, audience).filter((item) => !item.more)
+}
+
+/// What a module puts under its department's More fold, section by section,
+/// so the fold keeps the headings the rows had before they moved into it.
+export function moreSections(
+  module: AppModule,
+  audience?: Audience | null
+): readonly NavSection[] {
+  return module.sections
+    .map((section) => ({
+      label: section.label,
+      items: section.items.filter(
+        (item) => shown(audience)(item) && item.more === true
+      ),
+    }))
+    .filter((section) => section.items.length > 0)
+}
+
 /// Every nav item, flattened — the command palette's list, and the assertion
 /// that a path appears exactly once across the whole registry.
 export const allNavItems: readonly (NavItem & { module: AppModule })[] =
@@ -359,9 +408,13 @@ export interface AppDomain {
   readonly icon: LucideIcon
   /// Module ids, in the order their screens should stack in the sidebar.
   readonly modules: readonly string[]
+  /// The count on the department's own row, drawn only while it is folded.
+  /// Opt-in per department: a hook called on every screen, so only cheap ones.
+  readonly useCount?: () => number | null | undefined
+  readonly badge?: "bad" | "warn"
 }
 
-export const domains: readonly AppDomain[] = [
+const allDomains: readonly AppDomain[] = [
   // First, ahead of the departments (owner, 2026-09-25): the one place the
   // whole business is read at once, before anybody goes into a part of it.
   {
@@ -370,17 +423,26 @@ export const domains: readonly AppDomain[] = [
     icon: LayoutDashboard,
     modules: ["executive"],
   },
+  // The departments in the owner's order of 2026-09-28 — the order goods and
+  // money move through the company: bought, described, handled at the
+  // Gudang, held, priced, sold, paid for; then the people and the places.
+  {
+    id: "buying",
+    label: "Procurement",
+    icon: ShoppingCart,
+    modules: ["procurement"],
+  },
   {
     id: "merchandise",
     label: "Merchandise",
     icon: Shirt,
-    modules: ["master", "allotment"],
+    modules: ["allotment"],
   },
-  { id: "inventory", label: "Inventory", icon: Boxes, modules: ["inventory"] },
   // Ops stands apart from Inventory for a reason that is not taste: every one
   // of its screens talks to a DC node behind its own login, so a domain that
   // mixed them would ask for a second password halfway down its own sidebar.
   { id: "ops", label: "Ops", icon: Truck, modules: ["operations"] },
+  { id: "inventory", label: "Inventory", icon: Boxes, modules: ["inventory"] },
   {
     id: "marketing",
     label: "Marketing",
@@ -388,25 +450,21 @@ export const domains: readonly AppDomain[] = [
     modules: ["commercial"],
   },
   {
-    id: "buying",
-    label: "Buying",
-    icon: ShoppingCart,
-    modules: ["procurement"],
-  },
-  {
+    // `selling` stays the id — links and saved state name it — while the
+    // label is the owner's word (2026-09-28). Sales leads now: its rows are
+    // the department's own, and Stores and Members sit under its More fold.
     id: "selling",
-    label: "Selling",
+    label: "Sales",
     icon: Store,
-    // Stores first: opening and watching a shop is the owner's own reason to
-    // be in this domain, ahead of what it rings up once it is trading.
-    modules: ["stores", "sales", "members"],
+    modules: ["sales", "stores", "members"],
   },
   {
     id: "finance",
     label: "Finance",
     icon: Landmark,
     // One module since 2026-09-26: the tree the owner froze replaced Finance,
-    // Finance baru, Finance final and the "Finance New" chip's lab. See
+    // Finance baru, Finance final and the "Finance New" chip's lab. Laid out
+    // as ERPNext's Accounting sidebar since 2026-09-28 — see
     // `screens/finance/nav.ts`.
     modules: ["finance"],
   },
@@ -438,7 +496,79 @@ export const domains: readonly AppDomain[] = [
       "library",
     ],
   },
+  // The reference tables, in one menu (owner, 2026-10-04): the article and
+  // the words it is described with, and the parties the company buys from.
+  // Last on the rail because nobody opens the app to visit master data —
+  // they arrive at it from the work that needs a record — but it is its own
+  // department now, no longer folded under Merchandise. The new-articles
+  // count rides this row: the queue belongs to the article, and the article
+  // lives here.
+  {
+    id: "master",
+    label: "Master",
+    icon: BookOpen,
+    modules: ["master"],
+    useCount: useNewArticlesCount,
+    badge: "warn",
+  },
 ]
+
+/// Departments left out of THIS build, by id — `VITE_HIDE_DOMAINS=hr,ga` when
+/// the hub is built for the public demo. Their screens and routes stay; only
+/// the menu stops offering them.
+const hidden = new Set(
+  String(import.meta.env.VITE_HIDE_DOMAINS ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter((id) => id !== "")
+)
+/// The mark on a department's icon is what its own rows add up to (the owner,
+/// 2026-10-04: "kalau di sidebar dalam ada angkanya, sidebar luar ada
+/// penandanya"). A department that declares its own total keeps it; any other
+/// is given the sum of the counts on its modules and their visible rows, so a
+/// number inside the column can never sit under an icon that says nothing.
+///
+/// The hooks are collected once, here, from constant arrays — the same ones in
+/// the same order on every render — which is what keeps calling them from
+/// inside one function safe. The function is not named `use…` on purpose: the
+/// hooks are not a loop over data that changes.
+function withRailCount(domain: AppDomain): AppDomain {
+  if (domain.useCount !== undefined) return domain
+  const reads: (() => number | null | undefined)[] = []
+  let tint: "bad" | "warn" | undefined
+  for (const module of modulesOfDomain(domain)) {
+    if (module.useCount !== undefined) {
+      reads.push(module.useCount)
+      if (module.badge === "bad" || tint === undefined) tint = module.badge
+      continue
+    }
+    for (const section of module.sections) {
+      for (const item of section.items) {
+        if (item.useCount === undefined || item.hidden) continue
+        reads.push(item.useCount)
+        if (item.badge === "bad" || tint === undefined) tint = item.badge
+      }
+    }
+  }
+  if (reads.length === 0) return domain
+  const total = (): number | null => {
+    let sum = 0
+    let any = false
+    for (const read of reads) {
+      const value = read()
+      if (typeof value === "number") {
+        sum += value
+        any = true
+      }
+    }
+    return any ? sum : null
+  }
+  return { ...domain, useCount: total, badge: domain.badge ?? tint ?? "warn" }
+}
+
+export const domains: readonly AppDomain[] = allDomains
+  .filter((domain) => !hidden.has(domain.id))
+  .map(withRailCount)
 
 /// The modules of a domain, in declared order, skipping any that no longer
 /// exist — a rename in one file should dim a chip, not crash the shell.
@@ -447,6 +577,18 @@ export function modulesOfDomain(domain: AppDomain): readonly AppModule[] {
     .map((id) => everyModule.find((module) => module.id === id))
     .filter((module): module is AppModule => module !== undefined)
 }
+
+/// The domains the sidebar and the launcher show: those with at least one
+/// module that is not `hidden`.
+export const shownDomains: readonly AppDomain[] = domains.filter((domain) =>
+  modulesOfDomain(domain).some((module) => !module.hidden)
+)
+
+/// Where `/` lands: Home while it is shown, else the first shown department.
+export const landingPath: string = homeNav.hidden
+  ? (modulesOfDomain(shownDomains[0]).find((module) => !module.hidden)?.home ??
+    homeNav.home)
+  : homeNav.home
 
 /// Whether a domain's modules are one flat list of screens rather than several
 /// labelled groups.
@@ -477,9 +619,20 @@ export function domainForPath(pathname: string): AppDomain | undefined {
   return domainForModule(moduleForPath(pathname).id)
 }
 
-/// Where a chip lands: the home of its first module.
+/// Where a department's row lands: its first own row that is built.
+///
+/// Not simply the first module's `home` any more. Since the menu of
+/// 2026-09-28 a department's rows are what it is opened for, and the first
+/// of them is where it should open — Sales opens on Sales by store, not on
+/// Stores, which now sits under its More fold. A department with no own row
+/// that is built falls back to the old answer.
 export function domainHome(domain: AppDomain): string {
-  return modulesOfDomain(domain)[0]?.home ?? "/"
+  const modules = modulesOfDomain(domain)
+  for (const module of modules) {
+    const first = primaryItems(module).find((item) => !item.soon)
+    if (first) return first.path
+  }
+  return modules[0]?.home ?? "/"
 }
 
 /// Which module owns a path, by longest matching `home`. Used by the sidebar to

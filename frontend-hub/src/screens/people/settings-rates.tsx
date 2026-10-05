@@ -301,7 +301,6 @@ function NewRatesSheet({
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            placeholder="batas upah JP Maret 2027"
           />
         </Field>
       </div>
@@ -352,7 +351,7 @@ function TaxTables() {
 
           <ListCard title="PTKP">
             <MiniTable
-              head={["Status", { label: "A year", align: "right" }, "TER"]}
+              head={["Status", { label: "A Year", align: "right" }, "TER"]}
             >
               {law.ptkp.map((row) => (
                 <MiniRow key={row.status}>
@@ -387,7 +386,7 @@ function TaxTables() {
                   For {ter.ptkp.join(", ")} · {ter.rows.length} rows
                 </p>
                 <MiniTable
-                  head={["Monthly gross", { label: "Rate", align: "right" }]}
+                  head={["Monthly Gross", { label: "Rate", align: "right" }]}
                 >
                   {ter.rows.map((row, index) => (
                     <MiniRow key={index}>
@@ -403,7 +402,7 @@ function TaxTables() {
           <ListCard title="Pasal 17 · the year">
             <MiniTable
               head={[
-                "Taxable income a year",
+                "Taxable Income a Year",
                 { label: "Rate", align: "right" },
               ]}
             >

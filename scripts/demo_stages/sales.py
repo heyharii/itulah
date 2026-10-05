@@ -347,7 +347,7 @@ def _deposit(finance, day_cash):
     found = next((d for d in _rows(listed) if d.get("slip_reference") == slip), None)
     if found is None:
         found = finance.call("POST", "/api/v1/finance/deposits", {
-            "site_id": STORE, "drawer_account_code": "1002", "bank_account_code": "1005",
+            "unit_id": STORE, "site_id": STORE, "drawer_account_code": "1002", "bank_account_code": "1005",
             "amount_minor": day_cash, "banked_on": _today(), "carried_by": "maya",
             "slip_reference": slip, "note": "Setoran tunai penjualan hari ini (modal laci tetap)",
             "bank_now": True}, ok=None)

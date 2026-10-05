@@ -3,11 +3,11 @@
 /**
  * One thing that must be true before a store opens.
  */
-export type StoreCheck = {
+export type StoreCheck = { 
 /**
  * `server`, `tills`, `team`, `payments` or `first_stock`.
  */
-key: string, ok: boolean, required: boolean, title: string,
+key: string, ok: boolean, required: boolean, title: string, 
 /**
  * What the data says, in a sentence.
  */

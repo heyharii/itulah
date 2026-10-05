@@ -41,7 +41,6 @@ import {
   Fact,
   Facts,
   MoneyScreen,
-  Note,
   SpanPicker,
   Toolbar,
   TwoLine,
@@ -50,33 +49,11 @@ import type {
   PettyCashPosition,
   PettyCashTopUpView,
   StoreExpenseView,
-  Supervisor,
 } from "@itulah/contract"
 import { money, units } from "@itulah/contract/money"
 
-/// What this shop spends, and the one pot it is allowed to spend it from.
-///
-/// **A shop is not a place that pays.** Expenses are centralised at head office
-/// and settled by transfer; what a shop holds is a small imprest float for the
-/// daily things — iuran lingkungan, ATK, parkir, an ojek across town. So this
-/// screen is about ONE pot, and it never offers the other two:
-///
-///   the **drawer** is the day's takings. It is banked, not spent. A till that
-///   could pay for a light bulb is a till whose cash variance is unreadable,
-///   because every shortfall then has an explanation available.
-///
-///   **modal kasir** is the cashier's opening float. It is fixed, it comes from
-///   head office, and it lives with the shift at the till.
-///
-/// Laid out as the hub lays out a ledger: the tin in a strip of figures, the
-/// book for a span as two tables — what went out, what came in — and each
-/// record opening in a sheet. Recording is the screen's one primary act, and it
-/// opens as a sheet too, over the book it is about to change.
-///
-/// The ceiling is on the screen BEFORE anybody types past it — in the strip
-/// and on the amount field, from the node's own number rather than one spelled
-/// here. A limit somebody only meets as a refusal is a limit they meet with the
-/// receipt already in their hand and the money already gone.
+/// Money › Expenses: the shop's petty cash. Whoever is signed in records an
+/// expense; above Finance's line it needs Finance's one-time code.
 export function Expenses() {
   const tin = usePettyCash()
   const [task, setTask] = useState<"spend" | "float" | null>(null)
@@ -93,7 +70,6 @@ export function Expenses() {
 
   return (
     <MoneyScreen
-      sub="Petty cash — the one pot this shop spends from. Head office hands the float over; every rupiah out of it is signed for by somebody else."
       actions={
         tin.data === undefined ? undefined : (
           <>
@@ -110,7 +86,7 @@ export function Expenses() {
       }
     >
       {queryState(tin, {
-        loading: "Counting the petty cash…",
+        loading: "Loading petty cash…",
         render: (position) => (
           <>
             <TheTin position={position} />
@@ -120,12 +96,6 @@ export function Expenses() {
               </Banner>
             )}
             <TheBook />
-            <Note>
-              Petty cash is the only pot a shop spends from. The drawer holds
-              the day&rsquo;s takings and is banked, not spent; modal kasir is
-              the cashier&rsquo;s float and never pays for anything. Anything
-              head office settles by transfer does not belong here.
-            </Note>
 
             <SpendSheet
               position={position}
@@ -151,12 +121,7 @@ export function Expenses() {
   )
 }
 
-/// What is in the tin.
-///
-/// A lifetime figure, not a span: the money head office handed over in July is
-/// still in the tin in September, and a balance that only counted this month's
-/// top-ups would report a shop as broke every first of the month. That is why
-/// it sits above the span control rather than under it.
+/// What is in the tin — a lifetime figure, so it sits above the span.
 function TheTin({ position }: { position: PettyCashPosition }) {
   const left =
     position.float_in_minor > 0
@@ -165,7 +130,7 @@ function TheTin({ position }: { position: PettyCashPosition }) {
   return (
     <StatStrip>
       <Stat
-        label="In the tin"
+        label="Balance"
         value={money(position.balance_minor)}
         tone={position.balance_minor > 0 ? undefined : "warn"}
         sub={
@@ -176,28 +141,23 @@ function TheTin({ position }: { position: PettyCashPosition }) {
               tone={left > 0.25 ? "accent" : left > 0.1 ? "warn" : "bad"}
             />
           ) : (
-            "empty — ask head office to top it up"
+            "Empty"
           )
         }
       />
       <Stat
-        label="Head office handed over"
+        label="Received"
         value={money(position.float_in_minor)}
         sub={
           position.last_top_up_at === null
-            ? "nothing yet"
-            : `${units(position.top_up_count)} times · last ${moment(position.last_top_up_at)}`
+            ? "None yet"
+            : `Last ${moment(position.last_top_up_at)}`
         }
       />
       <Stat
-        label="Spent from it"
+        label="Spent"
         value={money(position.spent_minor)}
         sub={`${units(position.expense_count)} ${position.expense_count === 1 ? "receipt" : "receipts"}`}
-      />
-      <Stat
-        label="A manager may sign"
-        value={`up to ${money(position.manager_limit_minor)}`}
-        sub="above that, head office signs"
       />
     </StatStrip>
   )
@@ -240,16 +200,16 @@ function TheBook() {
       </Toolbar>
 
       {queryState(book, {
-        loading: "Reading the petty cash book…",
+        loading: "Loading…",
         render: (page) => (
           <>
             <Card className="mb-4">
               <CardHead
-                title="What was spent"
+                title="Expenses"
                 sub={
                   page.count === 0
                     ? undefined
-                    : `${units(page.count)} ${page.count === 1 ? "receipt" : "receipts"} in this span`
+                    : `${units(page.count)} ${page.count === 1 ? "receipt" : "receipts"}`
                 }
                 aside={
                   <span className="text-metric font-semibold text-ink tabular-nums">
@@ -269,13 +229,12 @@ function TheBook() {
                   rows={page.expenses}
                   columns={EXPENSE_COLUMNS}
                   rowKey={(expense) => expense.id}
-                  empty="Nothing was paid out of petty cash in this span. Small daily needs are recorded here as they are bought, one receipt at a time."
+                  empty="No expenses in this period."
                 />
               </OpenRows>
               {page.truncated && (
                 <p className="border-t border-hairline bg-soft px-4 py-2.5 text-meta text-body">
                   Showing {units(page.expenses.length)} of {units(page.count)}.
-                  The total above covers every one of them.
                 </p>
               )}
             </Card>
@@ -283,7 +242,7 @@ function TheBook() {
             {page.top_ups.length > 0 && (
               <Card>
                 <CardHead
-                  title="What head office handed over"
+                  title="Float received"
                   aside={
                     <span className="text-metric font-semibold text-ink tabular-nums">
                       {money(
@@ -307,7 +266,7 @@ function TheBook() {
                     rows={page.top_ups}
                     columns={TOP_UP_COLUMNS}
                     rowKey={(topUp) => topUp.id}
-                    empty="Head office handed nothing over in this span."
+                    empty="None in this period."
                   />
                 </OpenRows>
               </Card>
@@ -356,9 +315,6 @@ function categoryOf(code: string) {
   return CATEGORIES.find((one) => one.code === code)
 }
 
-const approverWord = (role: string) =>
-  role === "ADMIN" ? "head office" : "manager"
-
 const EXPENSE_COLUMNS: readonly ListColumn<StoreExpenseView>[] = [
   {
     id: "payee",
@@ -382,17 +338,10 @@ const EXPENSE_COLUMNS: readonly ListColumn<StoreExpenseView>[] = [
     cell: (expense) => categoryOf(expense.category)?.word ?? expense.category,
   },
   {
-    id: "signed",
-    header: "Signed by",
+    id: "by",
+    header: "By",
     card: "hide",
-    cell: (expense) => (
-      <span>
-        {expense.approved_by}
-        <span className="ml-1.5 text-mute">
-          {approverWord(expense.approved_role)}
-        </span>
-      </span>
-    ),
+    cell: (expense) => expense.claimed_by,
   },
   {
     id: "when",
@@ -418,7 +367,7 @@ const EXPENSE_COLUMNS: readonly ListColumn<StoreExpenseView>[] = [
     card: "meta",
     className: "hidden",
     cell: (expense) =>
-      `${categoryOf(expense.category)?.word ?? expense.category} · ${moment(expense.spent_at)} · signed ${expense.approved_by}`,
+      `${categoryOf(expense.category)?.word ?? expense.category} · ${moment(expense.spent_at)} · ${expense.claimed_by}`,
   },
 ]
 
@@ -473,7 +422,7 @@ const TOP_UP_COLUMNS: readonly ListColumn<PettyCashTopUpView>[] = [
     card: "meta",
     className: "hidden",
     cell: (topUp) =>
-      `Taken by ${topUp.received_by}, counted with ${topUp.approved_by}${
+      `${topUp.received_by} · ${topUp.approved_by}${
         topUp.reference === null ? "" : ` · ${topUp.reference}`
       }`,
   },
@@ -497,31 +446,32 @@ function ExpenseSheet({
       }}
       id={expense.id.slice(0, 8)}
       title={expense.payee}
-      caption={`${moment(expense.spent_at)} · out of petty cash`}
+      caption={moment(expense.spent_at)}
       badge={<Pill tone="neutral">{kind?.word ?? expense.category}</Pill>}
     >
       <p className="mb-6 text-total font-semibold text-ink tabular-nums">
         {money(expense.amount_minor)}
       </p>
       <Facts>
-        <Fact term="What it was for" wide>
+        <Fact term="For" wide>
           {expense.reason}
         </Fact>
-        <Fact term="Kind of cost">{kind?.word ?? expense.category}</Fact>
+        <Fact term="Kind">{kind?.word ?? expense.category}</Fact>
         <Fact term="When">{moment(expense.spent_at)}</Fact>
-        <Fact term="Claimed by">{expense.claimed_by}</Fact>
-        <Fact term="Approved by">
-          {expense.approved_by}{" "}
-          <span className="text-mute">
-            ({approverWord(expense.approved_role)})
-          </span>
-        </Fact>
+        <Fact term="Recorded by">{expense.claimed_by}</Fact>
+        {expense.approval_code !== null ? (
+          <Fact term="Approval code">
+            <span className="font-mono">{expense.approval_code}</span>
+            {expense.approved_by !== null && (
+              <span className="text-mute"> · {expense.approved_by}</span>
+            )}
+          </Fact>
+        ) : (
+          expense.approved_by !== null && (
+            <Fact term="Signed by">{expense.approved_by}</Fact>
+          )
+        )}
       </Facts>
-      <Note className="mt-6">
-        Two people on every rupiah: whoever spent it does not approve it. Which
-        rung signed is kept with the expense, because the limit may move and an
-        audit months later asks who was allowed to approve this, then.
-      </Note>
     </RecordSheet>
   )
 }
@@ -543,7 +493,7 @@ function TopUpSheet({
       }}
       id={topUp.reference ?? topUp.id.slice(0, 8)}
       title="Float received"
-      caption={`${moment(topUp.received_at)} · into petty cash`}
+      caption={moment(topUp.received_at)}
       badge={<Pill tone="info">Float</Pill>}
     >
       <p className="mb-6 text-total font-semibold text-ink tabular-nums">
@@ -552,7 +502,7 @@ function TopUpSheet({
       <Facts>
         <Fact term="Taken by">{topUp.received_by}</Fact>
         <Fact term="Counted with">{topUp.approved_by}</Fact>
-        <Fact term="Head office reference">{topUp.reference ?? "—"}</Fact>
+        <Fact term="Reference">{topUp.reference ?? "—"}</Fact>
         <Fact term="When">{moment(topUp.received_at)}</Fact>
         {topUp.note !== null && (
           <Fact term="Note" wide>
@@ -564,23 +514,8 @@ function TopUpSheet({
   )
 }
 
-/// Record what was bought — a task, so it opens as the wide sheet with its
-/// button pinned at the foot, above a phone's keyboard.
-///
-/// Three of the node's refusals are drawn here before the send, because a
-/// refusal that arrives after somebody has typed a supervisor's password is a
-/// refusal that cost a secret for nothing:
-///
-///   - the **ceiling** stands on the amount field from the moment the sheet
-///     opens, and the approval it asks for changes the instant the amount goes
-///     past it;
-///   - the **tin** is what it is, and an expense larger than the balance is
-///     money that did not come out of the tin;
-///   - the **approver is not the claimant**, which this screen can see because
-///     it knows who is signed in.
-///
-/// Everything else is the node's to refuse, and its sentence is repeated
-/// verbatim rather than translated into a code.
+/// Record what was bought. Whoever is signed in records it; above Finance's
+/// line the form asks for Finance's one-time code.
 function SpendSheet({
   position,
   open,
@@ -593,30 +528,24 @@ function SpendSheet({
   onDone: (said: string) => void
 }) {
   const record = useRecordExpense()
-  const identity = useIdentity()
   const [category, setCategory] = useState<string>("expense_household")
   const [amount, setAmount] = useState("")
   const [payee, setPayee] = useState("")
   const [reason, setReason] = useState("")
-  const [username, setUsername] = useState("")
-  const [password, setPassword] = useState("")
+  const [code, setCode] = useState("")
 
   const minor = minorFrom(amount)
-  const overLimit = minor !== null && minor > position.manager_limit_minor
   const overTin = minor !== null && minor > position.balance_minor
-  const claimant = identity.data?.username ?? ""
-  const approvingSelf =
-    claimant !== "" && username.trim().toLowerCase() === claimant.toLowerCase()
+  const needsCode = minor !== null && minor > position.code_above_minor
+  const codeReady = /^[0-9]{6}$/.test(code.trim())
 
   const ready =
     minor !== null &&
     minor > 0 &&
     !overTin &&
-    !approvingSelf &&
     payee.trim() !== "" &&
     reason.trim() !== "" &&
-    username.trim() !== "" &&
-    password !== ""
+    (!needsCode || codeReady)
 
   return (
     <RecordSheet
@@ -625,7 +554,7 @@ function SpendSheet({
         if (!next) onClose()
       }}
       title="Record an expense"
-      caption={`${money(position.balance_minor)} in the tin`}
+      caption={`Balance ${money(position.balance_minor)}`}
       width="wide"
       footer={
         <div className="flex flex-col gap-3">
@@ -641,85 +570,75 @@ function SpendSheet({
             disabled={!ready || record.isPending}
           >
             <Banknote />
-            {record.isPending ? "Recording…" : "Record it"}
+            {record.isPending ? "Recording…" : "Record"}
           </Button>
         </div>
       }
     >
       <form
         id="petty-spend"
-        className="flex flex-col gap-4"
+        className="flex flex-col gap-6"
         onSubmit={(event) => {
           event.preventDefault()
           if (!ready || record.isPending || minor === null) return
-          const supervisor: Supervisor = {
-            username: username.trim(),
-            password,
-          }
           record.mutate(
             {
               category,
               amountMinor: minor,
               payee: payee.trim(),
               reason: reason.trim(),
-              supervisor,
+              approvalCode: needsCode ? code.trim() : null,
             },
             {
               onSuccess: () => {
-                onDone(
-                  `Recorded: ${money(minor)} to ${payee.trim()}, out of petty cash.`,
-                )
+                onDone(`Recorded ${money(minor)} to ${payee.trim()}.`)
                 setAmount("")
                 setPayee("")
                 setReason("")
-                setPassword("")
+                setCode("")
               },
             },
           )
         }}
       >
-        <Field label="What kind of cost">
-          <Select value={category} onChange={setCategory}>
-            {CATEGORIES.map((one) => (
-              <option key={one.code} value={one.code}>
-                {one.word}
-              </option>
-            ))}
-          </Select>
-        </Field>
+        <div className="grid gap-6 md:grid-cols-2">
+          <Field
+            label="Amount"
+            problem={
+              overTin
+                ? `Petty cash holds ${money(position.balance_minor)}.`
+                : undefined
+            }
+          >
+            <Input
+              inputMode="numeric"
+              autoFocus
+              invalid={overTin}
+              value={amount}
+              placeholder="45000"
+              onChange={(event) => setAmount(event.target.value)}
+            />
+          </Field>
+          <Field label="Kind">
+            <Select value={category} onChange={setCategory}>
+              {CATEGORIES.map((one) => (
+                <option key={one.code} value={one.code}>
+                  {one.word}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
 
-        <Field
-          label="How much"
-          hint={
-            minor === null
-              ? `${money(position.manager_limit_minor)} or less and the manager signs. Above that, head office has to.`
-              : `${money(minor)} — ${money(position.balance_minor)} in the tin.`
-          }
-          problem={
-            overTin
-              ? `The tin holds ${money(position.balance_minor)}. The drawer and the day's takings are not available for this: ask head office to top the float up, or to pay it by transfer.`
-              : undefined
-          }
-        >
-          <Input
-            inputMode="numeric"
-            autoFocus
-            invalid={overTin}
-            value={amount}
-            placeholder="45000"
-            onChange={(event) => setAmount(event.target.value)}
-          />
-        </Field>
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <Field label="Who was paid">
+        <div className="grid gap-6 md:grid-cols-2">
+          <Field label="Paid to">
             <Input
               value={payee}
               placeholder="Ojek Pak Dedi"
               onChange={(event) => setPayee(event.target.value)}
             />
           </Field>
-          <Field label="What it was for">
+          <Field label="For">
             <Input
               value={reason}
               placeholder="Antar paket ke pelanggan"
@@ -728,57 +647,30 @@ function SpendSheet({
           </Field>
         </div>
 
-        {overLimit && (
-          <Banner tone="warn">
-            Above {money(position.manager_limit_minor)} the shop&rsquo;s own
-            manager may not approve this. Head office signs — or sends it back
-            to be paid by transfer.
-          </Banner>
-        )}
-
-        <div className="rounded-card border border-hairline bg-soft p-4">
-          <p className="mb-3 text-meta text-body">
-            {overLimit
-              ? "Head office signs here. Whoever is signed in stays signed in."
-              : "Every rupiah out of the tin is signed for by somebody else. They sign here — whoever is signed in stays signed in."}
-          </p>
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field
-              label={overLimit ? "Head office" : "Manager or head office"}
-              problem={
-                approvingSelf
-                  ? "The person who spent the money does not approve it. Somebody else signs."
-                  : undefined
+        {needsCode && (
+          <Field
+            label="Approval code from Finance"
+            hint={`Above ${money(position.code_above_minor)}`}
+          >
+            <Input
+              inputMode="numeric"
+              autoComplete="off"
+              maxLength={6}
+              className="max-w-[12rem] font-mono tracking-[0.2em]"
+              value={code}
+              placeholder="000000"
+              onChange={(event) =>
+                setCode(event.target.value.replace(/[^0-9]/g, ""))
               }
-            >
-              <Input
-                autoComplete="off"
-                invalid={approvingSelf}
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-              />
-            </Field>
-            <Field label="Their password">
-              <Input
-                type="password"
-                autoComplete="off"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
-            </Field>
-          </div>
-        </div>
+            />
+          </Field>
+        )}
       </form>
     </RecordSheet>
   )
 }
 
-/// The float coming in.
-///
-/// Not an expense and not a sale: this is the imprest being put back, against a
-/// transfer head office already made. Two people sign, because that is what
-/// handing over cash is — and the node refuses the one who took it signing for
-/// it as well.
+/// The float coming in from head office. Counted by two people.
 function FloatSheet({
   open,
   onClose,
@@ -813,8 +705,7 @@ function FloatSheet({
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      title="Float received from head office"
-      caption="The imprest going back into the tin"
+      title="Float received"
       width="wide"
       footer={
         <div className="flex flex-col gap-3">
@@ -830,14 +721,14 @@ function FloatSheet({
             disabled={!ready || top.isPending}
           >
             <PiggyBank />
-            {top.isPending ? "Recording…" : "Record the float"}
+            {top.isPending ? "Recording…" : "Record"}
           </Button>
         </div>
       }
     >
       <form
         id="petty-float"
-        className="flex flex-col gap-4"
+        className="flex flex-col gap-6"
         onSubmit={(event) => {
           event.preventDefault()
           if (!ready || top.isPending || minor === null) return
@@ -850,7 +741,7 @@ function FloatSheet({
             },
             {
               onSuccess: () => {
-                onDone(`Recorded: ${money(minor)} put back into the tin.`)
+                onDone(`Recorded ${money(minor)} float.`)
                 setAmount("")
                 setReference("")
                 setNote("")
@@ -860,13 +751,8 @@ function FloatSheet({
           )
         }}
       >
-        <p className="text-meta text-body">
-          Count the cash first, then type what was handed over. This is the
-          float going back into the tin — what it paid for was written down one
-          receipt at a time as it was spent.
-        </p>
         <Field
-          label="How much"
+          label="Amount"
           hint={minor === null ? undefined : money(minor)}
         >
           <Input
@@ -877,18 +763,15 @@ function FloatSheet({
             onChange={(event) => setAmount(event.target.value)}
           />
         </Field>
-        <div className="grid gap-4 md:grid-cols-2">
-          <Field
-            label="Head office reference"
-            hint="Optional — the slip or transfer number, if the shop was given one."
-          >
+        <div className="grid gap-6 md:grid-cols-2">
+          <Field label="Reference" hint="Optional">
             <Input
               value={reference}
               placeholder="TRF-2026-09-13-001"
               onChange={(event) => setReference(event.target.value)}
             />
           </Field>
-          <Field label="Anything to note" hint="Optional.">
+          <Field label="Note" hint="Optional">
             <Input
               value={note}
               placeholder="Pengisian kas kecil September"
@@ -897,36 +780,30 @@ function FloatSheet({
           </Field>
         </div>
 
-        <div className="rounded-card border border-hairline bg-soft p-4">
-          <p className="mb-3 text-meta text-body">
-            Handing over cash takes two people. Whoever counted it with you
-            signs here.
-          </p>
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field
-              label="Counted with"
-              problem={
-                signingSelf
-                  ? "The person who took the money does not also sign for it. Somebody else counts it with them."
-                  : undefined
-              }
-            >
-              <Input
-                autoComplete="off"
-                invalid={signingSelf}
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-              />
-            </Field>
-            <Field label="Their password">
-              <Input
-                type="password"
-                autoComplete="off"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
-            </Field>
-          </div>
+        <div className="grid gap-6 md:grid-cols-2">
+          <Field
+            label="Counted with"
+            problem={
+              signingSelf
+                ? "Someone else counts it with you."
+                : undefined
+            }
+          >
+            <Input
+              autoComplete="off"
+              invalid={signingSelf}
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+            />
+          </Field>
+          <Field label="Their password">
+            <Input
+              type="password"
+              autoComplete="off"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </Field>
         </div>
       </form>
     </RecordSheet>

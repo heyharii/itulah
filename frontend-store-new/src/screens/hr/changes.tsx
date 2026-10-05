@@ -65,7 +65,6 @@ export function HrChanges() {
   const [filing, setFiling] = useState<"change" | "component" | null>(null)
   return (
     <HrWorkspace
-      sub="Promotions, transfers, salary changes and separations, and one-off pay components. The shop proposes once the store head agrees; head office decides. New people are requested under Recruitment."
       actions={
         <>
           <Button onClick={() => setFiling("component")}>
@@ -132,8 +131,8 @@ function Changes({
 }) {
   const team = useTeam(scope)
   const changes = useQuery({
-    queryKey: hrKeys.changes(scope.id),
-    queryFn: ({ signal }) => changeProposalsAt(scope.id, signal),
+    queryKey: hrKeys.changes(scope.unit_id),
+    queryFn: ({ signal }) => changeProposalsAt(scope.unit_id, signal),
   })
   const [open, setOpen] = useState<ChangeProposalView | null>(null)
 
@@ -195,7 +194,7 @@ function Changes({
   return (
     <>
       {centreState(changes, {
-        loading: "Reading this shop's proposals…",
+        loading: "Loading…",
         what: "this shop's change proposals",
         render: (rows) => {
           const waiting = rows.filter((change) => change.state === "PENDING")
@@ -208,7 +207,7 @@ function Changes({
                 rowKey={(change) => change.id}
                 onRowClick={setOpen}
                 columns={columns}
-                empty="Nothing is waiting on head office."
+                empty="Nothing waiting."
               />
               <Heading>Decided</Heading>
               <PeopleTable
@@ -289,8 +288,7 @@ function ChangeSheet({
       <SheetSection title="What would change">
         {change.props.length === 0 ? (
           <p className="text-meta text-body">
-            Employment ends on {readDate(change.effective_on)}. Approved, the
-            exit checklist and the full-and-final statement open at head office.
+            Employment ends {readDate(change.effective_on)}.
           </p>
         ) : (
           <Facts
@@ -318,10 +316,7 @@ function ChangeSheet({
         </SheetSection>
       )}
       {change.state === "PENDING" && (
-        <Banner tone="info">
-          Waiting on head office. A shop cannot change pay, job or status by
-          itself.
-        </Banner>
+        <Banner tone="info">Waiting on head office.</Banner>
       )}
     </PeopleSheet>
   )
@@ -376,7 +371,7 @@ function ProposeChange({
     endorsed === "yes" &&
     (kind !== "SALARY" || (baseMinor !== null && baseMinor > 0)) &&
     (kind !== "TRANSFER" ||
-      (toPlace.trim() !== "" && toPlace.trim() !== scope.id)) &&
+      (toPlace.trim() !== "" && toPlace.trim() !== scope.unit_id)) &&
     (kind !== "PROMOTION" || position !== "")
 
   const file = useMutation({
@@ -389,7 +384,7 @@ function ProposeChange({
         reason,
       }),
     onSuccess: () => {
-      client.invalidateQueries({ queryKey: hrKeys.changes(scope.id) })
+      client.invalidateQueries({ queryKey: hrKeys.changes(scope.unit_id) })
       onClose()
     },
   })
@@ -402,7 +397,6 @@ function ProposeChange({
       }}
       crumb="Employment changes"
       title="Propose to head office"
-      sub="A change that moves somebody's cost or status. Head office decides."
       foot={
         <Submit
           label="Send to head office"
@@ -459,7 +453,7 @@ function ProposeChange({
             }
             hint={
               baseMinor === null || baseMinor <= 0
-                ? "Head office checks it against the grade's band."
+                ? undefined
                 : money(baseMinor)
             }
           >
@@ -476,9 +470,11 @@ function ProposeChange({
         {kind === "TRANSFER" && (
           <Field
             label="To shop"
-            hint="The shop's code, as head office knows it."
+            hint="Shop code"
             problem={
-              toPlace.trim() === scope.id ? "That is this shop." : undefined
+              toPlace.trim() === scope.unit_id
+                ? "That is this shop."
+                : undefined
             }
           >
             <Input
@@ -511,7 +507,6 @@ function ProposeChange({
         </Field>
         <Field
           label="Store head"
-          hint="A proposal goes to head office only once the store head has agreed to it."
         >
           <Segmented
             options={[
@@ -552,8 +547,8 @@ function Components({
   const [which, setWhich] = useState<(typeof MONTHS)[number]["value"]>("this")
   const period = monthOf(which)
   const adjustments = useQuery({
-    queryKey: hrKeys.adjustments(scope.id, period),
-    queryFn: ({ signal }) => adjustmentsAt(scope.id, period, signal),
+    queryKey: hrKeys.adjustments(scope.unit_id, period),
+    queryFn: ({ signal }) => adjustmentsAt(scope.unit_id, period, signal),
   })
   const [withdrawing, setWithdrawing] = useState<PayrollAdjustmentRow | null>(
     null,
@@ -573,7 +568,7 @@ function Components({
         Pay components · {readMonth(period)}
       </Heading>
       {centreState(adjustments, {
-        loading: "Reading the month's pay components…",
+        loading: "Loading…",
         what: "this shop's pay components",
         render: (rows) => (
           <PeopleTable
@@ -582,7 +577,7 @@ function Components({
             onRowClick={(row) =>
               row.withdrawable ? setWithdrawing(row) : undefined
             }
-            empty={`No one-off figure has been proposed for ${readMonth(period)}.`}
+            empty="None this month."
             columns={[
               {
                 key: "who",
@@ -602,7 +597,7 @@ function Components({
                 cell: (row) => (
                   <span className="flex flex-col">
                     <span className="text-ink">{row.label}</span>
-                    <span className="text-[0.6875rem] text-mute">
+                    <span className="text-meta text-mute">
                       {row.kind === "DEDUCTION" ? "deduction" : "earning"}
                     </span>
                   </span>
@@ -645,12 +640,6 @@ function Components({
           />
         ),
       })}
-      <p className="mt-3 text-meta text-mute">
-        Head office decides these with the month's payroll batch. Once the batch
-        is submitted a figure is frozen; a correction after that is head
-        office's. The preview is the component alone — not the final take-home
-        pay.
-      </p>
       {withdrawing !== null && (
         <WithdrawComponent
           key={withdrawing.id}
@@ -681,7 +670,7 @@ function WithdrawComponent({
     mutationFn: () => withdrawAdjustment({ id: row.id, reason }),
     onSuccess: () => {
       client.invalidateQueries({
-        queryKey: hrKeys.adjustments(scope.id, period),
+        queryKey: hrKeys.adjustments(scope.unit_id, period),
       })
       onClose()
     },
@@ -698,8 +687,7 @@ function WithdrawComponent({
       foot={
         <div className="flex flex-col gap-3">
           <Field
-            label="Why take it back"
-            hint="Required — the withdrawal is kept on the record."
+            label="Reason"
           >
             <Input
               value={reason}
@@ -762,7 +750,7 @@ function ProposeComponent({
   const file = useMutation({
     mutationFn: () =>
       fileAdjustment({
-        place: scope.id,
+        place: scope.unit_id,
         period,
         employeeId,
         componentCode: code,
@@ -771,7 +759,7 @@ function ProposeComponent({
       }),
     onSuccess: () => {
       client.invalidateQueries({
-        queryKey: hrKeys.adjustments(scope.id, period),
+        queryKey: hrKeys.adjustments(scope.unit_id, period),
       })
       onClose()
     },
@@ -785,7 +773,6 @@ function ProposeComponent({
       }}
       crumb="Employment changes"
       title="Propose a pay component"
-      sub="An addition or a deduction for one month. Head office decides it with that month's payroll."
       foot={
         <Submit
           label="Propose it"
@@ -813,8 +800,8 @@ function ProposeComponent({
           label="Component"
           hint={
             catalogue.isSuccess && usable.length === 0
-              ? "Head office has defined no one-off components yet."
-              : "Head office's catalogue. A new kind of component is head office's to add."
+              ? "None set up yet."
+              : undefined
           }
         >
           <Select value={code} onChange={setCode}>
@@ -830,7 +817,6 @@ function ProposeComponent({
         <div className="grid grid-cols-2 gap-3">
           <Field
             label="Amount (Rp)"
-            hint="Always positive — the component says which way."
           >
             <Input
               inputMode="numeric"
@@ -867,13 +853,9 @@ function ProposeComponent({
             <Banner tone={chosen.kind === "DEDUCTION" ? "warn" : "ok"}>
               {personName(team, employeeId)}:{" "}
               {chosen.kind === "DEDUCTION" ? "−" : "+"}
-              {money(minor)} as {chosen.label} on {readMonth(period)} payroll. A
-              preview of this one line, not of the take-home pay.
+              {money(minor)} · {chosen.label} · {readMonth(period)}
             </Banner>
           )}
-        <p className="text-meta text-mute">
-          A standing change to base pay is a salary change, proposed separately.
-        </p>
       </div>
     </PeopleSheet>
   )

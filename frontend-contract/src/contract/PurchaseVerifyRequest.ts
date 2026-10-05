@@ -4,11 +4,16 @@ import type { PurchaseVerifyDecision } from "./PurchaseVerifyDecision";
 /**
  * Approving a counted delivery, which is what puts it on the shelf.
  */
-export type PurchaseVerifyRequest = { count_id: string, verifier_actor_id: string, 
+export type PurchaseVerifyRequest = { count_id: string, 
+/**
+ * Who is accepting. Who may accept — and whether that may be the person
+ * who counted, or the one who raised the order — is the caller's role
+ * and permission, not a name comparison (owner, 2026-10-04).
+ */
+verifier_actor_id: string, 
 /**
  * The verifier approves the checker's number as it stands. There is no
- * field for a quantity of their own: someone who can both approve a
- * delivery and decide what it was has the whole control to themselves.
+ * field for a quantity of their own: accepting a count never edits it.
  */
 decision: PurchaseVerifyDecision, 
 /**

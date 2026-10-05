@@ -109,6 +109,46 @@ impl PoolRole {
     pub const fn is_arrival(self) -> bool {
         matches!(self, Self::Stockroom | Self::Return)
     }
+
+    /// What a person reads where the role is named on a screen.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Receiving => "Receiving area",
+            Self::Stockroom => "Stockroom",
+            Self::Floor => "Floor",
+            Self::Reject => "Reject",
+            Self::Return => "Return pool",
+            Self::Picking => "Pick Area",
+            Self::Packed => "Packed",
+            Self::Shipment => "Shipment",
+            Self::Loaded => "Loaded",
+            Self::InTransit => "In Transit",
+        }
+    }
+
+    /// Whether a site of this kind can have a pool in this role.
+    ///
+    /// The same table `pool_template` (0610) holds, asked without a database:
+    /// a flow template is validated before anything is written, so the check
+    /// that says "a shop has no receiving area" has to answer from code. The
+    /// migration is the authority for which pools a site is actually GIVEN;
+    /// this is the authority for which a template may NAME.
+    ///
+    /// The receiving roles and the return pool belong to the Gudang: goods are
+    /// counted and told apart where they arrive from a supplier, and a store's
+    /// return waits at the warehouse it went back to.
+    pub const fn exists_at(self, kind: crate::ids::SiteKind) -> bool {
+        match self {
+            Self::Receiving | Self::Return => matches!(kind, crate::ids::SiteKind::HeadOffice),
+            Self::Floor => matches!(kind, crate::ids::SiteKind::Store),
+            // A warehouse has racks, a shop has a back room: both are the
+            // stockroom role (pool_template gives HO `warehouse` as STOCKROOM,
+            // which is where goods from a supplier land), and both can hold
+            // damaged goods.
+            Self::Stockroom | Self::Reject => true,
+            Self::Picking | Self::Packed | Self::Shipment | Self::Loaded | Self::InTransit => true,
+        }
+    }
 }
 
 impl fmt::Display for PoolRole {

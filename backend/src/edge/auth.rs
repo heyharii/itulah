@@ -701,7 +701,9 @@ impl EdgeAuth {
             .map_err(|error| EdgeError::Persistence(format!("invalid edge user id: {error}")))?;
         let role =
             Role::from_str(&role).map_err(|error| EdgeError::Persistence(error.to_string()))?;
-        if supersede {
+        // The rule itself is switched centrally, and off for now — see
+        // `security::one_device_sign_in`.
+        if supersede && security::one_device_sign_in() {
             transaction
                 .execute(
                     "UPDATE edge_auth_session

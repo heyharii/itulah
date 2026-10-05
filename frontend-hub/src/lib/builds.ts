@@ -97,7 +97,12 @@ export const BUILDS: readonly {
     note: "Computers, laptops, printers",
     icon: Monitor,
   },
-  { value: "AUDIO", label: "Audio / music", note: "Sound systems", icon: Speaker },
+  {
+    value: "AUDIO",
+    label: "Audio / music",
+    note: "Sound systems",
+    icon: Speaker,
+  },
   {
     value: "OE",
     label: "Operating equipment",

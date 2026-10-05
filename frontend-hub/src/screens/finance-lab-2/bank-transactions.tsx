@@ -137,7 +137,12 @@ export function BankTransactions() {
     // `lineQueries` is a new array every render; its DATA is what matters, so
     // the dependency is the concatenated fetch status rather than the array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rows, bankOfUnit, unitName, lineQueries.map((one) => one.dataUpdatedAt).join()]
+    [
+      rows,
+      bankOfUnit,
+      unitName,
+      lineQueries.map((one) => one.dataUpdatedAt).join(),
+    ]
   )
 
   /// One box, four fields. Bank, account, description and the reference the
@@ -202,34 +207,31 @@ export function BankTransactions() {
             ))}
           </Select>
           <span className="relative">
-                <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
-                <input
-                  value={needle}
-                  onChange={(event) => setNeedle(event.target.value)}
-                  placeholder="Bank, account, description"
-                  aria-label="Search bank transactions"
-                  className="h-8 w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink outline-none placeholder:text-body focus:border-accent"
-                />
-              </span>
-              {/* A range is two days, so it is two controls. Each draws the
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
+            <input
+              value={needle}
+              onChange={(event) => setNeedle(event.target.value)}
+              aria-label="Search bank transactions"
+              className="h-8 w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink outline-none placeholder:text-body focus:border-accent"
+            />
+          </span>
+          {/* A range is two days, so it is two controls. Each draws the
                   calendar `<Day>` draws everywhere else, and the second cannot
                   be set before the first. */}
-              <Day
-                value={from}
-                onChange={setFrom}
-                notAfter={to === "" ? null : to}
-                placeholder="From"
-                label="From date"
-                className="h-8 w-36"
-              />
-              <span aria-hidden className="text-mute">
-                →
-              </span>
+          <Day
+            value={from}
+            onChange={setFrom}
+            notAfter={to === "" ? null : to}
+            label="From date"
+            className="h-8 w-36"
+          />
+          <span aria-hidden className="text-mute">
+            →
+          </span>
           <Day
             value={to}
             onChange={setTo}
             notBefore={from === "" ? null : from}
-            placeholder="To"
             label="To date"
             className="h-8 w-36"
           />
@@ -288,9 +290,9 @@ export function BankTransactions() {
                         {(line.party_name || line.bank_said) !== "" &&
                           (line.party_name || line.bank_said) !==
                             line.description && (
-                          <span className="block text-[0.875rem] text-mute">
-                            {line.party_name || line.bank_said}
-                          </span>
+                            <span className="block text-[0.875rem] text-mute">
+                              {line.party_name || line.bank_said}
+                            </span>
                           )}
                       </Td>
                       <Td align="right">

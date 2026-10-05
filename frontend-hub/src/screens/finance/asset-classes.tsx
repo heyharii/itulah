@@ -6,13 +6,12 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Checkbox, Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { count, label } from "@/lib/format"
 import { financeKeys, saveAssetClass } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
-import { Code, Grid, Td, Th } from "@/screens/finance-final/parts"
+import { Grid, Td, Th } from "@/screens/finance-final/parts"
 import { useAssetClasses } from "@/screens/finance/hooks"
 import {
   EditorCard,
@@ -69,30 +68,37 @@ export function AssetClasses() {
 
   const rows = useMemo(() => {
     const text = needle.trim().toLowerCase()
-    return list.rows.filter(
-      (row) =>
-        (inactive || row.is_active) &&
-        (kind === "" || row.kind === kind) &&
-        (text === "" ||
-          row.class_code.toLowerCase().includes(text) ||
-          row.name.toLowerCase().includes(text) ||
-          (row.legacy_code ?? "").includes(text))
+    return (
+      list.rows
+        .filter(
+          (row) =>
+            (inactive || row.is_active) &&
+            (kind === "" || row.kind === kind) &&
+            (text === "" ||
+              row.class_code.toLowerCase().includes(text) ||
+              row.name.toLowerCase().includes(text) ||
+              (row.legacy_code ?? "").includes(text))
+        )
+        // The categories that hold assets first: most of the chart's families
+        // have none yet, and the ones in use should not be found by scrolling.
+        .sort(
+          (a, b) =>
+            b.asset_count - a.asset_count || a.name.localeCompare(b.name)
+        )
     )
   }, [list.rows, needle, kind, inactive])
 
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance · Setup"
-        title="Asset classes"
-        sub="What an asset is filed under: its kind, the form it is registered on, and the life and method it starts from. The accounts are account links narrowed by the class."
+        crumb="Finance · Assets"
+        title="Asset Category"
         actions={
           <>
             <Input
               value={needle}
               onChange={(event) => setNeedle(event.target.value)}
-              placeholder="Search"
-              className="h-8 w-48"
+              className="h-control w-48"
             />
             <Button variant="primary" onClick={() => setEditing("new")}>
               New class
@@ -102,7 +108,7 @@ export function AssetClasses() {
       />
 
       <Toolbar>
-        <Select value={kind} onChange={setKind} className="h-8 w-40">
+        <Select value={kind} onChange={setKind} className="h-control w-40">
           <option value="">Every kind</option>
           {KINDS.map((one) => (
             <option key={one} value={one}>
@@ -133,12 +139,8 @@ export function AssetClasses() {
                   <Grid>
                     <thead>
                       <tr>
-                        <Th>Code</Th>
-                        <Th>Name</Th>
-                        <Th>Kind</Th>
-                        <Th>Form</Th>
-                        <Th align="right">Life</Th>
-                        <Th>Method</Th>
+                        <Th>Category</Th>
+                        <Th>Depreciation</Th>
                         <Th align="right">Assets</Th>
                         <Th />
                       </tr>
@@ -148,34 +150,33 @@ export function AssetClasses() {
                         <tr
                           key={row.class_code}
                           onClick={() => setEditing(row)}
-                          className="cursor-pointer hover:bg-soft"
+                          className="cursor-pointer"
                         >
+                          {/* The code rides as the name's title: it is what
+                              the chart links key on, not what anyone reads. */}
                           <Td>
-                            <Code>{row.class_code}</Code>
-                            {row.legacy_code !== null && (
-                              <div className="font-mono text-faint">
-                                {row.legacy_code}
-                              </div>
-                            )}
-                          </Td>
-                          <Td>
-                            <span className="text-ink">{row.name}</span>
+                            <span className="text-ink" title={row.class_code}>
+                              {row.name}
+                            </span>
                             {!row.is_active && (
-                              <Pill tone="neutral" className="ml-2">
-                                Inactive
-                              </Pill>
+                              <span className="text-mute"> · inactive</span>
                             )}
-                          </Td>
-                          <Td>{row.kind}</Td>
-                          <Td>{label(row.build)}</Td>
-                          <Td align="right">
-                            {lifeWords(row.default_useful_life_months)}
+                            {/* What it is, once: kind and form together, not
+                                two columns of the same two words. */}
+                            <span className="block text-[0.875rem] text-mute">
+                              {label(row.kind)} · {label(row.build)}
+                            </span>
                           </Td>
                           <Td>
                             {row.default_method === null ? (
-                              <span className="text-faint">—</span>
+                              <span className="text-mute">Not set</span>
                             ) : (
-                              label(row.default_method)
+                              <>
+                                {label(row.default_method)}
+                                <span className="block text-[0.875rem] text-mute">
+                                  {lifeWords(row.default_useful_life_months)}
+                                </span>
+                              </>
                             )}
                           </Td>
                           <Td align="right">
@@ -275,7 +276,6 @@ function ClassForm({
           value={code}
           disabled={assetClass !== null}
           onChange={(event) => setCode(event.target.value)}
-          placeholder="AIR_CONDITIONER"
         />
       </Field>
       <Field
@@ -315,7 +315,6 @@ function ClassForm({
             value={life}
             inputMode="numeric"
             onChange={(event) => setLife(event.target.value.replace(/\D/g, ""))}
-            placeholder="48"
           />
         </Field>
         <Field label="Method">
@@ -344,7 +343,7 @@ function ClassForm({
           disabled={code.trim() === "" || name.trim() === "" || !lifeValid}
           onClick={() => save.mutate()}
         >
-          {save.isPending ? "Saving…" : "Save class"}
+          {save.isPending ? "Submitting…" : "Submit"}
         </Button>
       </div>
     </EditorCard>

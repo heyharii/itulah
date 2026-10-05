@@ -22,6 +22,15 @@ quantity_type!(ShortfallQty);
 quantity_type!(MissingQty);
 quantity_type!(ObservedQty);
 
+/// The identity a pool's six numbers satisfy, as every reader is told it.
+///
+/// One constant for both nodes, because it was five copies of a sentence that
+/// stopped being true: `Stock = On Hand + Allotted + Missing` holds only while
+/// a promise can never outrun the shelf it was made against, and a warehouse is
+/// allowed to find out that it cannot keep one. See [`InventoryBalance::project`]
+/// and `docs/inventory-ledger.md`.
+pub const INVENTORY_EQUATION: &str = "Stock + Shortfall = On Hand + Allotted + Missing";
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct InventoryBalance {
     pub stock: StockQty,

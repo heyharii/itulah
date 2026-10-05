@@ -5,7 +5,8 @@ import { Card } from "@/components/ui/card"
 import { ConfirmButton } from "@/components/ui/dialog"
 import { Field, Input } from "@/components/ui/field"
 import { Toggle } from "@/components/ui/form"
-import { Pill } from "@/components/ui/pill"
+import { Status } from "@/components/ui/pill"
+import { Segmented } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { ago, moment } from "@/lib/format"
@@ -21,11 +22,32 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { useSections } from "@/lib/session"
 
-const STATE_TONE: Readonly<Record<FleetIncident["state"], "bad" | "warn" | "ok">> = {
+const STATE_TONE: Readonly<
+  Record<FleetIncident["state"], "bad" | "warn" | "done">
+> = {
   OPEN: "bad",
   ACKNOWLEDGED: "warn",
-  RESOLVED: "ok",
+  RESOLVED: "done",
 }
+
+const VIEWS = [
+  { value: "open", label: "Open" },
+  { value: "all", label: "Every incident" },
+] as const
+
+/// "3 h 20 min" — how long it lasted, or has lasted so far.
+function lasted(seconds: number): string {
+  if (seconds < 60) return `${Math.max(0, Math.round(seconds))} s`
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 48)
+    return `${hours} h${minutes % 60 ? ` ${minutes % 60} min` : ""}`
+  return `${Math.floor(hours / 24)} d`
+}
+
+const GRID =
+  "grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 md:grid-cols-[minmax(0,11rem)_minmax(0,1fr)_7rem_6rem_9rem_7rem]"
 
 const STATE_WORD: Readonly<Record<FleetIncident["state"], string>> = {
   OPEN: "Open",
@@ -48,22 +70,11 @@ export function FleetIncidents() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex gap-1.5">
-          <Button
-            size="sm"
-            variant={openOnly ? "primary" : "quiet"}
-            onClick={() => setOpenOnly(true)}
-          >
-            Open
-          </Button>
-          <Button
-            size="sm"
-            variant={!openOnly ? "primary" : "quiet"}
-            onClick={() => setOpenOnly(false)}
-          >
-            Every incident
-          </Button>
-        </div>
+        <Segmented
+          options={VIEWS}
+          value={openOnly ? "open" : "all"}
+          onChange={(next) => setOpenOnly(next === "open")}
+        />
         {bypass && (
           <Button variant="quiet" size="sm" onClick={() => settings.open(true)}>
             Alert settings
@@ -83,6 +94,17 @@ export function FleetIncidents() {
               </EmptyState>
             ) : (
               <ul className="divide-y divide-hairline">
+                <li
+                  aria-hidden
+                  className={`${GRID} hidden bg-soft px-4 py-2.5 text-meta text-body md:grid`}
+                >
+                  <span>Store</span>
+                  <span>What happened</span>
+                  <span>Opened</span>
+                  <span>Lasted</span>
+                  <span>Status</span>
+                  <span />
+                </li>
                 {page.items.map((incident) => (
                   <IncidentRow key={incident.incident_id} incident={incident} />
                 ))}
@@ -98,24 +120,46 @@ export function FleetIncidents() {
 
 function IncidentRow({ incident }: { incident: FleetIncident }) {
   const acknowledge = useAcknowledgeFleetIncident()
+  const note = incident.acknowledged_by
+    ? `Acknowledged by ${incident.acknowledged_by}${incident.acknowledged_note ? ` — “${incident.acknowledged_note}”` : ""}`
+    : null
   return (
-    <li className="flex flex-col gap-1.5 px-4 py-3.5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <b className="text-[0.9375rem] font-semibold text-ink">
-              {incident.title}
-            </b>
-            <Pill tone={STATE_TONE[incident.state]}>
-              {STATE_WORD[incident.state]}
-            </Pill>
-          </div>
-          <p className="mt-0.5 text-meta text-body">
-            {incident.unit_code ?? incident.subject}
-            {incident.component_label ? ` · ${incident.component_label}` : ""} ·
-            opened {ago(incident.opened_at)}
-          </p>
-        </div>
+    <li className={`${GRID} items-center px-4 py-3`}>
+      <span className="min-w-0">
+        <span className="block truncate font-medium text-ink">
+          {incident.unit_code ?? incident.subject}
+        </span>
+      </span>
+      <span className="order-last col-span-2 min-w-0 md:order-none md:col-span-1">
+        <span className="block truncate text-ink">
+          {/* The title leads with the store ("C001 Cikupa: …"), which the
+              column beside it already says. */}
+          {incident.title.includes(": ")
+            ? incident.title.slice(incident.title.indexOf(": ") + 2)
+            : incident.title}
+        </span>
+        <span
+          className="block truncate text-meta text-mute"
+          title={note ?? incident.body}
+        >
+          {note ?? incident.body}
+        </span>
+      </span>
+      <span
+        className="hidden text-meta text-body md:block"
+        title={moment(incident.opened_at)}
+      >
+        {ago(incident.opened_at)}
+      </span>
+      <span className="hidden text-meta text-body tabular-nums md:block">
+        {lasted(incident.duration_seconds)}
+      </span>
+      <span className="text-meta">
+        <Status tone={STATE_TONE[incident.state]}>
+          {STATE_WORD[incident.state]}
+        </Status>
+      </span>
+      <span className="hidden justify-end md:flex">
         {incident.state === "OPEN" && (
           <ConfirmButton
             label="Acknowledge"
@@ -126,32 +170,16 @@ function IncidentRow({ incident }: { incident: FleetIncident }) {
             reason={{
               label: "Note (optional)",
               optional: true,
-              placeholder: "Anything worth recording",
             }}
-            onConfirm={(note) =>
+            onConfirm={(text) =>
               acknowledge.mutateAsync({
                 id: incident.incident_id,
-                note: note.trim() === "" ? undefined : note,
+                note: text.trim() === "" ? undefined : text,
               })
             }
           />
         )}
-      </div>
-
-      <p className="text-[0.875rem] text-body">{incident.body}</p>
-
-      {incident.acknowledged_by && (
-        <p className="text-meta text-mute">
-          Acknowledged by {incident.acknowledged_by}
-          {incident.acknowledged_at ? ` · ${moment(incident.acknowledged_at)}` : ""}
-          {incident.acknowledged_note ? ` — “${incident.acknowledged_note}”` : ""}
-        </p>
-      )}
-      {incident.resolved_at && (
-        <p className="text-meta text-mute">
-          Resolved {moment(incident.resolved_at)}.
-        </p>
-      )}
+      </span>
     </li>
   )
 }
@@ -199,8 +227,10 @@ function AlertSettingsFields({
   const [form, setForm] = useState<FleetSettings>(initial)
   const update = useUpdateFleetAlertSettings()
 
-  const set = <K extends keyof FleetSettings>(key: K, value: FleetSettings[K]) =>
-    setForm((was) => ({ ...was, [key]: value }))
+  const set = <K extends keyof FleetSettings>(
+    key: K,
+    value: FleetSettings[K]
+  ) => setForm((was) => ({ ...was, [key]: value }))
 
   return (
     <div className="flex flex-col gap-5">
@@ -247,7 +277,9 @@ function AlertSettingsFields({
             type="number"
             min={0}
             value={form.red_after_minutes}
-            onChange={(event) => set("red_after_minutes", Number(event.target.value))}
+            onChange={(event) =>
+              set("red_after_minutes", Number(event.target.value))
+            }
           />
         </Field>
         <Field label="Backup max age (h)">
@@ -285,7 +317,9 @@ function AlertSettingsFields({
             type="number"
             min={0}
             value={form.history_days}
-            onChange={(event) => set("history_days", Number(event.target.value))}
+            onChange={(event) =>
+              set("history_days", Number(event.target.value))
+            }
           />
         </Field>
       </div>
@@ -303,7 +337,9 @@ function AlertSettingsFields({
         />
         <Toggle
           on={form.alert_on_sync_behind}
-          onToggle={() => set("alert_on_sync_behind", !form.alert_on_sync_behind)}
+          onToggle={() =>
+            set("alert_on_sync_behind", !form.alert_on_sync_behind)
+          }
           label="Alert on sync behind"
           note={
             form.alert_on_sync_behind
@@ -313,7 +349,9 @@ function AlertSettingsFields({
         />
         <Toggle
           on={form.alert_on_printer_fault}
-          onToggle={() => set("alert_on_printer_fault", !form.alert_on_printer_fault)}
+          onToggle={() =>
+            set("alert_on_printer_fault", !form.alert_on_printer_fault)
+          }
           label="Alert on printer fault"
           note={
             form.alert_on_printer_fault
@@ -333,7 +371,9 @@ function AlertSettingsFields({
         />
         <Toggle
           on={form.alert_on_reader_silent}
-          onToggle={() => set("alert_on_reader_silent", !form.alert_on_reader_silent)}
+          onToggle={() =>
+            set("alert_on_reader_silent", !form.alert_on_reader_silent)
+          }
           label="Alert on a silent reader"
           note={
             form.alert_on_reader_silent
@@ -391,19 +431,23 @@ function AlertSettingsFields({
       <div className="grid grid-cols-2 gap-3">
         <Field label="Quiet from" hint="HH:MM, head office's clock">
           <Input
-            placeholder="22:00"
             value={form.quiet_from ?? ""}
             onChange={(event) =>
-              set("quiet_from", event.target.value.trim() === "" ? null : event.target.value)
+              set(
+                "quiet_from",
+                event.target.value.trim() === "" ? null : event.target.value
+              )
             }
           />
         </Field>
         <Field label="Quiet until" hint="HH:MM">
           <Input
-            placeholder="07:00"
             value={form.quiet_until ?? ""}
             onChange={(event) =>
-              set("quiet_until", event.target.value.trim() === "" ? null : event.target.value)
+              set(
+                "quiet_until",
+                event.target.value.trim() === "" ? null : event.target.value
+              )
             }
           />
         </Field>
@@ -423,7 +467,7 @@ function AlertSettingsFields({
             })
           }
         >
-          {update.isPending ? "Saving…" : "Save"}
+          {update.isPending ? "Submitting…" : "Submit"}
         </Button>
       </div>
     </div>

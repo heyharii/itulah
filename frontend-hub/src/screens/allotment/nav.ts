@@ -1,6 +1,7 @@
-import { Grid3x3, Truck } from "lucide-react"
+import { Grid3x3, Truck, Undo2 } from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
+import { useUnfilledCount } from "@/screens/allotment/unfilled-data"
 
 /// Goods promised out of a pool, and where they are promised to.
 ///
@@ -42,7 +43,24 @@ export const allotmentNav: AppModule = {
   sections: [
     {
       items: [
-        { path: "/allotment", label: "Allotments", icon: Truck },
+        {
+          path: "/allotment",
+          label: "Allotments",
+          icon: Truck,
+          // Lines the Gudang could not fill, waiting for MD to close short.
+          useCount: useUnfilledCount,
+          badge: "warn",
+        },
+        {
+          // Owner's menu of 2026-09-28: Merchandise's second primary row from
+          // this module, after Articles/Divisions/Tags/Sizes/Colours from
+          // `master`. Goods a store sent back to the DC — the mirror of
+          // Procurement's "Return to supplier" — pre-filtering the same list
+          // to `RETURN_TO_DC`. See `screens/allotment/returns.tsx`.
+          path: "/allotment/returns",
+          label: "Return to HO",
+          icon: Undo2,
+        },
         {
           path: "/allotment/new",
           label: "New allotment",

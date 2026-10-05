@@ -3,6 +3,7 @@ import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import { Day } from "@/components/ui/day"
 import { Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
@@ -98,8 +99,28 @@ export function SalesPostings() {
     <PageContent>
       <PageHeader
         crumb="Finance · Receivables"
-        title="Sales postings"
-        sub="Generate a reviewable daily draft from POS sales synced to Cloud, then post it into the ledger."
+        title="Sales Postings"
+        actions={
+          <>
+            <Day
+              value={businessDate}
+              onChange={setBusinessDate}
+              label="Business date"
+              clearable={false}
+              className="w-44"
+            />
+            <Button
+              variant="primary"
+              pending={generate.isPending || register.isPending}
+              disabled={site === "" || businessDate === ""}
+              onClick={() =>
+                generate.mutate({ site_id: site, business_date: businessDate })
+              }
+            >
+              {generate.isPending ? "Generating…" : "Generate draft"}
+            </Button>
+          </>
+        }
       />
 
       <Toolbar>
@@ -110,7 +131,7 @@ export function SalesPostings() {
             setSelectedId(null)
           }}
           emptyLabel="Choose a site"
-          className="h-8 w-44"
+          className="h-control w-44"
         />
         <label className="flex items-center gap-2 text-[0.875rem] text-mute">
           Month
@@ -119,7 +140,7 @@ export function SalesPostings() {
             type="month"
             value={month}
             onChange={(event) => setMonth(event.target.value)}
-            className="h-8 w-40 px-2 text-[0.875rem]"
+            className="h-control w-40 px-2 text-[0.875rem]"
           />
         </label>
         <Toolbar.Spacer />
@@ -127,33 +148,6 @@ export function SalesPostings() {
           {count(rows.length)} posting documents
         </span>
       </Toolbar>
-
-      <section className="flex flex-wrap items-end gap-2 rounded-card border border-hairline bg-canvas p-3">
-        <label className="flex flex-col gap-1 text-[0.875rem] text-mute">
-          Generate or refresh draft for business date
-          <Day
-            value={businessDate}
-            onChange={setBusinessDate}
-            label="Business date"
-            clearable={false}
-            className="w-44"
-          />
-        </label>
-        <Button
-          variant="primary"
-          pending={generate.isPending || register.isPending}
-          disabled={site === "" || businessDate === ""}
-          onClick={() =>
-            generate.mutate({ site_id: site, business_date: businessDate })
-          }
-        >
-          {generate.isPending ? "Generating…" : "Generate draft"}
-        </Button>
-        <span className="max-w-xl text-[0.875rem] leading-relaxed text-mute">
-          The Cloud reads only sales already synced for this shop and date. A
-          posted day cannot be regenerated until it is formally reversed.
-        </span>
-      </section>
 
       {generate.isError && (
         <Banner tone="bad">
@@ -170,18 +164,17 @@ export function SalesPostings() {
         </Banner>
       )}
 
-      <section className="flex flex-col gap-2">
-        <h2 className="text-[0.875rem] font-semibold text-ink">
-          Daily posting documents
-        </h2>
-        {list.error ? (
+      <Card className="overflow-hidden">
+        {site === "" ? (
+          <EmptyState>Choose a site to see its sales postings.</EmptyState>
+        ) : list.error ? (
           <ErrorState error={list.error} />
         ) : list.isPending ? (
-          <LoadingState>Reading Cloud sales postings…</LoadingState>
+          <LoadingState>Reading the sales postings…</LoadingState>
         ) : rows.length === 0 ? (
           <EmptyState>
-            No sales posting exists for this site and month. Choose a day
-            above to generate a draft from synced POS sales.
+            No sales posting for this site and month yet. Pick a business date
+            and generate a draft.
           </EmptyState>
         ) : (
           <Grid>
@@ -212,7 +205,7 @@ export function SalesPostings() {
             </tbody>
           </Grid>
         )}
-      </section>
+      </Card>
 
       {selectedId !== null && (
         <section className="flex flex-col gap-3 rounded-card border border-hairline bg-canvas p-4">

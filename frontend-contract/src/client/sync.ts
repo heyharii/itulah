@@ -3,9 +3,16 @@ import { Node } from "./node";
 
 /// This node's outbox.
 ///
-/// Only an Edge answers these. Cloud is where facts arrive, so it has no
-/// outbox of its own and a console built against it will get 404 — which is
-/// the honest answer rather than a fabricated empty one.
+/// The types describe an EDGE's answer, and an Edge is what these are for: a
+/// till or a warehouse box uploads on its own cadence and nobody watching it
+/// can otherwise see whether today's facts reached head office.
+///
+/// Cloud answers both paths too, with bodies of its own that these types do
+/// NOT describe: `/api/v1/sync/status` is the receiver's snapshot (its
+/// `node_id`, one entry per ingest stream, the breaker, dead letters) and
+/// `/api/v1/sync/trigger` is `{"status":"triggered"}` — it wakes the cloud's
+/// own sender rather than an edge's. Read those through the hub's own query
+/// layer (`cloud/postgres/sync.rs`), not through this class.
 export class Sync {
   private readonly node: Node;
 

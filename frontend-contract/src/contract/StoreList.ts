@@ -5,7 +5,7 @@ import type { StoreSummary } from "./StoreSummary";
  * The stores within the caller's reach: every one for head office, the
  * owner, an Admin and IT; their own for a store's manager or supervisor.
  */
-export type StoreList = { items: Array<StoreSummary>,
+export type StoreList = { items: Array<StoreSummary>, 
 /**
  * Whether the caller may open new stores and install servers — an Admin
  * at head office. The hub hides those buttons otherwise; the server

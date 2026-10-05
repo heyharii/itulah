@@ -29,7 +29,7 @@ import { useState } from "react"
 
 const STOCK_CHOICES: { value: StockFilter; label: string; hint: string }[] = [
   { value: "any", label: "Any", hint: "Every article in the catalogue" },
-  { value: "in", label: "In stock", hint: "The warehouse holds at least one" },
+  { value: "in", label: "In stock", hint: "The Gudang holds at least one" },
   {
     value: "out",
     label: "Nothing on hand",
@@ -66,7 +66,7 @@ export function FilterSheet({
           <SheetTitle className="text-sm">Narrow the catalogue</SheetTitle>
           <SheetDescription className="text-[11.5px]">
             {count === 0
-              ? "Every article the warehouse knows about."
+              ? "Every article the Gudang knows about."
               : `${count} filter${count === 1 ? "" : "s"} on.`}
           </SheetDescription>
         </SheetHeader>
@@ -309,7 +309,7 @@ function OrderRow({
         </span>
       </span>
       {/* What arrived is the number that matters here: an order still on the
-          water has nothing in the warehouse to promise. */}
+          water has nothing in the Gudang to promise. */}
       <span className="shrink-0 font-mono text-[10.5px] text-muted-foreground tabular-nums">
         {units(order.received_stock_units)} in
       </span>

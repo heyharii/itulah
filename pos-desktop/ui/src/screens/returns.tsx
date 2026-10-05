@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import * as api from "@/api"
+import { isWeb } from "@/edition"
 import { returnBenefit } from "@/benefit"
 import { Icon } from "@/icons"
 import { PinPad } from "@/pinpad"
@@ -650,8 +651,10 @@ function Authorisation({ hold }: { hold: Supervision }) {
               what that positive answer means: this is a staging node. A cashier
               who cannot tell a rehearsal from the real thing is how a rehearsal
               reaches a customer, and a void authorised by a PIN is a void on a
-              node nobody is meant to be selling from. */}
-          {hold.stepUp === "PIN" && (
+              node nobody is meant to be selling from. Never in web: the PIN pad
+              is that same rehearsal, and a supervisor at a browser tab already
+              has the real password — see `edition.ts`. */}
+          {!isWeb && hold.stepUp === "PIN" && (
             <div>
               <span className="label">Atau PIN supervisor</span>
               <PinPad
@@ -676,7 +679,9 @@ function Authorisation({ hold }: { hold: Supervision }) {
         </>
       )}
 
-      {(hold.stepUp === "FINGERPRINT" || granted !== null) && (
+      {/* No scanner a browser tab can reach — see `edition.ts` — so web never
+          offers a finger press, whichever way any held grant was earned. */}
+      {!isWeb && (hold.stepUp === "FINGERPRINT" || granted !== null) && (
       <button
         className="btn"
         type="button"

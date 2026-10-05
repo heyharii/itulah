@@ -20,7 +20,7 @@ const apiTarget =
 // A warehouse console reads the machine standing in the warehouse, so this is
 // a second backend and there is no hosted one to fall back to — a DC runs in
 // the building it belongs to. Default to a node on this machine.
-const edgeTarget = process.env.VITE_EDGE_TARGET ?? "http://127.0.0.1:8080"
+const edgeTarget = process.env.VITE_EDGE_TARGET ?? "http://127.0.0.1:8081"
 
 /// The two backends, behind one origin.
 ///

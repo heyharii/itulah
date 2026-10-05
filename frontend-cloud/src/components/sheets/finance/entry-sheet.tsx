@@ -103,7 +103,7 @@ export function EntrySheet({ rows }: { rows: readonly string[] }) {
                   {/* The client's own name for the account, never translated. */}
                   <td className="py-1.5 pr-3">{line.account_name}</td>
                   <td className="w-20 py-1.5 font-mono text-[10.5px] text-muted-foreground">
-                    {line.site_id}
+                    {line.unit_id}
                   </td>
                   <td className="w-28 py-1.5 text-right font-mono tabular-nums">
                     {line.debit_minor === 0 ? "" : money(line.debit_minor)}

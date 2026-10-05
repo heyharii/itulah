@@ -98,7 +98,6 @@ export function ExceptionRow({
               reason={{
                 label: "Note (optional)",
                 optional: true,
-                placeholder: "Anything worth recording",
               }}
               onConfirm={(note) =>
                 acknowledge.mutateAsync({
@@ -118,7 +117,9 @@ export function ExceptionRow({
         </p>
       )}
       {item.resolved_at && (
-        <p className="text-meta text-mute">Resolved {moment(item.resolved_at)}.</p>
+        <p className="text-meta text-mute">
+          Resolved {moment(item.resolved_at)}.
+        </p>
       )}
     </li>
   )

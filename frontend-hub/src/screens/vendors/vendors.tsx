@@ -30,12 +30,17 @@ import {
   updateSupplier,
   type SupplierCategory,
 } from "@/lib/queries/procurement"
+import { useSections } from "@/lib/session"
 import { useSheet } from "@/lib/sheets"
 import { useDebounced } from "@/lib/use-debounced"
 import { cn } from "@/lib/utils"
+import {
+  supplierDisplayName,
+  titled,
+} from "@/screens/procurement/supplier-format"
 import type { Supplier } from "@itulah/contract"
 
-/// Vendors — everybody we owe who does not sell us clothes.
+/// Suppliers — everybody we owe who does not sell us clothes.
 ///
 /// # Why this is a second menu over the same book
 ///
@@ -60,7 +65,7 @@ import type { Supplier } from "@itulah/contract"
 ///
 /// # Why GA and not Finance
 ///
-/// Because REGISTERING a vendor is General Affairs' work — signing up the
+/// Because REGISTERING a supplier is General Affairs' work — signing up the
 /// electricity account, negotiating the rent, appointing the cleaners — and
 /// paying what they send is Finance's. The owner said so in five words when
 /// this screen first appeared under Finance. What Finance needs from the same
@@ -69,14 +74,14 @@ import type { Supplier } from "@itulah/contract"
 /// # The default account is the point of this screen
 ///
 /// Fourteen PLN bills a month, each of which has to name the account it debits.
-/// Typing it fourteen times is how the fourteenth gets it wrong. A vendor that
+/// Typing it fourteen times is how the fourteenth gets it wrong. A supplier that
 /// names its usual account fills that in for every bill it sends.
 ///
 /// # Why the picker is a list and not the chart
 ///
-/// These ten are the vendors' consumable accounts in the client's own chart
+/// These ten are the suppliers' consumable accounts in the client's own chart
 /// (0348) — stationery, household, fuel, tyres, tools — and the only ones a
-/// DEFAULT here is allowed to name. Everything else a vendor's bill could
+/// DEFAULT here is allowed to name. Everything else a supplier's bill could
 /// debit is reached through a mapping Finance keeps: prepaid and rent by
 /// contract type, repairs by the object that broke, asset purchases by the
 /// asset class. Offering those here would be a second, rival route to an
@@ -101,14 +106,25 @@ const CATEGORY_WORDS: Record<SupplierCategory, string> = {
   MERCHANDISE: "Merchandise",
 }
 
-/// How many vendors one page of the book asks for.
+/// How many suppliers one page of the book asks for.
 const PAGE = 100
+
+/// Whether this person may add or change a supplier. The book is Procurement's
+/// and Finance's to keep; GA reads it to pick a vendor and sees it here
+/// read-only, the same split the server's section gate makes.
+function useMayEditSuppliers(): boolean {
+  const { sections, bypass } = useSections()
+  return (
+    bypass || sections.includes("procurement") || sections.includes("finance")
+  )
+}
 
 export function Vendors() {
   const editing = useSheet("supplier")
   const [book, setBook] = useState<SupplierCategory>("EXPENSE")
   const [search, setSearch] = useState("")
   const [adding, setAdding] = useState(false)
+  const mayEdit = useMayEditSuppliers()
 
   // The search is the server's, so it waits for the typing to stop.
   const needle = useDebounced(search.trim(), 300)
@@ -143,26 +159,31 @@ export function Vendors() {
     <PageContent>
       <PageHeader
         crumb="GA"
-        title="Vendors"
-        sub="Manage the providers of electricity, rented premises, repairs and other services."
+        title="Suppliers"
+        sub={
+          mayEdit
+            ? "Manage the providers of electricity, rented premises, repairs and other services."
+            : "The providers of electricity, rented premises, repairs and other services. Procurement adds and changes them."
+        }
         actions={
           <>
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Code, name or contact"
               className="h-8 w-56"
             />
-            <Button variant="primary" onClick={() => setAdding(true)}>
-              <Plus />
-              Add vendor
-            </Button>
+            {mayEdit && (
+              <Button variant="primary" onClick={() => setAdding(true)}>
+                <Plus />
+                Add supplier
+              </Button>
+            )}
           </>
         }
       />
 
       <Toolbar>
-        {/* Two books, not three. Merchandise is the other menu's — a vendor
+        {/* Two books, not three. Merchandise is the other menu's — a supplier
             list that could show garment factories would be the single list
             this screen exists instead of. */}
         <Segmented
@@ -177,33 +198,35 @@ export function Vendors() {
         {head !== undefined && (
           <span className="text-meta text-body">
             <b className="font-medium text-ink">{count(head.total)}</b>{" "}
-            {head.total === 1 ? "vendor" : "vendors"}
+            {head.total === 1 ? "supplier" : "suppliers"}
           </span>
         )}
       </Toolbar>
 
       {queryState(vendors, {
-        loading: "Loading vendors…",
+        loading: "Loading suppliers…",
         render: () =>
           rows.length === 0 ? (
             <Card>
               <EmptyState
                 action={
-                  <Button variant="ghost" onClick={() => setAdding(true)}>
-                    Add first vendor
-                  </Button>
+                  mayEdit ? (
+                    <Button variant="ghost" onClick={() => setAdding(true)}>
+                      Add first supplier
+                    </Button>
+                  ) : undefined
                 }
               >
                 {book === "EXPENSE"
-                  ? "No operating vendors yet. Add a service provider or a party that sends bills."
-                  : "No affiliate vendors yet. Add another unit in the company group that transacts with this company."}
+                  ? "No operating suppliers yet. Add a service provider or a party that sends bills."
+                  : "No affiliate suppliers yet. Add another unit in the company group that transacts with this company."}
               </EmptyState>
             </Card>
           ) : (
             <Card className="overflow-hidden">
               <div className="grid h-10 grid-cols-[7rem_minmax(0,1fr)_11rem_9rem_6rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
                 <span>Code</span>
-                <span>Vendor</span>
+                <span>Supplier</span>
                 <span>Expense account</span>
                 <span>Contact</span>
                 <span>Status</span>
@@ -250,9 +273,9 @@ function VendorRow({
         {vendor.supplier_code}
       </span>
       <span className="truncate text-cell font-medium text-ink">
-        {vendor.name}
+        {supplierDisplayName(vendor)}
       </span>
-      {/* The column this screen is for. An empty one is a vendor whose bills
+      {/* The column this screen is for. An empty one is a supplier whose bills
           somebody has to account for by hand every month, so it says so
           rather than sitting blank. */}
       <span
@@ -277,12 +300,12 @@ function VendorRow({
   )
 }
 
-/// One vendor, made or changed.
+/// One supplier, made or changed.
 ///
 /// An existing record has three faces — the details, the bank accounts, the
-/// contacts — because registering the vendor and keeping its payment and
+/// contacts — because registering the supplier and keeping its payment and
 /// people details current are three questions asked on different days. A NEW
-/// vendor has one face only: there is nothing yet to put an account beside,
+/// supplier has one face only: there is nothing yet to put an account beside,
 /// and the panels' own Add buttons are how the rest arrives.
 function VendorSheet({
   open,
@@ -298,9 +321,10 @@ function VendorSheet({
   const client = useQueryClient()
   const [form, setForm] = useState<Record<string, string>>({})
   const [tab, setTab] = useState("details")
+  const mayEdit = useMayEditSuppliers()
 
   // The row being edited, or the blanks a new one starts from. Keyed by the
-  // vendor below, so switching rows does not carry the last one's typing.
+  // supplier below, so switching rows does not carry the last one's typing.
   const value = (key: keyof Supplier, fallback = "") =>
     form[key] ?? (vendor?.[key] as string | null) ?? fallback
 
@@ -376,9 +400,13 @@ function VendorSheet({
       key={vendor?.supplier_id ?? "new"}
       open={open}
       onOpenChange={(next) => !next && onClose()}
-      title={vendor === null ? "Add vendor" : vendor.name}
+      title={vendor === null ? "Add supplier" : supplierDisplayName(vendor)}
       footer={
-        // Save and Retire are the DETAILS' acts — the form's. The bank and
+        !mayEdit ? (
+          <span className="text-pill text-mute">
+            Read only. Ask Procurement to add or change a supplier.
+          </span>
+        ) : // Save and Retire are the DETAILS' acts — the form's. The bank and
         // contact panels write as they go, each request carrying its own
         // idempotency key, so a footer Save down here would be a button that
         // does nothing and a lie about how the data got there.
@@ -394,7 +422,7 @@ function VendorSheet({
               </Button>
             ) : (
               <span className="text-pill text-mute">
-                Fill in the vendor details to create it.
+                Fill in the supplier details to create it.
               </span>
             )}
             <Button
@@ -403,7 +431,7 @@ function VendorSheet({
               disabled={!ready}
               onClick={() => save.mutate()}
             >
-              {save.isPending ? "Saving…" : "Save"}
+              {save.isPending ? "Submitting…" : "Submit"}
             </Button>
           </div>
         ) : (
@@ -421,9 +449,10 @@ function VendorSheet({
         {vendor !== null && (
           <SubTabs
             className="mb-0"
+            // Bank details are for whoever pays the supplier, not for GA.
             tabs={[
               { value: "details", label: "Details" },
-              { value: "bank", label: "Bank accounts" },
+              ...(mayEdit ? [{ value: "bank", label: "Bank accounts" }] : []),
               { value: "contacts", label: "Contacts" },
             ]}
             value={tab}
@@ -431,7 +460,7 @@ function VendorSheet({
           />
         )}
 
-        {vendor !== null && tab === "bank" && (
+        {vendor !== null && mayEdit && tab === "bank" && (
           <SupplierBankAccountsPanel supplierId={vendor.supplier_id} />
         )}
 
@@ -440,7 +469,9 @@ function VendorSheet({
         )}
 
         {(vendor === null || tab === "details") && (
-          <>
+          // A disabled fieldset holds every control in it still, so a
+          // read-only reader sees the same form and cannot change it.
+          <fieldset disabled={!mayEdit} className="contents">
             <div className="grid grid-cols-2 gap-4">
               <Field label="Code" required>
                 <Input
@@ -451,7 +482,6 @@ function VendorSheet({
                       supplier_code: event.target.value,
                     }))
                   }
-                  placeholder="PLN-01"
                 />
               </Field>
               <Field label="Type">
@@ -479,15 +509,14 @@ function VendorSheet({
               <Input
                 value={value("name")}
                 onChange={(event) =>
-                  setForm((f) => ({ ...f, name: event.target.value }))
+                  titled(event, (name) => setForm((f) => ({ ...f, name })))
                 }
-                placeholder="PT PLN (Persero)"
               />
             </Field>
 
             <Field
               label="Default expense account"
-              hint="This account fills in automatically on the vendor's bills and can still be changed when the bill is reviewed."
+              hint="This account fills in automatically on the supplier's bills and can still be changed when the bill is reviewed."
             >
               <Select
                 value={value("expense_account_code")}
@@ -536,11 +565,13 @@ function VendorSheet({
               <Input
                 value={value("address")}
                 onChange={(event) =>
-                  setForm((f) => ({ ...f, address: event.target.value }))
+                  titled(event, (address) =>
+                    setForm((f) => ({ ...f, address }))
+                  )
                 }
               />
             </Field>
-          </>
+          </fieldset>
         )}
       </div>
     </Sheet>

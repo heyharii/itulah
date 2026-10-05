@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ops stock, four report layouts (prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+/* Ops → Stock as a report, not a tree. Four table layouts of the same Gudang numbers:
+   A flat with stage sections · B stage × store matrix · C article report · D pool totals as the header band.
+   Hub tokens, 16px root, nothing under 14px, English copy. */
+:root{
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f8f9; --soft-2:#f0f0f2; --soft-3:#f6f6f7;
+  --hairline:#e6e6e9; --hairline-2:#dadade;
+  --rail:#242526; --rail-3:#393b3d; --rail-text:#c3c4c7;
+  --scrim:rgba(246,246,247,.72);
+  --accent:#2563eb; --accent-bg:#eff5ff; --cta:#2563eb; --cta-hover:#1d4ed8;
+  --warn:#c9892e; --warn-fg:#a16207; --bad-fg:#be123c;
+  --r-card:.75rem; --r-inner:.4375rem;
+  --shadow-float:0 2px 6px rgb(24 39 60/5%),0 24px 64px rgb(24 39 60/16%);
+}
+*{box-sizing:border-box}
+html{font-size:16px}
+html,body{height:100%;margin:0}
+body{font-family:Inter,system-ui,sans-serif;font-size:15px;color:var(--text);background:var(--soft-3);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:left}
+input,select{font:inherit;color:var(--ink)}
+svg.lucide{width:17px;height:17px;stroke-width:1.7;flex-shrink:0}
+.shell{display:flex;height:100vh}
+.col{width:68px;background:var(--rail);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:6px;flex-shrink:0}
+.mark{width:30px;height:30px;border-radius:8px;background:#0b0b0b;color:#fff;display:grid;place-items:center;font-weight:600;position:relative;margin-bottom:10px}
+.mark::after{content:"";position:absolute;right:5px;bottom:5px;width:5px;height:5px;border-radius:50%;background:#3b82f6}
+.ci{width:40px;height:40px;border-radius:9px;display:grid;place-items:center;color:var(--rail-text)}
+.ci.on{background:var(--rail-3);color:#fff}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.bar{height:52px;display:flex;align-items:center;gap:8px;padding:0 32px;border-bottom:1px solid var(--hairline);color:var(--body);flex-shrink:0}
+.bar b{color:var(--ink);font-weight:500}
+.bar svg{width:15px;height:15px;color:var(--faint)}
+.page{flex:1;overflow-y:auto}
+.content{max-width:100rem;margin:0 auto;padding:28px 32px 120px}
+h1{margin:0 0 20px;font-size:28px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--hairline);margin-bottom:16px}
+.tabs button{height:44px;padding:0 12px;color:var(--body);font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;gap:8px;align-items:center}
+.tabs button.on{color:var(--ink);border-color:var(--ink)}
+.tabs .b{min-width:22px;height:22px;border-radius:11px;background:var(--warn);color:#fff;font-size:14px;font-weight:600;display:grid;place-items:center;padding:0 6px}
+.search{display:flex;align-items:center;gap:12px;height:52px;max-width:40rem;border-radius:10px;background:var(--canvas);border:1px solid var(--hairline-2);padding:0 16px;color:var(--mute);margin-bottom:16px}
+.search:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgb(37 99 235/.12)}
+.search input{flex:1;border:0;outline:none;font-size:17px;background:none;min-width:0}
+.btn{height:40px;padding:0 14px;border-radius:var(--r-inner);border:1px solid var(--hairline-2);background:var(--canvas);color:var(--ink);display:inline-flex;align-items:center;gap:8px;font-weight:500;white-space:nowrap}
+.btn:hover{background:var(--soft)}
+.btn.pri{background:var(--cta);color:#fff;border-color:var(--cta)}
+.btn.pri:hover{background:var(--cta-hover)}
+.btn.sm{height:36px;padding:0 12px}
+.btn:disabled{opacity:.45;cursor:default}
+.card{background:var(--canvas);border-radius:var(--r-card);border:1px solid var(--hairline);overflow:clip}
+.card+.card{margin-top:16px}
+.card.vis{overflow:visible}
+table{width:100%;border-collapse:collapse}
+th{height:48px;text-align:left;font-weight:500;color:var(--body);padding:0 16px;border-bottom:1px solid var(--hairline);background:var(--soft);font-size:14px;white-space:nowrap}
+td{height:72px;padding:14px 16px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+td.act,th.act{text-align:right;width:1%}
+td.n,th.n{width:56px;color:var(--mute);text-align:right;padding-right:8px}
+tfoot td{background:var(--soft);font-weight:600;color:var(--ink);border-top:1px solid var(--hairline);border-bottom:0}
+.nm{display:block;color:var(--ink);font-weight:500;line-height:1.4}
+.sk{display:block;color:var(--mute);font-size:14px;line-height:1.4;margin-top:4px}
+.zero{color:var(--faint)}
+.num{color:var(--ink)}
+.bar2{display:flex;gap:12px;align-items:center;margin-bottom:16px}
+.bar2 .search{margin-bottom:0;flex:1}
+.dsel{height:52px;border:1px solid var(--hairline-2);border-radius:10px;padding:0 40px 0 16px;font-size:15px;color:var(--ink);outline:none;appearance:none;background:var(--canvas) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23626b78' stroke-width='2' viewBox='0 0 24 24'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 14px center;min-width:11rem}
+.dsel:focus{border-color:var(--accent)}
+.lnk{color:var(--accent);font-weight:500}
+.lnk:hover{text-decoration:underline}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px}
+.chev{display:inline-grid;place-items:center;width:18px;color:var(--mute);vertical-align:middle}
+.chev svg{width:15px;height:15px;transition:transform 160ms}
+.chev.open svg{transform:rotate(90deg)}
+.warn{color:var(--warn-fg);font-weight:500}
+.click tbody tr,tr.click{cursor:pointer}
+.click tbody tr:hover td,tr.click:hover td{background:var(--soft)}
+/* A: stage sections, always open */
+.g1 td{background:var(--soft-2);color:var(--ink);font-weight:600}
+.g2 td{background:var(--soft);color:var(--ink);font-weight:500}
+.g1.click:hover td{background:#e9e9ec}
+.g3 td{color:var(--text)}
+/* B: matrix cells */
+.mat td.c{cursor:pointer}
+.mat td.c:hover{background:var(--accent-bg)}
+/* C / D: sticky header */
+.sticky th{position:sticky;z-index:2}
+.sticky thead tr:first-child th{top:0}
+.sticky thead tr.tot th{top:48px;height:56px;color:var(--ink);font-weight:600;background:var(--canvas);border-bottom:1px solid var(--hairline-2)}
+.sticky.card.vis thead tr:first-child th:first-child{border-top-left-radius:var(--r-card)}
+.sticky.card.vis thead tr:first-child th:last-child{border-top-right-radius:var(--r-card)}
+/* D: band */
+.band th{height:96px;vertical-align:middle;padding:0 16px;cursor:pointer;background:var(--canvas);border-bottom:1px solid var(--hairline-2);position:sticky;top:0;z-index:2}
+.band th:hover{background:var(--soft)}
+.band th b{display:block;font-size:22px;font-weight:600;color:var(--ink);letter-spacing:-.01em;line-height:1.3;font-variant-numeric:tabular-nums}
+.band th span{display:block;color:var(--body);font-weight:500;margin-top:2px}
+.band th.on{background:var(--accent-bg);box-shadow:inset 0 -2px 0 var(--accent)}
+.band th.on b,.band th.on span{color:var(--accent)}
+.band th.fix{cursor:default;background:var(--canvas)}
+.band th.fix:hover{background:var(--canvas)}
+td.hot{background:rgb(37 99 235/.05)}
+/* sheet + dialog */
+.veil{position:fixed;inset:0;background:var(--scrim);z-index:40;display:flex;align-items:center;justify-content:center;padding:24px}
+.dlg{width:min(60rem,100%);max-height:calc(100vh - 48px);background:var(--canvas);border:1px solid var(--hairline);border-radius:1rem;box-shadow:var(--shadow-float);display:flex;flex-direction:column;overflow:hidden}
+.dlg.small{width:min(30rem,100%)}
+.sh{display:flex;align-items:flex-start;gap:12px;padding:20px 16px 16px 28px;border-bottom:1px solid var(--hairline)}
+.sh .g{flex:1}
+.sh h2{margin:0;font-size:20px;font-weight:600;color:var(--ink)}
+.sh p{margin:4px 0 0;color:var(--body)}
+.crumb{color:var(--mute);font-size:14px;margin-bottom:4px}
+.ib{width:36px;height:36px;border-radius:var(--r-inner);display:grid;place-items:center;color:var(--line-ico)}
+.ib:hover{background:var(--soft-2)}
+.sb{flex:1;overflow-y:auto;padding:22px 28px}
+.sf{border-top:1px solid var(--hairline);padding:14px 28px;display:flex;gap:10px;align-items:center}
+.sf .g{flex:1}
+.field{margin-bottom:14px}
+.field label{display:block;color:var(--body);margin-bottom:6px}
+.field input,.field select{width:100%;height:48px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 12px;outline:none;background:var(--canvas)}
+.field select{padding-right:40px;appearance:none;background:var(--canvas) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23626b78' stroke-width='2' viewBox='0 0 24 24'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center}
+.field input:focus,.field select:focus{border-color:var(--accent)}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#191b20;color:#fff;padding:12px 18px;border-radius:10px;z-index:80}
+.proto{position:fixed;left:84px;bottom:16px;z-index:90;background:#191b20;border-radius:12px;padding:4px;box-shadow:var(--shadow-float);font-size:14px}
+.proto .seg{display:flex;background:#2a2c31;border-radius:9px;padding:3px}
+.proto .seg button{height:32px;padding:0 12px;border-radius:6px;color:#a9abb1;white-space:nowrap}
+.proto .seg button.on{background:#fff;color:#191b20;font-weight:500}
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="col"><span class="mark">C</span><span class="ci"><i data-lucide="house"></i></span><span class="ci"><i data-lucide="package-open"></i></span><span class="ci"><i data-lucide="printer"></i></span><span class="ci"><i data-lucide="truck"></i></span><span class="ci on"><i data-lucide="boxes"></i></span><span class="ci"><i data-lucide="clipboard-list"></i></span></nav>
+  <div class="main">
+    <header class="bar" id="crumb"></header>
+    <div class="page"><div class="content" id="view"></div></div>
+  </div>
+</div>
+<div id="dlg"></div>
+<div class="proto"><div class="seg" id="seg"></div></div>
+
+<script>
+/* ── the Gudang's pools, one flat list: pool · store · article · pcs ────────── */
+const FLAT=[];
+const put=(pool,store,lines)=>lines.forEach(([name,sku,q,po,sup,due])=>FLAT.push({pool,store,name,sku,q,po,sup,due}));
+const DIVS=['Tops','Bottoms','Outer'];
+const div=n=>/^Celana/.test(n)?'Bottoms':/^Jaket/.test(n)?'Outer':'Tops';
+const skl=x=>x.sku==='—'?x.po:x.sku;
+put('unid',null,[['Kemeja Flanel Check · M','—',110,'280926-007'],['Kemeja Flanel Check · L','—',120,'280926-007'],['Celana Cargo Relaxed · 32','—',90,'280926-007'],['Celana Cargo Relaxed · 34','—',80,'280926-007'],['Kaos Raglan Basic · L','—',70,'260926-004'],['Kaos Raglan Basic · XL','—',60,'260926-004'],['Jaket Coach Light · M','—',90,'260926-004'],['Jaket Coach Light · L','—',80,'260926-004']]);
+put('unal',null,[['Kemeja Oxford Slim · L','20114011104',134],['Kemeja Linen Relaxed · M','20114048103',96],['Celana Chino Tapered · 32','20114085132',210],['Kaos Crew Basic · XXL','20114122106',45]]);
+put('unpicked','Store Kemang',[['Kemeja Oxford Slim · L','20114011104',96],['Polo Pique Basic · M','20114159103',144]]);
+put('unpicked','Store Senayan',[['Celana Chino Tapered · 32','20114085132',96]]);
+put('picked','Store PIK',[['Kemeja Oxford Slim · L','20114011104',34],['Kaos Crew Basic · S','20114122102',144]]);
+put('picked','Store BSD',[['Jaket Bomber Light · M','20114196103',150]]);
+put('packed','Store Kemang',[['Kemeja Oxford Slim · L','20114011104',300]]);
+put('packed','Store PIK',[['Polo Pique Basic · XL','20114159105',210]]);
+put('dispatch','Store BSD',[['Celana Chino Tapered · 32','20114085132',140]]);
+put('dispatch','Store Senayan',[['Kaos Crew Basic · M','20114122103',260]]);
+put('retpo',null,[['Kemeja Oxford Slim · L','20114011104',30,'300926-011','PT Sinar Tekstil'],['Kaos V-Neck · M','20114233103',20,'250926-004','CV Benang Mas']]);
+put('rs',null,[['Kemeja Oxford Slim · S','20114011102',4,'RS-0031','PT Sinar Tekstil','Wed 8 Oct'],['Kaos Crew Basic · S','20114122102',6,'RS-0032','CV Benang Mas','Fri 10 Oct']]);
+put('retst','Store Kemang',[['Kemeja Oxford Slim · M','20114011103',4],['Polo Pique Basic · L','20114159104',5]]);
+put('retst','Store PIK',[['Kemeja Linen Relaxed · L','20114048104',3]]);
+put('retst','Store Senayan',[['Kaos Crew Basic · S','20114122102',6],['Kemeja Oxford Slim · S','20114011102',5]]);
+
+/* On order: open POs, not yet received. Not part of the Gudang total. */
+const ORD=[
+  {po:'011026-003',colour:'Navy',sup:'CV Benang Mas',due:'Tue 7 Oct',lines:[['Kaos Crew Basic · S','20114122102',240],['Kaos Crew Basic · M','20114122103',300],['Kaos Crew Basic · L','20114122104',260]]},
+  {po:'300926-011',colour:'White',sup:'PT Sinar Tekstil',due:'Wed 8 Oct',lines:[['Kemeja Oxford Slim · L','20114011104',140,60],['Kemeja Oxford Slim · XL','20114011105',80]]},
+  {po:'280926-005',colour:'Charcoal',sup:'CV Denim Jaya',due:'Thu 9 Oct',lines:[['Celana Chino Tapered · 34','20114085134',120],['Celana Chino Tapered · 30','20114085130',80]]},
+  {po:'290926-007',colour:'Khaki',sup:'CV Denim Jaya',due:'Fri 10 Oct',lines:[['Celana Chino Tapered · 30','20114085130',90],['Celana Chino Tapered · 32','20114085132',110],['Celana Chino Tapered · 34','20114085134',70]]},
+  {po:'270926-002',colour:'Black',sup:'PT Rajut Indah',due:'Mon 13 Oct',lines:[['Polo Pique Basic · M','20114159103',150],['Polo Pique Basic · L','20114159104',150]]},
+  {po:'290926-003',colour:'Grey',sup:'CV Benang Mas',due:'Wed 15 Oct',lines:[['Kaos V-Neck · M','20114233103',200],['Kaos V-Neck · L','20114233104',180]]},
+  {po:'260926-009',colour:'Olive',sup:'PT Sinar Tekstil',due:'Fri 17 Oct',lines:[['Kemeja Linen Relaxed · M','20114048103',100],['Kemeja Linen Relaxed · L','20114048104',100]]},
+  {po:'021026-001',colour:'Navy',sup:'PT Rajut Indah',due:'Mon 20 Oct',lines:[['Polo Pique Basic · XL','20114159105',120]]},
+  {po:'021026-002',colour:'Black',sup:'CV Denim Jaya',due:'Wed 22 Oct',lines:[['Jaket Bomber Light · M','20114196103',60],['Kaos Crew Basic · XXL','20114122106',90]]},
+];
+const poQ=o=>o.lines.reduce((s,l)=>s+l[2],0);            // ordered
+const poR=o=>o.lines.reduce((s,l)=>s+(l[3]||0),0);       // received
+const poL=o=>poQ(o)-poR(o);                              // still on order
+const ordTotal=()=>ORD.reduce((s,o)=>s+poL(o),0);
+const STORES=['Store Kemang','Store Senayan','Store PIK','Store BSD'];
+const PN={unid:'Unidentified',unal:'Unallotted',unpicked:'Unpicked',picked:'Picked',packed:'Packed',dispatch:'Dispatch',retpo:'Over-delivery',rs:'Returns',retst:'Return stock'};
+const SEEN={unal:[481,'Today 07.00'],unpicked:[334,'Today 07.00'],picked:[326,'Today 07.00'],packed:[510,'Today 07.00'],retpo:[50,'Today 07.00'],retst:[23,'Today 07.00'],rs:[10,'Today 07.00']};
+const LAST={unal:['483','27 Sep'],retst:['33','30 Sep'],retpo:['50','30 Sep']};
+
+const MIS=[
+  {id:1,name:'Kemeja Oxford Slim · L',sku:'20114011104',pool:'Unallotted',left:2,src:'Pick',from:'ALT-0412 · Store PIK',age:3},
+  {id:2,name:'Kaos Crew Basic · XXL',sku:'20114122106',pool:'Unallotted',left:3,src:'Pack',from:'ALT-0409 · Store Bintaro',age:34},
+  {id:3,name:'Polo Pique Basic · M',sku:'20114159103',pool:'Dispatch',left:1,src:'Store receive',from:'SJ-SNY-0217 · Store Senayan',age:12},
+  {id:4,name:'Celana Chino Tapered · 32',sku:'20114085132',pool:'Return stock',left:2,src:'HO receive',from:'RT-KMG-0043 · Store Kemang',age:6},
+];
+
+const $=i=>document.getElementById(i);
+const f=n=>n.toLocaleString('id-ID');
+const fz=n=>n?f(n):'<span class="zero">—</span>';
+const icons=()=>lucide.createIcons({attrs:{'stroke-width':1.7}});
+function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),2600)}
+const sum=fn=>FLAT.filter(fn).reduce((s,x)=>s+x.q,0);
+const pq=(p,st)=>sum(x=>x.pool===p&&(!st||x.store===st));
+const missTotal=()=>MIS.reduce((s,m)=>s+m.left,0);
+const missOpen=()=>MIS.filter(m=>m.left>0).length;
+const seenC=p=>SEEN[p]?`<span class="num">${f(SEEN[p][0])}</span><span class="sk">${SEEN[p][1]}</span>`:'<span class="zero">—</span>';
+const lastC=p=>LAST[p]?`<span class="num">${LAST[p][0]}</span><span class="sk">${LAST[p][1]}</span>`:'<span class="zero">—</span>';
+const S={ovA:false,rsA:false,ovB:false,rsB:false,opt:'A',tab:'stock',q:'',dcol:null,ordA:false,ordB:false,unA:false,unB:false,alA:false,alB:false,div:''};
+
+/* ── articles, one row each, with the pools as columns (C and D) ────────────── */
+const ACOLS=[['order','On order'],['unid','Unidentified'],['unal','Unallotted'],['unpicked','Unpicked'],['picked','Picked'],['packed','Packed'],['dispatch','Dispatch'],['retst','Return stock'],['sup','To supplier']];
+const poolKey=p=>p==='retpo'||p==='rs'?'sup':p;
+function arts(){
+  const m=new Map();
+  FLAT.forEach(x=>{
+    if(!m.has(x.sku+x.name))m.set(x.sku+x.name,{name:x.name,sku:x.sku,po:x.po,v:{}});
+    const a=m.get(x.sku+x.name),k=poolKey(x.pool);a.v[k]=(a.v[k]||0)+x.q;
+  });
+  const out=[...m.values()];
+  out.forEach(a=>{a.total=Object.values(a.v).reduce((s,n)=>s+n,0);a.v.total=a.total});
+  ORD.forEach(o=>o.lines.forEach(([name,sku,q,rc])=>{let a=out.find(x=>x.sku===sku&&x.name===name);if(!a){a={name,sku,v:{},total:0};a.v.total=0;out.push(a)}a.v.order=(a.v.order||0)+q-(rc||0)}));
+  out.forEach(a=>{a.v.missing=MIS.filter(z=>z.sku===a.sku).reduce((s,z)=>s+z.left,0)});
+  return out;
+}
+
+/* ── sheets: the articles behind a number ───────────────────────────────────── */
+function shell(crumb,title,sub,body,back,foot,w){
+  $('dlg').innerHTML=`<div class="veil" onmousedown="if(event.target===this)closeDlg()" style="justify-content:flex-end;padding:20px"><div class="dlg" style="width:min(${w||46}rem,100%);height:100%;max-height:none"><div class="sh">${back?`<button class="ib" onclick="openAll('${back}')" aria-label="Back"><i data-lucide="arrow-left"></i></button>`:''}<div class="g"><div class="crumb">${crumb}</div><h2>${title}</h2><p>${sub}</p></div><button class="ib" onclick="closeDlg()"><i data-lucide="x"></i></button></div><div class="sb">${body}</div>${foot?`<div class="sf">${foot}</div>`:''}</div></div>`;
+  icons();
+}
+function openPool(p,store,dv){
+  const rows=FLAT.filter(x=>x.pool===p&&(!store||x.store===store)&&(!dv||div(x.name)===dv)),withStore=!store&&rows.some(x=>x.store);
+  const t=rows.reduce((s,x)=>s+x.q,0);
+  shell(dv?PN[p]:store||'Stock',dv||PN[p],f(t)+' pcs',`<div class="card"><table><thead><tr><th>Article</th>${withStore?'<th>Store</th>':''}<th class="r">Pcs</th></tr></thead><tbody>${rows.map(x=>`<tr><td><span class="nm">${x.name}</span><span class="sk">${skl(x)}</span></td>${withStore?`<td>${x.store}</td>`:''}<td class="r">${f(x.q)}</td></tr>`).join('')}</tbody><tfoot><tr><td>Total</td>${withStore?'<td></td>':''}<td class="r">${f(t)}</td></tr></tfoot></table></div>`);
+}
+function openArt(i){
+  const a=ART[i],rows=[...FLAT.filter(x=>x.sku===a.sku&&x.name===a.name),...ORD.flatMap(o=>o.lines.filter(l=>l[1]===a.sku&&l[0]===a.name).map(l=>({pool:'order',store:'PO '+o.po,q:l[2]-(l[3]||0)})))];
+  shell(skl(a),a.name,f(a.total)+' pcs',`<div class="card"><table><thead><tr><th>Pool</th><th>Store</th><th class="r">Pcs</th></tr></thead><tbody>${rows.map(x=>`<tr><td>${x.pool==='order'?'On order':PN[x.pool]}</td><td>${x.store||x.po||'<span class="zero">—</span>'}</td><td class="r">${f(x.q)}</td></tr>`).join('')}</tbody><tfoot><tr><td>Total</td><td></td><td class="r">${f(rows.reduce((s,x)=>s+x.q,0))}</td></tr></tfoot></table></div>`);
+}
+function openPO(po,back){
+  const o=ORD.find(x=>x.po===po),rc=poR(o);
+  const fact=(l,v)=>`<div><div style="color:var(--mute);font-size:14px">${l}</div><div style="color:var(--ink);font-weight:500;margin-top:4px">${v}</div></div>`;
+  $('dlg').innerHTML=`<div class="veil" onmousedown="if(event.target===this)closeDlg()" style="justify-content:flex-end;padding:20px"><div class="dlg" style="width:min(48rem,100%);height:100%;max-height:none"><div class="sh">${back?`<button class="ib" onclick="openAll('ord')" aria-label="Back"><i data-lucide="arrow-left"></i></button>`:''}<div class="g"><h2 class="mono" style="font-size:20px">${o.po}</h2><p>${o.sup}</p></div><button class="ib" onclick="closeDlg()"><i data-lucide="x"></i></button></div>
+  <div class="sb"><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px">${fact('Delivery',o.due)}${fact('Ordered',f(poQ(o))+' pcs')}${fact('Received',f(rc)+' pcs')}${fact('Status',rc?'Partly received':'Open')}</div>
+  <div class="card"><table><thead><tr><th>Article</th><th>Colour</th><th>Size</th><th class="r">Ordered</th><th class="r">Received</th></tr></thead><tbody>${o.lines.map(l=>`<tr><td><span class="nm">${l[0].split(' · ')[0]}</span><span class="sk">${l[1]}</span></td><td>${o.colour}</td><td>${l[0].split(' · ')[1]||''}</td><td class="r">${f(l[2])}</td><td class="r">${l[3]?f(l[3]):'<span class="zero">—</span>'}</td></tr>`).join('')}</tbody><tfoot><tr><td>Total</td><td></td><td></td><td class="r">${f(poQ(o))}</td><td class="r">${rc?f(rc):'—'}</td></tr></tfoot></table></div></div></div></div>`;
+  icons();
+}
+/* Outbound work behind Allotted: one card per store per stage, as the board shows it. */
+const BOARD=[
+  {stage:'unpicked',store:'Store Kemang',doc:'ALT-0412',age:0},{stage:'unpicked',store:'Store Senayan',doc:'ALT-0411',age:3},
+  {stage:'picked',store:'Store PIK',doc:'ALT-0412',age:1},{stage:'picked',store:'Store BSD',doc:'ALT-0410',age:0},
+  {stage:'packed',store:'Store Kemang',doc:'ALT-0408',age:0,koli:4},{stage:'packed',store:'Store PIK',doc:'ALT-0408',age:1,koli:3},
+  {stage:'dispatch',store:'Store Senayan',doc:'SJ-290926-004',age:1,koli:3},{stage:'dispatch',store:'Store BSD',doc:'SJ-280926-002',age:3,koli:2},
+];
+const STAGES=['unpicked','picked','packed','dispatch'];
+const ageT=a=>a?a+'d':'Today';
+const cardH=(c,withStore)=>{const q=pq(c.stage,c.store);return `<div style="border:1px solid var(--hairline);border-radius:var(--r-card);padding:16px 18px;background:var(--canvas)"><div style="display:flex;justify-content:space-between;gap:12px"><span class="nm">${withStore?c.store:'<span class="mono">'+c.doc+'</span>'}</span><span class="num" style="font-weight:500">${f(q)} pcs</span></div><div class="sk" style="display:flex;justify-content:space-between;gap:12px">${withStore?'<span class="mono">'+c.doc+'</span>':'<span>'+(c.koli?c.koli+' koli':'')+'</span>'}<span${c.age>=3?' style="color:var(--warn-fg)"':''}>${ageT(c.age)}</span></div></div>`};
+const boardLink='<span class="g"></span><a class="lnk" href="outbound-board-prototype.html" style="display:inline-flex;gap:6px;align-items:center">Open board <i data-lucide="arrow-up-right"></i></a>';
+function openStage(st){
+  const cs=BOARD.filter(c=>c.stage===st);
+  shell('Outbound',PN[st],f(pq(st))+' pcs',`<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px">${cs.map(c=>cardH(c,true)).join('')}</div>`,'',boardLink,46);
+}
+function openStore(store,hi){
+  const cols=STAGES.map(st=>{const cs=BOARD.filter(c=>c.stage===st&&c.store===store);return `<div style="min-width:0"><div style="padding:0 2px 12px;${hi===st?'color:var(--accent)':'color:var(--ink)'}"><div style="font-weight:500">${PN[st]}</div><div class="sk">${f(pq(st,store))} pcs</div></div><div style="display:flex;flex-direction:column;gap:12px">${cs.map(c=>cardH(c,false)).join('')||'<div class="zero" style="padding:16px 2px">—</div>'}</div></div>`}).join('');
+  shell('Outbound',store,f(STAGES.reduce((n,st)=>n+pq(st,store),0))+' pcs',`<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px">${cols}</div>`,'',boardLink,64);
+}
+const ALLCFG=()=>({
+  ord:{t:'On order',head:['PO no.','Supplier','Delivery','Pcs'],total:ORD.reduce((n,o)=>n+poL(o),0),rows:ORD.map(o=>({t:o.po+' '+o.sup+' '+o.due,click:`openPO('${o.po}',1)`,c:[`<span class="mono">${o.po}</span>`,o.sup,o.due,f(poL(o))]}))},
+  unid:{t:'Unidentified',head:['Article','PO no.','Pcs'],total:pq('unid'),rows:FLAT.filter(x=>x.pool==='unid').map(x=>({t:x.name+' '+x.po,c:[`<span class="nm">${x.name}</span>`,`<span class="mono">${x.po}</span>`,f(x.q)]}))},
+  ov:{t:'Over-delivery',head:['PO no.','Supplier','Pcs'],total:pq('retpo'),rows:grp('retpo').map(g=>({t:g.po+' '+g.sup,c:[`<span class="mono">${g.po}</span>`,g.sup,f(g.q)]}))},
+  rs:{t:'Returns',head:['RS no.','Supplier','Settle by','Pcs'],total:pq('rs'),rows:grp('rs').map(g=>({t:g.po+' '+g.sup,click:`openRS('${g.po}',1)`,c:[`<span class="mono">${g.po}</span>`,g.sup,g.due,f(g.q)]}))},
+})
+let ALLK='';
+function openAll(kind){
+  ALLK=kind;const c=ALLCFG()[kind];
+  shell('Stock',c.t,f(c.total)+' pcs',`<label class="search" style="max-width:none"><i data-lucide="search"></i><input id="aq" placeholder="Search" oninput="fillAll()" autocomplete="off"></label><div id="allList"></div>`);
+  fillAll();$('aq').focus();
+}
+function fillAll(){
+  const c=ALLCFG()[ALLK],q=$('aq').value.trim().toLowerCase(),rows=c.rows.filter(r=>r.t.toLowerCase().includes(q));
+  $('allList').innerHTML=`<div class="card"><table class="click"><thead><tr>${c.head.map((h,i)=>`<th${i===c.head.length-1?' class="r"':''}>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr${r.click?` onclick="${r.click}"`:' style="cursor:default"'}>${r.c.map((x,i)=>`<td${i===r.c.length-1?' class="r"':''}>${x}</td>`).join('')}</tr>`).join('')||`<tr><td colspan="${c.head.length}" class="zero" style="text-align:center">Nothing found.</td></tr>`}</tbody></table></div>`;
+}
+function closeDlg(){$('dlg').innerHTML=''}
+let ART=[];
+
+/* ── A · one flat table, stage sections always open ─────────────────────────── */
+const grp=pool=>{const m=new Map();FLAT.filter(x=>x.pool===pool).forEach(x=>{if(!m.has(x.po))m.set(x.po,{po:x.po,sup:x.sup,due:x.due,q:0,lines:[]});const g=m.get(x.po);g.q+=x.q;g.lines.push(x)});return [...m.values()]};
+function openRS(no,back){
+  const g=grp('rs').find(x=>x.po===no);
+  shell(g.sup+' · Settle by '+g.due,'<span class="mono" style="font-size:20px">'+no+'</span>',f(g.q)+' pcs',`<div class="card"><table><thead><tr><th>Article</th><th class="r">Pcs</th></tr></thead><tbody>${g.lines.map(x=>`<tr><td><span class="nm">${x.name}</span><span class="sk">${x.sku}</span></td><td class="r">${f(x.q)}</td></tr>`).join('')}</tbody><tfoot><tr><td>Total</td><td class="r">${f(g.q)}</td></tr></tfoot></table></div>`,back?'rs':'');
+}
+const supRaw=(pad,kind)=>grp(kind==='ov'?'retpo':'rs').map(g=>`<tr class="g3${kind==='rs'?' click':''}"${kind==='rs'?` onclick="openRS('${g.po}')"`:''}><td style="padding-left:${pad}px"><span class="nm mono">${g.po}</span><span class="sk">${g.sup}${kind==='rs'?' · Settle by '+g.due:''}</span></td><td class="r">${f(g.q)}</td><td class="r"><span class="zero">—</span></td><td class="r"><span class="zero">—</span></td><td></td></tr>`);
+const ARROW='<span class="chev"><i data-lucide="arrow-up-right"></i></span>';
+const go=(stage,store)=>store?openStore(store,stage):openStage(stage);
+const cap=(rows,kind)=>rows.length>5?[...rows.slice(0,5),`<tr class="g3"><td colspan="5" style="text-align:right;height:56px;padding-top:0;padding-bottom:0"><button class="lnk" onclick="openAll('${kind}')">View all ${rows.length}</button></td></tr>`]:rows;
+const ordRows=pad=>cap(ORD.map(o=>`<tr class="g3 click" onclick="openPO('${o.po}')"><td style="padding-left:${pad}px"><span class="nm mono">${o.po}</span><span class="sk">${o.sup} · ${o.due}</span></td><td class="r">${f(poL(o))}</td><td class="r"><span class="zero">—</span></td><td class="r"><span class="zero">—</span></td><td></td></tr>`),'ord');
+const unidRows=pad=>cap(unidRaw(pad),'unid');
+const supRows=(pad,kind)=>cap(supRaw(pad,kind),kind);
+const unidRaw=(pad)=>FLAT.filter(x=>x.pool==='unid').map(x=>`<tr class="g3"><td style="padding-left:${pad}px"><span class="nm">${x.name}</span><span class="sk"><span class="mono">${x.po}</span></span></td><td class="r">${f(x.q)}</td><td class="r"><span class="zero">—</span></td><td class="r"><span class="zero">—</span></td><td></td></tr>`);
+const divRows=(pad)=>DIVS.filter(d=>FLAT.some(x=>x.pool==='unal'&&div(x.name)===d)).map(d=>`<tr class="g3 click" onclick="openPool('unal',null,'${d}')"><td style="padding-left:${pad}px">${d}</td><td class="r">${f(sum(x=>x.pool==='unal'&&div(x.name)===d))}</td><td class="r"><span class="zero">—</span></td><td class="r"><span class="zero">—</span></td><td></td></tr>`);
+function optA(){
+  const R=[];
+  const tr=(cls,ind,label,v,seen,last,click,act)=>R.push(`<tr class="${cls}${click?' click':''}"${click?` onclick="${click}"`:''}><td style="padding-left:${16+ind*20}px">${label}</td><td class="r">${fz(v)}</td><td class="r">${seen}</td><td class="r">${last}</td><td class="act">${act||''}</td></tr>`);
+  const chev=o=>`<span class="chev${o?' open':''}"><i data-lucide="chevron-right"></i></span>`;
+  R.push(`<tr class="g1 click" onclick="S.ordA=!S.ordA;paint()"><td style="padding-left:16px">On order</td><td class="r">${f(ordTotal())}</td><td></td><td></td><td class="act">${chev(S.ordA)}</td></tr>`);
+  if(S.ordA)ordRows(56).forEach(r=>R.push(r));
+  R.push(`<tr class="g1 click" onclick="S.unA=!S.unA;paint()"><td style="padding-left:16px">Unidentified</td><td class="r">${f(pq('unid'))}</td><td class="r">${seenC('unid')}</td><td class="r">${lastC('unid')}</td><td class="act">${chev(S.unA)}</td></tr>`);
+  if(S.unA)unidRows(56).forEach(r=>R.push(r));
+  R.push(`<tr class="g1 click" onclick="S.alA=!S.alA;paint()"><td style="padding-left:16px">Unallotted</td><td class="r">${f(pq('unal'))}</td><td class="r">${seenC('unal')}</td><td class="r">${lastC('unal')}</td><td class="act">${chev(S.alA)}</td></tr>`);
+  if(S.alA)divRows(56).forEach(r=>R.push(r));
+  const allot=['unpicked','picked','packed','dispatch'];
+  tr('g1',0,'Allotted',allot.reduce((s,p)=>s+pq(p),0),'','');
+  allot.forEach(p=>{
+    tr('g2',1,PN[p],pq(p),seenC(p),lastC(p),`go('${p}')`,ARROW);
+    STORES.filter(s=>pq(p,s)).forEach(s=>tr('g3',2,s,pq(p,s),'','',`go('${p}','${s}')`,ARROW));
+  });
+  tr('g1',0,'To supplier',pq('retpo')+pq('rs'),'','');
+  R.push(`<tr class="g2 click" onclick="S.ovA=!S.ovA;paint()"><td style="padding-left:36px">Over-delivery</td><td class="r">${f(pq('retpo'))}</td><td class="r">${seenC('retpo')}</td><td class="r">${lastC('retpo')}</td><td class="act">${chev(S.ovA)}</td></tr>`);
+  if(S.ovA)supRows(76,'ov').forEach(r=>R.push(r));
+  R.push(`<tr class="g2 click" onclick="S.rsA=!S.rsA;paint()"><td style="padding-left:36px">Returns</td><td class="r">${f(pq('rs'))}</td><td class="r">${seenC('rs')}</td><td class="r">${lastC('rs')}</td><td class="act">${chev(S.rsA)}</td></tr>`);
+  if(S.rsA)supRows(76,'rs').forEach(r=>R.push(r));
+  tr('g1',0,'Return stock',pq('retst'),seenC('retst'),lastC('retst'),"openPool('retst')");
+  STORES.filter(s=>pq('retst',s)).forEach(s=>tr('g3',1,s,pq('retst',s),'','',`openPool('retst','${s}')`));
+  return `<div class="card"><table><thead><tr><th>Pool</th><th class="r">On hand</th><th class="r">Seen</th><th class="r">Last count</th><th class="act"></th></tr></thead><tbody>${R.join('')}</tbody><tfoot><tr><td>Total</td><td class="r">${f(sum(()=>true))}</td><td></td><td></td><td></td></tr><tr class="click" onclick="S.tab='missing';paint()"><td>Missing</td><td class="r warn">${f(missTotal())}</td><td></td><td></td><td></td></tr></tfoot></table></div>`;
+}
+
+/* ── B · stage × store matrix, the loose pools on top ──────────────────────── */
+function optB(){
+    const cols=['unpicked','picked','packed','dispatch','retst'];
+  const cell=(p,s)=>{const v=pq(p,s);return `<td class="r c" ${v?`onclick="${p==='retst'?`openPool('${p}','${s}')`:`go('${p}','${s}')`}"`:''}>${v?`<span class="num">${f(v)}</span>`:'<span class="zero">—</span>'}</td>`};
+  return `<div class="card"><table class="click"><thead><tr><th>Pool</th><th class="r">On hand</th><th class="r">Seen</th><th class="r">Last count</th><th class="act"></th></tr></thead><tbody>
+  <tr onclick="S.ordB=!S.ordB;paint()"><td class="nm" style="font-weight:500">On order</td><td class="r num">${f(ordTotal())}</td><td></td><td></td><td class="act"><span class="chev${S.ordB?' open':''}"><i data-lucide="chevron-right"></i></span></td></tr>
+  ${S.ordB?ordRows(50).join(''):''}
+  <tr onclick="S.unB=!S.unB;paint()"><td class="nm" style="font-weight:500">Unidentified</td><td class="r num">${f(pq('unid'))}</td><td class="r">${seenC('unid')}</td><td class="r">${lastC('unid')}</td><td class="act"><span class="chev${S.unB?' open':''}"><i data-lucide="chevron-right"></i></span></td></tr>
+  ${S.unB?unidRows(50).join(''):''}
+  <tr onclick="S.alB=!S.alB;paint()"><td class="nm" style="font-weight:500">Unallotted</td><td class="r num">${f(pq('unal'))}</td><td class="r">${seenC('unal')}</td><td class="r">${lastC('unal')}</td><td class="act"><span class="chev${S.alB?' open':''}"><i data-lucide="chevron-right"></i></span></td></tr>
+  ${S.alB?divRows(50).join(''):''}
+  <tr><td class="nm" style="font-weight:500">To supplier</td><td class="r num">${f(pq('retpo')+pq('rs'))}</td><td></td><td></td><td></td></tr>
+  <tr onclick="S.ovB=!S.ovB;paint()"><td style="padding-left:36px">Over-delivery</td><td class="r">${f(pq('retpo'))}</td><td class="r">${seenC('retpo')}</td><td class="r">${lastC('retpo')}</td><td class="act"><span class="chev${S.ovB?' open':''}"><i data-lucide="chevron-right"></i></span></td></tr>
+  ${S.ovB?supRows(70,'ov').join(''):''}
+  <tr onclick="S.rsB=!S.rsB;paint()"><td style="padding-left:36px">Returns</td><td class="r">${f(pq('rs'))}</td><td class="r">${seenC('rs')}</td><td class="r">${lastC('rs')}</td><td class="act"><span class="chev${S.rsB?' open':''}"><i data-lucide="chevron-right"></i></span></td></tr>
+  ${S.rsB?supRows(70,'rs').join(''):''}
+  <tr onclick="S.tab='missing';paint()"><td class="nm" style="font-weight:500">Missing</td><td class="r warn">${f(missTotal())}</td><td></td><td></td><td></td></tr>
+  </tbody></table></div>
+  <div class="card"><table class="mat"><thead><tr><th>Store</th>${cols.map(p=>`<th class="r">${PN[p]}</th>`).join('')}<th class="r">Total</th><th class="act"></th></tr></thead><tbody>
+  ${STORES.map(s=>`<tr><td class="nm" style="font-weight:500">${s}</td>${cols.map(p=>cell(p,s)).join('')}<td class="r num" style="font-weight:600">${f(cols.reduce((a,p)=>a+pq(p,s),0))}</td><td class="act c" style="cursor:pointer" onclick="go('','${s}')">${ARROW}</td></tr>`).join('')}
+  </tbody><tfoot><tr><td>Total</td>${cols.map(p=>`<td class="r">${f(pq(p))}</td>`).join('')}<td class="r">${f(cols.reduce((a,p)=>a+pq(p),0))}</td><td></td></tr></tfoot></table></div>`;
+}
+
+/* ── C · article report: search, pinned header and totals ──────────────────── */
+const divSel=()=>`<select class="dsel" onchange="S.div=this.value;paint()"><option value="">Division</option>${DIVS.map(d=>`<option${S.div===d?' selected':''}>${d}</option>`).join('')}</select>`;
+function optC(){
+  ART=arts();
+  const q=S.q.trim().toLowerCase();
+  const list=ART.map((a,i)=>({a,i})).filter(({a})=>(!q||(a.name+' '+a.sku).toLowerCase().includes(q))&&(!S.div||div(a.name)===S.div));
+  const T=k=>list.reduce((s,{a})=>s+(a.v[k]||0),0);
+  return `<div class="bar2"><label class="search"><i data-lucide="search"></i><input id="q" placeholder="Find an article" value="${S.q}" autocomplete="off"></label>${divSel()}</div>
+  <div class="card vis sticky"><table class="click"><thead><tr><th>Article</th>${ACOLS.map(c=>`<th class="r">${c[1]}</th>`).join('')}<th class="r">Total</th><th class="r">Missing</th></tr>
+  <tr class="tot"><th>Total</th>${ACOLS.map(c=>`<th class="r">${f(T(c[0]))}</th>`).join('')}<th class="r">${f(T('total'))}</th><th class="r" style="color:var(--warn-fg)">${f(T('missing'))}</th></tr></thead><tbody>
+  ${list.map(({a,i})=>`<tr onclick="openArt(${i})"><td><span class="nm">${a.name}</span><span class="sk">${skl(a)}</span></td>${ACOLS.map(c=>`<td class="r">${fz(a.v[c[0]])}</td>`).join('')}<td class="r num" style="font-weight:600">${a.total?f(a.total):'<span class="zero">—</span>'}</td><td class="r">${a.v.missing?`<span class="warn">${a.v.missing}</span>`:'<span class="zero">—</span>'}</td></tr>`).join('')||`<tr><td colspan="${ACOLS.length+3}" class="zero" style="text-align:center">Nothing found.</td></tr>`}
+  </tbody></table></div>`;
+}
+
+/* ── D · pool totals are the header band; click one to filter and sort ─────── */
+function optD(){
+  ART=arts();
+  const cols=[...ACOLS,['total','Total'],['missing','Missing']];
+  const dl=ART.map((a,i)=>({a,i})).filter(({a})=>!S.div||div(a.name)===S.div);
+  let list=dl;
+  const tot=k=>dl.reduce((s,{a})=>s+(a.v[k]||0),0);
+  if(S.dcol)list=list.filter(({a})=>a.v[S.dcol]>0).sort((x,y)=>y.a.v[S.dcol]-x.a.v[S.dcol]);
+  return `<div class="bar2">${divSel()}</div><div class="card vis sticky"><table class="click"><thead><tr class="band"><th class="fix"><b>${dl.length}</b><span>Articles</span></th>${cols.map(([k,l])=>`<th class="r${S.dcol===k?' on':''}" onclick="S.dcol=S.dcol==='${k}'?null:'${k}';paint()"><b${k==='missing'&&S.dcol!==k?' style="color:var(--warn-fg)"':''}>${f(tot(k))}</b><span>${l}</span></th>`).join('')}</tr></thead><tbody>
+  ${list.map(({a,i})=>`<tr onclick="openArt(${i})"><td><span class="nm">${a.name}</span><span class="sk">${skl(a)}</span></td>${cols.map(([k])=>`<td class="r${S.dcol===k?' hot':''}">${k==='missing'?(a.v[k]?`<span class="warn">${a.v[k]}</span>`:'<span class="zero">—</span>'):k==='total'?`${a.v[k]?`<span class="num" style="font-weight:600">${f(a.v[k])}</span>`:'<span class="zero">—</span>'}`:fz(a.v[k])}</td>`).join('')}</tr>`).join('')}
+  </tbody></table></div>`;
+}
+
+/* ── Missing: shared by every option ───────────────────────────────────────── */
+function missing(){
+  const open=MIS.filter(m=>m.left>0);
+  return `<div class="card"><table><thead><tr><th>Article</th><th>Pool</th><th>From</th><th class="r">Missing</th><th class="r">Age</th><th class="act"></th></tr></thead><tbody>
+  ${open.map(m=>`<tr><td><span class="nm">${m.name}</span><span class="sk">${m.sku}</span></td><td>${m.pool}</td><td><span class="nm" style="font-weight:400">${m.src}</span><span class="sk">${m.from}</span></td><td class="r num" style="font-weight:500">${m.left}</td><td class="r" style="color:${m.age>30?'var(--bad-fg)':'var(--body)'}">${m.age} days</td><td class="act"><button class="btn sm" onclick="openMove(${m.id})">Move</button></td></tr>`).join('')||'<tr><td colspan="6" class="zero" style="text-align:center;height:88px">Nothing missing.</td></tr>'}
+  </tbody>${open.length?`<tfoot><tr><td>Total</td><td></td><td></td><td class="r">${missTotal()}</td><td></td><td></td></tr></tfoot>`:''}</table></div>`;
+}
+const MOVETO=['Unallotted','Unidentified','Over-delivery','Return stock'];
+function openMove(mid){
+  const m=MIS.find(x=>x.id===mid);
+  $('dlg').innerHTML=`<div class="veil" onmousedown="if(event.target===this)closeDlg()"><div class="dlg small"><div class="sh"><div class="g"><h2>Move</h2><p>${m.name} · ${m.left} missing</p></div><button class="ib" onclick="closeDlg()"><i data-lucide="x"></i></button></div>
+  <div class="sb"><div class="field"><label>Pcs found</label><input id="fQty" inputmode="numeric" value="${m.left}" oninput="$('fGo').disabled=!(+this.value>0&&+this.value<=${m.left})"></div>
+  <div class="field"><label>Found in</label><select id="fPool">${MOVETO.map(p=>`<option${p===m.pool?' selected':''}>${p}</option>`).join('')}</select></div></div>
+  <div class="sf"><span class="g"></span><button class="btn pri" id="fGo" onclick="doMove(${mid})">Move</button></div></div></div>`;
+  icons();$('fQty').select();
+}
+function doMove(mid){const m=MIS.find(x=>x.id===mid),n=+$('fQty').value,to=$('fPool').value;if(!(n>0&&n<=m.left))return;m.left-=n;closeDlg();paint();toast(n+' pcs moved to '+to)}
+
+/* ── page ──────────────────────────────────────────────────────────────────── */
+const OPTS=[['A','A · Flat'],['B','B · Matrix'],['C','C · Articles'],['D','D · Band']];
+function paint(){
+  $('crumb').innerHTML=`Ops<i data-lucide="chevron-right"></i><b>Stock</b>`;
+  const body=S.tab==='missing'?missing():{A:optA,B:optB,C:optC,D:optD}[S.opt]();
+  $('view').innerHTML=`<h1>Stock</h1><div class="tabs"><button class="${S.tab==='stock'?'on':''}" onclick="S.tab='stock';paint()">Stock</button><button class="${S.tab==='missing'?'on':''}" onclick="S.tab='missing';paint()">Missing${missOpen()?`<span class="b">${missOpen()}</span>`:''}</button></div>${body}`;
+  $('seg').innerHTML=OPTS.map(([k,l])=>`<button class="${S.opt===k?'on':''}" onclick="S.opt='${k}';S.dcol=null;paint()">${l}</button>`).join('');
+  const q=$('q');if(q)q.oninput=()=>{S.q=q.value;paint();const q2=$('q');q2.focus();q2.setSelectionRange(q2.value.length,q2.value.length)};
+  icons();
+}
+addEventListener('keydown',e=>{if(e.key==='Escape')closeDlg()});
+paint();
+</script>
+</body>
+</html>

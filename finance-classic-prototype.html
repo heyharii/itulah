@@ -1,0 +1,1350 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Finance — pola Klasik</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Tokens from frontend-hub/src/styles/index.css. Finance in the classic
+   layout (the one Hari picked from the BKM/BKK designs) plus the giro
+   board's shape for payables. App copy English; client account names and
+   printed documents stay Indonesian. Keys 1–8 switch screens. */
+:root{
+  --ink:#20242c;--text:#394150;--body:#626b78;--mute:#737c89;--faint:#b9c0c9;--line-ico:#89919d;
+  --canvas:#fff;--soft:#f8f9fb;--soft-2:#f0f2f5;--soft-3:#f7f8fa;--hairline:#e7eaf0;--hairline-2:#dce1e8;--hairline-strong:#c7ced8;--backdrop:#dfe3ea;
+  --dark:#191b20;--rail:#16181d;--rail-2:#23262d;--rail-3:#2e323a;--rail-ink:#f2f4f7;--rail-mute:#7d8491;
+  --accent:#2563eb;--accent-bg:#eff5ff;--cta:#2563eb;--cta-hover:#1d4ed8;
+  --ok:#36b827;--ok-bg:#d9f4d2;--ok-fg:#15803d;--warn:#c9892e;--warn-bg:#faeacd;--warn-fg:#b45309;
+  --bad:#d05151;--bad-bg:#fbeaea;--bad-fg:#be123c;--info-bg:#ddebfa;--info-fg:#2c57bf;
+  --r-shell:16px;--r-card:12px;--r-inner:7px;
+  --shadow-soft:0 1px 3px rgb(24 39 60/4%);
+  --shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);
+  --shadow-shell:0 10px 34px rgb(24 39 60/8%);
+  --ease-out:cubic-bezier(.23,1,.32,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:14px/1.5 Inter,system-ui,sans-serif;color:var(--text);background:var(--backdrop);-webkit-font-smoothing:antialiased;padding:12px 16px 40px}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+b,strong{color:var(--ink);font-weight:600}
+fieldset{border:0;min-width:0}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:13px}
+.num{font-variant-numeric:tabular-nums}
+.muted{color:var(--mute)}
+.sp{flex:1}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+svg{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+kbd{font-family:"JetBrains Mono",monospace;font-size:12px;background:var(--canvas);border:1px solid var(--hairline-2);border-bottom-width:2px;border-radius:5px;padding:0 5px;color:var(--body)}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}}
+@keyframes pop{from{opacity:0;transform:translateY(-4px) scale(.98)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ---------- prototype chrome (not part of the app) ---------- */
+.proto{max-width:1320px;margin:0 auto 12px;display:flex;flex-direction:column;gap:10px}
+.proto-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.brand b{font-size:16px}
+.brand span{color:var(--body);margin-left:6px}
+.modes{display:inline-flex;background:var(--canvas);border:1px solid var(--hairline-2);border-radius:999px;padding:3px;gap:2px}
+.modes button{border:0;background:none;height:32px;padding:0 14px;border-radius:999px;color:var(--body);font-weight:500;display:inline-flex;align-items:center;gap:7px;transition:background .15s var(--ease-out),color .15s}
+.modes button[aria-pressed=true]{background:var(--ink);color:#fff}
+.vtabs{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:1px 0 2px}
+.vtabs::-webkit-scrollbar{display:none}
+.vtabs button{flex:none;height:34px;padding:0 12px 0 6px;border:1px solid var(--hairline-2);background:var(--canvas);border-radius:999px;display:inline-flex;align-items:center;gap:8px;color:var(--text);font-weight:500;transition:border-color .15s,background .15s,color .15s,transform .12s var(--ease-out)}
+.vtabs button:hover{border-color:var(--hairline-strong)}
+.vtabs button:active{transform:scale(.97)}
+.vtabs button i{font-style:normal;width:22px;height:22px;border-radius:50%;background:var(--soft-2);display:grid;place-items:center;font-size:12px;color:var(--body)}
+.vtabs button[aria-pressed=true]{border-color:var(--ink);background:var(--ink);color:#fff}
+.vtabs button[aria-pressed=true] i{background:rgb(255 255 255/.16);color:#fff}
+.proto-why{color:var(--body);max-width:980px}
+.proto-why b{margin-right:6px}
+.stage{max-width:1320px;margin:0 auto;overflow-x:auto}
+
+/* ---------- app shell ---------- */
+.app{display:flex;min-width:1080px;min-height:calc(100vh - 176px);background:var(--canvas);border-radius:var(--r-shell);overflow:hidden;box-shadow:var(--shadow-shell)}
+.enter .app,.enter .v8{animation:rise .3s var(--ease-out)}
+.rail{width:56px;flex:none;background:var(--rail);display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 0}
+.rail .logo{width:30px;height:30px;border-radius:9px;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:600;margin-bottom:10px}
+.rail a{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;color:var(--rail-mute)}
+.rail a.on{background:var(--rail-3);color:var(--rail-ink)}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.ph{padding:14px 24px 14px;border-bottom:1px solid var(--hairline);background:var(--canvas)}
+.crumb{color:var(--mute);font-size:13px;display:flex;gap:6px;align-items:center}
+.ph-row{display:flex;align-items:center;gap:10px;margin-top:4px;flex-wrap:wrap}
+.ph h1{font-size:20px;line-height:1.3;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+.content{flex:1;background:var(--soft);padding:20px 24px 28px;min-width:0}
+.dir{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;flex:none}
+.dir.d-in{background:var(--ok-bg);color:var(--ok-fg)}
+.dir.d-out{background:var(--soft-2);color:var(--ink)}
+
+/* ---------- primitives, as the hub draws them ---------- */
+.card{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);box-shadow:var(--shadow-soft)}
+.btn{height:36px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 14px;border-radius:var(--r-inner);border:1px solid var(--hairline-2);background:var(--canvas);font-weight:500;white-space:nowrap;box-shadow:var(--shadow-soft);transition:background .15s,border-color .15s,transform .12s var(--ease-out),opacity .15s}
+.btn:hover{background:var(--soft-2)}
+.btn:active{transform:scale(.97)}
+.btn svg{color:var(--line-ico)}
+.btn.pri{background:var(--cta);border-color:var(--cta);color:#fff;box-shadow:none}
+.btn.pri svg{color:#fff}
+.btn.pri:hover{background:var(--cta-hover)}
+.btn.ghost{border-color:transparent;background:none;box-shadow:none;color:var(--body)}
+.btn.ghost:hover{background:var(--soft-2);color:var(--ink)}
+.btn.sm{height:32px;padding:0 11px}
+.btn.lg{height:44px;padding:0 20px;font-size:15px}
+.btn:disabled{opacity:.5;pointer-events:none}
+.btn[aria-busy=true]{opacity:.75}
+.link{border:0;background:none;color:var(--body);text-decoration:underline;text-decoration-color:var(--hairline-strong);text-underline-offset:3px;font-weight:500}
+.link:hover{color:var(--ink)}
+.icon-btn{width:32px;height:32px;border:0;background:none;border-radius:8px;display:grid;place-items:center;color:var(--line-ico)}
+.icon-btn:hover{background:var(--soft-2);color:var(--ink)}
+.f{display:flex;flex-direction:column;gap:6px;min-width:0}
+.f>span:first-child{font-weight:500;color:var(--text)}
+.req{color:var(--bad);font-style:normal;margin-left:2px}
+.in{height:40px;width:100%;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);padding:0 12px;outline:none;color:var(--ink);display:flex;align-items:center;gap:8px;min-width:0;transition:border-color .15s,box-shadow .15s}
+.in:hover{border-color:var(--hairline-strong)}
+.in:focus,.in:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.in[aria-invalid=true],.in.bad{border-color:var(--bad)}
+.in.ro{background:var(--soft);color:var(--text)}
+.in.ro:hover{border-color:var(--hairline-2)}
+.in.ro em{margin-left:auto;font-style:normal;color:var(--mute);font-size:13px}
+.in.sm{height:34px}
+.in svg{color:var(--line-ico)}
+select.in{appearance:none;padding-right:34px;cursor:pointer;background:var(--canvas) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2389919d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 11px center/14px}
+textarea.in{height:auto;padding:9px 12px;resize:vertical;line-height:1.5}
+.err{color:var(--bad-fg);font-size:13px}
+.hint{color:var(--mute);font-size:13px}
+.segm{display:inline-flex;background:var(--soft-2);border-radius:var(--r-inner);padding:2px;gap:2px}
+.segm button{height:32px;padding:0 13px;border:0;border-radius:6px;background:none;color:var(--body);font-weight:500;transition:background .15s,color .15s,box-shadow .15s}
+.segm button[aria-pressed=true]{background:var(--canvas);color:var(--ink);box-shadow:var(--shadow-soft)}
+.pill{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px 0 8px;border:1px solid var(--hairline-2);border-radius:999px;font-size:13px;color:var(--text);background:var(--canvas);white-space:nowrap;font-weight:500}
+.pill::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--faint)}
+.pill.ok::before{background:var(--ok)}.pill.warn::before{background:var(--warn)}.pill.bad::before{background:var(--bad)}.pill.info::before{background:var(--accent)}
+.pill.void{color:var(--mute);text-decoration:line-through}
+.chip{height:30px;padding:0 11px;border:1px solid var(--hairline-2);border-radius:999px;background:var(--canvas);color:var(--text);font-weight:500;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;transition:background .15s,border-color .15s,color .15s,transform .12s var(--ease-out)}
+.chip:hover{border-color:var(--hairline-strong)}
+.chip:active{transform:scale(.97)}
+.chip span{color:var(--mute)}
+.chip.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.chip.on span{color:rgb(255 255 255/.7)}
+.banner{display:flex;gap:10px;align-items:flex-start;padding:10px 14px;border-radius:var(--r-inner);margin-bottom:14px}
+.banner.anim{animation:rise .25s var(--ease-out)}
+.banner svg{margin-top:2px}
+.banner.ok{background:var(--ok-bg);color:var(--ok-fg)}.banner.ok b{color:var(--ok-fg)}
+.banner.bad{background:var(--bad-bg);color:var(--bad-fg)}
+.banner.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.banner.info{background:var(--info-bg);color:var(--info-fg)}
+.cb{appearance:none;width:16px;height:16px;border-radius:4px;border:1.5px solid var(--hairline-strong);background:var(--canvas);display:inline-grid;place-items:center;vertical-align:middle;cursor:pointer;transition:background .12s,border-color .12s;flex:none}
+.cb:hover{border-color:var(--line-ico)}
+.cb:checked{background:var(--accent);border-color:var(--accent)}
+.cb:checked::after{content:"";width:8px;height:4px;border:2px solid #fff;border-top:0;border-right:0;transform:translateY(-1px) rotate(-45deg)}
+.cb:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.cb:disabled{opacity:.5;cursor:default}
+.due{font-size:13px;color:var(--mute);margin-left:6px;white-space:nowrap}
+.due.late{color:var(--warn-fg);font-weight:500}
+.big{font-size:30px;line-height:1.15;font-weight:600;color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.big small{font-size:16px;color:var(--mute);font-weight:500;margin-right:5px}
+.words{color:var(--mute);font-size:13px;font-style:italic}
+.avatar{width:26px;height:26px;border-radius:50%;background:var(--accent-bg);color:var(--accent);display:grid;place-items:center;font-size:12px;font-weight:600;flex:none}
+.avatar.sm{width:22px;height:22px;font-size:11px}
+.avatar.lg{width:46px;height:46px;font-size:16px}
+.pickwrap{position:relative}
+.pick{height:40px;width:100%;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);display:flex;align-items:center;gap:8px;padding:0 10px 0 8px;text-align:left;transition:border-color .15s}
+.pick:hover{border-color:var(--hairline-strong)}
+.pick svg{color:var(--line-ico)}
+.pick b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.pick .muted{white-space:nowrap}
+.menu{position:absolute;z-index:30;top:calc(100% + 6px);left:0;right:0;min-width:300px;background:var(--canvas);border:1px solid var(--hairline-2);border-radius:10px;box-shadow:var(--shadow-pop);padding:4px}
+.menu.anim{animation:pop .16s var(--ease-out)}
+.menu.r{left:auto;right:0;width:340px}
+.menu button{display:flex;align-items:center;gap:10px;width:100%;border:0;background:none;padding:8px 10px;border-radius:7px;text-align:left}
+.menu button:hover,.menu button[aria-selected=true]{background:var(--soft-2)}
+.tabs{display:flex;gap:20px}
+.tabs button{border:0;background:none;height:42px;color:var(--body);font-weight:500;display:inline-flex;align-items:center;gap:7px;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s,border-color .15s}
+.tabs button:hover{color:var(--ink)}
+.tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--ink)}
+.tabs .n{font-size:12px;min-width:20px;height:20px;padding:0 6px;border-radius:99px;background:var(--soft-2);color:var(--body);display:inline-grid;place-items:center}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{height:38px;padding:0 12px;background:var(--soft);color:var(--body);font-weight:500;font-size:13px;text-align:left;border-bottom:1px solid var(--hairline);white-space:nowrap}
+.tbl td{height:46px;padding:0 12px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+.tbl tbody tr:last-child td{border-bottom:0}
+.tbl .r{text-align:right}
+.tbl tbody tr{transition:background .12s}
+.tbl tbody tr:hover{background:#f7f9fc}
+.tbl tr.off td{color:var(--mute)}
+.tbl tfoot td{background:var(--soft);font-weight:600;color:var(--ink);border-top:1px solid var(--hairline-2);height:44px}
+.cell-in{height:32px;width:100%;border:1px solid transparent;border-radius:6px;background:transparent;padding:0 8px;text-align:right;font-variant-numeric:tabular-nums;outline:none;color:var(--ink);transition:border-color .15s,background .15s,box-shadow .15s}
+.cell-in.left{text-align:left}
+.cell-in:hover{border-color:var(--hairline-2);background:var(--canvas)}
+.cell-in:focus{border-color:var(--accent);background:var(--canvas);box-shadow:0 0 0 3px var(--accent-bg)}
+.cell-in[aria-invalid=true]{border-color:var(--bad);background:var(--bad-bg);color:var(--bad-fg)}
+.cell-in:disabled{opacity:.45}
+.cell-in::placeholder{color:var(--faint)}
+.addrow{display:flex;align-items:center;gap:8px;width:100%;height:40px;border:0;background:none;color:var(--body);font-weight:500;border-radius:7px;padding:0 8px}
+.addrow:hover{background:var(--soft-2);color:var(--ink)}
+.empty{padding:48px 24px;text-align:center;color:var(--body);display:flex;flex-direction:column;align-items:center;gap:10px}
+.empty p{max-width:460px}
+.empty-ico{width:44px;height:44px;border-radius:12px;background:var(--soft-2);display:grid;place-items:center;color:var(--line-ico)}
+.empty-ico svg{width:22px;height:22px}
+.warnt{color:var(--warn-fg)}
+.toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,16px);opacity:0;pointer-events:none;display:flex;align-items:center;gap:10px;padding:11px 16px;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);box-shadow:var(--shadow-pop);color:var(--ink);font-weight:500;transition:opacity .2s var(--ease-out),transform .25s var(--ease-out);z-index:99}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.toast.ok svg{color:var(--ok-fg)}.toast.bad svg{color:var(--bad-fg)}
+
+/* ---------- 1 · classic ---------- */
+.v1-hdr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) 290px;gap:0 24px;padding:18px 20px}
+.col{display:flex;flex-direction:column;gap:14px;min-width:0}
+.giro{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px;padding:12px;border-radius:9px;background:var(--soft);border:1px dashed var(--hairline-strong)}
+.giro .g-due{grid-column:1/-1}
+.giro-note{grid-column:1/-1;color:var(--mute);font-size:13px}
+.dayrow{display:flex;gap:6px;align-items:center}
+.dayrow .in{flex:1}
+.totalbox{border-left:1px solid var(--hairline);padding-left:24px;display:flex;flex-direction:column;gap:6px}
+.totalbox .lbl{color:var(--body);font-weight:500}
+.mini{display:flex;flex-direction:column;gap:6px;margin-top:10px;padding-top:12px;border-top:1px solid var(--hairline)}
+.mini div{display:flex;justify-content:space-between;gap:10px;color:var(--body)}
+.mini dd{font-variant-numeric:tabular-nums;color:var(--ink)}
+.v1-bar{display:flex;align-items:flex-end;gap:8px;margin-top:20px;border-bottom:1px solid var(--hairline)}
+.v1-bar .btn{margin-bottom:7px}
+.grid-card{margin-top:12px;overflow:visible}
+.grid-card .tbl{border-radius:var(--r-card);overflow:hidden}
+.statusbar{display:flex;gap:16px;align-items:center;padding:12px 4px 0;color:var(--mute);font-size:13px;flex-wrap:wrap}
+.statusbar span{display:inline-flex;gap:4px;align-items:center}
+#probs .banner{margin:12px 0 0}
+
+/* ---------- 9 · giro board ---------- */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.kpi{padding:14px 16px}
+.kpi small{color:var(--body);font-weight:500;font-size:14px}
+.kpi b{display:block;font-size:22px;margin-top:2px;font-variant-numeric:tabular-nums}
+.kpi span{color:var(--mute);font-size:13px}
+.board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:start}
+.colm{background:var(--soft-2);border-radius:var(--r-card);padding:10px;display:flex;flex-direction:column;gap:8px;min-height:380px}
+.colm h3{font-size:14px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:8px;padding:2px 4px 4px}
+.colm h3 .n{font-size:12px;min-width:20px;height:20px;padding:0 6px;border-radius:99px;background:var(--canvas);color:var(--body);display:inline-grid;place-items:center;font-weight:500}
+.colm h3 .sum{margin-left:auto;font-weight:500;color:var(--body);font-size:13px;font-variant-numeric:tabular-nums}
+.gcard{background:var(--canvas);border:1px solid var(--hairline);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;box-shadow:var(--shadow-soft)}
+.gcard .top{display:flex;align-items:center;gap:8px}
+.gcard .amt{font-size:17px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.gcard .who{color:var(--text)}
+.gcard .meta{color:var(--mute);font-size:13px}
+.gcard .acts{display:flex;gap:6px;flex-wrap:wrap}
+.cd{font-size:13px;color:var(--body);font-weight:500}
+.cd.late{color:var(--warn-fg)}
+.clr{display:grid;gap:8px;padding:10px;background:var(--soft);border-radius:8px;animation:rise .2s var(--ease-out)}
+.empty-col{color:var(--mute);font-size:13px;text-align:center;padding:24px 8px}
+
+/* ---------- chart palette (dataviz reference, validated: 7 slots, light) ---------- */
+:root{--c1:#2a78d6;--c2:#eb6834;--c3:#1baf7a;--c4:#eda100;--c5:#e87ba4;--c6:#008300;--c7:#4a3aa7}
+.sw{display:inline-block;width:9px;height:9px;border-radius:3px;flex:none}
+.tip{position:fixed;z-index:80;pointer-events:none;background:var(--canvas);border:1px solid var(--hairline-2);border-radius:10px;box-shadow:var(--shadow-pop);padding:10px 12px;font-size:13px;min-width:200px;opacity:0;transition:opacity .12s}
+.tip.on{opacity:1}
+.tip b{display:block;margin-bottom:4px}
+.tip div{display:flex;align-items:center;gap:6px;justify-content:space-between}
+.tip div span:first-child{display:flex;align-items:center;gap:6px;color:var(--body)}
+.tip div span:last-child{font-variant-numeric:tabular-nums;color:var(--ink)}
+
+/* ---------- 1 · today ---------- */
+.t-hello{display:flex;align-items:baseline;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.t-hello h2{font-size:22px;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+.t-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:start}
+.t-card{overflow:hidden}
+.t-card.wide{grid-column:span 2}
+.t-h{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--hairline)}
+.t-h .n{font-size:12px;min-width:20px;height:20px;padding:0 6px;border-radius:99px;background:var(--soft-2);color:var(--body);display:inline-grid;place-items:center;font-weight:500}
+.t-row{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--hairline);width:100%;text-align:left;background:none;border-left:0;border-right:0;border-top:0;transition:background .12s}
+.t-row:last-child{border-bottom:0}
+.t-row:hover{background:#f7f9fc}
+.t-row .who{flex:1;min-width:0}
+.t-row .who b{font-weight:500;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-row .who small{color:var(--mute);font-size:13px}
+.t-row .amt{font-variant-numeric:tabular-nums;color:var(--ink);font-weight:500;white-space:nowrap}
+.t-foot{display:flex;justify-content:space-between;padding:10px 14px;background:var(--soft);color:var(--body);font-size:13px}
+.t-foot b{font-variant-numeric:tabular-nums}
+.chk{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--hairline)}
+.chk:last-child{border-bottom:0}
+.tick{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;flex:none;border:1.5px solid var(--hairline-strong);color:#fff}
+.tick.done{background:var(--ok);border-color:var(--ok)}
+.tick.part{border-color:var(--warn);background:conic-gradient(var(--warn) 0 60%,transparent 0)}
+.tick svg{width:12px;height:12px;stroke-width:3}
+.chk .lbl{flex:1;min-width:0}
+.chk .lbl small{display:block;color:var(--mute);font-size:13px}
+.minibars{display:flex;align-items:flex-end;gap:4px;height:64px;padding:12px 14px 0}
+.minibars i{flex:1;background:var(--c1);border-radius:3px 3px 0 0;opacity:.85;min-height:3px}
+.minibars i.hot{background:var(--ink)}
+.mb-lbl{display:flex;gap:4px;padding:4px 14px 10px;color:var(--mute);font-size:12px}
+.mb-lbl span{flex:1;text-align:center}
+
+/* ---------- 2 · journal ---------- */
+.j-lines .cell-in.acc{text-align:left}
+.j-lines select.in{height:32px;border-color:transparent;background-color:transparent}
+.j-lines select.in:hover{border-color:var(--hairline-2);background-color:var(--canvas)}
+.j-lines select.in:focus{border-color:var(--accent)}
+.j-lines select.in[aria-invalid=true]{border-color:var(--bad);background-color:var(--bad-bg)}
+.j-lines td{height:44px}
+.j-lines td.n{color:var(--mute);width:36px}
+.diff{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;border-radius:8px;background:var(--ok-bg);color:var(--ok-fg);font-weight:500;margin-top:6px}
+.diff.bad{background:var(--bad-bg);color:var(--bad-fg)}
+.toggle{display:flex;gap:12px;align-items:flex-start;padding:12px;border:1px solid var(--hairline-2);border-radius:10px;background:var(--canvas);cursor:pointer;text-align:left;width:100%}
+.toggle.on{border-color:var(--accent);background:var(--accent-bg)}
+.sw2{position:relative;width:34px;height:20px;flex:none;border-radius:99px;background:var(--hairline-strong);transition:background .18s;margin-top:1px}
+.sw2::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgb(0 0 0/.2);transition:transform .2s var(--ease-out)}
+.toggle.on .sw2{background:var(--accent)}
+.toggle.on .sw2::after{transform:translateX(14px)}
+.toggle small{display:block;color:var(--body);font-size:13px}
+.filerow{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--hairline)}
+.mirror{padding:14px}
+
+/* ---------- 3 · payment entry ---------- */
+.pe-type{display:flex;gap:8px;margin-bottom:14px}
+.pe-type button{flex:1;display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid var(--hairline-2);border-radius:var(--r-card);background:var(--canvas);text-align:left;transition:border-color .15s,box-shadow .15s}
+.pe-type button:hover{border-color:var(--hairline-strong)}
+.pe-type button[aria-pressed=true]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.pe-type small{display:block;color:var(--mute);font-size:13px}
+.jmini{width:100%;border-collapse:collapse;margin-top:6px}
+.jmini td{padding:6px 0;border-bottom:1px solid var(--hairline);font-variant-numeric:tabular-nums;font-size:13px;vertical-align:top}
+.jmini td.r{text-align:right;padding-left:8px;white-space:nowrap}
+.chipline{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;background:var(--soft-2);color:var(--text);font-size:13px;font-weight:500}
+
+/* ---------- 4 · ledger ---------- */
+.led{display:grid;grid-template-columns:280px minmax(0,1fr);gap:16px;align-items:start}
+.tree{overflow:hidden;position:sticky;top:0}
+.tree .search{margin:10px;min-width:0}
+.tg{padding:10px 14px 4px;color:var(--mute);font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.ta{display:flex;align-items:center;gap:8px;width:100%;border:0;background:none;text-align:left;padding:7px 14px;transition:background .12s}
+.ta:hover{background:var(--soft-2)}
+.ta.on{background:var(--accent-bg)}
+.ta .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ta .bal{font-variant-numeric:tabular-nums;color:var(--body);font-size:13px}
+.lhead{padding:16px 18px;display:flex;flex-direction:column;gap:12px;border-bottom:1px solid var(--hairline)}
+.lkpis{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--hairline);border-radius:10px;overflow:hidden}
+.lkpis div{padding:10px 14px;border-right:1px solid var(--hairline)}
+.lkpis div:last-child{border-right:0}
+.lkpis small{display:block;color:var(--mute);font-size:13px}
+.lkpis b{font-variant-numeric:tabular-nums;font-size:17px}
+.spark{display:block;width:100%;height:84px;stroke:none}
+.ov svg,.spark rect{stroke:none}
+.spark path.ln{fill:none;stroke:var(--c1);stroke-width:2;stroke-linejoin:round}
+.spark path.ar{fill:var(--c1);opacity:.08}
+.spark circle{fill:var(--c1);stroke:#fff;stroke-width:2}
+.spark .hit{fill:transparent;cursor:crosshair}
+.tpill{font-family:"JetBrains Mono",monospace;font-size:12px;padding:1px 6px;border-radius:5px;background:var(--soft-2);color:var(--text)}
+.bal-col{color:var(--body)}
+.tbl tr.open td{background:var(--soft);font-weight:500;color:var(--text)}
+
+/* ---------- 5 · AP board ---------- */
+.ap .board{grid-template-columns:repeat(5,minmax(0,1fr))}
+.bcard{background:var(--canvas);border:1px solid var(--hairline);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;box-shadow:var(--shadow-soft);text-align:left;width:100%;transition:border-color .15s,box-shadow .15s,transform .12s var(--ease-out)}
+.bcard:hover{border-color:var(--hairline-strong)}
+.bcard:active{transform:scale(.99)}
+.bcard.sel{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.bcard.hold{background:var(--soft);cursor:default}
+.bcard.paid{opacity:.75;cursor:default}
+.bcard .top{display:flex;align-items:center;gap:8px}
+.bcard .sup{font-weight:500;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.bcard .amt{font-size:16px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.bcard .meta{display:flex;align-items:center;gap:6px;color:var(--mute);font-size:13px;flex-wrap:wrap}
+.bnote{font-size:12.5px;padding:6px 8px;border-radius:7px;line-height:1.35}
+.bnote.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.bnote.info{background:var(--info-bg);color:var(--info-fg)}
+.paybar{position:sticky;bottom:12px;margin-top:16px;display:flex;align-items:center;gap:14px;padding:12px 16px;background:var(--ink);color:#fff;border-radius:var(--r-card);box-shadow:var(--shadow-pop);flex-wrap:wrap}
+.paybar b{color:#fff}
+.paybar .segm{background:rgb(255 255 255/.1)}
+.paybar .segm button{color:rgb(255 255 255/.75)}
+.paybar .segm button[aria-pressed=true]{background:#fff;color:var(--ink)}
+.paybar .btn.pri{background:#fff;color:var(--ink);border-color:#fff}
+.paybar .btn.pri:hover{background:var(--soft-2)}
+.paybar .btn.ghost{color:rgb(255 255 255/.8)}
+.paybar .btn.ghost:hover{background:rgb(255 255 255/.1);color:#fff}
+
+/* ---------- 6 · payments ahead ---------- */
+.pa-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px}
+.ov{padding:14px 16px 8px}
+.ov-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.legend{display:flex;gap:6px 14px;flex-wrap:wrap;color:var(--body);font-size:13px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.ov svg{display:block;width:100%;height:190px}
+.ov .gl{stroke:var(--hairline);stroke-width:1}
+.ov .axt{fill:var(--mute);font-size:11px;font-family:Inter,sans-serif}
+.ov .bar-hit{fill:transparent;cursor:pointer}
+.ov .selbg{fill:var(--accent-bg)}
+.agenda-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:16px 0 10px}
+.sec{margin-top:14px}
+.sec-h{display:flex;align-items:center;gap:10px;padding:10px 4px 8px}
+.sec-h h3{font-size:16px;font-weight:600;color:var(--ink)}
+.sec-h .tot{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:600;color:var(--ink)}
+.stackbar{display:flex;height:6px;border-radius:99px;overflow:hidden;gap:2px;width:160px}
+.stackbar i{display:block;height:100%}
+.ag{width:100%;border-collapse:collapse}
+.ag td{padding:10px 12px;border-bottom:1px solid var(--hairline);vertical-align:middle}
+.ag tr:last-child td{border-bottom:0}
+.ag tr:hover td{background:#f7f9fc}
+.dd{width:62px;text-align:center;line-height:1.15}
+.dd b{display:block;font-size:18px}
+.dd small{color:var(--mute);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+.dd.late b{color:var(--warn-fg)}
+.dd.late small{text-transform:none;letter-spacing:0;color:var(--warn-fg)}
+.ag{table-layout:fixed}
+.ag .what{min-width:0}
+.ag .what b{font-weight:500;display:block}
+.ag .what small{color:var(--mute);font-size:13px}
+.ag .amt{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;color:var(--ink);white-space:nowrap}
+.ag .cum{text-align:right;font-variant-numeric:tabular-nums;color:var(--mute);font-size:13px;white-space:nowrap;width:120px}
+.ag tr.est .amt{font-weight:500;color:var(--body);font-style:italic}
+.cat{display:inline-flex;align-items:center;gap:6px;color:var(--text);white-space:nowrap}
+.src{font-size:12px;padding:2px 7px;border-radius:99px;border:1px solid var(--hairline-2);color:var(--body);white-space:nowrap}
+.src.c{border-color:transparent;background:var(--ink);color:#fff}
+.src.x{border-style:dashed}
+.later-tbl td,.later-tbl th{white-space:nowrap}
+
+/* ---------- 7 · reports ---------- */
+.rep-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.rkpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px}
+.rk{padding:14px 16px}
+.rk small{color:var(--body);font-weight:500}
+.rk b{display:block;font-size:22px;font-variant-numeric:tabular-nums;margin-top:2px}
+.rk span{color:var(--mute);font-size:13px}
+.rtbl{width:100%;border-collapse:collapse}
+.rtbl th{height:38px;padding:0 12px;background:var(--soft);color:var(--body);font-weight:500;font-size:13px;text-align:right;border-bottom:1px solid var(--hairline);white-space:nowrap;position:sticky;top:0}
+.rtbl th:first-child{text-align:left}
+.rtbl td{padding:7px 12px;border-bottom:1px solid var(--hairline);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.rtbl td:first-child{text-align:left;white-space:normal}
+.rtbl tr.g td{font-weight:500;color:var(--ink)}
+.rtbl tr.l1 td{font-weight:600;color:var(--ink);background:#fbfcfd}
+.rtbl tr.calc td{font-weight:600;color:var(--ink);background:var(--soft-2);border-top:1px solid var(--hairline-2)}
+.rtbl tr.calc.key td{background:var(--accent-bg)}
+.rtbl .pct{color:var(--mute);font-size:13px;width:64px}
+.rtbl .dl{width:130px}
+.bs .rtbl .dl{width:110px}
+.bs .rtbl td:first-child{min-width:170px}
+.tw{display:inline-flex;align-items:center;gap:6px;border:0;background:none;padding:0;text-align:left;color:inherit;font:inherit}
+.tw svg{width:14px;height:14px;color:var(--line-ico);transition:transform .15s var(--ease-out)}
+.tw.shut svg{transform:rotate(-90deg)}
+.delta{display:inline-flex;align-items:center;gap:6px;justify-content:flex-end;width:100%}
+.delta .b{height:6px;border-radius:2px;background:var(--hairline-strong);display:inline-block}
+.delta .b.up{background:var(--ink)}
+.bs{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.bs-total td{font-weight:600;color:var(--ink);background:var(--soft-2);border-top:1px solid var(--hairline-2)}
+.share{display:flex;align-items:center;gap:8px;justify-content:flex-end}
+.share i{display:block;height:8px;border-radius:0 4px 4px 0;background:var(--c1)}
+.mg{display:inline-flex;align-items:center;gap:6px}
+.mg i{width:60px;height:6px;border-radius:99px;background:var(--soft-2);position:relative;display:inline-block}
+.mg i::after{content:"";position:absolute;top:-2px;width:10px;height:10px;border-radius:50%;background:var(--ink);left:calc(var(--m) * 1% - 5px)}
+.rtbl th.sort{cursor:pointer}
+.rtbl th.sort:hover{color:var(--ink)}
+.rtbl th.on{color:var(--ink)}
+
+/* ---------- 8 · project advance ---------- */
+.pj-top{display:grid;grid-template-columns:minmax(0,1fr) 430px;gap:16px;margin-bottom:16px;align-items:start}
+.jmini{table-layout:fixed}
+.jmini td:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:58%}
+.pj-card{padding:18px 20px;display:flex;flex-direction:column;gap:12px}
+.pj-facts{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--hairline);border-radius:10px;overflow:hidden}
+.pj-facts div{padding:10px 14px;border-right:1px solid var(--hairline)}
+.pj-facts div:last-child{border-right:0}
+.pj-facts small{display:block;color:var(--mute);font-size:13px}
+.pj-facts b{font-variant-numeric:tabular-nums}
+.tl{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+.tlm{background:var(--soft);border:1px solid var(--hairline);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px;min-height:150px}
+.tlm h4{font-size:13px;font-weight:600;color:var(--ink);display:flex;justify-content:space-between}
+.tr-chip{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:8px;background:var(--ink);color:#fff;font-size:12.5px;font-variant-numeric:tabular-nums}
+.tr-chip svg{width:13px;height:13px}
+.iv-chip{display:flex;flex-direction:column;padding:6px 8px;border-radius:8px;background:var(--canvas);border:1px solid var(--hairline-2);font-size:12.5px}
+.iv-chip b{font-weight:500;font-variant-numeric:tabular-nums}
+.iv-chip small{color:var(--mute)}
+.pj-race{display:flex;flex-direction:column;gap:6px;padding:12px 0 0}
+.pj-race .rw{display:grid;grid-template-columns:150px 1fr 120px;align-items:center;gap:10px;font-size:13px;color:var(--body)}
+.pj-race .trk{height:10px;border-radius:99px;background:var(--soft-2);overflow:hidden}
+.pj-race .trk i{display:block;height:100%;border-radius:99px}
+.pj-race .rw span:last-child{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink);font-weight:500}
+.cls-sel{height:32px;border-radius:7px;border:1px solid var(--hairline-2);background:var(--canvas);padding:0 28px 0 8px;font-size:13px;appearance:none;background:var(--canvas) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2389919d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 8px center/13px;max-width:100%}
+.cls-sel.cap{border-color:var(--c1);color:var(--c1)}
+.cls-sel.exp{border-color:var(--c2);color:#b8481b}
+.split{display:flex;height:14px;border-radius:99px;overflow:hidden;gap:2px;margin:6px 0 4px}
+.split i{display:block;height:100%}
+.vs{display:grid;grid-template-columns:140px 1fr 1fr;border:1px solid var(--hairline);border-radius:10px;overflow:hidden;font-size:13.5px}
+.vs div{padding:10px 12px;border-bottom:1px solid var(--hairline);border-right:1px solid var(--hairline)}
+.vs div:nth-child(3n){border-right:0}
+.vs div:nth-last-child(-n+3){border-bottom:0}
+.vs .h{background:var(--soft);font-weight:600;color:var(--ink)}
+.vs .k{color:var(--body);font-weight:500;background:var(--soft)}
+.assetrow{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--hairline);border-radius:10px;background:var(--canvas)}
+
+/* borrowed from the BKM/BKK prototype */
+.search{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);color:var(--line-ico);min-width:250px}
+.search:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.search input{border:0;outline:none;flex:1;min-width:0;color:var(--ink);background:none}
+.mini-t{width:100%;border-collapse:collapse}
+.mini-t td{padding:8px 0;border-bottom:1px solid var(--hairline);vertical-align:top}
+.mini-t td.r{text-align:right;font-variant-numeric:tabular-nums;padding-left:10px}
+details.jr{border:1px solid var(--hairline);border-radius:9px;padding:10px 12px}
+details.jr summary{cursor:pointer;color:var(--body);font-weight:500;list-style:none;display:flex;align-items:center;gap:6px}
+details.jr summary::-webkit-details-marker{display:none}
+details.jr[open] summary{margin-bottom:8px}
+.bigin{display:flex;align-items:baseline;gap:8px;border-bottom:2px solid var(--ink);padding-bottom:4px;transition:border-color .15s}
+.bigin:focus-within{border-color:var(--accent)}
+.bigin span{font-size:22px;color:var(--mute);font-weight:500}
+.bigin input{border:0;outline:none;font-size:40px;font-weight:600;color:var(--ink);letter-spacing:-.02em;width:100%;font-variant-numeric:tabular-nums;background:none;min-width:0}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.code{font-family:"JetBrains Mono",monospace;font-size:12.5px;color:var(--accent);background:var(--accent-bg);border-radius:5px;padding:1px 6px}
+.code.link{color:var(--warn-fg);background:var(--warn-bg)}
+/* ---------- 5 · paper ---------- */
+.v5-unused{display:flex;flex-direction:column;align-items:center;gap:14px;background:var(--soft-2) radial-gradient(var(--hairline-2) 1px,transparent 1px) 0 0/18px 18px}
+.v5-tools-unused{width:860px;display:flex;align-items:center;gap:8px}
+.paper{position:relative;width:860px;background:#fff;box-shadow:0 1px 2px rgb(24 39 60/8%),0 18px 40px rgb(24 39 60/10%);padding:34px 44px 30px 56px;color:#1d2129}
+.paper::before{content:"";position:absolute;left:22px;top:22px;bottom:22px;border-left:2px dotted var(--hairline-2)}
+.pp-head{display:grid;grid-template-columns:1fr auto 1fr;align-items:end;gap:16px;border-bottom:2px solid #1d2129;padding-bottom:12px}
+.pp-co{font-weight:600;letter-spacing:.06em}
+.pp-title{text-align:center}
+.pp-title h2{font-size:21px;letter-spacing:.16em;font-weight:600;color:#1d2129}
+.pp-date{text-align:right;color:#4b5260}
+.pp-date b{color:#1d2129;font-weight:600}
+.pp-row{display:grid;grid-template-columns:150px 1fr;align-items:end;gap:12px;margin-top:12px}
+.pp-row>span{color:#4b5260}
+.line{border:0;border-bottom:1px dotted #9aa2ae;min-height:26px;padding:2px 2px;background:none;outline:none;width:100%;color:#1d2129;font-weight:500}
+.line.words{font-style:italic;font-weight:400;background:#f6f7f9;padding:4px 8px;border-radius:3px}
+.pp-tbl{width:100%;border-collapse:collapse;margin-top:16px}
+.pp-tbl th,.pp-tbl td{border:1px solid #1d2129;padding:4px 8px;height:30px}
+.pp-tbl th{font-weight:600;font-size:13px;background:#f5f6f8;text-align:left}
+.pp-tbl td.r,.pp-tbl th.r{text-align:right}
+.pp-tbl td.c{text-align:center;width:36px}
+.pp-tbl input{border:0;outline:none;background:none;width:100%;font:inherit;color:#1d2129}
+.pp-tbl input.r{text-align:right;font-variant-numeric:tabular-nums}
+.pp-tbl input:focus{background:var(--accent-bg)}
+.pp-tbl tr.neg td{color:#7a2231}
+.pp-add{border:0;background:none;color:var(--mute);font-size:13px;padding:0}
+.pp-add:hover{color:var(--ink)}
+.pp-bottom{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:14px}
+.pp-method{display:flex;gap:16px;flex-wrap:wrap;color:#1d2129}
+.box{display:inline-block;width:13px;height:13px;border:1.5px solid #1d2129;margin-right:6px;vertical-align:-2px;position:relative}
+.box.x::after{content:"";position:absolute;left:3px;top:0;width:4px;height:8px;border:solid #1d2129;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.pp-total{display:flex;align-items:center;gap:10px;border:2px solid #1d2129;padding:6px 14px;font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+.pp-sign{display:grid;grid-template-columns:repeat(4,1fr);margin-top:20px;border:1px solid #1d2129}
+.pp-sign div{border-right:1px solid #1d2129;padding:6px 8px 8px;text-align:center;height:104px;display:flex;flex-direction:column;justify-content:space-between;color:#4b5260}
+.pp-sign div:last-child{border-right:0}
+.pp-sign b{color:#1d2129;font-weight:500}
+.stamp{position:absolute;right:128px;top:132px;transform:rotate(-11deg);border:3px solid var(--ok-fg);color:var(--ok-fg);padding:6px 18px;border-radius:8px;font-weight:600;letter-spacing:.22em;font-size:26px;opacity:.85;text-align:center;line-height:1.2}
+.stamp.anim{animation:stamp .35s var(--ease-out)}
+.stamp small{display:block;font-size:12px;letter-spacing:.14em}
+@keyframes stamp{from{transform:rotate(-11deg) scale(1.5);opacity:0}}
+
+/* ---------- 9 · store close ---------- */
+.cl-board{grid-template-columns:repeat(5,minmax(0,1fr))}
+.tbar{display:flex;height:6px;border-radius:99px;overflow:hidden;gap:2px}
+.tbar i{display:block;height:100%}
+.cl-detail{margin-top:16px;padding:16px 18px}
+.chain{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.cstep{border:1px solid var(--hairline);border-radius:10px;padding:10px 12px;background:var(--canvas);display:flex;flex-direction:column;gap:6px;min-width:0}
+.cstep.now{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.cstep.todo{background:var(--soft);opacity:.8}
+.cs-h{display:flex;align-items:center;gap:8px}
+.cs-n{width:22px;height:22px;border-radius:50%;background:var(--soft-2);color:var(--body);display:grid;place-items:center;font-size:12px;font-weight:600;flex:none}
+.cstep.done .cs-n{background:var(--ok-bg);color:var(--ok-fg)}
+.cstep.now .cs-n{background:var(--accent);color:#fff}
+.cs-n svg{width:12px;height:12px;stroke-width:3}
+.edc{margin-top:14px}
+/* ---------- 10 · reconciliation ---------- */
+.rc-wrap{display:grid;grid-template-columns:280px minmax(0,1fr);gap:16px;align-items:start}
+.rc-side{display:flex;flex-direction:column;gap:4px;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);padding:8px}
+.rc-side .ta{border-radius:8px;padding:9px 10px}
+.rc-paper{width:auto;padding:30px 36px 26px 48px}
+.rc-tbl td{font-size:13.5px}
+.rc-tbl tr.rc-sec td{background:#fafbfc}
+.rc-tbl tr.rc-sub td{font-style:italic;color:#4b5260}
+.rc-tbl tr.rc-tot td{font-weight:600;background:#f5f6f8}
+/* ---------- 11 · store P&L ---------- */
+.spl-bar{display:grid;grid-template-columns:52px 110px 1fr 70px 120px;align-items:center;gap:10px;padding:5px 0}
+.spl-bar .nm{color:var(--text)}
+.spl-bar .trk{height:12px;background:var(--soft-2);border-radius:0 4px 4px 0;overflow:hidden}
+.spl-bar .trk i{display:block;height:100%;background:var(--c1);border-radius:0 4px 4px 0}
+.spl-bar .num{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink);font-weight:500}
+.rtbl tr.key td{background:var(--accent-bg)}
+.bp-units{display:flex;flex-wrap:wrap;gap:6px;padding:0 6px}
+.bp-units .chip span{font-weight:400}
+.bp-papers{display:flex;flex-direction:column;gap:18px}
+.bp-paper{width:auto;padding:28px 34px 22px 46px}
+.bp-tbl td{font-size:13px;height:26px;padding:3px 8px}
+.bp-tbl td.r{font-variant-numeric:tabular-nums;text-align:right}
+.bp-foot{margin-top:10px;font-size:11.5px;text-align:right}
+@media print{
+ body{background:#fff;padding:0}
+ .proto,.rail,.ph,.v1-bar,.rc-side,.toast,.tip{display:none!important}
+ .app{box-shadow:none;border-radius:0;min-width:0;display:block}
+ .content{background:#fff;padding:0}
+ .rc-wrap{display:block}
+ .paper{box-shadow:none;page-break-after:always;padding:12mm 12mm 10mm 16mm}
+ .paper::before{display:none}
+}
+</style>
+</head>
+<body>
+<div class="proto" id="proto"></div>
+<div class="stage" id="stage"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+const TODAY='2026-09-27';
+const F=new Intl.NumberFormat('id-ID');
+const fmt=n=>F.format(Math.round(n||0));
+const digits=s=>Number(String(s??'').replace(/\D/g,''))||0;
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const dOf=iso=>new Date(iso+'T00:00:00');
+const day=iso=>iso?dOf(iso).toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}):'';
+const dayS=iso=>iso?dOf(iso).toLocaleDateString('id-ID',{day:'numeric',month:'short'}):'';
+const dayL=iso=>dOf(iso).toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+const plusDays=(iso,n)=>{const d=dOf(iso);d.setDate(d.getDate()+n);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
+const lateBy=iso=>Math.round((dOf(TODAY)-dOf(iso))/864e5);
+const initials=n=>n.split(/\s+/).filter(w=>/^[A-Za-z]/.test(w)&&!/^(PT|CV)$/i.test(w)).slice(0,2).map(w=>w[0]).join('').toUpperCase()||'·';
+function dueTag(iso){const d=lateBy(iso);if(d>0)return `<span class="due late">${d} d late</span>`;if(d===0)return `<span class="due late">due today</span>`;return `<span class="due">in ${-d} d</span>`}
+function terbilang(n){
+  n=Math.floor(Math.max(0,n));
+  const s=['','satu','dua','tiga','empat','lima','enam','tujuh','delapan','sembilan','sepuluh','sebelas'];
+  const t=x=>{
+    if(x<12)return s[x];
+    if(x<20)return t(x-10)+' belas';
+    if(x<100)return t(Math.floor(x/10))+' puluh'+(x%10?' '+t(x%10):'');
+    if(x<200)return 'seratus'+(x-100?' '+t(x-100):'');
+    if(x<1000)return t(Math.floor(x/100))+' ratus'+(x%100?' '+t(x%100):'');
+    if(x<2000)return 'seribu'+(x-1000?' '+t(x-1000):'');
+    if(x<1e6)return t(Math.floor(x/1000))+' ribu'+(x%1000?' '+t(x%1000):'');
+    if(x<1e9)return t(Math.floor(x/1e6))+' juta'+(x%1e6?' '+t(x%1e6):'');
+    if(x<1e12)return t(Math.floor(x/1e9))+' miliar'+(x%1e9?' '+t(x%1e9):'');
+    return t(Math.floor(x/1e12))+' triliun'+(x%1e12?' '+t(x%1e12):'');
+  };
+  if(n===0)return 'Nol rupiah';
+  const w=t(n).replace(/\s+/g,' ').trim();
+  return w.charAt(0).toUpperCase()+w.slice(1)+' rupiah';
+}
+
+const I={
+ in:'<svg viewBox="0 0 24 24"><path d="M17 7 7 17M17 17H7V7"/></svg>',
+ out:'<svg viewBox="0 0 24 24"><path d="M7 17 17 7M7 7h10v10"/></svg>',
+ plus:'<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+ x:'<svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+ check:'<svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>',
+ chev:'<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
+ search:'<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+ cal:'<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>',
+ print:'<svg viewBox="0 0 24 24"><path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>',
+ list:'<svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>',
+ undo:'<svg viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg>',
+ bank:'<svg viewBox="0 0 24 24"><path d="M3 21h18M5 21V10M19 21V10M9 21V10M15 21V10M2 10l10-6 10 6"/></svg>',
+ wallet:'<svg viewBox="0 0 24 24"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15v4M3 5v14a2 2 0 0 0 2 2h15v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg>',
+ home:'<svg viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+ book:'<svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/></svg>',
+ users:'<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M16 3.1a4 4 0 0 1 0 7.8M22 21a7 7 0 0 0-5-6.7"/></svg>',
+ box:'<svg viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>',
+ gear:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>',
+ camera:'<svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>',
+ cmd:'<svg viewBox="0 0 24 24"><path d="m4 17 6-6-6-6M12 19h8"/></svg>',
+ spark:'<svg viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/></svg>',
+ link:'<svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>',
+ alert:'<svg viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"/></svg>',
+ back:'<svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>',
+ del:'<svg viewBox="0 0 24 24"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM18 9l-6 6M12 9l6 6"/></svg>',
+ clock:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+ file:'<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
+ swap:'<svg viewBox="0 0 24 24"><path d="M7 16V4M3 8l4-4 4 4M17 8v12M21 16l-4 4-4-4"/></svg>',
+};
+
+
+/* The five 7Soft exports (Laba Rugi kompilasi, Laba Rugi C001, Neraca C001,
+   Penjualan per divisi), read with xlrd — [level, account, 2025, 2024]. */
+const FIN={"plAll":[[1,"PENJUALAN",103848259475,106083259050],[2,"Penjualan Tunai",0,0],[3,"Penjualan Tunai",81088384425,88708392050],[2,"Penjualan Kartu Debit",0,0],[3,"Penjualan Debit Card Bank BCA",9187371600,6095878350],[3,"Penjualan Debit Card Bank Mandiri",5745977700,3880939300],[3,"Penjualan Debit Card Bank BRI",7562772750,7216558350],[3,"Penjualan Debit Card Bank BNI",241477500,154962000],[2,"Penjualan Kartu Kredit",0,0],[3,"Penjualan Kartu Kredit VISA Card",16588500,18850500],[3,"Penjualan Kartu Kredit Master Card",5687000,7678500],[1,"DISCOUNT / POTONGAN DAN RETURN PENJUALAN",-172192750,-162064580],[2,"Discount / Potongan Penjualan",0,0],[3,"Discount / Potongan Penjualan",-22022050,-21332080],[2,"Retur Penjualan",0,0],[3,"Retur Penjualan",-150170700,-140732500],[1,"TOTAL PENJUALAN BERSIH",103676066725,105921194470],[1,"BEBAN POKOK PENJUALAN",62327940507,63999543809],[1,"LABA (RUGI) USAHA KOTOR",41348126218,41921650661],[1,"BEBAN USAHA",20384704875,17821415593],[2,"BEBAN PENJUALAN",3660247493,2066220562],[3,"BIAYA PENJUALAN",2448109318,1039060862],[4,"Biaya Customer Supplies",522357985,402722380],[4,"Biaya Credit Card",132927259,97275318],[4,"Biaya Promosi",5513000,43822000],[4,"Biaya Dekorasi",4375000,95900],[4,"Biaya Bongkar Muat Barang",21688800,19965000],[4,"Biaya Pengiriman Barang/kurir/Ekspedisi",390383280,393141500],[4,"Biaya Kerusakan Persediaan Barang Dagangan",1370863994,82038764],[3,"BIAYA PEGAWAI OPERATION",1212138175,1027159700],[4,"Biaya Gaji Karyawan",701538000,563895000],[4,"Biaya Lembur",1910000,5930000],[4,"Uang Makan",18265000,58845000],[4,"Biaya Kesehatan & Pengobatan",220000,765000],[4,"Biaya Asuransi Pegawai / BPJS",118783968,76164700],[4,"Tunjangan Hari Raya (THR)",347100000,321560000],[4,"Biaya Manpower Development",11185400,0],[4,"Biaya Pesangon",9635807,0],[4,"Komisi / Bonus / Insentif",3500000,0],[2,"BEBAN PEGAWAI",11741315879,11432833680],[3,"BEBAN PEGAWAI OFFICE",11741315879,11432833680],[4,"Biaya Gaji Pegawai",9933202130,9707714019],[4,"Biaya Lembur",329102000,316481000],[4,"Uang Makan",10330000,242077300],[4,"Biaya Kesehatan & Pengobatan",101005845,102000],[4,"Biaya Asuransi Pegawai / BPJS",253389904,247751361],[4,"Tunjangan Hari Raya (THR)",840275000,878825000],[4,"Biaya Uniform / Seragam Kerja",80011000,16433000],[4,"Funeral Contribution",0,450000],[4,"Biaya Pesangon",164000000,23000000],[4,"Komisi / Bonus / Insentif",30000000,0],[2,"BEBAN ADMINISTRASI DAN UMUM",4392575431,3970315482],[3,"BIAYA ADMINISTRASI DAN UMUM",4392575431,3970315482],[4,"Biaya Kebersihan (Cleaning)",13976900,26120300],[4,"Alat Tulis Kantor & Barang Cetakan",57780737,73351530],[4,"Biaya Rumah Tangga",800057929,641707854],[4,"Biaya Bank HO",91729957,160291446],[4,"Biaya Telephone,Facsimile, Modem",159497821,161403064],[4,"Biaya Pemakaian Listrik",2442327970,2276524437],[4,"Biaya Pemakaian Air Bersih (PDAM)",26946120,28321849],[4,"Biaya Perjalanan Dinas",139952276,85228399],[4,"Biaya Lokal Transport",52352166,50059466],[4,"Computer Expenses",1082000,23460563],[4,"Biaya Perlengkapan Toko dan Kantor",139695515,73313574],[4,"Biaya Stock Opname",95441442,93992100],[4,"Biaya Peralatan Listrik",144179689,64982800],[4,"Tire & Tubes Expences",0,2410000],[4,"F u e l & O I l Expences",8392000,7790000],[4,"T o o l s (Peralatan) Ekspences",1135000,2830100],[4,"Biaya Lubrication & Grease, Bahan Bakar Genset",26327200,42660500],[4,"Biaya Telephone Equipment",647312,0],[4,"Biaya Donasi (CSR, Zakat)",9422000,51646000],[4,"Biaya Konsultan",152302898,81000000],[4,"Biaya Lisensi Kendaraan ( STNK, Uji Kir)",29052500,23221500],[4,"Biaya Perlengkapan Mess atau Rumah Dinas",276000,0],[2,"BEBAN PERAWATAN DAN PEMELIHARAAN",590566072,352045868],[3,"BIAYA PERAWATAN DAN PEMELIHARAAN",590566072,352045868],[4,"BIAYA PERBAIKAN DAN PERAWATAN FFE",14074561,35129500],[4,"SOFTWARE MAINTENANCE",156000000,153000000],[4,"BIAYA PERBAIKAN DAN PERAWATAN KOMPUTER",3645000,1324500],[4,"BIAYA PERBAIKAN DAN PERAWATAN BANGUNAN",278896399,44658600],[4,"BIAYA PERBAIKAN DAN PERAWATAN STAFF HOUSE",2345000,0],[4,"BIAYA PERBAIKAN DAN PERAWATAN KENDARAAN",68867464,54210268],[4,"BIAYA PERBAIKAN DAN PERAWATAN AIRCONDITIONER & REFRIGERATOR",54010628,40956500],[4,"BIAYA POWER PLANT",12550020,21546500],[4,"BIAYA PERBAIKAN DAN PERAWATAN LIFT",177000,1220000],[1,"GROSS OPERATING PROFIT",20963421342,24100235069],[1,"BEBAN USAHA LAINNYA",9553489071,8677010209],[1,"BIAYA SEWA",6363393181,5867478004],[2,"BIAYA SEWA",6363393181,5867478004],[3,"Biaya Sewa Bangunan Toko dan Gudang",6135507082,5687490081],[3,"Biaya Sewa Rumah Dinas / Mess",227886099,179987923],[1,"BIAYA DEPRESIASI DAN AMORTISASI",3011974383,2631279044],[2,"BIAYA DEPRESIASI BANGUNAN",101683344,101683344],[3,"Biaya Depresiasi Bangunan Tambahan",101683344,101683344],[2,"BIAYA DEPRESIASI INSTALASI, MEKANIKAL, ELEKTRIKAL",197087772,203078923],[3,"Biaya Depresiasi Instalasi Mekanikal, Elektrikal",197087772,203078923],[2,"BIAYA DEPRESIASI MESIN",513297556,499511420],[3,"Biaya Depresiasi Mesin - Air Conditioning",347847592,368211460],[3,"Biaya Depresiasi Mesin - Eskalator",57000000,23750000],[3,"Biaya Depresiasi Mesin - Genset",108449964,107549960],[2,"BIAYA DEPRESIASI KENDARAAN",85837992,85837992],[3,"Biaya Depresiasi Kendaraan - Mobil",82500000,82500000],[3,"Biaya Depresiasi Kendaraan - Sepeda Motor",3337992,3337992],[2,"BIAYA DEPRESIASI FFE",1929872723,1472624776],[3,"Biaya Depresiasi FFE Office",21361770,20443076],[3,"Biaya Depresiasi FFE Toko Dan Gudang",107013653,100817017],[3,"Biaya Depresiasi FFE Komputer",203507295,178855841],[3,"Biaya Depresiasi FFE Musik",10314984,7492822],[3,"Biaya Depresiasi FFE Interior",1073766101,586954999],[3,"Biaya Depresiasi FFE Exterior",513908920,578061021],[2,"BIAYA REPLACEMENT OPERATING EQUIPMENT",152745000,0],[3,"Biaya Replacement OE - Rack 1",94000000,0],[3,"Biaya Replacement OE - Pajangan Gantungan 2",42348000,0],[3,"Biaya Replacement OE - Pajangan Gantungan 4",630000,0],[3,"Biaya Replacement OE - Breket",8075000,0],[3,"Biaya Replacement OE - Hanger Wanita / ABG",7692000,0],[2,"BIAYA AMORTISASI INTANGIBLE ASSET AND OTHER ASSET",31449996,268542589],[3,"Biaya Amort SeventSoft Application",999996,583331],[3,"Biaya Amortisasi Biaya Pre Opening",0,237509258],[3,"Biaya Amortisasi Opti Tex System",30450000,30450000],[1,"BIAYA USAHA LAINNYA",178121507,178253161],[2,"BIAYA USAHA LAINNYA",178121507,178253161],[3,"Property All Risk & Fire Insurance",33487603,36161943],[3,"Biaya Pajak Bumi Dan Bangunan (PBB)",49544879,57048258],[3,"Biaya Pajak Reklame",95089025,85042960],[0,"NET OPERATING PROFIT/LOSS",11409932272,15423224859],[1,"PENDAPATAN (BIAYA) NON OPERASI",-236598165,-129473193],[2,"PENDAPATAN DAN (BIAYA) LAIN - LAIN",-140489097,-129473193],[3,"Pendapatan Bunga Bank",15271631,39960742],[3,"Selisih pembulatan",156528,1206189],[3,"Potongan Pembelian",7159999,13576732],[3,"Kehilangan Barang atau Selisih Stock Opname",-127057487,-133704097],[3,"Pendapatan (Biaya) Lain-Lain",-36019768,-50512759],[2,"BIAYA BUNGA",-96109068,0],[3,"Biaya Bunga Pinjaman Bank",-96109068,0],[1,"NET PROFIT BEFORE TAX",11173334106,15293751667],[1,"PAJAK PENGHASILAN",153514428,158136382],[2,"Current Tax Inc/Exp PPH Pasal 25",153514428,158136382],[1,"NET PROFIT AFTER TAX",11019819678,15135615285]],"plC001":[[1,"PENJUALAN",0,0],[2,"Penjualan Tunai",0,0],[3,"Penjualan Tunai",8943103000,9804166000],[2,"Penjualan Kartu Debit",0,0],[3,"Penjualan Debit Card Bank BCA",2104471000,1630545000],[3,"Penjualan Debit Card Bank Mandiri",482650500,328270500],[1,"DISCOUNT / POTONGAN DAN RETURN PENJUALAN",0,0],[2,"Discount / Potongan Penjualan",0,0],[3,"Discount / Potongan Penjualan",-3797000,-4497800],[2,"Retur Penjualan",0,0],[3,"Retur Penjualan",-11763500,-12724000],[1,"BEBAN POKOK PENJUALAN",6873085175,7092985236],[1,"BEBAN USAHA",0,0],[2,"BEBAN PENJUALAN",0,0],[3,"BIAYA PENJUALAN",0,0],[4,"Biaya Customer Supplies",38310325,36296400],[4,"Biaya Credit Card",10278641,3104117],[4,"Biaya Promosi",105625,17500000],[4,"Biaya Dekorasi",4375000,0],[4,"Biaya Pengiriman Barang/kurir/Ekspedisi",12750000,9340000],[4,"Biaya Kerusakan Persediaan Barang Dagangan",190404017,1600903],[2,"BEBAN PEGAWAI",0,0],[3,"BEBAN PEGAWAI OFFICE",0,0],[4,"Biaya Gaji Pegawai",988613000,1155092900],[4,"Biaya Lembur",52103000,51531000],[4,"Uang Makan",0,13520000],[4,"Biaya Asuransi Pegawai / BPJS",19265340,18026912],[4,"Tunjangan Hari Raya (THR)",133175000,135175000],[4,"Biaya Uniform / Seragam Kerja",3939000,0],[4,"Biaya Pesangon",5000000,0],[2,"BEBAN ADMINISTRASI DAN UMUM",0,0],[3,"BIAYA ADMINISTRASI DAN UMUM",0,0],[4,"Biaya Kebersihan (Cleaning)",188000,1281500],[4,"Alat Tulis Kantor & Barang Cetakan",3035000,3093800],[4,"Biaya Rumah Tangga",62256360,70305788],[4,"Biaya Bank HO",2183400,4271400],[4,"Biaya Telephone,Facsimile, Modem",12199351,12131791],[4,"Biaya Pemakaian Listrik",259480647,257004018],[4,"Biaya Perjalanan Dinas",300000,0],[4,"Biaya Lokal Transport",3435000,2272500],[4,"Computer Expenses",0,331400],[4,"Biaya Perlengkapan Toko dan Kantor",9263156,5362507],[4,"Biaya Stock Opname",3045000,2450000],[4,"Biaya Peralatan Listrik",26034500,5965000],[4,"Biaya Lubrication & Grease, Bahan Bakar Genset",200000,930000],[4,"Biaya Donasi (CSR, Zakat)",400000,4350000],[4,"Biaya Perlengkapan Mess atau Rumah Dinas",276000,0],[2,"BEBAN PERAWATAN DAN PEMELIHARAAN",0,0],[3,"BIAYA PERAWATAN DAN PEMELIHARAAN",0,0],[4,"BIAYA PERBAIKAN DAN PERAWATAN FFE",0,14450000],[4,"BIAYA PERBAIKAN DAN PERAWATAN KOMPUTER",0,280000],[4,"BIAYA PERBAIKAN DAN PERAWATAN BANGUNAN",14367000,1181000],[4,"BIAYA PERBAIKAN DAN PERAWATAN AIRCONDITIONER & REFRIGERATOR",150000,0],[4,"BIAYA POWER PLANT",0,5055000],[1,"BIAYA SEWA",0,0],[2,"BIAYA SEWA",0,0],[3,"Biaya Sewa Bangunan Toko dan Gudang",600000000,600000000],[1,"BIAYA DEPRESIASI DAN AMORTISASI",0,0],[2,"BIAYA DEPRESIASI INSTALASI, MEKANIKAL, ELEKTRIKAL",0,0],[3,"Biaya Depresiasi Instalasi Mekanikal, Elektrikal",2571996,2571996],[2,"BIAYA DEPRESIASI FFE",0,0],[3,"Biaya Depresiasi FFE Office",0,70000],[3,"Biaya Depresiasi FFE Toko Dan Gudang",11479849,11476592],[3,"Biaya Depresiasi FFE Komputer",12217258,10661432],[3,"Biaya Depresiasi FFE Musik",1305996,1305996],[3,"Biaya Depresiasi FFE Interior",55049950,0],[3,"Biaya Depresiasi FFE Exterior",39170004,39170004],[2,"BIAYA REPLACEMENT OPERATING EQUIPMENT",0,0],[3,"Biaya Replacement OE - Pajangan Gantungan 2",291000,0],[3,"Biaya Replacement OE - Hanger Wanita / ABG",409200,0],[1,"BIAYA USAHA LAINNYA",0,0],[2,"BIAYA USAHA LAINNYA",0,0],[3,"Property All Risk & Fire Insurance",33487603,36161943],[3,"Biaya Pajak Bumi Dan Bangunan (PBB)",9670118,11509326],[3,"Biaya Pajak Reklame",20080160,0],[0,"NET OPERATING PROFIT/LOSS",0,0],[1,"PENDAPATAN (BIAYA) NON OPERASI",0,0],[2,"PENDAPATAN DAN (BIAYA) LAIN - LAIN",0,0],[3,"Pendapatan Bunga Bank",240247,142097],[3,"Selisih pembulatan",0,821959],[3,"Kehilangan Barang atau Selisih Stock Opname",-30395939,-15371988],[3,"Pendapatan (Biaya) Lain-Lain",9881000,49600000],[1,"PAJAK PENGHASILAN",0,0],[2,"Current Tax Inc/Exp PPH Pasal 25",17314985,18129205]],"bs":[["A",0,"ASSET",0,0],["A",1,"CURRENT ASSET",0,0],["A",2,"KAS & SETARA KAS",0,0],["A",3,"CASH ON HAND",0,0],["A",4,"PETTY CASH",27405393,19671793],["A",4,"MODAL KASIR",184680000,33880000],["A",3,"CASH IN BANK GIRO",0,0],["A",4,"Cash In Bank Giro Bank BCA",138730834,126081089],["A",3,"CASH IN BANK TABUNGAN",0,0],["A",4,"Cash In Bank Tabungan Bank Mandiri",39554075,249665],["A",2,"PIUTANG",0,0],["A",3,"PIUTANG DAGANG",0,0],["A",4,"Piutang Debit Card",7593500,3508000],["A",3,"PIUTANG LAIN-LAIN",0,0],["A",4,"PIUTANG KEPALA TOKO",0,6000000],["A",2,"INVENTORY",0,0],["A",3,"Persediaan Barang Dagang",0,0],["A",4,"Persediaan Barang Dagangan",6660328213,5746962850],["A",3,"Barang Dalam Perjalanan Barang Dagangan",0,0],["A",4,"BDP Barang Dagangan HEAD OFFICE",-2263000,8060700],["A",4,"BDP Barang Dagangan CIKUPA",156566375,167999500],["A",2,"PREPAID",0,0],["A",3,"UANG MUKA / ADVANCED",0,0],["A",4,"Advanced - To Contractors",78551500,278829200],["A",1,"NON CURRENT ASSET",0,0],["A",2,"PIUTANG AFFILIASI ANTAR UNIT",0,0],["A",3,"PIUTANG AFFILIASI PEMBIAYAAN",0,0],["A",4,"Piutang Affiliasi Pembiayaan HEAD OFFICE",3010000,1110000],["A",4,"Piutang Affiliasi Pembiayaan JAMBI",3008000,3008000],["A",3,"PIUTANG AFFILIASI ATAS BARANG",0,0],["A",4,"Piutang Affiliasi Atas Barang HEAD OFFICE",92100000,92100000],["A",2,"AKTIVA TETAP",0,0],["A",3,"Instalasi",0,0],["A",4,"Instalasi Mekanikal Elektrikal",37460000,37460000],["A",3,"Machineries",0,0],["A",4,"Air Conditioner",37660000,37660000],["A",4,"Lift",6000000,6000000],["A",3,"Kendaraan",0,0],["A",4,"Mobil",156363500,156363500],["A",3,"Furniture, Fixture & Equipment",0,0],["A",4,"FFE Office",10900000,10900000],["A",4,"FFE Toko dan Gudang",89922370,89922370],["A",4,"FFE Komputer",86158900,74608900],["A",4,"FFE Music",6530000,6530000],["A",4,"FFE Interior",826423205,496123505],["A",4,"FFE Exterior",253743040,253743040],["A",3,"Operating Equipment",0,0],["A",4,"OE - Rak 1",1050000,1050000],["A",4,"OE - Rak 3",908000,908000],["A",4,"OE - Pajangan Gantungan 2",6591300,6591300],["A",4,"OE - Pajangan Gantungan 4",315000,315000],["A",4,"OE - Pajangan Gantungan Lain - Lain",399455755,133143200],["A",4,"OE - Belalai",23870000,23870000],["A",4,"OE - Patung Full Bodi Dewasa",7248000,7248000],["A",4,"OE - Patung Setengah Badan Wanita 1",3025000,3025000],["A",4,"OE - Patung Kepala Dewasa",396000,396000],["A",4,"OE - Patung Kaki Dewasa",1040000,1040000],["A",4,"OE - Hanger Wanita / ABG",3218000,2978000],["A",4,"OE - Hanger Pria",110000,0],["A",4,"OE - Hanger Kayu Anak",700000,700000],["A",4,"OE - Hanger Body / Stelan",1066667,1066667],["A",4,"OE - Hanger Jepit Anak",4725000,4725000],["A",4,"OE - PIN / Kawat Sensor",8810000,8810000],["A",2,"AKUMULASI PENYUSUTAN AKTIVA TETAP",0,0],["A",3,"Akum-Penyusu - Instalasi",0,0],["A",4,"Akum - Penyusu - Instalasi - Mekanikal Electrical",-34382258,-31810262],["A",3,"Akum-Penyusu - Mesin",0,0],["A",4,"Akum-Penyu Mesin - Air Conditioner",-38287626,-38287626],["A",4,"Akum-Penyu Mesin - Lift",-6100000,-6100000],["A",3,"Akum-Penyusu Kendaraan",0,0],["A",4,"Akum Penyusutan - Mobil",-127696842,-127696842],["A",3,"Akum-Penyusu - FFE",0,0],["A",4,"Akum Penyusu - FFE Office",-4473313,-4473313],["A",4,"Akum Penyusu - FFE Toko dan Gudang",-48873838,-37393989],["A",4,"Akum Penyusu - FFE Komputer",-63117703,-50900445],["A",4,"Akum Penyusu - FFE Music",-6312314,-5006318],["A",4,"Akum Penyusu - FFE Interior",-513352284,-458302334],["A",4,"Akum Penyusu - FFE Exterior",-227458586,-188288582],["L",0,"LIABILITIES & EQUITY",0,0],["L",0,"LIABILITIES",0,0],["L",1,"HUTANG JANGKA PENDEK",0,0],["L",2,"HUTANG DAGANG",0,0],["L",3,"HUTANG SUPPLIER",0,0],["L",4,"Hutang Suppliers Barang Dagangan",200000,0],["L",3,"OUTSTANDING GIRO",0,0],["L",4,"Outstanding Giro Bank BCA",544325552,603035920],["L",2,"HUTANG PAJAK",0,0],["L",3,"HUTANG PAJAK",0,0],["L",4,"Hutang Pajak PPH Pasal 25",-1423542,-1452599],["L",2,"HUTANG LAIN-LAIN",0,0],["L",3,"HUTANG AFFILIASI PEMBIAYAAN",0,0],["L",4,"Hutang Affiliasi Pembiayaan HEAD OFFICE",3161364512,3331915775],["L",3,"HUTANG AFFILIASI ATAS BARANG",0,0],["L",4,"Hutang Affiliasi Atas Barang HEAD OFFICE",-13446986106,-13234914257],["L",3,"HUTANG LAIN-LAIN PRINCIPAL",0,0],["L",4,"Hutang Lain-lain Principal HEAD OFFICE",1862595648,1555285548],["L",0,"MODAL",0,0],["L",1,"MODAL",0,0],["L",2,"MODAL",0,0],["L",3,"MODAL",0,0],["L",4,"Laba (Rugi) bulan berjalan",1582315618,2125007102],["L",4,"Laba (Rugi) Ditahan",30560050083,28435042981],["L",4,"Modal Setor",239381449,239381449],["L",4,"Prive",-16208923351,-16148923351]],"sales":[["1","DIVISI WANITA",307074,32510927200,260553250,21530250,32228948450,19572131785,12656816665],["2","DIVISI PRIA",299772,41010008500,257135900,83597500,40669354100,24360761191,16308592909],["3","DIVISI ANAK LAKI-LAKI",130830,15368212500,97695200,27596700,15242946400,9230374870,6012571530],["4","DIVISI ANAK PEREMPUAN",81530,9165560400,160145600,9519000,8995895800,5689693600,3306202200],["5","DIVISI PERLENGKAPAN BAYI",4872,342649300,2919200,294600,339458900,205510488,133948412],["6","DIVISI SANDAL DAN SEPATU",25605,3313745750,20605200,6565500,3286575050,2022956788,1263618262],["7","DIVISI TAS",5899,1022096200,12308200,557000,1009231000,610905352,398325648],["8","DIVISI ACCESORIES",34498,1131637750,17462425,510150,1113677025,625742890,487934135],["9","NON DIVISI",31333,790639000,12000,0,790627000,60000,790567000],["","TOTAL",921413,104655476600,828836975,150170700,103676713725,62318136964,41358576761]]};
+
+/* ======================================================================
+   Shared data — the client's chart, units, and the payables every screen
+   below reads from, so the same bill is the same bill everywhere.
+   ====================================================================== */
+const UNITS={HO:'Head office',C001:'Cikupa',C002:'Jambi',C003:'Kebayoran',C004:'Serang'};
+const GL={
+ '1002':'Cash on hand','1003':'Petty cash','1005':'Cash In Bank Giro Bank BCA','1006':'Cash In Bank Giro Bank MANDIRI','1010':'Cash In Bank Tabungan Bank BCA',
+ '1020':'Piutang Kartu Kredit','1048':'Prepaid - VAT (PPN Masukan)','1052':'Advanced - Purchase','1053':'Advanced - To Contractors',
+ '1066':'Instalasi Mekanikal Elektrikal','1067':'Air Conditioner',
+ '2002':'Hutang Suppliers Barang Dagangan','2004':'Hutang Supplier Non Barang Dagang','2005':'Outstanding Giro Bank BCA','2012':'Hutang Pajak PPH Pasal 23 (withold)','2023':'Biaya Pemakaian Listrik YMHD','2033':'Uang Muka - Penjualan',
+ '4012':'Discount / Potongan Penjualan','6002':'Pendapatan lain-lain','8002':'Pendapatan Bunga Bank','8003':'Selisih pembulatan','8004':'Potongan Pembelian',
+ '6040':'Biaya Kebersihan (Cleaning)','6041':'Alat Tulis Kantor & Barang Cetakan','6043':'Biaya Bank HO','6045':'Biaya Pemakaian Listrik','6072':'Biaya Perbaikan & Perawatan AC & Refrigerator','8011':'Biaya Bunga Pinjaman Bank'};
+const accLabel=c=>`${c} · ${GL[c]||c}`;
+const AP=[
+ {id:'b1',sup:'Langgeng Jaya Sentosa',bill:'PI/HO/2609/0102',due:'2026-09-05',amt:33689000,draft:'Giro BG 456124 is drafted for it (BKK/HO/2609/0057)'},
+ {id:'b2',sup:'Langgeng Jaya Sentosa',bill:'PI/HO/2609/0117',due:'2026-10-03',amt:12450000},
+ {id:'b3',sup:'Langgeng Jaya Sentosa',bill:'PI/HO/2609/0131',due:'2026-10-15',amt:4875500},
+ {id:'b4',sup:'CV Anugrah Textile',bill:'PI/HO/2608/0077',due:'2026-08-20',amt:18200000},
+ {id:'b5',sup:'PT Mode Kreasi Indonesia',bill:'PI/HO/2609/0140',due:'2026-09-30',amt:57340000},
+ {id:'b6',sup:'PT Mode Kreasi Indonesia',bill:'PI/HO/2609/0151',due:'2026-10-24',amt:41900000},
+ {id:'b7',sup:'Sumber Komputer',bill:'PI/HO/2608/0063',due:'2026-07-29',amt:2150000,hold:'On hold — waiting for the credit note for 12 returned pcs'},
+ {id:'b8',sup:'CV Batik Sekar',bill:'PI/HO/2609/0122',due:'2026-09-25',amt:23750000},
+ {id:'b9',sup:'PT Graha Clean',bill:'PI/HO/2609/0138',due:'2026-10-05',amt:4200000,kind:'Expense'},
+ {id:'b10',sup:'PT Delta Tex',bill:'PI/HO/2607/0031',due:'2026-07-15',amt:5100000,note:'Its giro BG 456101 bounced — pay again'},
+ {id:'b11',sup:'CV Sejuk Teknik',bill:'PRJ/C001/AC · final',due:'2026-10-10',amt:3975000,kind:'Project'},
+ {id:'b12',sup:'PT Mode Kreasi Indonesia',bill:'PI/HO/2609/0163',due:'2026-11-08',amt:66120000},
+];
+
+let V=11;
+const UI={menu:null,fresh:false,flash:false,posting:null,posted:{},tried:{},
+ jTab:'lines',pTab:'refs',
+ led:'1005',ledType:'all',ledPeriod:'month',
+ apSel:new Set(),apPaid:{},apMethod:'transfer',apPaying:false,
+ paView:'3m',paCat:'all',paCert:'all',paMonth:null,
+ rep:'pl',repUnit:'all',repDepth:2,repTog:{},salesSort:'net',
+ pjTab:'settle',pjCls:{},pjSettling:false,
+ clSel:'C002',rcTab:'print',bpUnit:'C001',bpAcc:0,bpAll:false,rcAcc:'1005',giroDir:'out',gv:{},splHO:false};
+
+function head(o){return `<header class="ph"><div class="crumb">Finance<span>/</span>${o.crumb}</div><div class="ph-row">${o.icon?`<span class="dir d-out">${I[o.icon]}</span>`:''}<h1>${o.title}</h1>${o.pill||''}${o.no?`<span class="mono muted">${o.no}</span>`:''}<span class="sp"></span>${o.actions||''}</div></header>`}
+function rail(){return `<nav class="rail" aria-label="Modules"><span class="logo">i</span>${[['home',0],['wallet',1],['book',0],['users',0],['box',0]].map(([k,on])=>`<a class="${on?'on':''}" aria-label="${k}">${I[k]}</a>`).join('')}<span class="sp"></span><a aria-label="Settings">${I.gear}</a></nav>`}
+function app(inner,o){return `<div class="app">${rail()}<main class="main">${head(o)}${inner}</main></div>`}
+function statePill(key){return UI.posted[key]?'<span class="pill ok">Posted</span>':'<span class="pill">Draft</span>'}
+function postButtons(key,label,extra=''){if(UI.posted[key])return `${extra}<button class="btn" data-act="toast" data-msg="Opens the printed voucher">${I.print}Print</button><button class="btn ghost" data-act="unpost" data-k="${key}">Back to draft (demo)</button>`;
+ return `${extra}<button class="btn ghost" data-act="toast" data-msg="Saved as a draft — nothing posted">Save draft</button><button class="btn pri" data-act="post" data-k="${key}" ${UI.posting===key?'disabled aria-busy="true"':''}>${UI.posting===key?'Posting…':label}</button>`}
+function probsBanner(p){const k=Object.keys(p);return k.length?`<div class="banner bad" role="alert" style="margin:12px 0 0">${I.alert}<span>${k.map(x=>esc(p[x])).join(' · ')}</span></div>`:''}
+function postedBanner(key,text){return UI.posted[key]?`<div class="banner ok ${UI.flash?'anim':''}">${I.check}<span>${text}</span></div>`:''}
+const unitSelect=(bind,val,cls='')=>`<select class="in ${cls}" data-change="${bind}" aria-label="Unit">${Object.entries(UNITS).map(([k,n])=>`<option value="${k}" ${k===val?'selected':''}>${k} · ${n}</option>`).join('')}</select>`;
+
+/* ======================================================================
+   1 · Today — 7Soft's "Note for Today", as one finance inbox
+   ====================================================================== */
+function apBucket(b){if(UI.apPaid[b.id])return 'paid';const d=lateBy(b.due);return d>30?'l31':d>0?'l30':d>=-7?'wk':'nd'}
+function s1(){
+ const dueNow=AP.filter(b=>!UI.apPaid[b.id]&&!b.hold&&!b.draft&&lateBy(b.due)>=-7).sort((a,b)=>a.due.localeCompare(b.due));
+ const sum=a=>a.reduce((x,b)=>x+b.amt,0);
+ const row=(who,sub,amt,act,extra='')=>`<button type="button" class="t-row" ${act}><div class="who"><b>${who}</b><small>${sub}</small></div>${extra}<span class="amt">${fmt(amt)}</span></button>`;
+ const card=(title,n,body,foot,go)=>`<section class="card t-card"><div class="t-h"><b>${title}</b>${n!=null?`<span class="n">${n}</span>`:''}<span class="sp"></span>${go?`<button type="button" class="btn sm ghost" data-act="go" data-s="${go}">Open</button>`:''}</div>${body}${foot?`<div class="t-foot">${foot}</div>`:''}</section>`;
+ const pay=card('Payables due within 7 days',dueNow.length,dueNow.slice(0,5).map(b=>row(esc(b.sup),`<span class="mono">${b.bill}</span> · ${lateBy(b.due)>0?`<span class="warnt">${lateBy(b.due)} d late</span>`:lateBy(b.due)===0?'due today':`due ${dayS(b.due)}`}`,b.amt,'data-act="go" data-s="5"')).join(''),`<span>${dueNow.length} bills</span><b>Rp ${fmt(sum(dueNow))}</b>`,5);
+ const rec=card('Receivables due',3,[['Agung Jaya Sentosa','7 invoices · oldest 43 d late',30413250],['BCA Card Center','Card settlement 26 Sep · expected Mon',21480000],['Toko Maju Jaya','INV/HO/2609/0512 · due 30 Sep',5825000]].map(([a,b,c])=>row(a,b,c,'data-act="toast" data-msg="Opens a BKM for this customer"')).join(''),'<span>Collect with a BKM</span><b>Rp 57.718.250</b>');
+ const giro=card('Giro within 7 days',4,[['↓ BG 771204 · Agung Jaya Sentosa','Received · due 2 Oct',6342000],['↓ BG 551027 · CV Sinar Abadi','Received · 1 d past due — deposit it',2980000],['↑ BG 456120 · CV Anugrah Textile','Issued · due 3 Oct',12450000],['↑ BG 456123 · Sumber Komputer','Issued · cleared on today\'s statement',8374200]].map(([a,b,c])=>row(a,b,c,'data-act="toast" data-msg="Opens the Giro board"')).join(''),'<span>2 in · 2 out</span><b>see Giro board</b>');
+ const adv=card('Advances still out',2,row('CV Sejuk Teknik · AC project C001','Contractor · 6 tranches · ready to settle',150000000,'data-act="go" data-s="8"','<span class="pill info">Settle</span>')+row('Rudi Hartono · C002','Travelling · 41 days · no receipts yet',3500000,'data-act="toast" data-msg="Opens the advance — ask for receipts or a refund"','<span class="pill warn">41 d</span>'),'<span>1053 Advanced - To Contractors · 1051 Travelling</span><b>Rp 153.500.000</b>',8);
+ const bank=card('Bank lines not explained',2,row('TRSF CR 0192 SUMBER KOMPUTER','BCA · 27 Sep · money in',2150000,'data-act="toast" data-msg="Opens Reconcile — BKM/BKK design 6"')+row('TRSF DB 0098123 BUDI S','BCA · 27 Sep · money out',750000,'data-act="toast" data-msg="Opens Reconcile — BKM/BKK design 6"'),'<span>5 of 7 explained today</span><b>71%</b>');
+ const steps=[['done','Bank BCA reconciled','to 27 Sep'],['todo','Bank Mandiri reconciled','statement not imported yet'],['todo','Accrue September electricity','PLN bills arrive in October','2'],['done','Depreciation run','Sep · 214 assets'],['done','Prepaid schedules run','insurance, software'],['part','Petty cash counted','3 of 5 stores'],['todo','Settle the AC project C001','handover signed 24 Sep','8'],['lock','Lock September','after the six above']];
+ const close=`<section class="card t-card"><div class="t-h"><b>Close September</b><span class="n">3 of 7</span><span class="sp"></span><span class="muted">by 5 Oct</span></div>${steps.map(([st,l,s,go])=>`<div class="chk"><span class="tick ${st==='done'?'done':st==='part'?'part':''}">${st==='done'?I.check:''}</span><span class="lbl">${l}<small>${s}</small></span>${go?`<button type="button" class="btn sm" data-act="go" data-s="${go}">Do it</button>`:st==='lock'?`<button type="button" class="btn sm" disabled>Lock</button>`:''}</div>`).join('')}</section>`;
+ const m=paMonthly(),mx=Math.max(...m.map(x=>x.total));
+ const ahead=`<section class="card t-card"><div class="t-h"><b>To pay, next 12 months</b><span class="sp"></span><button type="button" class="btn sm ghost" data-act="go" data-s="6">Open</button></div><div class="minibars">${m.map((x,i)=>`<i class="${i<3?'hot':''}" style="height:${Math.max(4,x.total/mx*100)}%" title="${x.label} · ${fmt(x.total)}"></i>`).join('')}</div><div class="mb-lbl">${m.map(x=>`<span>${x.label.slice(0,1)}</span>`).join('')}</div><div class="t-foot"><span>Next 3 months, itemised</span><b>Rp ${short(m.slice(0,3).reduce((a,x)=>a+x.total,0))}</b></div></section>`;
+ return app(`<div class="content"><div class="t-hello"><h2>Good morning, Hari</h2><span class="muted">${dayL(TODAY)} · September is open — closes by 5 Oct</span></div>
+ <div class="t-grid">${pay}${close}${rec}${ahead}${giro}${adv}${bank}</div></div>`,{crumb:'Today',title:'Today',icon:'home',actions:'<span class="muted">Right-click a row in 7Soft did this — here every row opens where it is settled</span>'})}
+const short=n=>{const m=Math.abs(n),g=n<0?'−':'';return m>=1e9?`${g}${(m/1e9).toLocaleString('id-ID',{maximumFractionDigits:2})} M`:m>=1e6?`${g}${(m/1e6).toLocaleString('id-ID',{maximumFractionDigits:1})} jt`:g+fmt(m)};
+
+/* ======================================================================
+   2 · Journal entry — the classic layout
+   ====================================================================== */
+const JACC=['6045','2023','6072','1067','1066','1053','6043','8011','6041','6040','1005','2012','2004'];
+const JTPL={
+ accrual:{kind:'accrual',ref:'PLN estimate Sep',memo:'Accrue September electricity — PLN bills arrive in October',reverse:true,lines:[['6045','C001','Listrik Sep C001 · estimate',18450000,0],['6045','C002','Listrik Sep C002 · estimate',15200000,0],['6045','C003','Listrik Sep C003 · estimate',12800000,0],['2023','HO','Listrik YMHD September',0,46450000]]},
+ reclass:{kind:'reclass',ref:'PI/HO/2608/0091',memo:'The AC unit bought in August was booked as a repair — it is an asset',reverse:false,lines:[['1067','C001','AC Daikin 2PK · Aug · capitalise',32000000,0],['6072','C001','Reverse the repair expense',0,32000000]]},
+ interest:{kind:'general',ref:'BCA loan · Sep',memo:'Bank loan interest, September',reverse:false,lines:[['8011','HO','Bunga pinjaman BCA Sep',8009089,0],['1005','HO','Debited by BCA 28 Sep',0,8009089]]},
+};
+function jFrom(t){return{no:'JV/HO/2609/0133',date:TODAY,kind:t.kind,ref:t.ref,memo:t.memo,reverse:t.reverse,lines:t.lines.map(([acc,unit,desc,dr,cr])=>({acc,unit,desc,dr,cr}))}}
+let J=jFrom(JTPL.accrual);
+function jTot(){const dr=J.lines.reduce((a,l)=>a+l.dr,0),cr=J.lines.reduce((a,l)=>a+l.cr,0);return{dr,cr,diff:dr-cr}}
+function jProblems(submit=UI.tried.j){const p={};
+ J.lines.forEach((l,i)=>{if(l.dr&&l.cr)p['l'+i]=`Line ${i+1}: a debit or a credit, not both`;else if(submit&&!l.acc)p['l'+i]=`Line ${i+1}: which account?`;else if(submit&&!l.dr&&!l.cr)p['l'+i]=`Line ${i+1}: no amount`});
+ if(submit){const t=jTot();if(t.diff)p.bal=`Out of balance by ${fmt(Math.abs(t.diff))}`;if(!J.memo.trim())p.memo='Say what this journal is for';if(J.lines.filter(l=>l.acc).length<2)p.two='A journal needs at least two lines'}
+ return p}
+function jLines(){const p=jProblems(),t=jTot(),ro=UI.posted.j;
+ return `<table class="tbl j-lines"><thead><tr><th>#</th><th style="width:300px">Account<i class="req">*</i></th><th style="width:150px">Unit</th><th>Description</th><th class="r" style="width:160px">Debit</th><th class="r" style="width:160px">Credit</th><th style="width:44px"></th></tr></thead><tbody>
+ ${J.lines.map((l,i)=>`<tr data-jrow="${i}"><td class="n">${i+1}</td><td><select class="in" data-change="jacc" data-i="${i}" aria-invalid="${!!(p['l'+i]&&!l.acc)}" aria-label="Account">${l.acc?'':'<option value="">Choose an account…</option>'}${JACC.map(c=>`<option value="${c}" ${c===l.acc?'selected':''}>${accLabel(c)}</option>`).join('')}</select></td>
+ <td><select class="in" data-change="junit" data-i="${i}" aria-label="Unit">${Object.keys(UNITS).map(k=>`<option ${k===l.unit?'selected':''}>${k}</option>`).join('')}</select></td>
+ <td><input class="cell-in left" data-bind="j.desc.${i}" value="${esc(l.desc)}" placeholder="Shown on the ledger line" aria-label="Description"></td>
+ <td class="r"><input class="cell-in" data-money data-bind="j.dr.${i}" value="${l.dr?fmt(l.dr):''}" placeholder="0" aria-invalid="${!!(l.dr&&l.cr)}" aria-label="Debit"></td>
+ <td class="r"><input class="cell-in" data-money data-bind="j.cr.${i}" value="${l.cr?fmt(l.cr):''}" placeholder="0" aria-invalid="${!!(l.dr&&l.cr)}" aria-label="Credit"></td>
+ <td>${ro?'':`<button type="button" class="icon-btn" data-act="jdel" data-i="${i}" aria-label="Remove line">${I.x}</button>`}</td></tr>`).join('')}
+ ${ro?'':`<tr><td colspan="7"><div class="row"><button type="button" class="addrow" style="width:auto" data-act="jadd">${I.plus} Add a line</button><span class="sp"></span><button type="button" class="btn sm ghost" data-act="jfill" ${t.diff?'':'disabled'}>Put the difference on the last line</button></div></td></tr>`}</tbody>
+ <tfoot><tr><td></td><td colspan="3">${J.lines.length} lines</td><td class="r num" data-out="jdr">${fmt(t.dr)}</td><td class="r num" data-out="jcr">${fmt(t.cr)}</td><td></td></tr></tfoot></table>`}
+function jMirror(){const next='2026-10-01';return `<div class="mirror"><p class="muted" style="margin-bottom:10px">Posted automatically on <b>${day(next)}</b> as JV/HO/2610/0001 — the accrual comes back out the day the real bills can land.</p><table class="mini-t">${J.lines.filter(l=>l.acc).map(l=>`<tr><td><span class="code">${l.acc}</span> ${esc(GL[l.acc])} <span class="muted">· ${l.unit}</span></td><td class="r">${l.cr?fmt(l.cr):''}</td><td class="r">${l.dr?fmt(l.dr):''}</td></tr>`).join('')}</table></div>`}
+function s2(){const t=jTot(),ro=UI.posted.j,p=jProblems();
+ const tabs=[['lines',`Lines`,J.lines.length],['files','Attachments',1],...(J.reverse?[['mirror','Reverses on 1 Oct',null]]:[])];
+ return app(`<div class="content">${postedBanner('j',`Posted as <b class="mono">${J.no}</b>. ${J.reverse?'Its reversal is queued for 1 Oct.':''} Journals are never edited — void and post again.`)}
+ <fieldset ${ro?'disabled':''}><section class="card v1-hdr">
+  <div class="col">
+   <div class="f"><span>Journal no</span><div class="in ro mono">${J.no}<em>auto</em></div></div>
+   <div class="f"><span>Date<i class="req">*</i></span><div class="in day">${I.cal}<span>${day(J.date)}</span><span class="muted">· today</span></div></div>
+   <div class="f"><span>Kind</span><div class="segm">${[['general','General'],['accrual','Accrual'],['reclass','Reclass'],['opening','Opening']].map(([k,l])=>`<button type="button" data-act="jkind" data-k="${k}" aria-pressed="${J.kind===k}">${l}</button>`).join('')}</div></div>
+  </div>
+  <div class="col">
+   <label class="f"><span>Memo<i class="req">*</i></span><input class="in" data-bind="j.memo" value="${esc(J.memo)}" placeholder="What this journal is for" aria-invalid="${!!p.memo}">${p.memo?`<small class="err">${p.memo}</small>`:''}</label>
+   <label class="f"><span>Reference</span><input class="in" data-bind="j.ref" value="${esc(J.ref)}" placeholder="A document, a calculation"></label>
+   <button type="button" class="toggle ${J.reverse?'on':''}" data-act="jrev"><span class="sw2"></span><span><b style="font-weight:500">Reverse on 1 Oct 2026</b><small>For an accrual: the mirror entry posts on the first day of next month.</small></span></button>
+  </div>
+  <div class="totalbox"><span class="lbl">Totals</span>
+   <dl class="mini" style="margin-top:0;padding-top:0;border-top:0"><div><dt>Debit</dt><dd data-out="jdr">${fmt(t.dr)}</dd></div><div><dt>Credit</dt><dd data-out="jcr">${fmt(t.cr)}</dd></div></dl>
+   <div class="diff ${t.diff?'bad':''}" data-out="jdiff">${t.diff?`Out by ${fmt(Math.abs(t.diff))}`:'Balanced'}</div>
+   <div class="pickwrap" style="margin-top:10px"><button type="button" class="btn sm" data-act="menu" data-m="tpl" style="width:100%">${I.file} Start from a template ${I.chev}</button>${UI.menu==='tpl'?`<div class="menu ${UI.fresh?'anim':''}">${[['accrual','Accrue electricity per store'],['reclass','Reclass a repair to an asset'],['interest','Bank loan interest']].map(([k,l])=>`<button type="button" data-act="jtpl" data-k="${k}">${l}</button>`).join('')}</div>`:''}</div>
+  </div>
+ </section>
+ <div class="v1-bar"><div class="tabs" role="tablist">${tabs.map(([k,l,n])=>`<button role="tab" type="button" aria-selected="${UI.jTab===k}" data-act="jtab" data-k="${k}">${l}${n!=null?`<span class="n">${n}</span>`:''}</button>`).join('')}</div></div>
+ <section class="card grid-card">${UI.jTab==='lines'?jLines():UI.jTab==='files'?`<div class="filerow">${I.file}<span class="mono">PLN-estimate-Sep-2026.xlsx</span><span class="muted">12 KB · Hari · today</span></div><div class="filerow" style="border:0"><button type="button" class="addrow" style="width:auto">${I.plus} Attach a file</button></div>`:jMirror()}</section>
+ </fieldset><div id="probs">${probsBanner(p)}</div>
+ <div class="statusbar"><span><kbd>⌘</kbd><kbd>↵</kbd> post</span><span>A line is a debit or a credit — never both</span><span class="sp"></span><span>Unit on each line: one journal can accrue for five stores</span></div></div>`,
+ {crumb:'Journal',title:'Journal entry',icon:'book',pill:statePill('j'),no:J.no,actions:postButtons('j','Post journal')})}
+
+/* ======================================================================
+   3 · Payment entry — ERPNext's shape, in the classic layout
+   ====================================================================== */
+const PETYPES={pay:['Pay','Money out to a supplier','out','BKK'],receive:['Receive','Money in from a customer','in','BKM'],transfer:['Internal transfer','Between our own accounts','swap','BKK + BKM']};
+const PEPARTY={pay:{name:'Langgeng Jaya Sentosa',code:'S-0102',acct:'2002'},receive:{name:'Agung Jaya Sentosa',code:'C-0189',acct:'receivable'}};
+const PEREFS={
+ pay:[['PI/HO/2609/0102','2026-09-05',33689000],['PI/HO/2609/0117','2026-10-03',12450000],['PI/HO/2609/0131','2026-10-15',4875500]],
+ receive:[['INV/HO/2608/0338','2026-08-15',16105000],['INV/HO/2609/0404','2026-09-03',2220000],['INV/HO/2609/0448','2026-09-09',1737500],['INV/HO/2609/0515','2026-09-12',948750],['INV/HO/2609/0552','2026-09-13',1575000],['INV/HO/2609/0602','2026-09-20',1485000],['INV/HO/2609/0644','2026-10-02',6342000],['INV/HO/2609/0701','2026-10-10',4250000]]};
+function peFresh(type){const pe={type,account:'1005',to:'1003',date:TODAY,method:'transfer',ref:type==='transfer'?'Top-up petty cash HO':'TRF 2709-44120',paid:type==='pay'?40000000:type==='receive'?30413250:5000000,wht:0,charge:type==='transfer'?0:6500,giro:{no:'',due:''},
+ refs:type==='transfer'?[]:PEREFS[type].map(([doc,due,total])=>({doc,due,total,out:total,alloc:0}))};peAllocate(pe);return pe}
+function peAllocate(pe){let left=pe.paid+(pe.type==='pay'?pe.wht:0);pe.refs.slice().sort((a,b)=>a.due.localeCompare(b.due)).forEach(r=>{r.alloc=Math.max(0,Math.min(left,r.out));left-=r.alloc})}
+let PE=peFresh('pay');
+function peCalc(){const alloc=PE.refs.reduce((a,r)=>a+r.alloc,0),wht=PE.type==='pay'?PE.wht:0;return{alloc,wht,charge:PE.charge,unalloc:PE.type==='transfer'?0:PE.paid+wht-alloc}}
+function peProblems(submit=UI.tried.p){const p={},c=peCalc();
+ PE.refs.forEach((r,i)=>{if(r.alloc>r.out)p['r'+i]=`${r.doc}: more than the ${fmt(r.out)} outstanding`});
+ if(c.unalloc<0)p.over=`Allocated ${fmt(-c.unalloc)} more than was ${PE.type==='pay'?'paid':'received'}`;
+ if(submit){if(!PE.paid)p.paid='How much?';if(PE.method!=='cash'&&!PE.ref.trim())p.ref='A bank payment needs its reference';if(PE.method==='giro'){if(!PE.giro.no.trim())p.gno='A giro needs its number';if(!PE.giro.due)p.gdue='A giro needs its due date'}}
+ return p}
+function peJournal(){const c=peCalc(),a=PE.account,out=PE.method==='giro'&&PE.type==='pay'?'2005':a,L=[];
+ if(PE.type==='pay'){if(c.alloc)L.push(['2002',`${GL['2002']} · ${PEPARTY.pay.name}`,c.alloc,0]);if(c.unalloc>0)L.push(['1052','Advanced - Purchase · unallocated',c.unalloc,0]);if(c.charge)L.push(['6043',GL['6043'],c.charge,0]);L.push([out,GL[out],0,PE.paid+c.charge]);if(c.wht)L.push(['2012',GL['2012'],0,c.wht])}
+ else if(PE.type==='receive'){L.push([a,GL[a],PE.paid-c.charge,0]);if(c.charge)L.push(['6043',GL['6043'],c.charge,0]);if(c.alloc)L.push(['link',`Receivable · ${PEPARTY.receive.name}`,0,c.alloc]);if(c.unalloc>0)L.push(['2033',GL['2033'],0,c.unalloc])}
+ else{L.push([PE.to,GL[PE.to],PE.paid,0]);if(c.charge)L.push(['6043',GL['6043'],c.charge,0]);L.push([a,GL[a],0,PE.paid+c.charge])}
+ return L}
+function peRefs(){const p=peProblems(),t=PETYPES[PE.type];if(PE.type==='transfer')return `<div class="empty"><span class="empty-ico">${I.swap}</span><b>Nothing to allocate</b><p>An internal transfer moves money between our own accounts. It prints as a ${t[3]} pair.</p></div>`;
+ return `<table class="tbl"><thead><tr><th>Type</th><th>Document</th><th>Due</th><th class="r">Grand total</th><th class="r">Outstanding</th><th class="r" style="width:180px">Allocated</th></tr></thead><tbody>
+ ${PE.refs.map((r,i)=>`<tr class="${r.alloc?'':'off'}"><td>${PE.type==='pay'?'Purchase invoice':'Sales invoice'}</td><td class="mono">${r.doc}</td><td>${day(r.due)}${dueTag(r.due)}</td><td class="r num">${fmt(r.total)}</td><td class="r num">${fmt(r.out)}</td><td class="r"><input class="cell-in" data-money data-bind="pe.alloc.${i}" value="${r.alloc?fmt(r.alloc):''}" placeholder="0" aria-invalid="${!!p['r'+i]}" aria-label="Allocated to ${r.doc}"></td></tr>`).join('')}</tbody>
+ <tfoot><tr><td colspan="4"><div class="row"><button type="button" class="btn sm" data-act="peget">${I.list} Get outstanding</button><button type="button" class="btn sm ghost" data-act="pealloc">Allocate oldest first</button></div></td><td class="r num">${fmt(PE.refs.reduce((a,r)=>a+r.out,0))}</td><td class="r num" data-out="pealloc">${fmt(peCalc().alloc)}</td></tr></tfoot></table>`}
+function peDeduct(){return `<table class="tbl"><thead><tr><th>Account</th><th>Why</th><th class="r" style="width:200px">Amount</th></tr></thead><tbody>
+ ${PE.type==='pay'?`<tr><td><span class="code">2012</span> ${GL['2012']}</td><td class="muted">Withheld from a service supplier — settles the bill without leaving the bank</td><td class="r"><input class="cell-in" data-money data-bind="pe.wht" value="${PE.wht?fmt(PE.wht):''}" placeholder="0" aria-label="PPh 23 withheld"></td></tr>`:''}
+ <tr><td><span class="code">6043</span> ${GL['6043']}</td><td class="muted">${PE.type==='receive'?'Taken by the bank from what arrived':'Charged by the bank on top'}</td><td class="r"><input class="cell-in" data-money data-bind="pe.charge" value="${PE.charge?fmt(PE.charge):''}" placeholder="0" aria-label="Bank charge"></td></tr></tbody></table>`}
+function peJournalHTML(){const L=peJournal(),dr=L.reduce((a,x)=>a+x[2],0),cr=L.reduce((a,x)=>a+x[3],0);
+ return `<table class="tbl"><thead><tr><th>Account</th><th class="r">Debit</th><th class="r">Credit</th></tr></thead><tbody>${L.map(([c,n,d,k])=>`<tr><td><span class="code ${c==='link'?'link':''}">${c==='link'?'receivable':c}</span> ${esc(n)}</td><td class="r num">${d?fmt(d):''}</td><td class="r num">${k?fmt(k):''}</td></tr>`).join('')}</tbody><tfoot><tr><td>${dr===cr?'<span class="pill ok">Balanced</span>':'<span class="pill bad">Out of balance</span>'}</td><td class="r num">${fmt(dr)}</td><td class="r num">${fmt(cr)}</td></tr></tfoot></table>`}
+function s3(){const t=PETYPES[PE.type],c=peCalc(),p=peProblems(),ro=UI.posted.p,party=PEPARTY[PE.type];
+ const acctSel=(bind,val)=>`<select class="in" data-change="${bind}">${['1005','1006','1010','1002','1003'].map(k=>`<option value="${k}" ${k===val?'selected':''}>${accLabel(k)}</option>`).join('')}</select>`;
+ const tabs=[['refs',PE.type==='pay'?'Bills':'Invoices',PE.refs.filter(r=>r.alloc).length],['ded','Deductions',(c.wht?1:0)+(c.charge?1:0)],['jr','Journal',peJournal().length]];
+ const voucher=PE.type==='pay'?'BKK/HO/2609/0058':PE.type==='receive'?'BKM/HO/2609/0042':'BKK/HO/2609/0059 + BKM/HO/2609/0043';
+ return app(`<div class="content">${postedBanner('p',`Posted as <b class="mono">PE/HO/2609/0071</b> · prints as <span class="mono">${voucher}</span>.`)}
+ <fieldset ${ro?'disabled':''}><div class="pe-type">${Object.entries(PETYPES).map(([k,[l,s,ic]])=>`<button type="button" data-act="petype" data-k="${k}" aria-pressed="${PE.type===k}"><span class="dir ${ic==='in'?'d-in':'d-out'}">${I[ic]}</span><span><b style="font-weight:500">${l}</b><small>${s}</small></span></button>`).join('')}</div>
+ <section class="card v1-hdr">
+  <div class="col">
+   <div class="f"><span>Posting date<i class="req">*</i></span><div class="in day">${I.cal}<span>${day(PE.date)}</span><span class="muted">· today</span></div></div>
+   <label class="f"><span>${PE.type==='receive'?'Received into':'Paid from'}<i class="req">*</i></span>${acctSel('peacc',PE.account)}</label>
+   ${PE.type==='transfer'?`<label class="f"><span>Paid to<i class="req">*</i></span>${acctSel('peto',PE.to)}</label>`:''}
+   <label class="f"><span>Reference no${PE.method==='cash'?'':'<i class="req">*</i>'}</span><input class="in" data-bind="pe.ref" value="${esc(PE.ref)}" placeholder="The bank's reference" aria-invalid="${!!p.ref}">${p.ref?`<small class="err">${p.ref}</small>`:''}</label>
+  </div>
+  <div class="col">
+   ${PE.type==='transfer'?'':`<div class="f"><span>${PE.type==='pay'?'Supplier':'Customer'}<i class="req">*</i></span><div class="pick"><span class="avatar">${initials(party.name)}</span><b style="font-weight:500">${party.name}</b><span class="mono muted">${party.code}</span><span class="sp"></span>${I.chev}</div></div>`}
+   <div class="f"><span>Paid by</span><div class="segm">${[['transfer','Transfer'],['giro','Giro'],['cash','Cash']].map(([k,l])=>`<button type="button" data-act="pemethod" data-k="${k}" aria-pressed="${PE.method===k}">${l}</button>`).join('')}</div></div>
+   ${PE.method==='giro'?`<div class="giro"><label class="f"><span>Giro no<i class="req">*</i></span><input class="in mono" data-bind="pe.gno" value="${esc(PE.giro.no)}" placeholder="BG 000000" aria-invalid="${!!p.gno}">${p.gno?`<small class="err">${p.gno}</small>`:''}</label><div class="f"><span>Due<i class="req">*</i></span><div class="dayrow"><div class="in day ${p.gdue?'bad':''}">${I.cal}<span>${PE.giro.due?day(PE.giro.due):'<span class="muted">Pick a day</span>'}</span></div>${[14,30].map(n=>`<button type="button" class="chip" data-act="pedue" data-n="${n}">+${n} d</button>`).join('')}</div>${p.gdue?`<small class="err">${p.gdue}</small>`:''}</div><p class="giro-note">${PE.type==='pay'?'Credits 2005 Outstanding Giro until the statement clears it.':'Waits as a giro received until deposited.'}</p></div>`:''}
+   <div class="f"><span>Prints as</span><div><span class="chipline">${I.print}<span class="mono">${voucher}</span></span></div></div>
+  </div>
+  <div class="totalbox"><span class="lbl">${PE.type==='receive'?'Amount received':'Amount paid'}<i class="req">*</i></span>
+   <div class="bigin" style="border-bottom-width:2px"><span>Rp</span><input data-money data-bind="pe.paid" value="${fmt(PE.paid)}" style="font-size:30px" aria-label="Amount"></div>
+   <div class="words" data-out="pewords">${terbilang(PE.paid)}</div>
+   <dl class="mini">${PE.type==='transfer'?'':`<div><dt>Allocated</dt><dd data-out="pealloc">${fmt(c.alloc)}</dd></div>`}${PE.type==='pay'?`<div><dt>PPh 23 withheld</dt><dd data-out="pewht">${fmt(c.wht)}</dd></div>`:''}<div><dt>Bank charge</dt><dd data-out="pecharge">${fmt(c.charge)}</dd></div>${PE.type==='transfer'?'':`<div><dt>Unallocated</dt><dd data-out="peun">${fmt(c.unalloc)}</dd></div>`}</dl>
+   ${PE.type!=='transfer'&&c.unalloc>0?`<div class="banner info" style="margin:8px 0 0">${I.alert}<span>${fmt(c.unalloc)} will sit as an advance — ${PE.type==='pay'?'1052 Advanced - Purchase':'2033 Uang Muka - Penjualan'} — until a ${PE.type==='pay'?'bill':'sales invoice'} takes it.</span></div>`:''}
+  </div>
+ </section>
+ <div class="v1-bar"><div class="tabs" role="tablist">${tabs.map(([k,l,n])=>`<button role="tab" type="button" aria-selected="${UI.pTab===k}" data-act="ptab" data-k="${k}">${l}<span class="n">${n}</span></button>`).join('')}</div></div>
+ <section class="card grid-card">${UI.pTab==='refs'?peRefs():UI.pTab==='ded'?peDeduct():peJournalHTML()}</section></fieldset>
+ <div id="probs">${probsBanner(p)}</div>
+ <div class="statusbar"><span>One payment entry, many bills — what is not allocated becomes an advance, never a loose balance</span></div></div>`,
+ {crumb:'Payment entry',title:'Payment entry',icon:t[2],pill:statePill('p'),no:'PE/HO/2609/0071',actions:postButtons('p',PE.type==='receive'?'Post receipt':PE.type==='pay'?'Post payment':'Post transfer')})}
+
+/* ======================================================================
+   4 · Ledger — an account card, the way 7Soft's Kartu Kas/Bank read
+   ====================================================================== */
+const LTREE=[['Cash & bank',['1005','1006','1002','1003']],['Advances',['1053','1052']],['Payables',['2002','2005','2023']],['Expenses',['6045','6072']]];
+const LBAL={'1005':1284750400,'1006':412300000,'1002':18400000,'1003':3250000,'1053':150000000,'1052':0,'2002':2184560000,'2005':544325552,'2023':0,'6045':1841090000,'6072':54010628};
+const LNAT={'2002':-1,'2005':-1,'2023':-1};
+const LED={
+ '1005':[['2026-09-01','BKK/HO/2609/0001','BKK','PT Graha Properti','Store lease C004 · Oct–Dec',0,426000000],['2026-09-02','BKM/HO/2609/0003','BKM','Store C001','Cash deposit, tills of 30–31 Aug',98450000,0],['2026-09-03','PE/HO/2609/0004','PE','Langgeng Jaya Sentosa','2 bills · PI 0071, PI 0078',0,61250000],['2026-09-05','BKK/HO/2609/0012','BKK','CV Sejuk Teknik','Tranche 6 · AC project C001',0,25000000],['2026-09-08','BKM/HO/2609/0015','BKM','BCA Card Center','Card settlement 6–7 Sep',64102300,0],['2026-09-10','JV/HO/2609/0021','JV','BCA','Loan interest, August',0,8009089],['2026-09-12','BKM/HO/2609/0019','BKM','Store C003','Cash deposit, tills of 10–11 Sep',76300000,0],['2026-09-15','BKK/HO/2609/0028','BKK','PLN','Electricity Aug · 5 stores + HO',0,201337000],['2026-09-21','GIRO/HO/2609/0002','GIRO','Agung Jaya Sentosa','BG 660311 cleared',16105000,0],['2026-09-22','GIRO/HO/2609/0003','GIRO','PT Graha Clean','BG 456119 cleared',0,4200000],['2026-09-25','BKK/HO/2609/0049','BKK','Payroll','Salaries September · 412 people',0,1047880000],['2026-09-25','BKM/HO/2609/0032','BKM','BCA Card Center','Card settlement 24 Sep',21066800,0],['2026-09-25','BKK/HO/2609/0052','BKK','BCA','Admin fee',0,15000],['2026-09-26','BKM/HO/2609/0040','BKM','BCA Card Center','Card settlement 25 Sep · MDR 207.700',18742300,0],['2026-09-26','BKM/HO/2609/0039','BKM','Store C003','Cash deposit, till of 25 Sep',12500000,0],['2026-09-26','GIRO/HO/2609/0004','GIRO','Sumber Komputer','BG 456123 cleared',0,8374200],['2026-09-27','BKK/HO/2609/0056','BKK','PLN','Postpaid C001',0,1845200]],
+ '1053':[['2026-04-05','BKK/HO/2604/0011','BKK','CV Sejuk Teknik','Tranche 1 · AC project C001',25000000,0],['2026-05-05','BKK/HO/2605/0009','BKK','CV Sejuk Teknik','Tranche 2 · AC project C001',25000000,0],['2026-06-05','BKK/HO/2606/0014','BKK','CV Sejuk Teknik','Tranche 3 · AC project C001',25000000,0],['2026-07-06','BKK/HO/2607/0010','BKK','CV Sejuk Teknik','Tranche 4 · AC project C001',25000000,0],['2026-08-05','BKK/HO/2608/0008','BKK','CV Sejuk Teknik','Tranche 5 · AC project C001',25000000,0],['2026-09-05','BKK/HO/2609/0012','BKK','CV Sejuk Teknik','Tranche 6 · AC project C001',25000000,0]],
+ '2005':[['2026-09-03','BKK/HO/2609/0006','GIRO','CV Anugrah Textile','BG 456120 issued · due 3 Oct',0,12450000],['2026-09-10','BKK/HO/2609/0019','GIRO','PT Mode Kreasi Indonesia','BG 456121 issued · due 10 Oct',0,86000000],['2026-09-20','JV/HO/2609/0044','JV','PT Delta Tex','BG 456101 bounced — reversed',5100000,0],['2026-09-22','GIRO/HO/2609/0003','GIRO','PT Graha Clean','BG 456119 cleared by statement',4200000,0],['2026-09-26','GIRO/HO/2609/0004','GIRO','Sumber Komputer','BG 456123 cleared by statement',8374200,0]],
+ '6045':[['2026-01-20','BKK/HO/2601/0031','BKK','PLN','Electricity Dec · all units',196420000,0],['2026-02-20','BKK/HO/2602/0029','BKK','PLN','Electricity Jan · all units',188310000,0],['2026-03-20','BKK/HO/2603/0035','BKK','PLN','Electricity Feb · all units',192880000,0],['2026-04-20','BKK/HO/2604/0033','BKK','PLN','Electricity Mar · all units',214560000,0],['2026-05-20','BKK/HO/2605/0030','BKK','PLN','Electricity Apr · all units',226940000,0],['2026-06-19','BKK/HO/2606/0036','BKK','PLN','Electricity May · all units',231200000,0],['2026-07-20','BKK/HO/2607/0034','BKK','PLN','Electricity Jun · all units',219710000,0],['2026-08-20','BKK/HO/2608/0031','BKK','PLN','Electricity Jul · all units',166887800,0],['2026-09-15','BKK/HO/2609/0028','BKK','PLN','Electricity Aug · 5 stores + HO',201337000,0],['2026-09-27','BKK/HO/2609/0056','BKK','PLN','Postpaid C001',1845200,0]],
+};
+function ledView(){const a=UI.led,nat=LNAT[a]||1,all=LED[a]||[],from=UI.ledPeriod==='month'?'2026-09-01':'2026-01-01';
+ const inP=all.filter(l=>l[0]>=from),shown=inP.filter(l=>UI.ledType==='all'||l[2]===UI.ledType);
+ const delta=l=>nat*(l[5]-l[6]);const close=LBAL[a];const open=close-inP.reduce((s,l)=>s+delta(l),0);
+ let run=open;const rows=inP.map(l=>{run+=delta(l);return{l,run}});
+ return{nat,open,close,rows,shown:new Set(shown),dr:inP.reduce((s,l)=>s+l[5],0),cr:inP.reduce((s,l)=>s+l[6],0)}}
+function spark(v){if(v.rows.length<2)return '';const W=900,H=84,pad=6,pts=[v.open,...v.rows.map(r=>r.run)],mn=Math.min(...pts),mx=Math.max(...pts),rng=mx-mn||1;
+ const x=i=>pad+i*(W-2*pad)/(pts.length-1),y=val=>H-pad-(val-mn)/rng*(H-2*pad);
+ const d=pts.map((p,i)=>`${i?'L':'M'}${x(i).toFixed(1)},${y(p).toFixed(1)}`).join('');
+ const hits=pts.map((p,i)=>{const r=i?v.rows[i-1].l:null;return `<rect class="hit" x="${(x(i)-(W/pts.length)/2).toFixed(1)}" y="0" width="${(W/pts.length).toFixed(1)}" height="${H}" data-tip="${esc(i?`${dayS(r[0])} · ${r[1]}`:'Opening')}|${esc(i?r[4]:'Balance brought forward')}|${fmt(p)}"></rect>`}).join('');
+ return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="Running balance"><path class="ar" d="${d}L${x(pts.length-1)},${H}L${x(0)},${H}Z"></path><path class="ln" d="${d}"></path><circle cx="${x(pts.length-1)}" cy="${y(pts[pts.length-1])}" r="4"></circle>${hits}</svg>`}
+function s4(){const a=UI.led,v=ledView(),types=['all','BKM','BKK','PE','JV','GIRO'];
+ const tree=`<section class="card tree"><div class="search">${I.search}<input placeholder="Find an account" aria-label="Find an account"></div>${LTREE.map(([g,codes])=>`<div class="tg">${g}</div>${codes.map(c=>`<button type="button" class="ta ${c===a?'on':''}" data-act="ledacc" data-c="${c}"><span class="code">${c}</span><span class="nm">${GL[c]}</span><span class="bal">${short(LBAL[c])}</span></button>`).join('')}`).join('')}<div style="height:8px"></div></section>`;
+ const body=v.rows.length?`<table class="tbl"><thead><tr><th>Date</th><th>Voucher</th><th>Party · what</th><th class="r">Debit</th><th class="r">Credit</th><th class="r">Balance</th></tr></thead><tbody>
+  <tr class="open"><td>${day(UI.ledPeriod==='month'?'2026-09-01':'2026-01-01')}</td><td colspan="4">Opening balance</td><td class="r num">${fmt(v.open)}</td></tr>
+  ${v.rows.filter(r=>v.shown.has(r.l)).map(({l,run})=>`<tr><td>${dayS(l[0])}</td><td><span class="mono">${l[1]}</span> <span class="tpill">${l[2]}</span></td><td style="white-space:normal"><span style="color:var(--ink);font-weight:500">${esc(l[3])}</span><br><span class="muted">${esc(l[4])}</span></td><td class="r num">${l[5]?fmt(l[5]):''}</td><td class="r num">${l[6]?fmt(l[6]):''}</td><td class="r num bal-col">${fmt(run)}</td></tr>`).join('')}</tbody>
+  <tfoot><tr><td colspan="3">Closing balance · 27 Sep</td><td class="r num">${fmt(v.dr)}</td><td class="r num">${fmt(v.cr)}</td><td class="r num">${fmt(v.close)}</td></tr></tfoot></table>`
+  :`<div class="empty"><span class="empty-ico">${I.book}</span><b>No movements ${UI.ledPeriod==='month'?'in September':'this year'}</b><p>Balance ${fmt(LBAL[a])} is carried from the opening.</p></div>`;
+ return app(`<div class="content"><div class="led">${tree}<section class="card" style="overflow:hidden"><div class="lhead"><div class="row"><span class="code">${a}</span><b style="font-size:17px">${GL[a]}</b><span class="pill">${a==='1053'?'Unit C001':a==='6045'?'All units':'Unit HO'}</span><span class="pill">${v.nat<0?'Credit balance':'Debit balance'}</span><span class="sp"></span><div class="segm">${[['month','September'],['ytd','Year to date']].map(([k,l])=>`<button type="button" data-act="ledper" data-k="${k}" aria-pressed="${UI.ledPeriod===k}">${l}</button>`).join('')}</div></div>
+  <div class="lkpis"><div><small>Opening</small><b>${fmt(v.open)}</b></div><div><small>Debit</small><b>${fmt(v.dr)}</b></div><div><small>Credit</small><b>${fmt(v.cr)}</b></div><div><small>Closing</small><b>${fmt(v.close)}</b></div></div>
+  ${spark(v)}
+  <div class="row">${types.map(k=>`<button type="button" class="chip ${UI.ledType===k?'on':''}" data-act="ledtype" data-k="${k}">${k==='all'?'All':k} <span>${k==='all'?v.rows.length:v.rows.filter(r=>r.l[2]===k).length}</span></button>`).join('')}<span class="sp"></span><button type="button" class="btn sm ghost" data-act="toast" data-msg="Exports this account card as a sheet">Export</button></div></div>${body}</section></div></div>`,
+ {crumb:'Ledger',title:'Ledger',icon:'book',actions:'<span class="muted">Hover the balance line for each voucher</span>'})}
+
+/* ======================================================================
+   5 · Payables — the giro board's shape, for bills
+   ====================================================================== */
+const APCOLS=[['nd','Not due yet'],['wk','Due within 7 days'],['l30','1–30 days late'],['l31','31+ days late'],['paid','Paid today']];
+function bcard(b){const sel=UI.apSel.has(b.id),paid=UI.apPaid[b.id],d=lateBy(b.due),lock=b.hold||b.draft;
+ const due=paid?`<span class="pill ok">${paid}</span>`:d>0?`<span class="due late" style="margin:0">${d} d late</span>`:d===0?'<span class="due late" style="margin:0">due today</span>':`<span class="due" style="margin:0">due ${dayS(b.due)}</span>`;
+ return `<button type="button" class="bcard ${sel?'sel':''} ${b.hold?'hold':''} ${paid?'paid':''}" ${lock||paid?'':`data-act="apsel" data-id="${b.id}"`} aria-pressed="${sel}"><div class="top">${lock||paid?'':`<input type="checkbox" class="cb" ${sel?'checked':''} tabindex="-1" aria-hidden="true" style="pointer-events:none">`}<span class="sup">${esc(b.sup)}</span></div><div class="amt">Rp ${fmt(b.amt)}</div><div class="meta"><span class="mono">${b.bill}</span>${b.kind?`<span class="pill">${b.kind}</span>`:''}</div><div class="meta">${due}</div>${b.hold?`<span class="bnote warn">${b.hold}</span>`:''}${b.draft&&!paid?`<span class="bnote info">${b.draft}</span>`:''}${b.note&&!paid?`<span class="muted" style="font-size:13px">${b.note}</span>`:''}</button>`}
+function s5(){const open=AP.filter(b=>!UI.apPaid[b.id]),sum=a=>a.reduce((x,b)=>x+b.amt,0),sel=AP.filter(b=>UI.apSel.has(b.id)),sups=new Set(sel.map(b=>b.sup));
+ const kpi=[['Total payable',open],['Due within 7 days',open.filter(b=>apBucket(b)==='wk')],['Overdue',open.filter(b=>lateBy(b.due)>0)],['On hold',open.filter(b=>b.hold)]];
+ return app(`<div class="content ap"><div class="kpis">${kpi.map(([l,a])=>`<div class="card kpi"><small>${l}</small><b>${fmt(sum(a))}</b><span>${a.length} bill${a.length===1?'':'s'}</span></div>`).join('')}</div>
+ <div class="board">${APCOLS.map(([k,l])=>{const a=AP.filter(b=>apBucket(b)===k).sort((x,y)=>x.due.localeCompare(y.due));return `<div class="colm"><h3>${l}<span class="n">${a.length}</span><span class="sum">${fmt(sum(a))}</span></h3>${a.map(bcard).join('')||'<div class="empty-col">Nothing here</div>'}</div>`}).join('')}</div>
+ ${sel.length?`<div class="paybar"><span><b>${sel.length} bill${sel.length===1?'':'s'}</b> · ${sups.size} supplier${sups.size===1?'':'s'} · <b>Rp ${fmt(sum(sel))}</b></span><span class="sp"></span><div class="segm">${[['transfer','Transfer'],['giro','Giro']].map(([k,l])=>`<button type="button" data-act="apmethod" data-k="${k}" aria-pressed="${UI.apMethod===k}">${l}</button>`).join('')}</div><button type="button" class="btn ghost" data-act="apclear">Clear</button><button type="button" class="btn pri" data-act="appay" ${UI.apPaying?'disabled aria-busy="true"':''}>${UI.apPaying?'Drafting…':`Draft ${sups.size} BKK · one per supplier`}</button></div>`:''}</div>`,
+ {crumb:'Payables',title:'Payables',icon:'out',actions:`<button class="btn" data-act="go" data-s="6">${I.cal}Payments ahead</button><button class="btn" data-act="toast" data-msg="Aged payables report, as 7Soft printed it">Aged report</button>`})}
+
+/* ======================================================================
+   6 · Payments ahead — what is paid, to whom, on which day
+   ====================================================================== */
+const PCAT=[['bills','Supplier bills','--c1'],['giro','Giro due','--c2'],['payroll','Payroll, THR & BPJS','--c3'],['rent','Rent','--c4'],['util','Utilities','--c5'],['proj','Projects & contracts','--c6'],['tax','Tax & other','--c7']];
+const PCATX=Object.fromEntries(PCAT.map(([k,l,c])=>[k,{l,c}]));
+const PSRC={bill:['Bill','c'],giro:['Giro','c'],contract:['Contract','c'],payroll:['Payroll','c'],po:['Open PO','e'],taxcal:['Tax calendar','x'],est:['Estimate','x']};
+const PA_FIXED=[
+ ['2026-10-03','giro','giro','CV Anugrah Textile','BG 456120 · Mandiri','HO',12450000],
+ ['2026-10-05','proj','contract','SeventhSoft','Software maintenance · October','HO',13000000],
+ ['2026-10-10','giro','giro','PT Mode Kreasi Indonesia','BG 456121 · BCA','HO',86000000],
+ ['2026-10-10','tax','taxcal','Kas negara','PPh 21 · September payroll','HO',38400000],
+ ['2026-10-12','giro','giro','Langgeng Jaya Sentosa','BG 456124 · draft BKK/HO/2609/0057 · pays PI 0102','HO',33689000],
+ ['2026-10-15','tax','taxcal','Kas negara','PPh 25 · September','HO',12790000],
+ ['2026-10-15','payroll','payroll','BPJS','Kesehatan & Ketenagakerjaan · September','All',31200000],
+ ['2026-10-20','util','est','PLN','Electricity September · 5 stores + HO · 3-month average','All',203500000],
+ ['2026-10-20','util','est','Telkom & PDAM','Phone, internet, water · September','All',15600000],
+ ['2026-10-25','payroll','payroll','Payroll','Salaries October · 412 people','All',1048000000],
+ ['2026-10-28','tax','contract','Bank BCA','Loan interest · October','HO',8010000],
+ ['2026-10-31','bills','po','32 open purchase orders','Bills expected from POs raised Aug–Sep · terms 30–45 d','HO',3920000000],
+ ['2026-11-05','proj','contract','SeventhSoft','Software maintenance · November','HO',13000000],
+ ['2026-11-05','proj','contract','PT Graha Clean','Cleaning contract · October','All',4200000],
+ ['2026-11-10','tax','taxcal','Kas negara','PPh 21 · October payroll','HO',38400000],
+ ['2026-11-10','proj','contract','CV Bangun Fasad','Facade renovation C004 · tranche 1 of 4','C004',40000000],
+ ['2026-11-15','tax','taxcal','Kas negara','PPh 25 · October','HO',12790000],
+ ['2026-11-15','payroll','payroll','BPJS','Contributions · October','All',31200000],
+ ['2026-11-20','util','est','PLN','Electricity October · estimate','All',208000000],
+ ['2026-11-20','util','est','Telkom & PDAM','Phone, internet, water · October','All',15600000],
+ ['2026-11-25','payroll','payroll','Payroll','Salaries November','All',1048000000],
+ ['2026-11-28','tax','contract','Bank BCA','Loan interest · November','HO',8010000],
+ ['2026-11-30','bills','po','27 open purchase orders','Bills expected from POs raised Sep–Oct','HO',3100000000],
+ ['2026-12-05','proj','contract','SeventhSoft','Software maintenance · December','HO',13000000],
+ ['2026-12-05','proj','contract','PT Graha Clean','Cleaning contract · November','All',4200000],
+ ['2026-12-10','tax','taxcal','Kas negara','PPh 21 · November payroll','HO',38400000],
+ ['2026-12-10','proj','contract','CV Bangun Fasad','Facade renovation C004 · tranche 2 of 4','C004',40000000],
+ ['2026-12-15','tax','taxcal','Kas negara','PPh 25 · November','HO',12790000],
+ ['2026-12-15','payroll','payroll','BPJS','Contributions · November','All',31200000],
+ ['2026-12-18','tax','contract','Asuransi','Property All Risk & Fire · 2027 premium','All',33490000],
+ ['2026-12-20','rent','contract','PT Jambi Properti','Store lease C002 Jambi · 2027','C002',1820000000],
+ ['2026-12-20','util','est','PLN','Electricity November · estimate','All',212000000],
+ ['2026-12-20','util','est','Telkom & PDAM','Phone, internet, water · November','All',15600000],
+ ['2026-12-22','payroll','payroll','Payroll','Salaries December · paid before Christmas','All',1048000000],
+ ['2026-12-28','tax','contract','Bank BCA','Loan interest · December','HO',8010000],
+ ['2026-12-31','bills','po','14 open purchase orders','Bills expected from POs raised Oct–Nov','HO',1260000000],
+ ['2026-12-31','bills','est','Not ordered yet','Year-end stock — December 2025 bought 3,1 M beyond what was on order','HO',3100000000]];
+/* Months four to twelve: nothing is billed yet, so it is last year's books
+   plus the documents that already exist — leases, THR, the facade tranches. */
+const PA_LATER=[
+ ['Jan 2027',{bills:[5600e6,'x'],payroll:[1079e6,'c'],util:[226e6,'x'],proj:[53e6,'c','Facade tranche 3'],tax:[154e6,'x','Pajak reklame 95 jt']}],
+ ['Feb 2027',{bills:[6200e6,'x','Lebaran stock'],payroll:[2269e6,'c','THR 1.190 jt — Lebaran ±10 Mar'],util:[221e6,'x'],proj:[53e6,'c','Facade tranche 4'],tax:[59e6,'x']}],
+ ['Mar 2027',{bills:[4100e6,'x'],payroll:[1079e6,'c'],util:[236e6,'x'],proj:[17e6,'c'],tax:[92e6,'x','Insurance 33 jt']}],
+ ['Apr 2027',{bills:[3900e6,'x'],payroll:[1079e6,'c'],rent:[1240e6,'c','Lease C001 Cikupa'],util:[246e6,'x'],proj:[17e6,'c'],tax:[59e6,'x']}],
+ ['May 2027',{bills:[4300e6,'x'],payroll:[1079e6,'c'],util:[244e6,'x'],proj:[17e6,'c'],tax:[59e6,'x']}],
+ ['Jun 2027',{bills:[4700e6,'x'],payroll:[1079e6,'c'],util:[240e6,'x'],proj:[17e6,'c'],tax:[59e6,'x']}],
+ ['Jul 2027',{bills:[5000e6,'x'],payroll:[1079e6,'c'],rent:[2090e6,'c','Leases HO + C003'],util:[235e6,'x'],proj:[17e6,'c'],tax:[59e6,'x']}],
+ ['Aug 2027',{bills:[4600e6,'x'],payroll:[1079e6,'c'],util:[230e6,'x'],proj:[17e6,'c'],tax:[108e6,'x','PBB 49,5 jt']}],
+ ['Sep 2027',{bills:[4800e6,'x'],payroll:[1079e6,'c'],rent:[426e6,'c','Lease C004 Oct–Dec'],util:[236e6,'x'],proj:[17e6,'c'],tax:[59e6,'x']}]];
+/* The itemised part is built, not typed: open bills come off the payables
+   board as they stand, so paying one there takes it off this list too. */
+function paItems(){const fromAP=AP.filter(b=>!UI.apPaid[b.id]&&!b.draft&&b.due<='2026-12-31').map(b=>({d:b.due,cat:b.kind==='Project'?'proj':'bills',src:'bill',who:b.sup,what:b.bill+(b.hold?' · on hold':''),unit:'HO',amt:b.amt,ap:true,hold:!!b.hold}));
+ return [...fromAP,...PA_FIXED.map(([d,cat,src,who,what,unit,amt])=>({d,cat,src,who,what,unit,amt}))].sort((a,b)=>a.d.localeCompare(b.d)||b.amt-a.amt)}
+const PA_BUCKETS=[['now','Now','Overdue & to 30 Sep',x=>x.d<='2026-09-30'],['oct','Oct','October',x=>x.d.startsWith('2026-10')],['nov','Nov','November',x=>x.d.startsWith('2026-11')],['dec','Dec','December',x=>x.d.startsWith('2026-12')]];
+function paMonthly(){const it=paItems(),out=[];
+ PA_BUCKETS.forEach(([k,l,,f])=>{const by={};it.filter(f).forEach(x=>{const c=by[x.cat]||(by[x.cat]={c:0,x:0});c[PSRC[x.src][1]==='x'?'x':'c']+=x.amt});out.push({key:k,label:l,by,total:Object.values(by).reduce((a,v)=>a+v.c+v.x,0)})});
+ PA_LATER.forEach(([l,cats],i)=>{const by={};Object.entries(cats).forEach(([k,[v,cert]])=>{by[k]={c:cert==='x'?0:v,x:cert==='x'?v:0}});out.push({key:'later'+i,label:l.slice(0,3),full:l,by,total:Object.values(by).reduce((a,v)=>a+v.c+v.x,0)})});
+ return out.slice(0,13)}
+const certOk=x=>UI.paCert==='all'||(UI.paCert==='c'?PSRC[x.src][1]==='c':PSRC[x.src][1]!=='x');
+function paChart(m){const W=1000,H=190,L=46,B=22,T=8,mx=Math.max(...m.map(x=>x.total)),step=2e9,top=Math.ceil(mx/step)*step,bw=(W-L)/m.length,y=v=>T+(H-T-B)*(1-v/top);
+ let s=`<defs>${PCAT.map(([k,,c])=>`<pattern id="h-${k}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" style="fill:var(${c})" opacity=".28"></rect><rect width="2" height="6" style="fill:var(${c})"></rect></pattern>`).join('')}</defs>`;
+ for(let v=0;v<=top;v+=step)s+=`<line class="gl" x1="${L}" x2="${W}" y1="${y(v)}" y2="${y(v)}"></line><text class="axt" x="${L-8}" y="${y(v)+4}" text-anchor="end">${v?v/1e9+' M':'0'}</text>`;
+ m.forEach((mo,i)=>{const x0=L+i*bw+bw*.2,w=bw*.6,sel=UI.paMonth===i;if(sel)s+=`<rect class="selbg" x="${L+i*bw+2}" y="${T}" width="${bw-4}" height="${H-T-B}" rx="6"></rect>`;
+  let acc=0;PCAT.forEach(([k,,c])=>{const v=mo.by[k];if(!v)return;[['c',v.c],['x',v.x]].forEach(([kind,val])=>{if(!val)return;const y1=y(acc+val),h=y(acc)-y1;acc+=val;if(h<.5)return;s+=kind==='c'?`<rect x="${x0}" y="${y1+1}" width="${w}" height="${Math.max(.5,h-2)}" style="fill:var(${c})"></rect>`:`<rect x="${x0}" y="${y1+1}" width="${w}" height="${Math.max(.5,h-2)}" fill="url(#h-${k})"></rect>`})});
+  s+=`<text class="axt" x="${x0+w/2}" y="${H-6}" text-anchor="middle" ${i<4?'style="font-weight:600;fill:var(--ink)"':''}>${mo.label}</text><rect class="bar-hit" x="${L+i*bw}" y="0" width="${bw}" height="${H}" data-act="pamonth" data-i="${i}" data-bar="${i}"></rect>`});
+ return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Payments per month, next 12 months">${s}</svg>`}
+function paRow(x,cum){const d=lateBy(x.d),dt=dOf(x.d),src=PSRC[x.src];
+ const act=x.ap&&!x.hold&&d>=-7?`<button type="button" class="btn sm" data-act="go" data-s="5">Pay</button>`:x.src==='giro'?`<button type="button" class="btn sm ghost" data-act="toast" data-msg="Opens the Giro board">Giro</button>`:x.src==='po'?`<button type="button" class="btn sm ghost" data-act="toast" data-msg="Lists the purchase orders behind this figure">POs</button>`:'';
+ return `<tr class="${src[1]==='x'?'est':''}"><td><div class="dd ${d>0?'late':''}"><b>${dt.getDate()}</b><small>${d>0?`${dt.toLocaleDateString('en-GB',{month:'short'})} · ${d} d late`:dt.toLocaleDateString('en-GB',{weekday:'short'})}</small></div></td><td class="what"><b>${esc(x.who)}</b><small>${esc(x.what)}</small></td><td class="mono muted">${x.unit}</td><td><span class="cat"><span class="sw" style="background:var(${PCATX[x.cat].c})"></span>${PCATX[x.cat].l}</span></td><td><span class="src ${src[1]==='c'?'c':src[1]==='x'?'x':''}">${src[0]}</span></td><td class="amt">${fmt(x.amt)}</td><td class="cum">${fmt(cum)}</td><td style="width:70px">${act}</td></tr>`}
+function paAgenda(){const it=paItems().filter(x=>(UI.paCat==='all'||x.cat===UI.paCat)&&certOk(x));
+ const secs=PA_BUCKETS.filter(([k])=>UI.paView==='3m'||UI.paView===k);let cum=0;
+ return secs.map(([k,,title,f])=>{const rows=it.filter(f);if(!rows.length)return '';const tot=rows.reduce((a,x)=>a+x.amt,0),by={};rows.forEach(x=>by[x.cat]=(by[x.cat]||0)+x.amt);
+  return `<section class="sec"><div class="sec-h"><h3>${title}</h3><span class="muted">${rows.length} payment${rows.length===1?'':'s'}</span><span class="stackbar">${PCAT.filter(([c])=>by[c]).map(([c,,v])=>`<i style="flex:${by[c]};background:var(${v})"></i>`).join('')}</span><span class="tot">Rp ${fmt(tot)}</span></div><div class="card" style="overflow:hidden"><table class="ag"><colgroup><col style="width:92px"><col><col style="width:64px"><col style="width:210px"><col style="width:120px"><col style="width:150px"><col style="width:140px"><col style="width:80px"></colgroup><tbody>${rows.map(x=>{cum+=x.amt;return paRow(x,cum)}).join('')}</tbody></table></div></section>`}).join('')||`<div class="card empty"><span class="empty-ico">${I.cal}</span><b>Nothing matches</b><p>No payment in this window has that category and certainty.</p></div>`}
+function paLater(){const L=PA_LATER;return `<section class="sec"><div class="sec-h"><h3>January – September 2027</h3><span class="muted">Nothing is billed yet: last year's books, plus the documents that already exist</span></div><div class="card" style="overflow:auto"><table class="tbl later-tbl"><thead><tr><th>Category</th>${L.map(([l])=>`<th class="r">${l.slice(0,3)}</th>`).join('')}<th class="r">Total</th></tr></thead><tbody>
+ ${PCAT.filter(([k])=>UI.paCat==='all'||UI.paCat===k).map(([k,l,c])=>{let t=0;return `<tr><td><span class="cat"><span class="sw" style="background:var(${c})"></span>${l}</span></td>${L.map(([,cats])=>{const v=cats[k];if(!v)return '<td class="r muted">—</td>';t+=v[0];return `<td class="r num" title="${esc(v[2]||(v[1]==='x'?'Estimate from last year':'From a document'))}" style="${v[1]==='x'?'font-style:italic;color:var(--body)':'font-weight:500;color:var(--ink)'}">${short(v[0])}${v[2]?' •':''}</td>`}).join('')}<td class="r num"><b>${short(t)}</b></td></tr>`}).join('')}</tbody></table></div>
+ <p class="muted" style="margin-top:8px">Upright = a document already says so (a lease, the payroll, the facade contract). Italic = last year's books. • = hover for what it is.</p></section>`}
+function s6(){const m=paMonthly(),it=paItems(),over=it.filter(x=>lateBy(x.d)>0),nowW=it.filter(x=>x.d<='2026-09-30'),q=it.filter(x=>x.d>'2026-09-30'),qSum=q.reduce((a,x)=>a+x.amt,0),qC=q.filter(x=>PSRC[x.src][1]!=='x').reduce((a,x)=>a+x.amt,0);
+ const cash=['1005','1006','1002','1003'].reduce((a,c)=>a+LBAL[c],0)+96500000;let run=0,until=null;for(const x of it){run+=x.amt;if(run>cash){until=x.d;break}}
+ const views=[['3m','Next 3 months'],['now','Now'],['oct','October'],['nov','November'],['dec','December'],['later','Jan–Sep 2027']];
+ return app(`<div class="content"><div class="pa-kpis">
+  <div class="card kpi"><small>Overdue now</small><b>${fmt(over.reduce((a,x)=>a+x.amt,0))}</b><span>${over.length} payments already late</span></div>
+  <div class="card kpi"><small>Due by 30 Sep</small><b>${fmt(nowW.reduce((a,x)=>a+x.amt,0))}</b><span>${nowW.length} payments, overdue included</span></div>
+  <div class="card kpi"><small>October – December</small><b>${fmt(qSum)}</b><span>${Math.round(qC/qSum*100)}% backed by a document or a PO</span></div>
+  <div class="card kpi"><small>Cash &amp; bank today</small><b>${fmt(cash)}</b><span>${until?`covers payments until <b style="display:inline;font-size:13px;color:var(--warn-fg)">${dayS(until)}</b> — before any money comes in`:'covers everything listed'}</span></div></div>
+ <section class="card ov"><div class="ov-h"><b>Next 12 months</b><span class="muted">click a month for its list</span><span class="sp"></span><div class="legend">${PCAT.map(([,l,c])=>`<span><i class="sw" style="background:var(${c})"></i>${l}</span>`).join('')}<span><i class="sw" style="background:repeating-linear-gradient(45deg,var(--line-ico) 0 2px,transparent 2px 5px)"></i>estimate</span></div></div>${paChart(m)}</section>
+ <div class="agenda-tools"><div class="segm">${views.map(([k,l])=>`<button type="button" data-act="paview" data-k="${k}" aria-pressed="${UI.paView===k}">${l}</button>`).join('')}</div><span class="sp"></span>
+  <select class="in sm" style="width:auto" data-change="pacat" aria-label="Category"><option value="all">All categories</option>${PCAT.map(([k,l])=>`<option value="${k}" ${UI.paCat===k?'selected':''}>${l}</option>`).join('')}</select>
+  <div class="segm">${[['all','Everything'],['ce','Documents + POs'],['c','Documents only']].map(([k,l])=>`<button type="button" data-act="pacert" data-k="${k}" aria-pressed="${UI.paCert===k}">${l}</button>`).join('')}</div></div>
+ ${UI.paView==='later'?paLater():paAgenda()}</div>`,
+ {crumb:'Payments ahead',title:'Payments ahead',icon:'cal',actions:`<button class="btn" data-act="toast" data-msg="Exports the list as a sheet, one row per payment">Export</button><button class="btn" data-act="go" data-s="5">${I.out}Payables</button>`})}
+
+/* ======================================================================
+   7 · Reports — the five Excel files, read into the hub
+   ====================================================================== */
+const CALC=new Set(['TOTAL PENJUALAN BERSIH','LABA (RUGI) USAHA KOTOR','GROSS OPERATING PROFIT','BEBAN USAHA LAINNYA','NET OPERATING PROFIT/LOSS','NET PROFIT BEFORE TAX','NET PROFIT AFTER TAX']);
+function buildTree(rows,skip){const top=[],stack=[];rows.forEach(r=>{const [l,lab,a,b]=r;if(skip(lab,l)){stack.length=0;return}const n={l,lab,own:[a,b],k:[]};while(stack.length&&stack[stack.length-1].l>=l)stack.pop();(stack.length?stack[stack.length-1].k:top).push(n);stack.push(n)});
+ const val=n=>{if(!n.k.length)return n.v=n.own.slice();const s=[0,0];n.k.forEach(c=>{const v=val(c);s[0]+=v[0];s[1]+=v[1]});return n.v=s};top.forEach(val);
+ const prune=ns=>ns.filter(n=>{n.k=prune(n.k);return n.v[0]||n.v[1]||n.k.length});
+ const flat=ns=>ns.map(n=>{while(n.k.length===1&&n.k[0].lab.toUpperCase()===n.lab.toUpperCase())n={...n,k:n.k[0].k};n.k=flat(n.k);return n});
+ return flat(prune(top))}
+function plModel(unit){const rows=unit==='all'?FIN.plAll:FIN.plC001,tree=buildTree(rows,(lab,l)=>CALC.has(lab)||l===0),G=lab=>(tree.find(n=>n.lab===lab)||{v:[0,0]}).v;
+ const f=fn=>[fn(0),fn(1)],sales=G('PENJUALAN'),net=f(i=>G('PENJUALAN')[i]+G('DISCOUNT / POTONGAN DAN RETURN PENJUALAN')[i]+G('MANAGEMENT FEE')[i]),gp=f(i=>net[i]-G('BEBAN POKOK PENJUALAN')[i]),gop=f(i=>gp[i]-G('BEBAN USAHA')[i]),nop=f(i=>gop[i]-G('BIAYA SEWA')[i]-G('BIAYA DEPRESIASI DAN AMORTISASI')[i]-G('BIAYA USAHA LAINNYA')[i]),pbt=f(i=>nop[i]+G('PENDAPATAN (BIAYA) NON OPERASI')[i]),npat=f(i=>pbt[i]-G('PAJAK PENGHASILAN')[i]);
+ const node=lab=>tree.find(n=>n.lab===lab);
+ const order=[node('PENJUALAN'),node('DISCOUNT / POTONGAN DAN RETURN PENJUALAN'),node('MANAGEMENT FEE'),{calc:'Net sales',v:net},node('BEBAN POKOK PENJUALAN'),{calc:'Gross profit',v:gp,key:1},node('BEBAN USAHA'),{calc:'Gross operating profit',v:gop},node('BIAYA SEWA'),node('BIAYA DEPRESIASI DAN AMORTISASI'),node('BIAYA USAHA LAINNYA'),{calc:'Net operating profit',v:nop},node('PENDAPATAN (BIAYA) NON OPERASI'),{calc:'Profit before tax',v:pbt},node('PAJAK PENGHASILAN'),{calc:'Net profit after tax',v:npat,key:1}].filter(Boolean);
+ return{order,sales,net,gp,gop,npat}}
+const pct=(v,base)=>base?(v/base*100).toLocaleString('id-ID',{minimumFractionDigits:1,maximumFractionDigits:1})+'%':'';
+function deltaCell(a,b){const d=a-b,p=b?d/Math.abs(b)*100:0,w=Math.min(60,Math.abs(p)*1.2);return `<span class="delta"><span class="muted">${d>=0?'+':'−'}${Math.abs(p).toLocaleString('id-ID',{maximumFractionDigits:1})}%</span><span class="b ${d>=0?'up':''}" style="width:${Math.max(2,w)}px"></span></span>`}
+function repRows(nodes,depth,path,base,out){nodes.forEach((n,i)=>{const p=path+'/'+i,kids=n.k&&n.k.length,open=UI.repTog[p]!=null?UI.repTog[p]:depth<UI.repDepth-1;
+ out.push(`<tr class="${depth===0?'l1':kids?'g':''}"><td style="padding-left:${12+depth*18}px">${kids?`<button type="button" class="tw ${open?'':'shut'}" data-act="reptog" data-p="${p}" data-o="${open?1:0}">${I.chev}${esc(n.lab)}</button>`:esc(n.lab)}</td><td>${fmt(n.v[0])}</td>${base?`<td class="pct">${pct(n.v[0],base[0])}</td>`:''}<td>${fmt(n.v[1])}</td>${base?`<td class="pct">${pct(n.v[1],base[1])}</td>`:''}<td class="dl">${deltaCell(n.v[0],n.v[1])}</td></tr>`);
+ if(kids&&open)repRows(n.k,depth+1,p,base,out)})}
+function repPL(){const m=plModel(UI.repUnit),out=[];m.order.forEach((n,i)=>{if(n.calc){out.push(`<tr class="calc ${n.key?'key':''}"><td>${n.calc}</td><td>${fmt(n.v[0])}</td><td class="pct">${pct(n.v[0],m.sales[0])}</td><td>${fmt(n.v[1])}</td><td class="pct">${pct(n.v[1],m.sales[1])}</td><td class="dl">${deltaCell(n.v[0],n.v[1])}</td></tr>`);return}repRows([n],0,'pl'+i,m.sales,out)});
+ const bsProfit=FIN.bs.find(r=>r[2].startsWith('Laba (Rugi) bulan'));const tie=UI.repUnit==='c001'?[m.npat[0]-bsProfit[3],m.npat[1]-bsProfit[4]]:null;
+ const banner=UI.repUnit==='all'?`<div class="banner ok">${I.check}<span>Matches the 7Soft export to the rupiah — net profit after tax 2025 <b>${fmt(m.npat[0])}</b>. Subtotals are recomputed from the account lines, never read off the sheet.</span></div>`
+  :`<div class="banner ${tie[0]?'warn':'ok'}">${I.alert}<span>${tie[0]?`2025 doesn't tie to C001's balance sheet: this P&amp;L ends at <b>${fmt(m.npat[0])}</b>, the balance sheet's "Laba (Rugi) bulan berjalan" says <b>${fmt(bsProfit[3])}</b> — <b>${fmt(Math.abs(tie[0]))}</b> apart. 2024 ties exactly (${fmt(m.npat[1])}). The two files were probably exported for different periods.`:'Ties to the balance sheet in both years.'}</span></div>`;
+ const kp=[['Net sales',m.net],['Gross profit',m.gp,1],['Gross operating profit',m.gop,1],['Net profit after tax',m.npat,1]];
+ return `${banner}<div class="rkpis">${kp.map(([l,v,withPct])=>`<div class="card rk"><small>${l}</small><b>${short(v[0])}</b><span>${withPct?pct(v[0],m.sales[0])+' of sales · ':''}2024 ${short(v[1])} · ${v[0]>=v[1]?'+':'−'}${Math.abs((v[0]-v[1])/Math.abs(v[1])*100).toLocaleString('id-ID',{maximumFractionDigits:1})}%</span></div>`).join('')}</div>
+ <section class="card" style="overflow:hidden"><table class="rtbl"><thead><tr><th>Account</th><th>2025</th><th>%</th><th>2024</th><th>%</th><th>Change</th></tr></thead><tbody>${out.join('')}</tbody></table></section>`}
+function repBS(){const side=s=>buildTree(FIN.bs.filter(r=>r[0]===s&&!['ASSET','LIABILITIES & EQUITY'].includes(r[2])).map(r=>[r[1],r[2],r[3],r[4]]),()=>false);
+ const A=side('A'),Lq=side('L'),sum=ns=>ns.reduce((s,n)=>[s[0]+n.v[0],s[1]+n.v[1]],[0,0]),ta=sum(A),tl=sum(Lq),diff=[ta[0]-tl[0],ta[1]-tl[1]];
+ const tbl=(nodes,title,tot,k)=>{const out=[];repRows(nodes,0,k,null,out);return `<section class="card" style="overflow:hidden"><table class="rtbl"><thead><tr><th>${title}</th><th>2025</th><th>2024</th><th>Change</th></tr></thead><tbody>${out.join('')}<tr class="bs-total"><td>Total ${title.toLowerCase()}</td><td>${fmt(tot[0])}</td><td>${fmt(tot[1])}</td><td class="dl">${deltaCell(tot[0],tot[1])}</td></tr></tbody></table></section>`};
+ const ok=Math.abs(diff[0])<1000&&Math.abs(diff[1])<1000;
+ return `<div class="banner ${ok?'ok':'bad'}">${ok?I.check:I.alert}<span>${ok?`Balances in both years — assets <b>${fmt(ta[0])}</b> = liabilities &amp; equity <b>${fmt(tl[0])}</b>${diff[0]?` (${fmt(Math.abs(diff[0]))} rupiah of rounding in the source)`:''}. Only C001 Cikupa's balance sheet was in the files — both copies are identical.`:`Out of balance by ${fmt(diff[0])}`}</span></div>
+ <div class="rkpis">${[['Total assets',ta],['Cash & bank',sum(A.flatMap(n=>n.k).filter(n=>n.lab==='KAS & SETARA KAS'))],['Inventory',sum(A.flatMap(n=>n.k).filter(n=>n.lab==='INVENTORY'))],['Advances to contractors',[78551500,278829200]]].map(([l,v])=>`<div class="card rk"><small>${l}</small><b>${short(v[0])}</b><span>2024 ${short(v[1])}</span></div>`).join('')}</div>
+ <div class="bs">${tbl(A,'Assets',ta,'bsA')}${tbl(Lq,'Liabilities & equity',tl,'bsL')}</div>`}
+function repSales(){const S=FIN.sales.filter(r=>r[1]!=='TOTAL').map(([code,name,qty,gross,disc,ret,net,hpp,gp])=>({code,name:name.replace('DIVISI ','').replace(/\b\w+/g,w=>w[0]+w.slice(1).toLowerCase()),qty,gross,disc,ret,net,hpp,gp,mg:net?gp/net*100:0,mu:hpp?gp/hpp*100:0}));
+ const tot=S.reduce((a,x)=>({qty:a.qty+x.qty,gross:a.gross+x.gross,disc:a.disc+x.disc,ret:a.ret+x.ret,net:a.net+x.net,hpp:a.hpp+x.hpp,gp:a.gp+x.gp}),{qty:0,gross:0,disc:0,ret:0,net:0,hpp:0,gp:0});
+ const key=UI.salesSort,rows=S.slice().sort((a,b)=>b[key]-a[key]),mxs=Math.max(...S.map(x=>x.net));
+ const th=(k,l)=>`<th class="sort ${key===k?'on':''}" data-act="salessort" data-k="${k}">${l}${key===k?' ↓':''}</th>`;
+ return `<div class="rkpis">${[['Net sales',short(tot.net),`${fmt(tot.qty)} pcs · 2025, all units`],['Gross profit',short(tot.gp),`${pct(tot.gp,tot.net)} margin`],['Discounts & returns',short(tot.disc+tot.ret),`${pct(tot.disc+tot.ret,tot.gross)} of gross sales`],['Biggest division','Pria',`${pct(S[1].net,tot.net)} of net sales`]].map(([l,v,s])=>`<div class="card rk"><small>${l}</small><b>${v}</b><span>${s}</span></div>`).join('')}</div>
+ <section class="card" style="overflow:auto"><table class="rtbl"><thead><tr><th>Division</th>${th('qty','Qty')}${th('gross','Gross sales')}<th>Disc. &amp; returns</th>${th('net','Net sales')}<th style="width:150px">Share</th><th>HPP</th>${th('gp','Gross profit')}${th('mg','Margin')}${th('mu','Mark-up')}</tr></thead><tbody>
+ ${rows.map(x=>`<tr><td><span class="mono muted">${x.code}</span> ${esc(x.name)}${x.hpp<x.net*.05?' <span class="pill warn" title="HPP is 60.000 against 790 jt of sales">HPP missing</span>':''}</td><td>${fmt(x.qty)}</td><td>${fmt(x.gross)}</td><td>${fmt(x.disc+x.ret)}</td><td><b style="font-weight:500">${fmt(x.net)}</b></td><td><span class="share"><span class="muted">${pct(x.net,tot.net)}</span><i style="width:${Math.max(2,x.net/mxs*90)}px"></i></span></td><td>${fmt(x.hpp)}</td><td>${fmt(x.gp)}</td><td><span class="mg" style="--m:${Math.min(100,x.mg)}"><span>${x.mg.toLocaleString('id-ID',{maximumFractionDigits:1})}%</span><i></i></span></td><td>${x.mu>1000?'—':x.mu.toLocaleString('id-ID',{maximumFractionDigits:1})+'%'}</td></tr>`).join('')}
+ <tr class="calc"><td>Total</td><td>${fmt(tot.qty)}</td><td>${fmt(tot.gross)}</td><td>${fmt(tot.disc+tot.ret)}</td><td>${fmt(tot.net)}</td><td>100%</td><td>${fmt(tot.hpp)}</td><td>${fmt(tot.gp)}</td><td>${pct(tot.gp,tot.net)}</td><td>${pct(tot.gp,tot.hpp)}</td></tr></tbody></table></section>
+ <p class="muted" style="margin-top:8px">Margin dot: 0% at the left, 100% at the right. "Non divisi" sells 790 jt against an HPP of 60.000 — its items have no cost price, so its 100% margin is a data gap, not a result.</p>`}
+function s7(){const tabs=[['pl','Profit & loss'],['bs','Balance sheet'],['sales','Sales by division']];
+ return app(`<div class="content"><div class="rep-tools"><div class="segm">${tabs.map(([k,l])=>`<button type="button" data-act="rep" data-k="${k}" aria-pressed="${UI.rep===k}">${l}</button>`).join('')}</div>
+  ${UI.rep==='pl'?`<select class="in sm" style="width:auto" data-change="repunit" aria-label="Unit"><option value="all" ${UI.repUnit==='all'?'selected':''}>All units, compiled</option><option value="c001" ${UI.repUnit==='c001'?'selected':''}>C001 Cikupa</option></select>`:UI.rep==='bs'?'<span class="pill">C001 Cikupa · 31 Dec</span>':'<span class="pill">All units · Jan–Dec 2025</span>'}
+  <span class="pill">2025 vs 2024</span><span class="sp"></span>
+  ${UI.rep==='sales'?'':`<span class="muted">Detail</span><div class="segm">${[[1,'Summary'],[2,'Groups'],[4,'Accounts']].map(([k,l])=>`<button type="button" data-act="repdepth" data-k="${k}" aria-pressed="${UI.repDepth===k}">${l}</button>`).join('')}</div>`}
+  <button type="button" class="btn sm" data-act="toast" data-msg="Prints in the 7Soft layout, Indonesian headings">${I.print}Print</button></div>
+ ${UI.rep==='pl'?repPL():UI.rep==='bs'?repBS():repSales()}</div>`,
+ {crumb:'Reports',title:UI.rep==='pl'?'Profit & loss':UI.rep==='bs'?'Balance sheet':'Sales by division',icon:'book',actions:'<span class="muted">Figures from the five 7Soft exports, as sent</span>'})}
+
+/* ======================================================================
+   8 · Project advance — tranches into 1053, one settlement out
+   ====================================================================== */
+const PJT=[['2026-04-05','BKK/HO/2604/0011'],['2026-05-05','BKK/HO/2605/0009'],['2026-06-05','BKK/HO/2606/0014'],['2026-07-06','BKK/HO/2607/0010'],['2026-08-05','BKK/HO/2608/0008'],['2026-09-05','BKK/HO/2609/0012']].map(([d,no])=>({d,no,amt:25000000}));
+const PJI=[
+ {no:'SJT/INV/2604/018',d:'2026-04-28',what:'Survey & dismantle 6 old units',svc:true,dpp:8000000,cls:'6072'},
+ {no:'SJT/INV/2605/022',d:'2026-05-30',what:'2 × AC Daikin 5 PK floor standing',svc:false,dpp:64000000,cls:'1067'},
+ {no:'SJT/INV/2606/031',d:'2026-06-29',what:'Piping, ducting & drain installation',svc:true,dpp:18500000,cls:'1066'},
+ {no:'SJT/INV/2607/027',d:'2026-07-30',what:'Service & freon refill · 6 old units',svc:true,dpp:9200000,cls:'6072'},
+ {no:'SJT/INV/2608/035',d:'2026-08-28',what:'1 × AC Daikin 5 PK floor standing',svc:false,dpp:32000000,cls:'1067'},
+ {no:'SJT/INV/2609/029',d:'2026-09-24',what:'Commissioning & electrical panel',svc:true,dpp:7800000,cls:'1066'}];
+const PJCLS=[['1067','Asset · Air Conditioner','cap'],['1066','Asset · Instalasi ME','cap'],['6072','Expense · AC repair','exp']];
+const pjCls=i=>UI.pjCls[i]||PJI[i].cls;
+function pjCalc(){const adv=PJT.reduce((a,t)=>a+t.amt,0),by={};let ppn=0,wht=0,inv=0;PJI.forEach((x,i)=>{const c=pjCls(i);by[c]=(by[c]||0)+x.dpp;const v=Math.round(x.dpp*.11);ppn+=v;inv+=x.dpp+v;if(x.svc)wht+=Math.round(x.dpp*.02)});
+ return{adv,by,ppn,wht,inv,owe:inv-wht-adv}}
+function pjJournal(){const c=pjCalc(),L=[];PJCLS.forEach(([k])=>{if(c.by[k])L.push([k,GL[k],c.by[k],0])});L.push(['1048',GL['1048'],c.ppn,0]);L.push(['1053',GL['1053']+' · C001',0,c.adv]);if(c.wht)L.push(['2012',GL['2012'],0,c.wht]);if(c.owe>0)L.push(['2004',GL['2004']+' · CV Sejuk Teknik',0,c.owe]);else if(c.owe<0)L.push(['1053','Refund due from CV Sejuk Teknik — stays in 1053',-c.owe,0]);return L}
+function s8(){const c=pjCalc(),done=UI.posted.pj,months=['2026-04','2026-05','2026-06','2026-07','2026-08','2026-09'];
+ let ca=0,ci=0;const race=months.map(m=>{ca+=PJT.filter(t=>t.d.startsWith(m)).reduce((a,t)=>a+t.amt,0);ci+=PJI.filter(x=>x.d.startsWith(m)).reduce((a,x)=>a+Math.round(x.dpp*1.11),0);return[ca,ci]});
+ const tl=`<div class="tl">${months.map((m,i)=>`<div class="tlm"><h4>${dOf(m+'-01').toLocaleDateString('en-GB',{month:'short'})}<span class="muted" style="font-weight:400">${short(race[i][0])}</span></h4>${PJT.filter(t=>t.d.startsWith(m)).map(t=>`<div class="tr-chip">${I.out}<span>${short(t.amt)}</span></div>`).join('')}${PJI.filter(x=>x.d.startsWith(m)).map(x=>`<div class="iv-chip"><b>${short(Math.round(x.dpp*1.11))}</b><small>${esc(x.what)}</small></div>`).join('')}</div>`).join('')}</div>`;
+ const mxr=Math.max(ca,ci);
+ const raceHTML=`<div class="pj-race"><div class="rw"><span>Paid ahead · 1053</span><span class="trk"><i style="width:${ca/mxr*100}%;background:var(--ink)"></i></span><span>${fmt(ca)}</span></div><div class="rw"><span>Invoiced, incl. PPN</span><span class="trk"><i style="width:${ci/mxr*100}%;background:var(--c1)"></i></span><span>${fmt(ci)}</span></div></div>`;
+ const split=PJCLS.filter(([k])=>c.by[k]).map(([k,l,kind],j)=>[k,l,c.by[k],kind,j]);
+ const settle=`<table class="tbl"><thead><tr><th>Invoice</th><th>What</th><th class="r">DPP</th><th class="r">PPN 11%</th><th class="r">PPh 23</th><th style="width:210px">Goes to</th></tr></thead><tbody>${PJI.map((x,i)=>`<tr><td class="mono">${x.no}<br><span class="muted" style="font-family:Inter">${dayS(x.d)}</span></td><td style="white-space:normal">${esc(x.what)}${x.svc?' <span class="pill">service</span>':''}</td><td class="r num">${fmt(x.dpp)}</td><td class="r num">${fmt(Math.round(x.dpp*.11))}</td><td class="r num">${x.svc?fmt(Math.round(x.dpp*.02)):'—'}</td><td><select class="cls-sel ${PJCLS.find(p=>p[0]===pjCls(i))[2]}" data-change="pjcls" data-i="${i}" ${done?'disabled':''} aria-label="Account for ${x.no}">${PJCLS.map(([k,l])=>`<option value="${k}" ${pjCls(i)===k?'selected':''}>${k} · ${l}</option>`).join('')}</select></td></tr>`).join('')}</tbody>
+  <tfoot><tr><td colspan="2">6 invoices collected</td><td class="r num">${fmt(PJI.reduce((a,x)=>a+x.dpp,0))}</td><td class="r num">${fmt(c.ppn)}</td><td class="r num">${fmt(c.wht)}</td><td></td></tr></tfoot></table>`;
+ const jr=pjJournal(),dr=jr.reduce((a,x)=>a+x[2],0),cr=jr.reduce((a,x)=>a+x[3],0);
+ const right=`<section class="card pj-card"><b>The settlement</b>
+  <div class="split">${split.map(([k,,v,kind])=>`<i style="flex:${v};background:var(${kind==='cap'?(k==='1067'?'--c1':'--c7'):'--c2'})"></i>`).join('')}<i style="flex:${c.ppn};background:var(--c3)"></i></div>
+  <div class="legend">${split.map(([k,l,v,kind])=>`<span><i class="sw" style="background:var(${kind==='cap'?(k==='1067'?'--c1':'--c7'):'--c2'})"></i>${l.split(' · ')[1]} ${short(v)}</span>`).join('')}<span><i class="sw" style="background:var(--c3)"></i>PPN ${short(c.ppn)}</span></div>
+  <dl class="mini" style="margin-top:4px"><div><dt>Invoiced, incl. PPN</dt><dd>${fmt(c.inv)}</dd></div><div><dt>PPh 23 withheld (2%)</dt><dd>− ${fmt(c.wht)}</dd></div><div><dt>Paid ahead in 6 tranches</dt><dd>− ${fmt(c.adv)}</dd></div><div style="font-weight:600"><dt style="color:var(--ink)">${c.owe>=0?'Still owed to the contractor':'Contractor owes us back'}</dt><dd>${fmt(Math.abs(c.owe))}</dd></div></dl>
+  <details class="jr" open><summary>${I.book} Journal · ${jr.length} lines · ${dr===cr?'balanced':'out of balance'}</summary><table class="jmini">${jr.map(([k,n,d,cc])=>`<tr><td><span class="code">${k}</span> ${esc(n)}</td><td class="r">${d?fmt(d):''}</td><td class="r">${cc?fmt(cc):''}</td></tr>`).join('')}<tr><td><b>Total</b></td><td class="r"><b>${fmt(dr)}</b></td><td class="r"><b>${fmt(cr)}</b></td></tr></table></details>
+  ${done?`<div class="banner ok ${UI.flash?'anim':''}" style="margin:0">${I.check}<span>Settled as <b class="mono">JV/C001/2609/0018</b>. 1053 for this project is now 0. The ${fmt(c.owe)} still owed is a bill on the payables board, due 10 Oct.</span></div>
+  ${split.filter(x=>x[3]==='cap').map(([k,l,v])=>`<div class="assetrow"><span class="dir d-out">${I.box}</span><span style="flex:1"><b style="font-weight:500">${k==='1067'?'AC Daikin 5 PK × 3 — C001':'Piping, ducting & panel — C001'}</b><br><span class="muted">${GL[k]} · depreciates from Oct 2026</span></span><b class="num">${fmt(v)}</b></div>`).join('')}`
+  :`<button type="button" class="btn pri lg" data-act="post" data-k="pj" ${UI.posting==='pj'?'disabled aria-busy="true"':''}>${UI.posting==='pj'?'Settling…':`Settle the project · ${fmt(c.inv)}`}</button><p class="muted" style="font-size:13px">Settling creates ${split.filter(x=>x[3]==='cap').length} fixed assets and, for what is still owed, one bill.</p>`}</section>`;
+ const vs=`<section class="card pj-card"><b>How this differs from CIP</b><div class="vs"><div class="h"></div><div class="h">This · project advance</div><div class="h">CIP · aset dalam penyelesaian</div>
+  <div class="k">Money moves</div><div>Before any invoice — a tranche every month</div><div>As each invoice is booked</div>
+  <div class="k">Where it waits</div><div><span class="mono">1053</span> Advanced - To Contractors — current asset, per unit. The client's balance sheet already carries it (C001: 78,5 jt)</div><div>A non-current asset account — the client's chart has none</div>
+  <div class="k">At the end</div><div>One settlement splits it: assets, expense, PPN, PPh 23 — and what is still owed or refunded</div><div>One capitalisation into fixed assets; nothing goes to expense</div>
+  <div class="k">Tax</div><div>PPN and PPh 23 taken from the collected invoices at settlement</div><div>PPN and PPh 23 on each invoice as it lands</div>
+  <div class="k">Use it when</div><div>Work is paid ahead in tranches and mixes repair with new equipment</div><div>A build that ends as one asset — a store fit-out</div></div>
+  <p class="muted" style="font-size:13px">If a project crosses 31 Dec, settle what is already invoiced by year end, so the repair expense lands in the right year — the rest stays in 1053.</p></section>`;
+ const tabs=[['settle','Settle'],['tr','Tranches'],['inv','Invoices']];
+ const tabBody=UI.pjTab==='settle'?settle:UI.pjTab==='tr'?`<table class="tbl"><thead><tr><th>#</th><th>Paid</th><th>BKK</th><th>Posts</th><th class="r">Amount</th></tr></thead><tbody>${PJT.map((t,i)=>`<tr><td class="muted">${i+1}</td><td>${day(t.d)}</td><td class="mono">${t.no}</td><td class="muted">Dr 1053 Advanced - To Contractors (C001) · Cr 1005 BCA</td><td class="r num">${fmt(t.amt)}</td></tr>`).join('')}</tbody><tfoot><tr><td colspan="4">6 of 6 tranches paid</td><td class="r num">${fmt(c.adv)}</td></tr></tfoot></table>`
+  :`<table class="tbl"><thead><tr><th>Invoice</th><th>Received</th><th>What</th><th class="r">DPP + PPN</th><th>Posted?</th></tr></thead><tbody>${PJI.map(x=>`<tr><td class="mono">${x.no}</td><td>${day(x.d)}</td><td style="white-space:normal">${esc(x.what)}</td><td class="r num">${fmt(Math.round(x.dpp*1.11))}</td><td><span class="pill">Collected — posts at settlement</span></td></tr>`).join('')}</tbody></table>`;
+ return app(`<div class="content"><div class="pj-top"><section class="card pj-card"><div class="row"><span class="avatar lg">AC</span><div><b style="font-size:17px">AC replacement &amp; repair — C001 Cikupa</b><div class="muted">CV Sejuk Teknik · April – September 2026 · handover signed 24 Sep</div></div><span class="sp"></span>${done?'<span class="pill ok">Settled</span>':'<span class="pill info">Ready to settle</span>'}</div>
+  <div class="pj-facts"><div><small>Budget</small><b>${fmt(150000000)}</b></div><div><small>Paid ahead · 1053</small><b>${fmt(done?0:c.adv)}</b></div><div><small>Invoices collected</small><b>6 · ${short(c.inv)}</b></div><div><small>Still owed</small><b>${fmt(c.owe)}</b></div></div>${tl}${raceHTML}</section>${right}</div>
+  <div class="v1-bar"><div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" type="button" aria-selected="${UI.pjTab===k}" data-act="pjtab" data-k="${k}">${l}</button>`).join('')}</div></div>
+  <section class="card grid-card">${tabBody}</section><div style="height:16px"></div>${vs}</div>`,
+ {crumb:'Projects',title:'Project advance',icon:'box',pill:done?'<span class="pill ok">Settled</span>':'<span class="pill">Open</span>',no:'PRJ/C001/2604/AC',actions:`<button class="btn" data-act="go" data-s="4" data-led="1053">${I.book}Ledger 1053</button>`})}
+
+/* ======================================================================
+   9 · Store close — one day, every shop: till → drawer → deposit → bank → books
+   ====================================================================== */
+const STORES=[['C001','Cikupa'],['C002','Jambi'],['C003','Kebayoran'],['C004','Serang'],['C005','Balaraja'],['C006','Cilegon']];
+const STAGES=[['till','Till closed','waiting for the count'],['counted','Drawer counted','variance to settle'],['deposited','Deposited','cash on its way'],['banked','In the bank','ready to post'],['posted','Posted','sales & cash in the books']];
+const TEND=[['cash','Cash','--c1'],['debit','Debit','--c2'],['credit','Credit','--c3'],['qris','QRIS','--c4']];
+const CLOSE0={
+ C001:{st:'banked',t:{cash:29980000,debit:7120000,credit:350000,qris:1000000},float:2000000,counted:29930000,cashier:'Sari',slip:'BCA 0923881',bank:'26 Sep 19:40 · SETORAN TUNAI C001 CIKUPA',edc:[['BCA-01',3900000,3900000],['BCA-02',3220000,3345000]]},
+ C002:{st:'counted',t:{cash:21500000,debit:4380000,credit:0,qris:900000},float:1500000,counted:21315000,cashier:'Dewi',edc:[['MDR-01',4380000,4380000]]},
+ C003:{st:'posted',t:{cash:24310000,debit:5930000,credit:0,qris:1000000},float:2000000,counted:24310000,cashier:'Rina',slip:'BCA 0923877',bank:'26 Sep 18:55 · SETORAN TUNAI C003 KEBAYORAN',jv:'JV/C003/2609/0026',edc:[['BCA-01',5930000,5930000]]},
+ C004:{st:'till',t:{cash:15120000,debit:4150000,credit:0,qris:600000},float:1500000,cashier:'Yanti',edc:[['BCA-01',4150000,4150000]]},
+ C005:{st:'deposited',t:{cash:21650000,debit:5100000,credit:0,qris:650000},float:1500000,counted:21650000,cashier:'Lina',slip:'BCA 0923890',edc:[['BCA-01',5100000,5100000]]},
+ C006:{st:'posted',t:{cash:13900000,debit:3960000,credit:220000,qris:410000},float:1500000,counted:13880000,cashier:'Ayu',slip:'BCA 0923872',bank:'26 Sep 17:30 · SETORAN TUNAI C006 CILEGON',jv:'JV/C006/2609/0024',edc:[['BCA-01',4180000,4180000]]}};
+const CL=JSON.parse(JSON.stringify(CLOSE0));
+const clSales=r=>Object.values(r.t).reduce((a,v)=>a+v,0);
+const clVar=r=>r.counted==null?null:r.counted-r.t.cash;
+const clEdcOff=r=>(r.edc||[]).filter(([,a,b])=>a!==b);
+const VARLIM=50000;
+function clCard(code){const r=CL[code],name=STORES.find(s=>s[0]===code)[1],sales=clSales(r),v=clVar(r),sel=UI.clSel===code,edc=clEdcOff(r);
+ const vchip=v==null?'<span class="pill">not counted</span>':v===0?'<span class="pill ok">exact</span>':Math.abs(v)<=VARLIM?`<span class="pill ok">${v>0?'+':'−'}${fmt(Math.abs(v))}</span>`:`<span class="pill ${r.approved?'ok':'bad'}">${v>0?'+':'−'}${fmt(Math.abs(v))}${r.approved?' · approved':''}</span>`;
+ return `<button type="button" class="bcard ${sel?'sel':''}" data-act="clsel" data-c="${code}"><div class="top"><span class="code">${code}</span><span class="sup">${name}</span></div><div class="amt">Rp ${fmt(sales)}</div><div class="tbar">${TEND.map(([k,,c])=>r.t[k]?`<i style="flex:${r.t[k]};background:var(${c})" title="${k} ${fmt(r.t[k])}"></i>`:'').join('')}</div><div class="meta">Cash ${vchip}</div>${edc.length?`<span class="bnote warn">EDC ${edc.map(e=>e[0]).join(', ')}: batch ≠ receipts</span>`:''}</button>`}
+function clStep(n,title,state,body){return `<div class="cstep ${state}"><div class="cs-h"><span class="cs-n">${state==='done'?I.check:n}</span><b>${title}</b></div>${body}</div>`}
+function clDetail(code){const r=CL[code],name=STORES.find(s=>s[0]===code)[1],sales=clSales(r),v=clVar(r),si=STAGES.findIndex(s=>s[0]===r.st),st=i=>i<si||r.st==='posted'?'done':i===si?'now':'todo',edc=clEdcOff(r);
+ const needApprove=v!=null&&Math.abs(v)>VARLIM&&!r.approved;
+ const s1=clStep(1,'Sales · from the tills','done',`<table class="jmini">${TEND.filter(([k])=>r.t[k]).map(([k,l,c])=>`<tr><td><i class="sw" style="background:var(${c})"></i> ${l}</td><td class="r">${fmt(r.t[k])}</td></tr>`).join('')}<tr><td><b>Net sales</b></td><td class="r"><b>${fmt(sales)}</b></td></tr></table>`);
+ const s2=clStep(2,'Drawer · counted by '+r.cashier,v==null?'now':needApprove?'now':'done',v==null?`<p class="muted">The till closed at 21:04; the count has not come in. Cash expected: <b>${fmt(r.t.cash)}</b> + float ${fmt(r.float)}.</p><button type="button" class="btn sm" data-act="toast" data-msg="Pinged the store manager of ${name}">Remind the store</button>`
+  :`<table class="jmini"><tr><td>Cash sales (expected)</td><td class="r">${fmt(r.t.cash)}</td></tr><tr><td>Counted, float kept aside</td><td class="r">${fmt(r.counted)}</td></tr><tr><td><b>${v>=0?'Over':'Short'}</b></td><td class="r"><b class="${Math.abs(v)>VARLIM&&!r.approved?'warnt':''}">${v===0?'0':(v>0?'+':'−')+fmt(Math.abs(v))}</b></td></tr></table>
+  ${needApprove?`<label class="f" style="margin-top:8px"><span>Why<i class="req">*</i></span><select class="in sm" data-change="clreason"><option value="">Choose a reason…</option>${['Change given wrongly','A payout not recorded','Counterfeit note','Unknown — to investigate'].map(x=>`<option ${r.reason===x?'selected':''}>${x}</option>`).join('')}</select></label><button type="button" class="btn sm pri" style="margin-top:8px" data-act="clapprove" data-c="${code}">Approve · posts to cash shortage</button><p class="muted" style="font-size:12.5px">Over ${fmt(VARLIM)} needs a reason. Under it posts by itself.</p>`:Math.abs(v)>0?`<p class="muted" style="font-size:12.5px">${r.approved?`Approved · ${r.reason||'reason recorded'}`:'Within the '+fmt(VARLIM)+' tolerance — posts by itself'}.</p>`:''}`);
+ const s3=clStep(3,'Deposit',st(2),r.slip?`<table class="jmini"><tr><td>Slip</td><td class="r mono">${r.slip}</td></tr><tr><td>Amount</td><td class="r">${fmt(r.counted)}</td></tr><tr><td>Carried by</td><td class="r">${r.cashier}</td></tr></table><p class="muted" style="font-size:12.5px">Dr Cash in transit · Cr Cash on hand ${code}</p>`:`<p class="muted">No slip yet. The whole counted cash goes, never a part of it.</p>${si===1&&!needApprove?`<button type="button" class="btn sm" data-act="cladv" data-c="${code}">Record the deposit slip</button>`:''}`);
+ const s4=clStep(4,'Bank',st(3),r.bank?`<p style="font-size:13px"><span class="mono">${esc(r.bank)}</span></p><p class="muted" style="font-size:12.5px">Matched to the slip · difference 0</p>`:r.slip?`<p class="muted">Waiting for the BCA statement line.</p><button type="button" class="btn sm" data-act="cladv" data-c="${code}">Match the bank line</button>`:'<p class="muted">After the deposit.</p>');
+ const s5=clStep(5,'Books',st(4),r.jv?`<p style="font-size:13px">Posted as <span class="mono">${r.jv}</span></p><p class="muted" style="font-size:12.5px">Sales, tenders, cash & variance in one entry</p>`:r.bank?`<button type="button" class="btn sm pri" data-act="cladv" data-c="${code}">Post the day</button>`:'<p class="muted">Posts when the cash is in the bank.</p>');
+ return `<section class="card cl-detail"><div class="row" style="margin-bottom:12px"><span class="code">${code}</span><b style="font-size:17px">${name}</b><span class="muted">· Saturday 26 Sep · closed by ${r.cashier}</span><span class="sp"></span>${edc.length?`<span class="pill warn">EDC mismatch</span>`:''}<span class="pill ${r.st==='posted'?'ok':''}">${STAGES[si][1]}</span></div>
+ <div class="chain">${s1}${s2}${s3}${s4}${s5}</div>
+ <div class="edc"><b>EDC batches · per terminal</b><table class="tbl" style="margin-top:6px"><thead><tr><th>Terminal</th><th class="r">Receipts on the till</th><th class="r">Batch slip</th><th class="r">Difference</th><th></th></tr></thead><tbody>${(r.edc||[]).map(([t,a,b])=>`<tr><td class="mono">${t}</td><td class="r num">${fmt(b)}</td><td class="r num">${fmt(a)}</td><td class="r num ${a!==b?'warnt':''}">${a===b?'0':fmt(a-b)}</td><td>${a!==b?'<span class="muted" style="font-size:13px">a card swiped on the other machine? ask the store tonight</span>':'<span class="pill ok">matches</span>'}</td></tr>`).join('')}</tbody></table><p class="muted" style="font-size:12.5px;margin-top:6px">The acquirer pays the net of MDR a day later — that part is matched on Card &amp; EDC Settlement, not here.</p></div></section>`}
+function s9(){const codes=STORES.map(s=>s[0]),all=codes.map(c=>CL[c]),sales=all.reduce((a,r)=>a+clSales(r),0),vs=all.map(clVar).filter(v=>v!=null),shortT=vs.filter(v=>v<0).reduce((a,v)=>a+v,0),transit=all.filter(r=>r.st==='deposited').reduce((a,r)=>a+r.counted,0),done=all.filter(r=>r.st==='posted').length;
+ const days=[['2026-09-24','Thu 24'],['2026-09-25','Fri 25'],['2026-09-26','Sat 26'],['2026-09-27','Sun 27 · today']];
+ return app(`<div class="content"><div class="rep-tools"><div class="segm">${days.map(([d,l])=>`<button type="button" data-act="clday" data-d="${d}" aria-pressed="${d==='2026-09-26'}">${l}</button>`).join('')}</div><span class="sp"></span><div class="legend">${TEND.map(([,l,c])=>`<span><i class="sw" style="background:var(${c})"></i>${l}</span>`).join('')}</div></div>
+ <div class="kpis"><div class="card kpi"><small>Net sales · Sat 26 Sep</small><b>${fmt(sales)}</b><span>${codes.length} stores</span></div><div class="card kpi"><small>Closed all the way</small><b>${done} of ${codes.length}</b><span>posted to the books</span></div><div class="card kpi"><small>Cash short</small><b>${fmt(-shortT)}</b><span>${vs.filter(v=>Math.abs(v)>VARLIM).length} over the ${fmt(VARLIM)} tolerance</span></div><div class="card kpi"><small>Cash in transit</small><b>${fmt(transit)}</b><span>deposited, not on the statement yet</span></div></div>
+ <div class="board cl-board">${STAGES.map(([k,l,sub])=>{const cs=codes.filter(c=>CL[c].st===k);return `<div class="colm"><h3>${l}<span class="n">${cs.length}</span></h3><div class="muted" style="font-size:12.5px;margin:-6px 4px 2px">${sub}</div>${cs.map(clCard).join('')||'<div class="empty-col">Nothing here</div>'}</div>`}).join('')}</div>
+ ${UI.clSel?clDetail(UI.clSel):`<div class="card empty" style="margin-top:16px"><span class="empty-ico">${I.wallet}</span><b>Pick a store</b><p>Its day as one chain: what the tills took, what the drawer held, the slip, the bank line, the journal.</p></div>`}</div>`,
+ {crumb:'Store close',title:'Store close',icon:'wallet',actions:`<button class="btn" data-act="toast" data-msg="Daily cash & bank report, as 7Soft printed it">${I.print}Daily report</button>`})}
+
+/* ======================================================================
+   10 · Bank reconciliation statement, and the giro register
+   ====================================================================== */
+const RCACC=[['1005','BCA · Giro HO','reconciled to 27 Sep · 2 lines to explain','warn'],['1006','Mandiri · Giro HO','statement not imported since 20 Sep','bad'],['1010','BCA · Tabungan HO','reconciled to 26 Sep','ok']];
+const RC={book:1284750400,dit:[['26 Sep','BKM/HO/2609/0044','Deposit C005 Balaraja · slip BCA 0923890',21650000]],op:[['27 Sep','PE/HO/2609/0070','Langgeng Jaya Sentosa · transfer after the 15:00 cut-off',12450000]],cnb:[['27 Sep','TRSF CR 0192 SUMBER KOMPUTER',2150000]],dnb:[['27 Sep','TRSF DB 0098123 BUDI S',750000]]};
+function rcReport(){const s=x=>x.reduce((a,r)=>a+r[r.length-1],0),bank=RC.book-s(RC.dit)+s(RC.op)+s(RC.cnb)-s(RC.dnb);
+ const row=(r,sign)=>`<tr><td>${r[0]}</td><td class="mono">${esc(r[1])}</td><td>${r.length===4?esc(r[2]):''}</td><td class="r num">${sign}${fmt(r[r.length-1])}</td></tr>`;
+ const sec=(title,rows,sign,tot)=>`<tr class="rc-sec"><td colspan="3"><b>${title}</b></td><td></td></tr>${rows.map(r=>row(r,sign)).join('')}<tr class="rc-sub"><td colspan="3">Jumlah</td><td class="r num">${sign}${fmt(tot)}</td></tr>`;
+ return `<div class="rc-wrap"><div class="rc-side">${RCACC.map(([c,l,sub,t])=>`<button type="button" class="ta ${UI.rcAcc===c?'on':''}" data-act="rcacc" data-c="${c}" style="flex-direction:column;align-items:flex-start;gap:2px"><span class="row" style="gap:6px"><span class="code">${c}</span><b style="font-weight:500">${l}</b></span><span class="${t==='bad'?'warnt':'muted'}" style="font-size:12.5px">${sub}</span></button>`).join('')}
+ <div class="later" style="margin:12px 0 0"><b>Why issued giro is not on the list</b><span>A giro sits on 2005 Outstanding Giro until the statement clears it — the bank account is never credited early, so there is nothing outstanding against the bank. See the Giro tab.</span></div></div>
+ ${UI.rcAcc!=='1005'?`<div class="card empty"><span class="empty-ico">${I.bank}</span><b>${UI.rcAcc==='1006'?'Import the Mandiri statement first':'Reconciled — nothing outstanding'}</b><p>${UI.rcAcc==='1006'?'The last line imported is 20 Sep. A reconciliation against a stale statement proves nothing.':'Book and bank agree at 96.500.000 on 26 Sep.'}</p>${UI.rcAcc==='1006'?`<button type="button" class="btn" data-act="toast" data-msg="Pick the CSV from Mandiri Cash Management">Import statement</button>`:''}</div>`:
+ `<div class="paper rc-paper"><div class="pp-head"><div><div class="pp-co">HEAD OFFICE</div><div class="mono muted">Unit HO</div></div><div class="pp-title"><h2>REKONSILIASI BANK</h2><div class="mono">BCA Giro · 1005</div></div><div class="pp-date">Per tanggal<br><b>Minggu, 27 September 2026</b></div></div>
+ <table class="pp-tbl rc-tbl"><thead><tr><th style="width:70px">Tgl</th><th style="width:210px">Referensi</th><th>Keterangan</th><th class="r" style="width:160px">Jumlah (Rp)</th></tr></thead><tbody>
+ <tr class="rc-tot"><td colspan="3">Saldo menurut rekening koran</td><td class="r num">${fmt(bank)}</td></tr>
+ ${sec('Ditambah: setoran dalam perjalanan (sudah dibukukan, belum di rekening koran)',RC.dit,'',s(RC.dit))}
+ ${sec('Dikurangi: pembayaran belum didebet bank',RC.op,'−',s(RC.op))}
+ ${sec('Dikurangi: kredit bank belum dibukukan',RC.cnb,'−',s(RC.cnb))}
+ ${sec('Ditambah: debet bank belum dibukukan',RC.dnb,'',s(RC.dnb))}
+ <tr class="rc-tot"><td colspan="3">Saldo menurut buku (1005)</td><td class="r num">${fmt(RC.book)}</td></tr>
+ <tr><td colspan="3" style="text-align:right">Selisih</td><td class="r num"><b>0</b></td></tr></tbody></table>
+ <div class="pp-sign" style="grid-template-columns:repeat(3,1fr)">${['Dibuat oleh','Diperiksa','Disetujui'].map((l,i)=>`<div><span>${l}</span><b>${i===0?'Hari':'( ........................ )'}</b></div>`).join('')}</div></div>`}</div>
+ ${UI.rcAcc==='1005'?`<div class="row" style="margin-top:12px"><span class="muted">The two bank lines not yet in the books are the ones to explain before this is final.</span><span class="sp"></span><button type="button" class="btn" data-act="toast" data-msg="Opens Reconcile with those two lines">Explain 2 lines</button><button type="button" class="btn pri" data-act="toast" data-msg="Printed — A4 portrait, one copy">${I.print}Print</button></div>`:''}`}
+const GRO=[
+ {id:'g1',dir:'in',no:'BG 771204',bank:'BCA',who:'Agung Jaya Sentosa',amt:6342000,due:'2026-10-02',st:'wait'},{id:'g2',dir:'in',no:'BG 118930',bank:'Mandiri',who:'Toko Maju Jaya',amt:4250000,due:'2026-10-12',st:'wait'},{id:'g3',dir:'in',no:'BG 551027',bank:'BRI',who:'CV Sinar Abadi',amt:2980000,due:'2026-09-26',st:'wait'},{id:'g4',dir:'in',no:'BG 660311',bank:'BCA',who:'Agung Jaya Sentosa',amt:16105000,due:'2026-09-20',st:'cleared',at:'2026-09-21'},{id:'g5',dir:'in',no:'BG 402288',bank:'BNI',who:'Toko Maju Jaya',amt:1575000,due:'2026-09-17',st:'bounced',at:'2026-09-18'},
+ {id:'k1',dir:'out',no:'BG 456124',bank:'BCA',who:'Langgeng Jaya Sentosa',amt:33689000,due:'2026-10-12',st:'wait'},{id:'k2',dir:'out',no:'BG 456120',bank:'Mandiri',who:'CV Anugrah Textile',amt:12450000,due:'2026-10-03',st:'wait'},{id:'k6',dir:'out',no:'BG 456121',bank:'BCA',who:'PT Mode Kreasi Indonesia',amt:86000000,due:'2026-10-10',st:'wait'},{id:'k3',dir:'out',no:'BG 456123',bank:'BCA',who:'Sumber Komputer',amt:8374200,due:'2026-09-26',st:'cleared',at:'2026-09-26'},{id:'k5',dir:'out',no:'BG 456101',bank:'BCA',who:'PT Delta Tex',amt:5100000,due:'2026-09-19',st:'bounced',at:'2026-09-20'}];
+function rcGiro(){const G=GRO.filter(g=>g.dir===UI.giroDir).map(g=>({...g,...(UI.gv[g.id]||{})})),col=g=>g.st==='cleared'?'cleared':g.st==='bounced'?'bounced':lateBy(g.due)>=-7?'due':'wait',sum=a=>a.reduce((x,g)=>x+g.amt,0);
+ const card=g=>{const d=lateBy(g.due),c=col(g);const when=c==='cleared'?`Cleared ${dayS(g.at)}`:c==='bounced'?`<span class="warnt">Bounced ${dayS(g.at)}</span>`:d>0?`<span class="warnt">${d} d past due</span>`:`Due ${dayS(g.due)}`;
+  const acts=c==='wait'||c==='due'?(g.dir==='in'?`<button type="button" class="btn sm" data-act="gset" data-id="${g.id}" data-st="cleared">Deposit &amp; clear</button><button type="button" class="btn sm ghost" data-act="gset" data-id="${g.id}" data-st="bounced">Bounced</button>`:`<span class="pill info">Clears from the statement</span>`):c==='bounced'?(g.repl?`<span class="pill ok">Replaced · <span class="mono">${g.repl}</span></span>`:`<button type="button" class="btn sm" data-act="grepl" data-id="${g.id}">${I.undo} Replace</button>`):'';
+  return `<div class="gcard"><div class="top"><span class="mono" style="color:var(--ink)">${g.no}</span><span class="pill">${g.bank}</span><span class="sp"></span><span class="cd">${when}</span></div><div class="amt">Rp ${fmt(g.amt)}</div><div class="who">${esc(g.who)}</div><div class="acts">${acts}</div></div>`};
+ return `<div class="row" style="margin-bottom:12px"><div class="segm">${[['in','Received'],['out','Issued']].map(([k,l])=>`<button type="button" data-act="gdir" data-k="${k}" aria-pressed="${UI.giroDir===k}">${l}</button>`).join('')}</div><span class="muted">${UI.giroDir==='in'?'A received giro waits until it is deposited and clears':'An issued giro credits 2005 Outstanding Giro; the statement clears it — never typed'}</span></div>
+ <div class="board">${[['wait','Waiting'],['due','Due within 7 days'],['cleared','Cleared'],['bounced','Bounced']].map(([k,l])=>{const a=G.filter(g=>col(g)===k);return `<div class="colm"><h3>${l}<span class="n">${a.length}</span><span class="sum">${fmt(sum(a))}</span></h3>${a.map(card).join('')||'<div class="empty-col">Nothing here</div>'}</div>`}).join('')}</div>`}
+/* ======================================================================
+   10a · Bank per unit — every account a unit holds, printed as the bank book
+   ====================================================================== */
+const BUNITS=[['HO','Head office'],...STORES];
+const BACC={
+ HO:[['1005','Cash In Bank Giro Bank BCA HO','101100200100',1102450000],['1006','Cash In Bank Giro Bank MANDIRI HO','101100300100',398700000],['1010','Cash In Bank Tabungan Bank BCA HO','101101000100',96280000]],
+ C001:[['1005','Cash In Bank Giro Bank BCA C001','101100200101',21400000,34],['1011','Cash In Bank Tabungan Bank Mandiri C001','101101100101',39554075,6]],
+ C002:[['1005','Cash In Bank Giro Bank BCA C002','101100200102',17800000,25],['1011','Cash In Bank Tabungan Bank Mandiri C002','101101100102',12400000,4]],
+ C003:[['1005','Cash In Bank Giro Bank BCA C003','101100200103',19950000,29]],
+ C004:[['1005','Cash In Bank Giro Bank BCA C004','101100200104',9800000,17],['1012','Cash In Bank Tabungan Bank BRI C004','101101200104',6150000,3]],
+ C005:[['1005','Cash In Bank Giro Bank BCA C005','101100200105',14300000,23]],
+ C006:[['1005','Cash In Bank Giro Bank BCA C006','101100200106',8900000,15]]};
+function seeded(seed){let x=seed;return()=>{x=(x*1103515245+12345)%2147483648;return x/2147483648}}
+/* A store's bank book, the way it really moves: yesterday's cash banked each
+   morning, card settlements a day behind, a sweep to head office every
+   Monday, the bank's fee at month end. Generated, but by those rules. */
+function bankBook(unit,i){const [code,name,cfs,open,base]=BACC[unit][i],L=[];let bal=open,n=1;const r=seeded([...unit].reduce((h,ch)=>h*31+ch.charCodeAt(0),7)*97+i*13+7);
+ if(unit==='HO'&&code==='1005'){const from='2026-09-01';LED['1005'].forEach(l=>{L.push([l[0],l[1],`${l[3]} · ${l[4]}`,l[5],l[6]])});return{code,name,cfs,open:LBAL['1005']-L.reduce((a,l)=>a+l[3]-l[4],0),L}}
+ const tab=code!=='1005';
+ for(let d=1;d<=27;d++){const iso=`2026-09-${String(d).padStart(2,'0')}`,dow=dOf(iso).getDay();
+  if(unit==='HO'){if(d%6===2){const a=Math.round((20+r()*60)*1e6/1000)*1000;L.push([iso,`BKM/HO/2609/0${100+n++}`,tab?'Bunga & setoran antar rekening':'Transfer masuk dari unit',a,0])}if(d%9===4){const a=Math.round((15+r()*40)*1e6/1000)*1000;L.push([iso,`BKK/HO/2609/0${100+n++}`,'Pembayaran supplier',0,a])}continue}
+  if(!tab){if(dow!==0){const dep=Math.round(base*(0.8+r()*0.45)*1e6/1000)*1000;L.push([iso,`BKM/${unit}/2609/00${String(n++).padStart(2,'0')}`,`Setoran tunai penjualan ${dayS(plusDays(iso,-1))}`,dep,0]);bal+=dep;
+    const card=Math.round(base*0.2*(0.8+r()*0.4)*1e6/100)*100;L.push([iso,`BKM/${unit}/2609/00${String(n++).padStart(2,'0')}`,'Settlement kartu debit BCA (net MDR)',card,0]);bal+=card}
+   if(dow===1){const sw=Math.round((bal-12e6)/1e6)*1e6;if(sw>0){L.push([iso,`BKK/${unit}/2609/00${String(n++).padStart(2,'0')}`,'Sweeping ke rekening HO',0,sw]);bal-=sw}}}
+  else if(dow!==0&&d%2===0){const a=Math.round(base*0.35*(0.7+r()*0.6)*1e6/100)*100;L.push([iso,`BKM/${unit}/2609/00${String(n++).padStart(2,'0')}`,'Settlement kartu debit Mandiri (net MDR)',a,0]);bal+=a}}
+ L.push(['2026-09-25',`BKK/${unit}/2609/00${String(n++).padStart(2,'0')}`,'Biaya administrasi bank',0,tab?12500:15000]);
+ L.sort((a,b)=>a[0].localeCompare(b[0]));return{code,name,cfs,open,L}}
+function bankPaper(unit,i){const b=bankBook(unit,i),uname=BUNITS.find(u=>u[0]===unit)[1];let run=b.open;const dr=b.L.reduce((a,l)=>a+l[3],0),cr=b.L.reduce((a,l)=>a+l[4],0);
+ return `<div class="paper bp-paper"><div class="pp-head"><div><div class="pp-co">CENTRAL FASHION STORE</div><div class="mono muted">${unit} · ${uname}</div></div><div class="pp-title"><h2>LAPORAN MUTASI BANK</h2><div class="mono">${b.cfs}</div></div><div class="pp-date">Periode<br><b>1 – 27 September 2026</b></div></div>
+ <div class="pp-row"><span>Rekening</span><div class="line">${b.name} <span class="mono muted">${b.code}</span></div></div>
+ <table class="pp-tbl bp-tbl"><thead><tr><th style="width:74px">Tanggal</th><th style="width:150px">No. Bukti</th><th>Keterangan</th><th class="r" style="width:120px">Debet</th><th class="r" style="width:120px">Kredit</th><th class="r" style="width:130px">Saldo</th></tr></thead><tbody>
+ <tr class="rc-tot"><td colspan="5">Saldo awal 1 September 2026</td><td class="r">${fmt(b.open)}</td></tr>
+ ${b.L.map(l=>{run+=l[3]-l[4];return `<tr><td>${dOf(l[0]).toLocaleDateString('id-ID',{day:'2-digit',month:'2-digit'})}</td><td class="mono">${l[1]}</td><td>${esc(l[2])}</td><td class="r">${l[3]?fmt(l[3]):''}</td><td class="r">${l[4]?fmt(l[4]):''}</td><td class="r">${fmt(run)}</td></tr>`}).join('')}
+ <tr class="rc-sub"><td colspan="3">Jumlah mutasi · ${b.L.length} transaksi</td><td class="r">${fmt(dr)}</td><td class="r">${fmt(cr)}</td><td></td></tr>
+ <tr class="rc-tot"><td colspan="5">Saldo akhir 27 September 2026</td><td class="r">${fmt(run)}</td></tr></tbody></table>
+ <div class="pp-sign" style="grid-template-columns:repeat(3,1fr)">${['Dibuat oleh','Diperiksa',unit==='HO'?'Disetujui':'Kepala Toko'].map((l,k)=>`<div><span>${l}</span><b>${k===0?'Hari':'( ........................ )'}</b></div>`).join('')}</div>
+ <div class="bp-foot mono muted">Dicetak ${dayL(TODAY)} 10:14 · halaman ${i+1}</div></div>`}
+function bankPrint(){const u=UI.bpUnit,accs=BACC[u];if(UI.bpAcc>=accs.length)UI.bpAcc=0;
+ const side=`<div class="rc-side"><div class="tg" style="padding:6px 8px">Unit</div><div class="bp-units">${BUNITS.map(([c,n])=>`<button type="button" class="chip ${u===c?'on':''}" data-act="bpunit" data-u="${c}">${c}<span>${n}</span></button>`).join('')}</div>
+  <div class="tg" style="padding:12px 8px 6px">Accounts of ${u}</div>${accs.map((a,i)=>{const b=bankBook(u,i),close=b.open+b.L.reduce((x,l)=>x+l[3]-l[4],0);return `<button type="button" class="ta ${!UI.bpAll&&UI.bpAcc===i?'on':''}" data-act="bpacc" data-i="${i}" style="flex-direction:column;align-items:flex-start;gap:2px"><span class="row" style="gap:6px"><span class="code">${a[0]}</span><b style="font-weight:500;font-size:13.5px">${a[1].replace('Cash In Bank ','')}</b></span><span class="muted" style="font-size:12.5px">${b.L.length} lines · closes ${fmt(close)}</span></button>`}).join('')}
+  <button type="button" class="toggle ${UI.bpAll?'on':''}" data-act="bpall" style="margin-top:8px"><span class="sw2"></span><span><b style="font-weight:500">All ${accs.length} accounts</b><small>one print, a page each</small></span></button>
+  <button type="button" class="btn pri" style="margin-top:10px;width:100%" data-act="bpprint">${I.print} Print ${UI.bpAll?accs.length+' pages':'this account'}</button></div>`;
+ const papers=UI.bpAll?accs.map((_,i)=>bankPaper(u,i)).join(''):bankPaper(u,UI.bpAcc);
+ return `<div class="rc-wrap">${side}<div class="bp-papers">${papers}</div></div>`}
+
+function s10(){return app(`<div class="content"><div class="v1-bar" style="margin-top:0;margin-bottom:14px"><div class="tabs" role="tablist">${[['print','Print per unit'],['report','Reconciliation statement'],['giro','Giro register']].map(([k,l])=>`<button role="tab" type="button" aria-selected="${UI.rcTab===k}" data-act="rctab" data-k="${k}">${l}</button>`).join('')}</div></div>${UI.rcTab==='print'?bankPrint():UI.rcTab==='report'?rcReport():rcGiro()}</div>`,
+ {crumb:'Bank accounts',title:'Bank per unit',icon:'bank',actions:`<button class="btn" data-act="toast" data-msg="Opens the matcher (ERPNext shape) for BCA Giro HO">Open matcher</button>`})}
+
+/* ======================================================================
+   11 · Store P&L — what each shop earns before and after head office
+   ====================================================================== */
+const SPL={C001:[8640e6,5155e6,612e6,452e6,186e6,118e6,214e6],C002:[6120e6,3720e6,498e6,380e6,142e6,92e6,158e6],C003:[7410e6,4430e6,545e6,615e6,171e6,124e6,190e6],C004:[4380e6,2690e6,402e6,426e6,118e6,88e6,131e6],C005:[5260e6,3170e6,431e6,298e6,126e6,71e6,146e6],C006:[3150e6,1990e6,356e6,390e6,104e6,96e6,118e6]};
+const SPL_HO=2340e6;
+const SPLROWS=['Net sales','HPP','Gross profit','Staff','Rent','Electricity & utilities','Depreciation','Other store costs','Store contribution','Head office share','Net after head office'];
+function splCalc(){const tot=Object.values(SPL).reduce((a,v)=>a+v[0],0);return STORES.map(([c,n])=>{const [ns,hpp,staff,rent,util,dep,oth]=SPL[c],gp=ns-hpp,con=gp-staff-rent-util-dep-oth,ho=Math.round(SPL_HO*ns/tot);return{c,n,v:[ns,hpp,gp,staff,rent,util,dep,oth,con,ho,con-ho]}})}
+function s11(){const R=splCalc(),tot=R.reduce((a,r)=>r.v.map((x,i)=>a[i]+x),Array(11).fill(0)),withHO=UI.splHO,key=withHO?10:8,rank=R.slice().sort((a,b)=>b.v[key]/b.v[0]-a.v[key]/a.v[0]),mx=Math.max(...R.map(r=>r.v[key]/r.v[0]));
+ const rowsShown=SPLROWS.map((l,i)=>[l,i]).filter(([,i])=>withHO||i<9);
+ const bars=`<section class="card" style="padding:16px 18px;margin-bottom:14px"><div class="row" style="margin-bottom:10px"><b>${withHO?'Net after head office':'Store contribution'}, % of net sales · Jan–Sep 2026</b><span class="sp"></span><span class="muted">best to worst</span></div>${rank.map(r=>{const p=r.v[key]/r.v[0]*100;return `<div class="spl-bar"><span class="code">${r.c}</span><span class="nm">${r.n}</span><span class="trk"><i style="width:${Math.max(0,p/(mx*100)*100)}%;${p<5?'background:var(--c2)':''}"></i></span><span class="num">${p.toLocaleString('id-ID',{maximumFractionDigits:1})}%</span><span class="num muted" style="width:120px;text-align:right">${short(r.v[key])}</span></div>`}).join('')}</section>`;
+ const worst=rank[rank.length-1];
+ return app(`<div class="content"><div class="rep-tools"><span class="pill">Jan – Sep 2026</span><span class="pill">6 stores · HO shown apart</span><span class="sp"></span><button type="button" class="toggle ${withHO?'on':''}" data-act="splho" style="width:auto;padding:8px 12px"><span class="sw2"></span><span><b style="font-weight:500">Share head office costs</b><small>by sales · ${short(SPL_HO)}</small></span></button></div>
+ <div class="banner ${worst.v[key]/worst.v[0]<.05?'warn':'info'}">${I.alert}<span><b>${worst.c} ${worst.n}</b> keeps ${(worst.v[key]/worst.v[0]*100).toLocaleString('id-ID',{maximumFractionDigits:1})}% of its sales${withHO?' after its share of head office':''} — rent is ${pct(SPL[worst.c][3],SPL[worst.c][0])} of its sales against ${pct(tot[4],tot[0])} across all stores.</span></div>
+ ${bars}
+ <section class="card" style="overflow:auto"><table class="rtbl"><thead><tr><th>Jan–Sep 2026</th>${R.map(r=>`<th>${r.c}<br><span style="font-weight:400">${r.n}</span></th>`).join('')}<th>All stores</th></tr></thead><tbody>
+ ${rowsShown.map(([l,i])=>{const calc=[2,8,10].includes(i);return `<tr class="${calc?'calc':''} ${i===key?'key':''}"><td>${l}</td>${R.map(r=>`<td>${fmt(r.v[i])}${[2,8,10].includes(i)?`<br><span class="pct" style="display:inline">${pct(r.v[i],r.v[0])}</span>`:''}</td>`).join('')}<td>${fmt(tot[i])}${calc?`<br><span class="pct" style="display:inline">${pct(tot[i],tot[0])}</span>`:''}</td></tr>`}).join('')}</tbody></table></section>
+ <p class="muted" style="margin-top:8px">From <span class="mono">/api/v1/finance/reports/unit-results</span> — the endpoint exists; this is the screen it never had. A cell opens that store's ledger lines.</p></div>`,
+ {crumb:'Reports',title:'Store P&L',icon:'book',actions:`<button class="btn" data-act="toast" data-msg="Exports one sheet per store">Export</button>`})}
+
+/* ======================================================================
+   Wiring
+   ====================================================================== */
+const NAMES=[
+ [1,'Hari ini','"Note for Today" 7Soft sebagai satu kotak masuk finance: hutang & piutang jatuh tempo, giro 7 hari, uang muka yang menua, mutasi bank yang belum cocok, dan checklist tutup buku September. Setiap baris membuka tempat menyelesaikannya.'],
+ [2,'Jurnal','Journal entry dengan pola Klasik: kepala dua kolom + kotak total (debit, kredit, selisih). Contoh: akrual listrik September per toko yang otomatis dibalik 1 Oktober. Baris debit+kredit sekaligus langsung merah; tidak seimbang tidak bisa dibukukan. Coba template-nya.'],
+ [3,'Payment entry','Pola ERPNext Payment Entry dalam gaya Klasik: Bayar / Terima / Pindah kas. Alokasikan ke nota tertua, potongan PPh 23 dan biaya bank, sisa yang tidak teralokasi otomatis jadi uang muka. Tercetak sebagai BKK/BKM. Ubah nominal — alokasi ikut.'],
+ [4,'Buku besar','Kartu akun seperti Kartu Kas/Bank 7Soft: saldo awal, mutasi dengan saldo berjalan, grafik saldo (arahkan kursor), filter jenis voucher, September atau sejak awal tahun. Klik akun di kiri — 1053 menunjukkan 6 termin proyek AC.'],
+ [5,'Hutang','Papan hutang bergaya papan giro: kolom umur, centang nota lalu "Draft BKK" — satu BKK per supplier, transfer atau giro. Nota ditahan dan nota yang sudah punya giro draft tidak bisa dipilih. Yang dibayar di sini hilang dari Proyeksi.'],
+ [6,'Proyeksi bayar','Bukan cuma grafik: daftar bertanggal apa saja yang dibayar 3 bulan ke depan — per nota, per giro, per PO, gaji, BPJS, PPh 21/25, PLN, sewa, kontrak — dengan sumbernya (dokumen / PO / perkiraan) dan total berjalan. Kas hari ini cukup sampai tanggal berapa. Jan–Sep 2027 per kategori.'],
+ [7,'Laporan','Kelima file Excel dalam bentuk hub, angka asli: Laba rugi 2025 vs 2024 (kompilasi semua unit / C001 Cikupa, dicocokkan ke neraca), Neraca C001 (dicek seimbang), Penjualan per divisi dengan HPP, margin & mark-up. Lipat/buka per grup.'],
+ [8,'Proyek uang muka','Proyek AC C001 Cikupa 6 bulan: termin bulanan masuk ke 1053 Advanced - To Contractors, invoice dikumpulkan (belum dibukukan), lalu satu penyelesaian memecah totalnya ke aset AC, instalasi, biaya perbaikan, PPN & PPh 23, sisanya jadi hutang. Ubah "Goes to" per invoice. Dibandingkan dengan CIP.'],
+];
+NAMES.push(
+ [9,'Tutup toko','Satu hari, semua toko, dalam papan: kasir tutup → laci dihitung → setoran → masuk bank → dibukukan. Klik toko: rantai lima langkah dengan angkanya, selisih kas di atas 50.000 wajib alasan & persetujuan, dan batch EDC per terminal (C001: kartu dicolok di mesin lain?).'],
+ [10,'Bank per unit','Cetak rekening bank per unit: pilih unit (HO, C001–C006), pilih rekeningnya, dapat lembar Laporan Mutasi Bank — saldo awal, mutasi dengan saldo berjalan, jumlah, saldo akhir, tanda tangan Kepala Toko — atau semua rekening unit sekaligus (satu halaman per rekening). Tombol Print benar-benar mencetak. Tab lain: Laporan Rekonsiliasi Bank yang bisa dicetak (saldo rekening koran ± setoran dalam perjalanan, pembayaran belum didebet, mutasi belum dibukukan = saldo buku, selisih 0), per rekening, plus tab Giro dalam bentuk papan. Giro keluar sengaja tidak jadi item rekonsiliasi.'],
+ [11,'Laba rugi toko','Laba per toko Jan–Sep: kontribusi toko (sebelum HO) dan setelah bagian biaya HO (dibagi menurut penjualan), diurutkan terbaik → terburuk, dengan penjelasan kenapa yang terburuk. Memakai endpoint unit-results yang sudah ada.']);
+function buildProto(){document.getElementById('proto').innerHTML=`<div class="proto-top"><div class="brand"><b>Finance · pola Klasik</b><span>11 layar · Jurnal, Payment entry, Buku besar, Hutang, Proyeksi, Laporan, Proyek, Tutup toko, Rekonsiliasi, Laba toko</span></div></div>
+ <div class="vtabs" role="group" aria-label="Layar">${NAMES.map(([n,name])=>`<button data-act="v" data-v="${n}"><i>${n}</i>${name}</button>`).join('')}</div><p class="proto-why" id="why"></p>`}
+function syncProto(){document.querySelectorAll('.vtabs button').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.v===V));const n=NAMES.find(x=>x[0]===V);document.getElementById('why').innerHTML=`<b>${n[0]} · ${n[1]}</b>${n[2]} <span class="muted">— tombol 1–9, 0 ganti layar</span>`}
+const RENDER={1:s1,2:s2,3:s3,4:s4,5:s5,6:s6,7:s7,8:s8,9:s9,10:s10,11:s11};
+function render(fresh){const st=document.getElementById('stage');st.innerHTML=RENDER[V]();if(fresh){st.classList.remove('enter');void st.offsetWidth;st.classList.add('enter')}syncProto();refresh()}
+function refresh(){const set=(k,v)=>document.querySelectorAll(`[data-out="${k}"]`).forEach(n=>{n.textContent=v});
+ if(V===2){const t=jTot(),p=jProblems();set('jdr',fmt(t.dr));set('jcr',fmt(t.cr));document.querySelectorAll('[data-out="jdiff"]').forEach(n=>{n.textContent=t.diff?`Out by ${fmt(Math.abs(t.diff))}`:'Balanced';n.classList.toggle('bad',!!t.diff)});
+  J.lines.forEach((l,i)=>document.querySelectorAll(`[data-bind="j.dr.${i}"],[data-bind="j.cr.${i}"]`).forEach(n=>n.setAttribute('aria-invalid',l.dr&&l.cr?'true':'false')));
+  const f=document.querySelector('[data-act="jfill"]');if(f)f.disabled=!t.diff;const pb=document.getElementById('probs');if(pb)pb.innerHTML=probsBanner(p)}
+ if(V===3){const c=peCalc(),p=peProblems();set('pealloc',fmt(c.alloc));set('pewht',fmt(c.wht));set('pecharge',fmt(c.charge));set('peun',fmt(c.unalloc));set('pewords',terbilang(PE.paid));
+  PE.refs.forEach((r,i)=>document.querySelectorAll(`[data-bind="pe.alloc.${i}"]`).forEach(n=>{n.setAttribute('aria-invalid',p['r'+i]?'true':'false');if(document.activeElement!==n)n.value=r.alloc?fmt(r.alloc):''}));
+  const pb=document.getElementById('probs');if(pb)pb.innerHTML=probsBanner(p);if(UI.pTab==='jr'){const g=document.querySelector('.grid-card');if(g)g.innerHTML=peJournalHTML()}}}
+let toastTimer;
+function toast(msg,tone='ok'){const el=document.getElementById('toast');el.className='toast show '+tone;el.innerHTML=(tone==='bad'?I.alert:I.check)+'<span>'+esc(msg)+'</span>';clearTimeout(toastTimer);toastTimer=setTimeout(()=>{el.className='toast '+tone},2800)}
+const CHECK={j:()=>jProblems(true),p:()=>peProblems(true),pj:()=>({})};
+const DONE={j:()=>`${J.no} posted${J.reverse?' — reversal queued for 1 Oct':''}`,p:()=>'PE/HO/2609/0071 posted',pj:()=>'Project settled — 2 assets created, 3.975.000 billed'};
+function post(k){if(UI.posted[k]||UI.posting)return;const p=CHECK[k]();if(Object.keys(p).length){UI.tried[k]=true;render();toast(Object.values(p)[0],'bad');return}
+ UI.posting=k;render();setTimeout(()=>{UI.posting=null;UI.posted[k]=true;UI.tried[k]=false;UI.flash=true;render();UI.flash=false;toast(DONE[k]())},700)}
+const ACT={
+ v:b=>{V=+b.dataset.v;UI.menu=null;render(true);window.scrollTo({top:0,behavior:'smooth'})},
+ go:b=>{if(b.dataset.led)UI.led=b.dataset.led;V=+b.dataset.s;UI.menu=null;render(true);window.scrollTo({top:0,behavior:'smooth'})},
+ toast:b=>toast(b.dataset.msg),
+ post:b=>post(b.dataset.k),
+ unpost:b=>{UI.posted[b.dataset.k]=false;render()},
+ menu:b=>{UI.menu=UI.menu===b.dataset.m?null:b.dataset.m;UI.fresh=true;render();UI.fresh=false},
+ jkind:b=>{J.kind=b.dataset.k;if(b.dataset.k!=='accrual')J.reverse=false;render()},
+ jtab:b=>{UI.jTab=b.dataset.k;render()},
+ jrev:()=>{J.reverse=!J.reverse;if(!J.reverse&&UI.jTab==='mirror')UI.jTab='lines';render()},
+ jtpl:b=>{J=jFrom(JTPL[b.dataset.k]);UI.menu=null;UI.jTab='lines';UI.tried.j=false;render();toast('Template filled in — check the amounts')},
+ jadd:()=>{J.lines.push({acc:'',unit:'HO',desc:'',dr:0,cr:0});render()},
+ jdel:b=>{J.lines.splice(+b.dataset.i,1);render()},
+ jfill:()=>{const t=jTot(),l=J.lines[J.lines.length-1];if(!l)return;if(t.diff>0){l.cr+=t.diff}else{l.dr+=-t.diff}if(l.dr&&l.cr){const n=l.dr-l.cr;l.dr=Math.max(0,n);l.cr=Math.max(0,-n)}render()},
+ petype:b=>{PE=peFresh(b.dataset.k);UI.pTab=b.dataset.k==='transfer'?'ded':'refs';UI.tried.p=false;render()},
+ ptab:b=>{UI.pTab=b.dataset.k;render()},
+ pemethod:b=>{PE.method=b.dataset.k;if(PE.method==='cash'&&!['1002','1003'].includes(PE.account))PE.account='1002';if(PE.method!=='cash'&&['1002','1003'].includes(PE.account))PE.account='1005';render()},
+ pedue:b=>{PE.giro.due=plusDays(TODAY,+b.dataset.n);render()},
+ peget:()=>{PE.refs.forEach(r=>{r.alloc=0});PE.manual=false;peAllocate(PE);render();toast('Outstanding documents reloaded')},
+ pealloc:()=>{PE.manual=false;peAllocate(PE);render()},
+ ledacc:b=>{UI.led=b.dataset.c;UI.ledType='all';render()},
+ ledper:b=>{UI.ledPeriod=b.dataset.k;render()},
+ ledtype:b=>{UI.ledType=b.dataset.k;render()},
+ apsel:b=>{const id=b.dataset.id;UI.apSel.has(id)?UI.apSel.delete(id):UI.apSel.add(id);render()},
+ apmethod:b=>{UI.apMethod=b.dataset.k;render()},
+ apclear:()=>{UI.apSel.clear();render()},
+ appay:()=>{const sel=AP.filter(b=>UI.apSel.has(b.id)),sups=[...new Set(sel.map(b=>b.sup))];UI.apPaying=true;render();
+  setTimeout(()=>{sups.forEach((s,i)=>{const no=`BKK/HO/2609/00${58+Object.keys(UI.apPaid).length+i}`;sel.filter(b=>b.sup===s).forEach(b=>{UI.apPaid[b.id]=no})});UI.apSel.clear();UI.apPaying=false;render();toast(`${sups.length} BKK drafted by ${UI.apMethod} — ${sups.join(', ')}`)},700)},
+ paview:b=>{UI.paView=b.dataset.k;UI.paMonth=null;render()},
+ pacert:b=>{UI.paCert=b.dataset.k;render()},
+ pamonth:b=>{const i=+b.dataset.i;UI.paMonth=i;UI.paView=i<4?PA_BUCKETS[i][0]:'later';render()},
+ rep:b=>{UI.rep=b.dataset.k;UI.repTog={};render()},
+ repdepth:b=>{UI.repDepth=+b.dataset.k;UI.repTog={};render()},
+ reptog:b=>{UI.repTog[b.dataset.p]=b.dataset.o!=='1';render()},
+ salessort:b=>{UI.salesSort=b.dataset.k;render()},
+ pjtab:b=>{UI.pjTab=b.dataset.k;render()},
+ clsel:b=>{UI.clSel=UI.clSel===b.dataset.c?null:b.dataset.c;render()},
+ clday:b=>{toast(b.dataset.d==='2026-09-26'?'Saturday is the day still closing':'Every store closed and posted that day')},
+ clapprove:b=>{const r=CL[b.dataset.c];if(!r.reason){toast('Choose why the drawer was short first','bad');return}r.approved=true;render();toast(`Shortage of ${fmt(Math.abs(clVar(r)))} approved — posts to cash shortage`)},
+ cladv:b=>{const c=b.dataset.c,r=CL[c],i=STAGES.findIndex(s=>s[0]===r.st),next=STAGES[i+1][0];r.st=next;if(next==='deposited')r.slip='BCA 09239'+(10+Object.keys(CL).indexOf(c));if(next==='banked')r.bank='27 Sep 09:12 · SETORAN TUNAI '+c;if(next==='posted')r.jv=`JV/${c}/2609/0027`;render();toast(`${c} → ${STAGES[i+1][1]}`)},
+ rctab:b=>{UI.rcTab=b.dataset.k;render()},
+ bpunit:b=>{UI.bpUnit=b.dataset.u;UI.bpAcc=0;render()},
+ bpacc:b=>{UI.bpAcc=+b.dataset.i;UI.bpAll=false;render()},
+ bpall:()=>{UI.bpAll=!UI.bpAll;render()},
+ bpprint:()=>window.print(),
+ rcacc:b=>{UI.rcAcc=b.dataset.c;render()},
+ gdir:b=>{UI.giroDir=b.dataset.k;render()},
+ gset:b=>{UI.gv[b.dataset.id]={st:b.dataset.st,at:TODAY};render();toast(b.dataset.st==='cleared'?'Cleared into BCA · Giro':'Marked bounced — the invoices are open again',b.dataset.st==='bounced'?'bad':'ok')},
+ grepl:b=>{UI.gv[b.dataset.id]={...(UI.gv[b.dataset.id]||{}),st:'bounced',at:(GRO.find(g=>g.id===b.dataset.id).at||TODAY),repl:'BKM/HO/2609/0071'};render();toast('Replacement voucher started')},
+ splho:()=>{UI.splHO=!UI.splHO;render()},
+};
+const CHG={
+ jacc:el=>{J.lines[+el.dataset.i].acc=el.value;render()},
+ junit:el=>{J.lines[+el.dataset.i].unit=el.value},
+ peacc:el=>{PE.account=el.value;render()},
+ peto:el=>{PE.to=el.value;render()},
+ pacat:el=>{UI.paCat=el.value;render()},
+ repunit:el=>{UI.repUnit=el.value;UI.repTog={};render()},
+ pjcls:el=>{UI.pjCls[+el.dataset.i]=el.value;render()},
+ clreason:el=>{CL[UI.clSel].reason=el.value},
+};
+function regroup(el){const pos=el.selectionStart??el.value.length,before=el.value.length,v=digits(el.value);el.value=v?fmt(v):'';const np=Math.max(0,pos+(el.value.length-before));try{el.setSelectionRange(np,np)}catch(e){}}
+function BIND(k,el){const [a,b,c]=k.split('.');
+ if(a==='j'){if(b==='memo'||b==='ref')J[b]=el.value;else{const l=J.lines[+c];if(!l)return;if(b==='desc')l.desc=el.value;else l[b]=digits(el.value)}}
+ else if(a==='pe'){if(b==='paid'){PE.paid=digits(el.value);if(!PE.manual)peAllocate(PE)}else if(b==='alloc'){PE.refs[+c].alloc=digits(el.value);PE.manual=true}else if(b==='wht'||b==='charge')PE[b]=digits(el.value);else if(b==='ref')PE.ref=el.value;else if(b==='gno')PE.giro.no=el.value}
+ refresh()}
+
+/* Hover layer: the ledger's balance line and the monthly bars. */
+const tip=document.createElement('div');tip.className='tip';document.body.appendChild(tip);
+document.addEventListener('mousemove',e=>{const t=e.target.closest?.('[data-tip],[data-bar]');if(!t){tip.classList.remove('on');return}
+ if(t.dataset.bar!=null){const m=paMonthly()[+t.dataset.bar];tip.innerHTML=`<b>${m.full||({now:'Now — overdue & to 30 Sep',oct:'October 2026',nov:'November 2026',dec:'December 2026'}[m.key])}</b>${PCAT.filter(([k])=>m.by[k]).map(([k,l,c])=>`<div><span><i class="sw" style="background:var(${c})"></i>${l}${m.by[k].x&&!m.by[k].c?' · est.':''}</span><span>${short(m.by[k].c+m.by[k].x)}</span></div>`).join('')}<div style="border-top:1px solid var(--hairline);margin-top:4px;padding-top:4px"><span>Total</span><span><b style="display:inline;margin:0">${short(m.total)}</b></span></div>`}
+ else{const [a,b2,c]=t.dataset.tip.split('|');tip.innerHTML=`<b>${a}</b><div><span>${b2}</span></div><div><span>Balance</span><span>${c}</span></div>`}
+ const x=Math.min(e.clientX+14,innerWidth-tip.offsetWidth-8),y=Math.min(e.clientY+14,innerHeight-tip.offsetHeight-8);tip.style.left=x+'px';tip.style.top=y+'px';tip.classList.add('on')});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');
+ if(!b){if(UI.menu&&!e.target.closest('.menu')){UI.menu=null;render()}return}
+ if(b.disabled||(b.closest('fieldset[disabled]')&&!['v','go','jtab','ptab','toast','unpost','pjtab'].includes(b.dataset.act)))return;
+ ACT[b.dataset.act]?.(b,e)});
+document.addEventListener('input',e=>{const el=e.target;if(el.dataset.money!==undefined)regroup(el);if(el.dataset.bind)BIND(el.dataset.bind,el)});
+document.addEventListener('change',e=>{const el=e.target;if(el.dataset.change)CHG[el.dataset.change]?.(el)});
+document.addEventListener('keydown',e=>{
+ if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){if(V===2){e.preventDefault();post('j')}else if(V===3){e.preventDefault();post('p')}return}
+ if(e.key==='Escape'&&UI.menu){UI.menu=null;render();return}
+ if(/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)||e.metaKey||e.ctrlKey||e.altKey)return;
+ if(/^[0-9]$/.test(e.key)){V=e.key==='0'?10:+e.key;render(true)}});
+buildProto();render(true);
+</script>
+</body>
+</html>

@@ -139,7 +139,7 @@ const sightings: ColumnDef<TableSetup, Observation>[] = [
   },
   {
     accessorKey: "last_seen_at",
-    header: "Last seen",
+    header: "Last Seen",
     size: 160,
     // The decision metric on a sighting list: how fresh the evidence is.
     cell: ({ row }) => moment(row.original.last_seen_at),
@@ -180,7 +180,7 @@ const mismatches: ColumnDef<TableSetup, ObservationAnomaly>[] = [
   },
   {
     accessorKey: "ledger_pool",
-    header: "The books say",
+    header: "The Books Say",
     size: 200,
     /// The two pool columns are the whole question on this tab — "everything
     /// the books put in the DC that a reader saw elsewhere" is one clause on
@@ -199,7 +199,7 @@ const mismatches: ColumnDef<TableSetup, ObservationAnomaly>[] = [
   },
   {
     accessorKey: "observed_pool",
-    header: "The reader saw",
+    header: "The Reader Saw",
     size: 200,
     meta: { filter: { kind: "option" } },
     cell: ({ row }) => (
@@ -364,13 +364,13 @@ export function Observations() {
     <PageContent>
       <PageHeader
         crumb="Inventory"
-        title="Sightings"
+        title="Observations"
         sub="What the readers saw. Evidence, never a movement — the ledger is only ever corrected by a person."
       />
 
       <SubTabs
         tabs={[
-          { value: "sightings", label: "Sightings" },
+          { value: "sightings", label: "Observations" },
           {
             value: "anomalies",
             label: `Where they disagree${anomalies.data ? ` · ${anomalies.data.length}` : ""}`,
@@ -387,21 +387,19 @@ export function Observations() {
               value={pool}
               onChange={setPool}
               options={poolOptions}
-              placeholder="Every pool"
               className="max-w-72"
             />
             <Input
               value={text}
               onChange={(event) => setText(event.target.value)}
-              placeholder="Search tag, SKU, reader"
-              aria-label="Search sightings"
+              aria-label="Search observations"
               className="h-8 w-64"
             />
             <FilterPanel model={readModel} />
             <Toolbar.Spacer />
             {readHead && (
               <span className="text-meta text-mute tabular-nums">
-                {count(readHead.total)} sightings
+                {count(readHead.total)} observations
               </span>
             )}
             <Button onClick={() => setSubmitting(true)}>
@@ -419,8 +417,8 @@ export function Observations() {
                     {pool === "" &&
                     needle === "" &&
                     readFilters.filters.length === 0
-                      ? "No reader has reported a sighting to this node."
-                      : "No sighting matches what you asked for."}
+                      ? "No reader has reported an observation to this node."
+                      : "No observation matches what you asked for."}
                   </EmptyState>
                 ) : (
                   <DataTable<Observation>
@@ -547,8 +545,8 @@ function BatchSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
       >
         <p className="text-[0.875rem] text-mute">
           Reads of the same tag by the same reader inside the burst window are
-          folded into one sighting rather than counted forty times. Nothing here
-          moves stock.
+          folded into one observation rather than counted forty times. Nothing
+          here moves stock.
         </p>
 
         {send.isError && (
@@ -569,7 +567,6 @@ function BatchSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
                   value: item.id,
                   label: `${item.site_id} · ${item.label}`,
                 }))}
-                placeholder="Choose a pool"
                 className="h-9 w-full max-w-none"
               />
             </Field>
@@ -583,7 +580,6 @@ function BatchSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(event) => field.handleChange(event.target.value)}
-                placeholder="HH-DC-01"
               />
             </Field>
           )}
@@ -604,7 +600,6 @@ function BatchSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
                   onBlur={field.handleBlur}
                   onChange={(event) => field.handleChange(event.target.value)}
                   className="font-mono"
-                  placeholder={"A0000000000000000001\nA0000000000000000002"}
                 />
               </Field>
             )

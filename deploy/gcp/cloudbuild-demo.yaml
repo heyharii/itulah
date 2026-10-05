@@ -1,0 +1,12 @@
+# Quick demo build: only the three server binaries, opt-level 1, 32 cores.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
+    args: ["build", "--tag", "${_IMAGE}", "--file", "Dockerfile",
+           "--build-arg", "CARGO_PROFILE_RELEASE_OPT_LEVEL=1",
+           "--build-arg", "CARGO_BUILD_BINS=--bin cloud --bin dc --bin store", "."]
+images: ["${_IMAGE}"]
+options:
+  machineType: E2_HIGHCPU_32
+  logging: CLOUD_LOGGING_ONLY
+timeout: 5400s

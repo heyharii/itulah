@@ -587,7 +587,6 @@ export interface FieldSpec {
   readonly label: string
   readonly kind?: "text" | "money" | "date" | "select"
   readonly options?: readonly { value: string; label: string }[]
-  readonly placeholder?: string
   readonly required?: boolean
   readonly hint?: string
 }
@@ -612,7 +611,7 @@ export function NewRecord({
   onOpenChange,
   title,
   fields,
-  submitLabel = "Create",
+  submitLabel = "Submit",
   onSubmit,
 }: {
   open: boolean
@@ -711,7 +710,6 @@ export function NewRecord({
               <Input
                 value={values[f.name] ?? ""}
                 onChange={(e) => set(f.name, e.target.value)}
-                placeholder={f.placeholder}
               />
             )}
           </Field>
@@ -778,7 +776,6 @@ export function JournalGrid({
                 <Input
                   value={l.account_code}
                   onChange={(e) => set(i, { account_code: e.target.value })}
-                  placeholder="101100100106"
                   className="font-mono text-[0.875rem]"
                 />
                 <div
@@ -794,7 +791,6 @@ export function JournalGrid({
                 <Input
                   value={l.memo}
                   onChange={(e) => set(i, { memo: e.target.value })}
-                  placeholder="What this line is"
                 />
               </Cell>
               <Cell right>
@@ -803,7 +799,6 @@ export function JournalGrid({
                   onChange={(e) =>
                     set(i, { debit: e.target.value, credit: "" })
                   }
-                  placeholder="0"
                   className="text-right"
                 />
               </Cell>
@@ -813,7 +808,6 @@ export function JournalGrid({
                   onChange={(e) =>
                     set(i, { credit: e.target.value, debit: "" })
                   }
-                  placeholder="0"
                   className="text-right"
                 />
               </Cell>

@@ -75,6 +75,19 @@ struct Candidate<'a> {
     /// Worked out while gating, because that is where the campaign is already
     /// in hand. `None` is unbounded.
     ceiling: Option<Money>,
+    /// The shared campaign budget before this scenario starts. Its remaining
+    /// value is tracked as each rule is applied, because every candidate in
+    /// one basket must spend from the same envelope.
+    campaign_budget_remaining: Option<Money>,
+    /// Campaign uses available before this scenario starts. Uses continue to
+    /// count per applied rule, matching the usage ledger.
+    campaign_uses_remaining: Option<i64>,
+}
+
+struct Gate {
+    ceiling: Option<Money>,
+    campaign_budget_remaining: Option<Money>,
+    campaign_uses_remaining: Option<i64>,
 }
 
 /// One permitted outcome: what each line would come to, and what that is worth
@@ -279,7 +292,7 @@ fn gate(
     rule: &Rule,
     snapshot: &PricingSnapshot,
     context: &PricingContext,
-) -> Result<Option<Money>, RejectionReason> {
+) -> Result<Gate, RejectionReason> {
     if rule.status != RuleStatus::Active {
         return Err(RejectionReason::NotActive);
     }
@@ -363,18 +376,20 @@ fn gate(
         }
     }
 
-    // A rule may not give away more than its own cap, what is left of its own
-    // budget, or what is left of the campaign's.
-    //
-    // Two stackable rules under one campaign each see the whole remainder, so
-    // together they can still overshoot it. That is inherent to deciding at a
-    // till: the figure a shop holds is only as fresh as its last sync, and a
-    // budget here is a brake rather than a gate. What must not be exceeded is
-    // counted at the centre.
-    Ok(tighter(
-        tighter(rule.max_discount, rule.caps.remaining()),
-        campaign.and_then(|campaign| campaign.caps.remaining()),
-    ))
+    // The per-rule ceiling is fixed for this one application. Campaign caps
+    // are also retained separately: stackable candidates share their live
+    // remainder inside `run_scenario`, so a later offer cannot reuse what an
+    // earlier offer spent.
+    Ok(Gate {
+        ceiling: tighter(rule.max_discount, rule.caps.remaining()),
+        campaign_budget_remaining: campaign.and_then(|campaign| campaign.caps.remaining()),
+        campaign_uses_remaining: campaign.and_then(|campaign| {
+            campaign
+                .caps
+                .max_uses
+                .map(|max| max.saturating_sub(campaign.caps.used).max(0))
+        }),
+    })
 }
 
 /// The one limit a rule cannot answer out of its own document.
@@ -436,6 +451,13 @@ fn check_coupon(
     }
     if coupon.max_uses.is_some_and(|max| coupon.used >= max) {
         return Some(RejectionReason::CouponUsedUp);
+    }
+    // This legacy publication has no per-code authorization/reservation in the
+    // till. A finite global count read from the last sync is not safe under
+    // concurrent sales at different shops, so fail closed until redemption is
+    // routed through the cloud CouponSet lifecycle.
+    if coupon.max_uses.is_some() {
+        return Some(RejectionReason::CouponNeedsOnlineAuthorization);
     }
     match (&coupon.customer_id, &context.customer_id) {
         (Some(owner), Some(shopper)) if owner == shopper => {}
@@ -1081,6 +1103,8 @@ fn alongside_the_claim<'a>(
             matched,
             effect,
             ceiling: other.ceiling,
+            campaign_budget_remaining: other.campaign_budget_remaining,
+            campaign_uses_remaining: other.campaign_uses_remaining,
         });
     }
     Ok(beside)
@@ -1093,11 +1117,41 @@ fn run_scenario(
     context: &PricingContext,
 ) -> Result<Scenario, PricingError> {
     let mut scenario = Scenario::empty(states);
+    let mut campaign_budgets: BTreeMap<String, Money> = BTreeMap::new();
+    let mut campaign_uses: BTreeMap<String, i64> = BTreeMap::new();
+    for candidate in rules {
+        if let Some(campaign_id) = candidate.rule.campaign_id.as_ref() {
+            if let Some(remaining) = candidate.campaign_budget_remaining {
+                campaign_budgets
+                    .entry(campaign_id.clone())
+                    .or_insert(remaining);
+            }
+            if let Some(remaining) = candidate.campaign_uses_remaining {
+                campaign_uses.entry(campaign_id.clone()).or_insert(remaining);
+            }
+        }
+    }
     let mut ordered: Vec<&&Candidate<'_>> = rules.iter().collect();
     ordered.sort_by(|left, right| application_order(left.rule).cmp(&application_order(right.rule)));
 
     for candidate in ordered {
         let rule = candidate.rule;
+        let campaign_id = rule.campaign_id.as_deref();
+        if campaign_id.is_some_and(|id| campaign_uses.get(id).is_some_and(|left| *left <= 0)) {
+            scenario
+                .lapsed
+                .push((rule.rule_id.clone(), RejectionReason::UsageExhausted));
+            continue;
+        }
+        let campaign_ceiling = campaign_id
+            .and_then(|id| campaign_budgets.get(id).copied());
+        let ceiling = tighter(candidate.ceiling, campaign_ceiling);
+        if campaign_ceiling.is_some_and(|left| left.minor <= 0) {
+            scenario
+                .lapsed
+                .push((rule.rule_id.clone(), RejectionReason::BudgetSpent));
+            continue;
+        }
         // Re-measured here rather than trusted from the pre-pass: the basket
         // this rule is looking at is the one the rules before it have already
         // discounted. A rule that no longer reaches its threshold drops out of
@@ -1113,6 +1167,14 @@ fn run_scenario(
             else {
                 continue;
             };
+            // A free item is indivisible. If its full value would cross any
+            // remaining rule or campaign limit, the rule cannot be applied.
+            if ceiling.is_some_and(|limit| value.minor > limit.minor) {
+                scenario
+                    .lapsed
+                    .push((rule.rule_id.clone(), RejectionReason::BudgetSpent));
+                continue;
+            }
             scenario.benefit = scenario.benefit.try_add(value)?;
             scenario.applied.push(AppliedRule {
                 rule_id: rule.rule_id.clone(),
@@ -1127,6 +1189,7 @@ fn run_scenario(
             });
             scenario.free.push(free);
             scenario.note(rule);
+            charge_campaign(rule, value, &mut campaign_budgets, &mut campaign_uses)?;
             continue;
         }
         let (cut, line_benefits) = apply_price_effect(
@@ -1134,7 +1197,7 @@ fn run_scenario(
             &candidate.effect,
             states,
             &mut scenario.totals,
-            candidate.ceiling,
+            ceiling,
         )?;
         if !cut.is_positive() {
             continue;
@@ -1149,8 +1212,27 @@ fn run_scenario(
             line_benefits,
         });
         scenario.note(rule);
+        charge_campaign(rule, cut, &mut campaign_budgets, &mut campaign_uses)?;
     }
     Ok(scenario)
+}
+
+fn charge_campaign(
+    rule: &Rule,
+    benefit: Money,
+    budgets: &mut BTreeMap<String, Money>,
+    uses: &mut BTreeMap<String, i64>,
+) -> Result<(), PricingError> {
+    let Some(campaign_id) = rule.campaign_id.as_ref() else {
+        return Ok(());
+    };
+    if let Some(remaining) = budgets.get_mut(campaign_id) {
+        *remaining = remaining.try_sub(benefit)?.floor_at_zero();
+    }
+    if let Some(remaining) = uses.get_mut(campaign_id) {
+        *remaining = remaining.saturating_sub(1);
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -1606,8 +1688,8 @@ pub(crate) fn resolve(
     let mut advisory_candidates: Vec<Candidate<'_>> = Vec::new();
 
     for rule in &snapshot.rules {
-        let ceiling = match gate(rule, snapshot, context) {
-            Ok(ceiling) => ceiling,
+        let gate = match gate(rule, snapshot, context) {
+            Ok(gate) => gate,
             Err(reason) => {
                 rejected.push(RejectedRule::new(rule, reason));
                 continue;
@@ -1633,7 +1715,9 @@ pub(crate) fn resolve(
             rule,
             matched,
             effect,
-            ceiling,
+            ceiling: gate.ceiling,
+            campaign_budget_remaining: gate.campaign_budget_remaining,
+            campaign_uses_remaining: gate.campaign_uses_remaining,
         };
         if rule.is_earn() {
             earn_candidates.push(candidate);
@@ -2056,6 +2140,9 @@ pub(crate) fn check_coupon_code<'a>(
     }
     if coupon.max_uses.is_some_and(|max| coupon.used >= max) {
         return Err(RejectionReason::CouponUsedUp);
+    }
+    if coupon.max_uses.is_some() {
+        return Err(RejectionReason::CouponNeedsOnlineAuthorization);
     }
     match (&coupon.customer_id, &context.customer_id) {
         (Some(owner), Some(shopper)) if owner == shopper => {}

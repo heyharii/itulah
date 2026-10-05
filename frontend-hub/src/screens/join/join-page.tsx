@@ -6,10 +6,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Field, Input } from "@/components/ui/field"
 import { moment } from "@/lib/format"
-import {
-  acceptInvitation,
-  previewInvitation,
-} from "@/lib/queries/invitations"
+import { acceptInvitation, previewInvitation } from "@/lib/queries/invitations"
 import type { CloudMe } from "@itulah/contract"
 import { ApiError } from "@itulah/contract/client"
 
@@ -58,7 +55,13 @@ export function JoinPage({
 
         {preview.isError && <Expired error={preview.error} />}
 
-        {preview.data && <SetPassword token={token} preview={preview.data} onAccepted={onAccepted} />}
+        {preview.data && (
+          <SetPassword
+            token={token}
+            preview={preview.data}
+            onAccepted={onAccepted}
+          />
+        )}
       </div>
     </main>
   )
@@ -108,7 +111,10 @@ function SetPassword({
     },
     onSubmit: ({ value }) => {
       if (value.password !== value.confirm) return
-      accept.mutate({ username: value.username.trim(), password: value.password })
+      accept.mutate({
+        username: value.username.trim(),
+        password: value.password,
+      })
     },
   })
 

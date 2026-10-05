@@ -271,7 +271,11 @@ function PasswordSheet({
           </form.Field>
           <form.Field name="next">
             {(field) => (
-              <Field label="New password" required hint="At least 8 characters.">
+              <Field
+                label="New password"
+                required
+                hint="At least 8 characters."
+              >
                 <Secret
                   value={field.state.value}
                   onChange={(event) => field.handleChange(event.target.value)}

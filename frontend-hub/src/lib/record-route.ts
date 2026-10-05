@@ -50,7 +50,10 @@ const WHERE: Partial<Record<RecordKind, { to: string; sheet?: SheetKey }>> = {
 
   // Finance
   bill: { to: "/finance/payables/bills", sheet: "bill" },
-  bank_statement: { to: "/finance/cash-bank/bank-reconciliation", sheet: "statement" },
+  bank_statement: {
+    to: "/finance/cash-bank/bank-reconciliation",
+    sheet: "statement",
+  },
 
   // People
   employee: { to: "/people", sheet: "employee" },

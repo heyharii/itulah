@@ -3,11 +3,11 @@
 /**
  * What one pass down a batch achieved.
  */
-export type PaymentBatchRunOutcome = { batch_id: string, executed: number, skipped: number, failed: number, still_pending: number,
+export type PaymentBatchRunOutcome = { batch_id: string, executed: number, skipped: number, failed: number, still_pending: number, 
 /**
  * The batch's status after the pass.
  */
-status: string,
+status: string, 
 /**
  * Set when the HOLD policy stopped the run.
  */

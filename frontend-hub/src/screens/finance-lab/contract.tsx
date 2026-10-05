@@ -116,7 +116,7 @@ export function LabContract() {
           <Section title="Roles and the accounts that answer them">
             <>
               <Table
-                head={["Role", ">Binding", "Example account", "Narrowed by"]}
+                head={["Role", ">Binding", "Example Account", "Narrowed by"]}
               >
                 {roles.map((r) => {
                   const bs = BINDINGS.filter((b) => b.role === r)

@@ -4,6 +4,7 @@ import { Composer } from "@/components/assistant/composer"
 import { useAssistant } from "@/components/assistant/state"
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
+import { SHOW_MISSING } from "@/lib/features"
 import { count, money } from "@/lib/format"
 import { useBrief, type Brief } from "@/lib/queries/assistant"
 import { queryState } from "@/lib/query-state"
@@ -53,7 +54,11 @@ function Brief({ data }: { data: Brief }) {
       {/* A company still opening its stores sees what is left first. */}
       <SetupCard className="mt-6" />
 
-      <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div
+        className={`mt-6 grid gap-3 sm:grid-cols-2 ${
+          SHOW_MISSING ? "xl:grid-cols-4" : "xl:grid-cols-3"
+        }`}
+      >
         <BriefCard
           title="Trade today"
           detail={
@@ -80,8 +85,14 @@ function Brief({ data }: { data: Brief }) {
           detail={
             <>
               <Figure>{count(data.stock.on_hand)}</Figure> pieces on hand across{" "}
-              <Figure>{count(data.stock.sites)}</Figure> sites, with{" "}
-              <Figure>{count(data.stock.missing)}</Figure> unaccounted for.
+              <Figure>{count(data.stock.sites)}</Figure> sites
+              {SHOW_MISSING && (
+                <>
+                  , with <Figure>{count(data.stock.missing)}</Figure>{" "}
+                  unaccounted for
+                </>
+              )}
+              .
             </>
           }
           foot={
@@ -94,28 +105,31 @@ function Brief({ data }: { data: Brief }) {
           link={{ to: "/inventory", label: "See pools" }}
         />
 
-        <BriefCard
-          title="Missing"
-          detail={
-            data.missing.count === 0 ? (
-              <>Nothing is missing anywhere in the fleet.</>
-            ) : (
-              <>
-                <Figure>{count(data.missing.count)}</Figure> tags the fleet
-                expected to see and has not, covering{" "}
-                <Figure>{count(data.missing.quantity)}</Figure> pieces.
-              </>
-            )
-          }
-          foot={
-            data.missing.oldest_hours !== null ? (
-              <Big>
-                {count(Math.round(data.missing.oldest_hours / 24))} days oldest
-              </Big>
-            ) : undefined
-          }
-          link={{ to: "/inventory/missing", label: "See what is missing" }}
-        />
+        {SHOW_MISSING && (
+          <BriefCard
+            title="Missing"
+            detail={
+              data.missing.count === 0 ? (
+                <>Nothing is missing anywhere in the fleet.</>
+              ) : (
+                <>
+                  <Figure>{count(data.missing.count)}</Figure> tags the fleet
+                  expected to see and has not, covering{" "}
+                  <Figure>{count(data.missing.quantity)}</Figure> pieces.
+                </>
+              )
+            }
+            foot={
+              data.missing.oldest_hours !== null ? (
+                <Big>
+                  {count(Math.round(data.missing.oldest_hours / 24))} days
+                  oldest
+                </Big>
+              ) : undefined
+            }
+            link={{ to: "/inventory/missing", label: "See what is missing" }}
+          />
+        )}
 
         <BriefCard
           title="Commercial"
@@ -157,11 +171,7 @@ function Brief({ data }: { data: Brief }) {
             </button>
           ))}
         </div>
-        <Composer
-          reveal
-          className="mt-3"
-          placeholder="Ask about anything above…"
-        />
+        <Composer reveal className="mt-3" />
       </div>
     </>
   )

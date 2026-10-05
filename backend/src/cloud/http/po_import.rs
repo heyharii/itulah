@@ -25,6 +25,7 @@ use serde::Deserialize;
 
 use super::auth::Principal;
 use crate::cloud::application::{AppError, AppState};
+use crate::cloud::domain::uom::UnitLookup;
 use crate::cloud::intake::po::{
     self,
     draft::{apply_answers, PoImportAnswer, PoImportDraft},
@@ -74,7 +75,11 @@ pub async fn import_files(
             "Tidak ada file yang dikirim.".to_string(),
         ));
     }
-    let (reports, drafts) = po::ingest(&state.config.po_import, files).await;
+    let (reports, mut drafts) = po::ingest(&state.config.po_import, files).await;
+    let units = crate::cloud::postgres::unit_lookup(&state.db).await?;
+    for draft in &mut drafts {
+        match_units(&units, draft);
+    }
     Ok(Json(po::PoImportIngestResponse { reports, drafts }))
 }
 
@@ -87,9 +92,25 @@ pub struct ValidateRequest {
 
 /// Merge the wizard's answers into one draft, then re-ask what is left.
 pub async fn validate(
+    State(state): State<AppState>,
     Extension(_principal): Extension<Principal>,
     Json(request): Json<ValidateRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let draft = apply_answers(request.draft, &request.answers);
+    let mut draft = apply_answers(request.draft, &request.answers);
+    let units = crate::cloud::postgres::unit_lookup(&state.db).await?;
+    match_units(&units, &mut draft);
     Ok(Json(serde_json::json!({ "draft": draft })))
+}
+
+/// Match each line's printed unit to the units master: "lsn" is LUSIN. A
+/// word the master does not know stays printed with no code, so the review
+/// screen can ask for it rather than quietly ordering that many pieces.
+fn match_units(units: &UnitLookup, draft: &mut PoImportDraft) {
+    for line in &mut draft.lines {
+        line.unit_code = line
+            .unit
+            .as_deref()
+            .and_then(|printed| units.resolve(printed))
+            .map(str::to_owned);
+    }
 }

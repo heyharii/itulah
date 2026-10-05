@@ -161,7 +161,7 @@ function BpjsSheet({
       onClose={onClose}
       title="Update BPJS registration"
       error={save.error}
-      saveLabel="Save registration"
+      saveLabel="Submit"
       saving={save.isPending}
       canSave={from !== "" && reason.trim() !== ""}
       onSave={() => save.mutate()}
@@ -185,7 +185,6 @@ function BpjsSheet({
       <Field label="JKK risk class">
         <PickOne
           label="JKK risk class"
-          placeholder="Choose…"
           choices={["I", "II", "III", "IV", "V"].map((one) => ({
             value: one,
             label: one,

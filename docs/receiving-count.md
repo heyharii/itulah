@@ -107,6 +107,16 @@ settled later — never a reason to falsify the count. What happens to those 5
 pieces is decided at verification and is described in
 [receiving — verification](./receiving-verification.md) §4.
 
+Within the count the checker also writes how many pieces are **not the article
+the order names** — the supplier's picker put another colour, model or article
+in the carton (0829, the owner's `barang tidak sesuai pesanan`). The wrong
+pieces are part of the count, not a second count: they came on the same lorry
+and stand in the same pile. Matching runs on `counted − wrong`, and the wrong
+pieces leave with the excess on a purchase return
+([receiving — verification](./receiving-verification.md) §4). The count is
+still blind: naming what does not match leaks nothing about how much was
+ordered or what it costs.
+
 A count:
 
 - names one purchase line and one delivery;
@@ -141,8 +151,10 @@ key with a different body is refused rather than quietly answered.
 
 - **C1** The checker cannot see the ordered quantity or the agreed price while
   counting.
-- **C2** The checker never accepts their own count; acceptance is a second
-  person's act (see [verification](./receiving-verification.md)).
+- **C2** Acceptance is a decision of its own, never an edit of the count. Who
+  may accept — and whether that may be the checker, or the person who raised
+  the order — is role and permission (owner, 2026-10-04; see
+  [verification](./receiving-verification.md)).
 - **C3** A refused count is never overwritten. A recount is new evidence
   alongside it.
 

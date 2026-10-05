@@ -292,7 +292,6 @@ export function Returns() {
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search number or reason"
             className="h-8 w-56"
           />
         }
@@ -394,7 +393,7 @@ function ReturnSheet({
               <h4 className="mb-2 text-card-title font-semibold text-ink">
                 What came back
               </h4>
-              <MiniTable head={["Item", "Went to", "Qty", "Refund"]}>
+              <MiniTable head={["Item", "Went to", "Quantity", "Refund"]}>
                 {record.lines.map((line) => (
                   <tr key={line.id} className="border-t border-hairline">
                     <td className="py-2 pr-2">

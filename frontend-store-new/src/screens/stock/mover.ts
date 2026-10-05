@@ -104,7 +104,7 @@ export function useMover() {
     if (read.kind !== "epc") {
       setNote(
         read.kind === "sku"
-          ? "Moving stock needs the garment's own tag — a barcode names the product, not the piece in your hand."
+          ? "Moving stock needs the garment's own tag — a barcode names the article, not the piece in your hand."
           : `“${read.raw}” is not a tag this shop can read. Scan the RFID tag sewn into the garment.`,
       )
       return

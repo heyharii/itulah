@@ -20,8 +20,7 @@ float_in_minor: number, spent_minor: number,
  */
 balance_minor: number, top_up_count: number, expense_count: number, last_top_up_at: string | null, 
 /**
- * Sent so the screen can show the ceiling BEFORE somebody types past it.
- * A limit a person only meets as a refusal is a limit they meet with the
- * receipt already in their hand and the money already gone.
+ * Above this an expense needs Finance's code. Sent so the form asks for
+ * the code only when it is needed.
  */
-manager_limit_minor: number, };
+code_above_minor: number, };

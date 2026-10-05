@@ -8,11 +8,12 @@
 ///
 /// # Why it also runs in an ordinary browser
 ///
-/// The counter is the screen that gets looked at hardest, so it has to be
-/// workable in a normal browser tab while it is being designed. Outside Tauri
-/// there is no shell to ask, and rather than fake an answer — the one thing
-/// that teaches you a till works when it does not — every call reports the
-/// same honest refusal a dead node would.
+/// The web edition (`edition.ts`) is served from the node's own origin, so an
+/// ordinary call goes straight there through `web.ts` — a real answer from the
+/// real node. The desktop edition opened in a browser tab while it is being
+/// designed has no shell and no node, and says so rather than fake an answer.
+/// What only the shell can do (the pairing secret, the devices, a second
+/// window) refuses in either, in words that say why.
 
 export type EdgeReply<T = unknown> = {
   readonly ok: boolean
@@ -36,6 +37,9 @@ function heard<T>(reply: EdgeReply<T>): EdgeReply<T> {
   return reply
 }
 
+import { isWeb } from "@/edition"
+import { webEdge } from "@/web"
+
 type Invoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>
 
 /// Tauri injects this on the window. Read lazily rather than at module load:
@@ -54,8 +58,12 @@ const noShell = (what: string): EdgeReply<never> => ({
   status: 0,
   body: undefined as never,
   problem:
-    `Jendela ini dibuka di browser biasa, bukan di aplikasi kasir, ` +
-    `jadi ${what} tidak bisa dijangkau. Jalankan lewat “npm run tauri dev”.`,
+    isWeb
+      ? `Ini kasir versi web, jadi ${what} tidak tersedia — ` +
+        `hanya bisa lewat aplikasi kasir di mesin kasir.`
+      : `Jendela ini dibuka di browser biasa, bukan di aplikasi kasir, ` +
+        `jadi ${what} tidak bisa dijangkau. Jalankan lewat “npm run tauri dev”, ` +
+        `atau pakai versi web: “npm run dev:web”.`,
 })
 
 /// Ask the node for something. `path` is a path — the shell decides which
@@ -67,7 +75,9 @@ export async function edge<T>(
   body?: unknown,
 ): Promise<EdgeReply<T>> {
   const invoke = bridge()
-  if (invoke === null) return noShell("node toko")
+  if (invoke === null) {
+    return isWeb ? webEdge<T>(method, path, body) : noShell("node toko")
+  }
   return heard(await invoke<EdgeReply<T>>("edge_call", { method, path, body }))
 }
 
@@ -83,7 +93,11 @@ export async function signedEdge<T>(
   body?: unknown,
 ): Promise<EdgeReply<T>> {
   const invoke = bridge()
-  if (invoke === null) return noShell("node toko")
+  if (invoke === null) {
+    // The pairing secret lives only in the shell. A browser tab has none to
+    // sign with, so fingerprint and PIN sign-in are not offered here.
+    return noShell("sidik jari dan PIN")
+  }
   return heard(
     await invoke<EdgeReply<T>>("edge_signed_call", { method, path, body }),
   )

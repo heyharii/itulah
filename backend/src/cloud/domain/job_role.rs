@@ -85,6 +85,11 @@ pub fn section_label(code: &str) -> &'static str {
 /// Which servers a job role signs in at (0635).
 pub const NODE_REACH: [&str; 3] = ["NONE", "UNIT", "EVERY"];
 
+/// Which units a job role's holders reach in the hub (0700): `OWN` is the one
+/// they are posted to, `EVERY` is all of them. Where, never what — sections
+/// still decide what.
+pub const UNIT_REACH: [&str; 2] = ["OWN", "EVERY"];
+
 /// What a session knows of the caller's job role.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct JobGrant {
@@ -93,6 +98,9 @@ pub struct JobGrant {
     pub flow_roles: Vec<FlowRole>,
     pub sections: Vec<String>,
     pub read_only: bool,
+    /// `job_role.unit_reach = 'EVERY'` (0700): the role works on every unit's
+    /// records — head office's departments. False reaches the posting's unit.
+    pub every_unit: bool,
 }
 
 impl JobGrant {
@@ -105,6 +113,7 @@ impl JobGrant {
             flow_roles: FlowRole::ALL.to_vec(),
             sections: SECTIONS.iter().map(|s| (*s).to_owned()).collect(),
             read_only: false,
+            every_unit: true,
         }
     }
 
@@ -116,7 +125,9 @@ impl JobGrant {
         flow_roles: &[String],
         sections: Vec<String>,
         read_only: bool,
+        unit_reach: &str,
     ) -> Self {
+        let every_unit = code == OWNER || code == ADMIN || unit_reach == "EVERY";
         Self {
             code,
             name,
@@ -126,6 +137,7 @@ impl JobGrant {
                 .collect(),
             sections,
             read_only,
+            every_unit,
         }
     }
 
@@ -199,6 +211,9 @@ pub const SECTION_RULES: &[SectionRule] = &[
     // A shop manager clears their own shift's or count's item off the
     // attention queue (`required_role` says why this is not an accounting act).
     rule("/api/v1/finance/attention", &["finance", "stores"], Reads::Same),
+    // GA files an asset under a class and shows the class's name, so GA reads
+    // the list; defining a class stays Finance's.
+    rule("/api/v1/finance/asset-classes", &["finance"], Reads::Also(&["ga"])),
     rule("/api/v1/payment-terms", &["finance"], Reads::Open),
     rule("/api/v1/store-money", &["finance", "stores"], Reads::Same),
     // ── stores: a store's own page and opening checklist ───────────────
@@ -230,11 +245,20 @@ pub const SECTION_RULES: &[SectionRule] = &[
         &["procurement"],
         Reads::Also(&["finance"]),
     ),
+    // Goods beyond an order going back to the supplier (0710): raised by the
+    // buyer, read by the warehouse and Merchandise's Return to supplier book.
+    rule(
+        "/api/v1/purchase-returns",
+        &["procurement"],
+        Reads::Also(&["merchandise", "inventory", "operations", "finance"]),
+    ),
     rule("/api/v1/purchase-destinations", &["procurement"], Reads::Open),
     rule(
         "/api/v1/suppliers",
         &["procurement", "finance"],
-        Reads::Also(&["merchandise"]),
+        // GA picks the vendor on a repair, a service task and a contract, and
+        // reads the book; adding or changing a supplier stays Procurement's.
+        Reads::Also(&["merchandise", "ga"]),
     ),
     rule(
         "/api/v1/supplier-items",
@@ -353,7 +377,12 @@ pub const SECTION_RULES: &[SectionRule] = &[
     // GA is the department that FILES a fact — a door is broken, the lease
     // ends in sixty days — and a shop manager files them for their shop
     // (`required_role` says why reads and writes are one rung here).
-    rule("/api/v1/ga", &["ga", "stores"], Reads::Same),
+    // In the hub a shop manager may read GA but not write it: no session in
+    // the hub is bound to one shop, so a write here could touch any shop's
+    // records. A shop files its repairs and supply requests from the store
+    // app, whose calls arrive relayed (`relay.rs` pins them to the node's own
+    // site) and never reach this gate.
+    rule("/api/v1/ga", &["ga"], Reads::Also(&["stores"])),
     rule("/api/v1/letters", &["ga", "people"], Reads::Same),
     // ── system ─────────────────────────────────────────────────────────
     rule("/api/v1/auth/users", &["system"], Reads::Same),
@@ -501,6 +530,7 @@ mod tests {
             flow_roles: Vec::new(),
             sections: sections.iter().map(|s| (*s).to_owned()).collect(),
             read_only,
+            every_unit: false,
         }
     }
 
@@ -543,6 +573,22 @@ mod tests {
         // Reading the order book is Finance's too, for matching bills.
         assert!(section_gate("GET", "/api/v1/purchase-orders", &finance).is_ok());
         assert!(section_gate("GET", "/api/v1/ga/overview", &finance).is_err());
+    }
+
+    #[test]
+    fn ga_reads_what_its_forms_pick_from_and_shops_only_read_ga_in_the_hub() {
+        let ga = job("GA", &["ga"], false);
+        assert!(section_gate("GET", "/api/v1/suppliers", &ga).is_ok());
+        assert!(section_gate("POST", "/api/v1/suppliers", &ga).is_err());
+        assert!(section_gate("GET", "/api/v1/finance/asset-classes", &ga).is_ok());
+        assert!(section_gate("POST", "/api/v1/finance/asset-classes", &ga).is_err());
+        assert!(section_gate("GET", "/api/v1/finance/assets", &ga).is_err());
+        assert!(section_gate("POST", "/api/v1/ga/repairs", &ga).is_ok());
+
+        let shop = job("STORE_MANAGER", &["stores", "sales", "inventory"], false);
+        assert!(section_gate("GET", "/api/v1/ga/repairs", &shop).is_ok());
+        assert!(section_gate("POST", "/api/v1/ga/repairs", &shop).is_err());
+        assert!(section_gate("POST", "/api/v1/ga/repairs/R-1/approve", &shop).is_err());
     }
 
     #[test]

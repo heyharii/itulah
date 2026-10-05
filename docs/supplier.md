@@ -16,7 +16,7 @@ nothing in purchasing exists before a supplier does:
 | What a buyer has picked out of the catalogue | [the buyer's basket](./sourcing-basket.md) |
 | The commitment to buy | [purchase order](./purchase-order.md) |
 | A lorry arrives, one person counts | [receiving — count](./receiving-count.md) |
-| A second person accepts, stock exists | [receiving — verification](./receiving-verification.md) |
+| The count is accepted, stock exists | [receiving — verification](./receiving-verification.md) |
 | Finance matches the bill, books it, pays | [supplier bill](./supplier-bill.md) |
 | The goods get our own identity | [product master](./product-master.md) |
 
@@ -431,7 +431,7 @@ and each waits on §10.
 | **P7** | The supplier list silently stops at 200 and throws away `total` | `queries/procurement.ts:700` | Use `supplierPage`, show the count, page or search server-side |
 | **P8** | No bank account, tax id or terms on the master | §7 | Three columns and a section on the sheet; needed before any payment run |
 | **P9** | No test covers a supplier write | `sourcing_integration.rs` uses `create_supplier` only as a fixture | §11 |
-| **P10** | `UpdateSupplierItemRequest` carries the ts-rs derive but is not named in `contract_types.rs`, so the published contract has no such type and the hub hand-writes it | `frontend-contract/src/contract/` lacks it while a stale copy sits in `backend/bindings/contract/` from 2026-09-05; the hand-written one is `queries/procurement.ts:321` | Name it in `contract_types.rs` (`NullablePatch` needs a ts-rs form), or declare the hand-written type the contract and say so where it is written |
+| **P10** | `UpdateSupplierItemRequest` carries the ts-rs derive but is not named in `contract_types.rs`, so the published contract has no such type and the hub hand-writes it | `frontend-contract/src/contract/` lacks it; the hand-written one is `queries/procurement.ts:321`. (The stale second copy under `backend/bindings/contract/` this note used to point at was deleted on 28 Sep 2026 — it was a `ts_rs` artefact written by a test run without the `../frontend-contract/src` override, and nothing referenced it.) | Name it in `contract_types.rs` (`NullablePatch` needs a ts-rs form), or declare the hand-written type the contract and say so where it is written |
 | **P11** | A misspelled filter on the catalogue narrows nothing and says nothing; the same mistake on the supplier book is refused | `http/suppliers.rs:36` vs `:257` | `deny_unknown_fields` on `SourcingQuery` too |
 | **P12** | Three envelopes for one idea — `rows`, `items`, and `{items, limit, next_cursor}` with no total and a cursor that is not the list's own order | `postgres/suppliers.rs:451`, `:933`, `:1509` | One envelope: `rows`, `next_cursor`, `total`, `facets` |
 | **P13** | The facets are recomputed identically for every page of one scroll — 19–372 ms of server execution at 2,814 items, measured in two sessions (§4.2) | `postgres/suppliers.rs:1346` | Count them only when no cursor was presented, or cache per (search, status) |

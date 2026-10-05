@@ -174,7 +174,7 @@ function GroupSheet({
       title={row ? row.name : "Add group company"}
       id={row?.code}
       error={save.error ?? remove.error}
-      saveLabel="Save group company"
+      saveLabel="Submit"
       saving={save.isPending}
       canSave={
         code.trim() !== "" &&
@@ -198,20 +198,14 @@ function GroupSheet({
           value={code}
           readOnly={row !== null}
           onChange={(e) => setCode(e.target.value.toUpperCase())}
-          placeholder="INDUK"
         />
       </Field>
       <Field label="Name" required>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="PT Induk Usaha"
-        />
+        <Input value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
       <Field label="Relation" required>
         <PickOne
           label="Relation"
-          placeholder="Choose…"
           choices={RELATIONS}
           value={relation}
           onChange={setRelation}
@@ -259,7 +253,7 @@ function BusinessUnitList({
               ) : (
                 <MiniTable
                   head={[
-                    { label: "Business unit", align: "left" },
+                    { label: "Business Unit", align: "left" },
                     { label: "Units", align: "left" },
                   ]}
                 >
@@ -333,7 +327,7 @@ function BusinessUnitSheet({
       title={row ? row.name : "Add business unit"}
       id={row?.code}
       error={save.error}
-      saveLabel="Save business unit"
+      saveLabel="Submit"
       saving={save.isPending}
       canSave={code.trim() !== "" && name.trim() !== "" && reason.trim() !== ""}
       onSave={() => save.mutate()}
@@ -343,15 +337,10 @@ function BusinessUnitSheet({
           value={code}
           readOnly={row !== null}
           onChange={(e) => setCode(e.target.value.toUpperCase())}
-          placeholder="RETAIL"
         />
       </Field>
       <Field label="Name" required>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Retail"
-        />
+        <Input value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
       <Field
         label="Units"

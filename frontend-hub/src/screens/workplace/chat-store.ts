@@ -119,7 +119,9 @@ export async function refreshMessage(
     before: seq + 1,
   })
   if (message === undefined || message.seq !== seq) return
-  client.setQueryData<ChatMessage[]>(key, (held) => upsertMessage(held, message))
+  client.setQueryData<ChatMessage[]>(key, (held) =>
+    upsertMessage(held, message)
+  )
 }
 
 /// The thread of one conversation, and a way to scroll back through it.
@@ -157,7 +159,8 @@ export function useThread(conversationId: string) {
   const inFlight = useRef<Promise<void> | null>(null)
 
   const messages = query.data
-  const oldest = messages !== undefined && messages.length > 0 ? messages[0].seq : null
+  const oldest =
+    messages !== undefined && messages.length > 0 ? messages[0].seq : null
   const hasOlder = oldest !== null && oldest > 1
 
   /// One page further back. Calls while one is already on its way wait for
@@ -208,7 +211,11 @@ export function useThread(conversationId: string) {
       // Newer than anything held — an alert or a search hit for a line that
       // arrived since the window was read: bring the window up to date first.
       const held = client.getQueryData<ChatMessage[]>(windowKey)
-      if (held !== undefined && held.length > 0 && held[held.length - 1].seq < seq) {
+      if (
+        held !== undefined &&
+        held.length > 0 &&
+        held[held.length - 1].seq < seq
+      ) {
         await client.refetchQueries({ queryKey: windowKey, exact: true })
       }
       for (let step = 0; step < 40; step += 1) {
@@ -218,7 +225,11 @@ export function useThread(conversationId: string) {
         await loadOlder()
         const after = client.getQueryData<ChatMessage[]>(windowKey)
         // Nothing came back: stop rather than spin on a failing request.
-        if (after === undefined || after.length === 0 || after[0].seq === held[0].seq) {
+        if (
+          after === undefined ||
+          after.length === 0 ||
+          after[0].seq === held[0].seq
+        ) {
           return false
         }
       }
@@ -272,7 +283,9 @@ function setOutbox(next: readonly OutboxItem[]) {
 }
 
 function patchItem(key: string, patch: Partial<OutboxItem>) {
-  setOutbox(outbox.map((item) => (item.key === key ? { ...item, ...patch } : item)))
+  setOutbox(
+    outbox.map((item) => (item.key === key ? { ...item, ...patch } : item))
+  )
 }
 
 function getOutbox() {
@@ -416,13 +429,19 @@ const DRAFT_PREFIX = "itulah.chat.draft."
 
 export function readDraft(owner: string, conversationId: string): string {
   try {
-    return localStorage.getItem(`${DRAFT_PREFIX}${owner}.${conversationId}`) ?? ""
+    return (
+      localStorage.getItem(`${DRAFT_PREFIX}${owner}.${conversationId}`) ?? ""
+    )
   } catch {
     return ""
   }
 }
 
-export function writeDraft(owner: string, conversationId: string, text: string) {
+export function writeDraft(
+  owner: string,
+  conversationId: string,
+  text: string
+) {
   try {
     const key = `${DRAFT_PREFIX}${owner}.${conversationId}`
     if (text.trim() === "") localStorage.removeItem(key)

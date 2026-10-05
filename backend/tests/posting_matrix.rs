@@ -6,19 +6,19 @@
 //! owner's rules as restated for this run, and `ACCOUNT-DECISIONS.md` for which
 //! meaning lands where. It is deliberately not generated from the database's
 //! own policy columns (`posting_mode`, `manual_je_policy`, `dimension`,
-//! `requires_counter_site`, `account_source_rule`, `account_map`): a test that
+//! `requires_counter_site`, `account_source_rule`, `account_resolution`): a test that
 //! read its expectations off the thing it tests would prove nothing.
 //!
 //! Against a fresh database with every migration, this test drives:
 //!
-//! * a balanced Finance HO manual journal on every account at `dc` and at
-//!   `store-01`, through the real HTTP router as an ADMIN (the role the
+//! * a balanced Finance HO manual journal on every account at head office and
+//!   at `store-01`, through the real HTTP router as an ADMIN (the role the
 //!   router demands for `POST /api/v1/finance/journal`), and the same request
 //!   as a store CASHIER and a store SUPERVISOR, which must be refused;
 //! * an automatic (rule-kind) posting naming every account directly, at both
 //!   sites, through the poster — the path a supplier bill's hand-chosen
 //!   expense line takes;
-//! * every `account_map` row (meaning × site × qualifier): it resolves to an
+//! * every `account_resolution` row (role × unit × source): it resolves to an
 //!   active leaf, and a minimal balanced entry through that meaning posts —
 //!   or is refused where the rules say the target may not sit there;
 //! * the affiliate convention: no unit line on 1057/1058/1059, no head-office
@@ -45,7 +45,10 @@ use uuid::Uuid;
 const ADMIN_PASSWORD: &str = "admin-password-posting-matrix-1";
 const CASHIER_PASSWORD: &str = "cashier-password-posting-matrix-1";
 const SUPERVISOR_PASSWORD: &str = "supervisor-password-posting-matrix-1";
-const HO: &str = "dc";
+/// Head office's UNIT id — books are keyed by unit since 0605, and 0600 creates
+/// exactly this one everywhere. `dc` is a *site* (a premises), which is a
+/// different thing and is why nothing here spells it.
+const HO: &str = "ho";
 const UNIT: &str = "store-01";
 const ACTOR: &str = "posting-matrix";
 const AMOUNT: i64 = 1_000;
@@ -385,7 +388,7 @@ fn config() -> AppConfig {
         cors_allowed_origins: None,
         media: None,
         attachments: None,
-        default_destination_site_id: "dc".into(),
+        default_destination_site_id: String::new(),
         assistant_api_key: None,
         assistant_base_url: "https://openrouter.ai/api/v1".into(),
         assistant_model: "anthropic/claude-opus-5".into(),
@@ -446,11 +449,11 @@ async fn a_user(
     sign_in(app, username, password).await
 }
 
-fn json_line(account: &str, site: &str, counter: Option<&str>, debit: i64, credit: i64) -> Value {
+fn json_line(account: &str, unit: &str, counter: Option<&str>, debit: i64, credit: i64) -> Value {
     json!({
         "account": { "kind": "account", "account_code": account },
-        "site_id": site,
-        "counter_site_id": counter,
+        "unit_id": unit,
+        "counter_unit_id": counter,
         "debit_minor": debit,
         "credit_minor": credit,
     })
@@ -593,13 +596,13 @@ fn probe_expectation(expectation: &str) -> &str {
 /// incomplete". Returns what could not be described, as data.
 async fn describe_bank_accounts(pool: &PgPool) -> Vec<(String, String, String)> {
     let rows = sqlx::query(
-        "SELECT DISTINCT account_code, site_id, qualifier,
-                CASE semantic_key WHEN 'bank_giro' THEN 'GIRO'
-                                  WHEN 'bank_savings' THEN 'SAVINGS'
-                                  ELSE 'TIME_DEPOSIT' END AS kind
-           FROM account_map
-          WHERE semantic_key IN ('bank_giro', 'bank_savings', 'time_deposit')
-          ORDER BY account_code, site_id",
+        "SELECT DISTINCT account_code, unit_id, source_id,
+                CASE role WHEN 'bank_giro' THEN 'GIRO'
+                          WHEN 'bank_savings' THEN 'SAVINGS'
+                          ELSE 'TIME_DEPOSIT' END AS kind
+           FROM account_resolution
+          WHERE role IN ('bank_giro', 'bank_savings', 'time_deposit')
+          ORDER BY account_code, unit_id",
     )
     .fetch_all(pool)
     .await
@@ -607,14 +610,14 @@ async fn describe_bank_accounts(pool: &PgPool) -> Vec<(String, String, String)> 
     let mut refused = Vec::new();
     for (n, row) in rows.iter().enumerate() {
         let ledger: String = row.get("account_code");
-        let site: String = row.get("site_id");
-        let bank: String = row.get("qualifier");
+        let unit: String = row.get("unit_id");
+        let bank: String = row.get("source_id");
         let kind: String = row.get("kind");
         let described = cloud::describe_account(
             pool,
             &cloud::DescribeBankAccountRequest {
                 ledger_account_code: ledger.clone(),
-                site_id: site.clone(),
+                unit_id: unit.clone(),
                 bank_code: Some(bank.clone()),
                 bank_name: String::new(),
                 account_no: format!("77{:08}", n + 1),
@@ -628,7 +631,7 @@ async fn describe_bank_accounts(pool: &PgPool) -> Vec<(String, String, String)> 
         )
         .await;
         if let Err(error) = described {
-            refused.push((ledger, site, format!("{bank}: {error}")));
+            refused.push((ledger, unit, format!("{bank}: {error}")));
         }
     }
     refused
@@ -817,7 +820,7 @@ async fn every_account_every_path_matches_the_written_rules(pool: PgPool) {
             let counter = row.wants_counter().then(|| the_other_side(site));
             let mut line = PostingLine::debit(code(account), site, AMOUNT);
             if let Some(counter) = counter {
-                line = line.with_counter_site(counter);
+                line = line.with_counter_unit(counter);
             }
             let (got, message, _) = post_as(
                 &pool,
@@ -843,7 +846,7 @@ async fn every_account_every_path_matches_the_written_rules(pool: PgPool) {
             if expectation.starts_with("ONLY:") {
                 let mut line = PostingLine::debit(code(account), site, AMOUNT);
                 if let Some(counter) = counter {
-                    line = line.with_counter_site(counter);
+                    line = line.with_counter_unit(counter);
                 }
                 let (got, message, _) = post_as(
                     &pool,
@@ -870,7 +873,7 @@ async fn every_account_every_path_matches_the_written_rules(pool: PgPool) {
 
         // ── 5. Which meanings land here, against what the documents say ─────
         let mapped: Vec<(String, String, String)> = sqlx::query_as(
-            "SELECT semantic_key, site_id, qualifier FROM account_map
+            "SELECT role, unit_id, source_id FROM account_resolution
               WHERE account_code = $1 ORDER BY 1, 2, 3",
         )
         .bind(account)
@@ -884,7 +887,7 @@ async fn every_account_every_path_matches_the_written_rules(pool: PgPool) {
                 "meaning:expected_none",
                 account,
                 "*",
-                "account_map",
+                "account_resolution",
                 mapped.is_empty(),
                 &format!(
                     "no meaning may map here; the map has {} rows: {keys}",
@@ -902,14 +905,14 @@ async fn every_account_every_path_matches_the_written_rules(pool: PgPool) {
                 for spec in specs.split(';') {
                     let spec = parse_spec(spec);
                     let rows: Vec<(String, String, String)> = sqlx::query_as(
-                        "SELECT m.site_id, m.qualifier, m.account_code
-                           FROM account_map m JOIN site s ON s.id = m.site_id
-                          WHERE m.semantic_key = $1
-                            AND (CASE WHEN $3 THEN m.qualifier LIKE $2 || '%'
-                                      ELSE m.qualifier = $2 END)
+                        "SELECT r.unit_id, r.source_id, r.account_code
+                           FROM account_resolution r JOIN unit u ON u.id = r.unit_id
+                          WHERE r.role = $1
+                            AND (CASE WHEN $3 THEN r.source_id LIKE $2 || '%'
+                                      ELSE r.source_id = $2 END)
                             AND ($4::text IS NULL
-                                 OR ($4 = 'HO' AND s.id = 'dc')
-                                 OR ($4 = 'UNIT' AND s.id <> 'dc'))
+                                 OR ($4 = 'HO' AND u.kind = 'HO')
+                                 OR ($4 = 'UNIT' AND u.kind <> 'HO'))
                           ORDER BY 1, 2",
                     )
                     .bind(&spec.key)
@@ -960,18 +963,23 @@ async fn every_account_every_path_matches_the_written_rules(pool: PgPool) {
         }
     }
 
-    // ── 6. Every account_map row resolves and posts ─────────────────────────
-    let map_rows: Vec<(String, String, String, String)> = sqlx::query_as(
-        "SELECT semantic_key, site_id, qualifier, account_code FROM account_map ORDER BY 1, 2, 3",
+    // ── 6. Every account_resolution row resolves and posts ──────────────────
+    // `source_type` travels with each row: a meaning linked to a master record
+    // (an expense category, a supplier, an asset class) resolves THROUGH that
+    // source, and looking it up as the company's default finds nothing. The
+    // column is read here and passed on, rather than assumed to be COMPANY.
+    let map_rows: Vec<(String, String, String, String, String)> = sqlx::query_as(
+        "SELECT role, unit_id, source_type, source_id, account_code FROM account_resolution ORDER BY 1, 2, 3, 4",
     )
     .fetch_all(&pool)
     .await
     .unwrap_or_else(|error| panic!("map rows: {error}"));
     let meanings_tested = map_rows.len();
     let mut dead_rows: BTreeMap<String, usize> = BTreeMap::new();
-    for (key, site, qualifier, _) in &map_rows {
+    for (key, site, source_type, qualifier, _) in &map_rows {
         let detail = format!("{key}({qualifier})");
-        let resolved = match cloud::resolve_account(&pool, key, site, qualifier).await {
+        let resolved =
+            match cloud::resolve_account_from(&pool, key, site, source_type, qualifier).await {
             Ok(resolved) => resolved.account_code,
             Err(error) => {
                 m.assert(
@@ -1026,7 +1034,7 @@ async fn every_account_every_path_matches_the_written_rules(pool: PgPool) {
         let (want, why) = match affiliate_counter.as_deref() {
             Some(other) if site != HO && other != HO => (
                 "REFUSE".to_string(),
-                "I8 (unit ↔ unit is forbidden; the counter-site of a unit line is always dc)"
+                "I8 (unit ↔ unit is forbidden; a unit line's counter is always head office)"
                     .to_string(),
             ),
             Some(other) if site == HO && other == HO => (
@@ -1052,9 +1060,14 @@ async fn every_account_every_path_matches_the_written_rules(pool: PgPool) {
             row.filter(|row| row.wants_counter())
                 .map(|_| the_other_side(site).to_string())
         });
-        let mut line = PostingLine::debit(key.as_str(), site, AMOUNT).with_qualifier(qualifier);
+        // Resolved the way the row is linked: a meaning tied to a master record
+        // (`EXPENSE_CATEGORY`, an asset class, a supplier) is reached through
+        // that source, and a plain qualifier would look for the company's
+        // default link, which a per-category chart does not keep.
+        let mut line = PostingLine::debit(key.as_str(), site, AMOUNT)
+            .from_source(source_type, qualifier);
         if let Some(counter) = &counter {
-            line = line.with_counter_site(counter);
+            line = line.with_counter_unit(counter);
         }
         let (got, message, _) = try_post(
             &pool,
@@ -1093,7 +1106,7 @@ async fn every_account_every_path_matches_the_written_rules(pool: PgPool) {
     }
 
     // ── 7. The affiliate convention through the balancer ────────────────────
-    let units: Vec<String> = sqlx::query_scalar("SELECT id FROM site WHERE id <> 'dc' ORDER BY id")
+    let units: Vec<String> = sqlx::query_scalar("SELECT id FROM unit WHERE kind <> 'HO' ORDER BY id")
         .fetch_all(&pool)
         .await
         .unwrap_or_else(|error| panic!("units: {error}"));
@@ -1122,7 +1135,7 @@ async fn every_account_every_path_matches_the_written_rules(pool: PgPool) {
                 );
                 let Some(entry) = entry else { continue };
                 let legs: Vec<(String, String, Option<String>)> = sqlx::query_as(
-                    "SELECT site_id, account_code, counter_site_id FROM journal_line
+                    "SELECT unit_id, account_code, counter_unit_id FROM journal_line
                       WHERE entry_id = $1 AND account_code <> '8008' ORDER BY line_number",
                 )
                 .bind(entry)
@@ -1143,7 +1156,7 @@ async fn every_account_every_path_matches_the_written_rules(pool: PgPool) {
                     unit,
                     &detail,
                     right,
-                    &format!("unit {hutang} counter dc, HO {piutang} counter {unit}; got {legs:?}"),
+                    &format!("unit {hutang} counter head office, HO {piutang} counter {unit}; got {legs:?}"),
                 );
             }
         }
@@ -1173,9 +1186,11 @@ async fn every_account_every_path_matches_the_written_rules(pool: PgPool) {
             let bad: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*)::bigint FROM journal_line
                   WHERE entry_id = $1 AND account_code <> '8008'
-                    AND (counter_site_id IS NULL
-                         OR (site_id <> 'dc' AND counter_site_id <> 'dc')
-                         OR (site_id = 'dc' AND counter_site_id = 'dc'))",
+                    AND (counter_unit_id IS NULL
+                         OR (unit_id <> head_office_unit_id()
+                             AND counter_unit_id <> head_office_unit_id())
+                         OR (unit_id = head_office_unit_id()
+                             AND counter_unit_id = head_office_unit_id()))",
             )
             .bind(entry)
             .fetch_one(&pool)
@@ -1203,13 +1218,13 @@ async fn every_account_every_path_matches_the_written_rules(pool: PgPool) {
             "REFUSE",
             got,
             &message,
-            "I8 (counter-site of a unit line is always dc)",
+            "I8 (a unit line's counter is always head office)",
         );
         let (got, message, _) = post_as(
             &pool,
             "PAYMENT",
             vec![
-                PostingLine::debit(code(hutang), UNIT, AMOUNT).with_counter_site("store-02"),
+                PostingLine::debit(code(hutang), UNIT, AMOUNT).with_counter_unit("store-02"),
                 PostingLine::credit(code("8008"), UNIT, AMOUNT),
             ],
             DIRECT,
@@ -1223,7 +1238,7 @@ async fn every_account_every_path_matches_the_written_rules(pool: PgPool) {
             "REFUSE",
             got,
             &message,
-            "I8 (counter-site of a unit line is always dc)",
+            "I8 (a unit line's counter is always head office)",
         );
     }
     for piutang in PIUTANG {
@@ -1233,7 +1248,7 @@ async fn every_account_every_path_matches_the_written_rules(pool: PgPool) {
             "affiliate:self_counter",
             piutang,
             HO,
-            "manual counter=dc",
+            "manual counter=ho",
             "REFUSE",
             got,
             &message,
@@ -1242,10 +1257,11 @@ async fn every_account_every_path_matches_the_written_rules(pool: PgPool) {
     }
     // Every affiliate meaning, at every site: unit → hutang, HO → piutang.
     let wrong_map: Vec<(String, String, String, String)> = sqlx::query_as(
-        "SELECT semantic_key, site_id, qualifier, account_code FROM account_map
-          WHERE semantic_key IN ('affiliate_payable', 'affiliate_receivable')
-            AND ((site_id <> 'dc' AND account_code NOT IN ('2028', '2029', '2030'))
-              OR (site_id = 'dc' AND account_code NOT IN ('1057', '1058', '1059')))",
+        "SELECT r.role, r.unit_id, r.source_id, r.account_code
+           FROM account_resolution r JOIN unit u ON u.id = r.unit_id
+          WHERE r.role IN ('affiliate_payable', 'affiliate_receivable')
+            AND ((u.kind <> 'HO' AND r.account_code NOT IN ('2028', '2029', '2030'))
+              OR (u.kind = 'HO' AND r.account_code NOT IN ('1057', '1058', '1059')))",
     )
     .fetch_all(&pool)
     .await
@@ -1260,11 +1276,13 @@ async fn every_account_every_path_matches_the_written_rules(pool: PgPool) {
     );
     // And nothing automatic landed on the wrong side, whatever the path.
     let wrong_side: Vec<(String, String, String, i64)> = sqlx::query_as(
-        "SELECT e.source_kind, l.site_id, l.account_code, COUNT(*)::bigint
+        "SELECT e.source_kind, l.unit_id, l.account_code, COUNT(*)::bigint
            FROM journal_line l JOIN journal_entry e USING (entry_id)
           WHERE e.source_kind <> 'MANUAL' AND e.rule_version <> $1
-            AND ((l.site_id <> 'dc' AND l.account_code IN ('1057', '1058', '1059'))
-              OR (l.site_id = 'dc' AND l.account_code IN ('2028', '2029', '2030')))
+            AND ((l.unit_id <> head_office_unit_id()
+                  AND l.account_code IN ('1057', '1058', '1059'))
+              OR (l.unit_id = head_office_unit_id()
+                  AND l.account_code IN ('2028', '2029', '2030')))
           GROUP BY 1, 2, 3 ORDER BY 1, 2, 3",
     )
     .bind(DIRECT)

@@ -91,7 +91,7 @@ impl OpenPrintSessionRequest {
     /// the printer silently settle somewhere else and the bench would be tuning
     /// against a number that was never in force. Out of range becomes None, so
     /// the machine keeps what it had and the screen still shows what was typed.
-    fn machine(&self) -> (Option<i64>, Option<i64>) {
+    pub(crate) fn machine(&self) -> (Option<i64>, Option<i64>) {
         (
             self.darkness.filter(|value| (0..=30).contains(value)),
             self.speed_ips.filter(|value| (1..=12).contains(value)),
@@ -99,7 +99,7 @@ impl OpenPrintSessionRequest {
     }
 }
 
-const fn default_printer_port() -> u16 {
+pub(crate) const fn default_printer_port() -> u16 {
     9100
 }
 /// The stock this warehouse actually runs: 50 x 30 mm.
@@ -109,15 +109,15 @@ const fn default_printer_port() -> u16 {
 /// rendered and checked against by hand — 58 x 40 mm — and scales from there,
 /// so the house stock can change without redrawing the tag. This is the stock;
 /// that is the ruler.
-const fn default_label_width() -> i64 {
+pub(crate) const fn default_label_width() -> i64 {
     50
 }
-const fn default_label_height() -> i64 {
+pub(crate) const fn default_label_height() -> i64 {
     30
 }
 /// The house reel insets its labels 6 mm from the left edge of the sweep.
 /// Nought is still a valid answer, and is what stock with no inset needs.
-const fn default_label_offset() -> i64 {
+pub(crate) const fn default_label_offset() -> i64 {
     6
 }
 
@@ -336,10 +336,10 @@ pub struct PrintOutcomeRecord {
 /// limit. `0` was already refused, by the database, with a sentence about a
 /// CHECK constraint that means nothing to the person who typed it; `580`
 /// was accepted, and prints one label spread across seven tags.
-const MIN_LABEL_MM: i64 = 10;
+pub(crate) const MIN_LABEL_MM: i64 = 10;
 const MAX_LABEL_MM: i64 = 200;
 
-fn validate_label_size(width_mm: i64, height_mm: i64) -> Result<(), EdgeError> {
+pub(crate) fn validate_label_size(width_mm: i64, height_mm: i64) -> Result<(), EdgeError> {
     for (axis, value) in [("width", width_mm), ("height", height_mm)] {
         if !(MIN_LABEL_MM..=MAX_LABEL_MM).contains(&value) {
             return Err(EdgeError::Validation(format!(
@@ -1418,7 +1418,7 @@ pub fn send_bytes(host: &str, port: u16, payload: &[u8]) -> Result<(), EdgeError
 /// that is where cloud metadata endpoints live; unspecified and multicast
 /// because no printer answers there. Private ranges and loopback stay allowed:
 /// the printer IS on the LAN, and the test harness is on loopback.
-fn resolve_printer(host: &str, port: u16) -> Result<Vec<SocketAddr>, EdgeError> {
+pub(crate) fn resolve_printer(host: &str, port: u16) -> Result<Vec<SocketAddr>, EdgeError> {
     let host = host.trim();
     if host.is_empty() {
         return Err(EdgeError::Validation("printer host is required".into()));

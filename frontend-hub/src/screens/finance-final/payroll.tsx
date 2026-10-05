@@ -424,7 +424,6 @@ function RunSheet({
               <Input
                 value={reason}
                 onChange={(event) => setReason(event.target.value)}
-                placeholder="e.g. Transferred 25 Oct, batch 2026-10"
               />
             </Field>
             {settle.error !== null && (

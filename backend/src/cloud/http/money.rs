@@ -17,12 +17,14 @@
 //! `Role` is on the wire that Edge and Store speak.
 
 use super::auth::Principal;
+use super::scope::Scope;
 use crate::cloud::{
     application::{AppError, AppState},
     postgres::{
         self as infrastructure, BankRuleProposalRow, BankRuleRow, BankRuleRunOutcome,
-        CashDocumentRow, CashDocumentSlip, GiroBoard, GiroRow, RecordBankRuleRequest,
-        RecordCashDocumentRequest, SettleGiroRequest,
+        CashDocumentRepeat, CashDocumentRepeatSweep, CashDocumentRow,
+        SaveCashDocumentRepeatRequest, CashDocumentSlip, GiroBoard, GiroRow, RecordBankRuleRequest,
+        RecordCashDocumentRequest, RecordVoucherRequest, ReplaceGiroRequest, SettleGiroRequest, UnclearGiroRequest,
     },
 };
 use axum::{
@@ -53,14 +55,18 @@ pub struct CashDocumentQuery {
 
 pub async fn cash_documents(
     State(state): State<AppState>,
+    scope: Scope,
     Query(query): Query<CashDocumentQuery>,
 ) -> Result<Json<Vec<CashDocumentRow>>, AppError> {
+    // Either side: a bounded caller sees the documents that touched their own
+    // unit's books, whichever way the money went.
+    let unit_id = scope.unit(query.unit_id.clone())?;
     Ok(Json(
         infrastructure::cash_document_list(
             &state.db,
             query.status.as_deref(),
             query.kind.as_deref(),
-            query.unit_id.as_deref(),
+            unit_id.as_deref(),
             limit_of(query.limit),
         )
         .await?,
@@ -69,10 +75,16 @@ pub async fn cash_documents(
 
 pub async fn cash_document(
     State(state): State<AppState>,
+    scope: Scope,
     Path(document_id): Path<Uuid>,
 ) -> Result<Json<CashDocumentRow>, AppError> {
+    let document = infrastructure::cash_document_read(&state.db, document_id).await?;
+    // Readable from either side it touched.
+    if scope.require_unit(&document.from_unit).is_err() {
+        scope.require_unit(&document.to_unit)?;
+    }
     Ok(Json(
-        infrastructure::cash_document_read(&state.db, document_id).await?,
+        document,
     ))
 }
 
@@ -84,6 +96,63 @@ pub async fn record_cash_document(
 ) -> Result<Json<CashDocumentRow>, AppError> {
     Ok(Json(
         infrastructure::cash_document_record(&state.db, &request, &principal.username).await?,
+    ))
+}
+
+/// Key a BKK or BKM with lines (0711): bills settled, other accounts paid or
+/// received, advances netted off. Not numbered, not in the books yet.
+pub async fn record_voucher(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<RecordVoucherRequest>,
+) -> Result<Json<CashDocumentRow>, AppError> {
+    Ok(Json(
+        infrastructure::voucher_record(&state.db, &request, &principal.username).await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RepeatsQuery {
+    /// `OUT` for the BKK register, `IN` for the BKM one; absent for both.
+    pub direction: Option<String>,
+}
+
+/// The BKKs and BKMs that repeat (0716).
+pub async fn cash_document_repeats(
+    State(state): State<AppState>,
+    Query(query): Query<RepeatsQuery>,
+) -> Result<Json<Vec<CashDocumentRepeat>>, AppError> {
+    Ok(Json(
+        infrastructure::cash_document_repeats(&state.db, query.direction.as_deref()).await?,
+    ))
+}
+
+/// Start a repeat, or change one. The voucher is checked as if it ran on its
+/// next date, so one that would be refused then is refused now.
+pub async fn save_cash_document_repeat(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<SaveCashDocumentRepeatRequest>,
+) -> Result<Json<CashDocumentRepeat>, AppError> {
+    Ok(Json(
+        infrastructure::save_cash_document_repeat(&state.db, &request, &principal.username)
+            .await?,
+    ))
+}
+
+/// Raise every repeat due today now, instead of waiting for the hourly sweep.
+/// Drafts only: each still needs approving and posting.
+pub async fn run_cash_document_repeats(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+) -> Result<Json<CashDocumentRepeatSweep>, AppError> {
+    Ok(Json(
+        infrastructure::run_cash_document_repeats(
+            &state.db,
+            Utc::now().date_naive(),
+            &principal.username,
+        )
+        .await?,
     ))
 }
 
@@ -394,6 +463,38 @@ pub async fn reject_giro(
     ))
 }
 
+/// Batal Cair: the clearing was wrong and is taken back (0705). The clearing
+/// entry is reversed into an open month and the giro is outstanding again.
+pub async fn unclear_giro(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(giro_id): Path<Uuid>,
+    Json(request): Json<UnclearGiroRequest>,
+) -> Result<Json<GiroRow>, AppError> {
+    Ok(Json(
+        infrastructure::giro_unclear(
+            &state.db,
+            giro_id,
+            request.on,
+            &request.reason,
+            &principal.username,
+        )
+        .await?,
+    ))
+}
+
+/// Say which payment or cash document replaced a bounced giro (0705).
+pub async fn replace_giro(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(giro_id): Path<Uuid>,
+    Json(request): Json<ReplaceGiroRequest>,
+) -> Result<Json<GiroRow>, AppError> {
+    Ok(Json(
+        infrastructure::giro_replace(&state.db, giro_id, &request, &principal.username).await?,
+    ))
+}
+
 // ── routes ───────────────────────────────────────────────────────────────
 
 /// Every route this lane adds, in one function called once from `router()`.
@@ -413,6 +514,10 @@ pub fn lane_c_routes(router: Router<AppState>) -> Router<AppState> {
             "/api/v1/finance/cash-documents",
             get(cash_documents).post(record_cash_document),
         )
+        .route(
+            "/api/v1/finance/cash-documents/voucher",
+            post(record_voucher),
+        )
         .route("/api/v1/finance/cash-documents/{id}", get(cash_document))
         .route(
             "/api/v1/finance/cash-documents/{id}/approve",
@@ -430,6 +535,15 @@ pub fn lane_c_routes(router: Router<AppState>) -> Router<AppState> {
         .route(
             "/api/v1/finance/cash-documents/{id}/slip",
             get(cash_document_slip),
+        )
+        // BKKs and BKMs that repeat (0716): drafts on a schedule, never posted.
+        .route(
+            "/api/v1/finance/cash-document-repeats",
+            get(cash_document_repeats).post(save_cash_document_repeat),
+        )
+        .route(
+            "/api/v1/finance/cash-document-repeats/run",
+            post(run_cash_document_repeats),
         )
         // The rules that recognise a bank line, and the proposals they make.
         // `evaluate` is a POST and writes proposal rows; it posts no money, and
@@ -463,4 +577,6 @@ pub fn lane_c_routes(router: Router<AppState>) -> Router<AppState> {
         .route("/api/v1/finance/giros/{id}/due", post(mark_giro_due))
         .route("/api/v1/finance/giros/{id}/clear", post(clear_giro))
         .route("/api/v1/finance/giros/{id}/reject", post(reject_giro))
+        .route("/api/v1/finance/giros/{id}/unclear", post(unclear_giro))
+        .route("/api/v1/finance/giros/{id}/replace", post(replace_giro))
 }

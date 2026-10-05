@@ -1,10 +1,12 @@
 //! Letters: the paperwork somebody signs.
 //!
-//! Two kinds today — a goods receipt note for a supplier's delivery (surat
-//! terima barang) and a delivery note for goods going out to a shop (surat
-//! jalan). Both are drawn from records this database already holds, and
-//! neither is a view over them: see the migration `0200` for why what a letter
-//! says is copied into it rather than joined.
+//! Three kinds drawn from records this database already holds — a goods
+//! receipt note for a supplier's delivery (surat terima barang), a delivery
+//! note for goods going out to a shop (surat jalan), and a return delivery
+//! note for goods going back to a supplier (surat jalan retur supplier,
+//! issued the moment Buying confirms the return) — plus the blank letter
+//! drawn from nothing. None is a view over its record: see the migration
+//! `0200` for why what a letter says is copied into it rather than joined.
 //!
 //! # The three acts
 //!
@@ -26,7 +28,7 @@ use crate::cloud::application::AppError;
 use chrono::{DateTime, Datelike, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::{PgPool, Row};
+use sqlx::{PgConnection, PgPool, Row};
 use uuid::Uuid;
 
 /// What a letter is drawn from, and what it is called.
@@ -42,7 +44,7 @@ struct Sort {
     subject_kind: &'static str,
 }
 
-const SORTS: [Sort; 3] = [
+const SORTS: [Sort; 4] = [
     Sort {
         kind: "GOODS_RECEIPT",
         prefix: "STB",
@@ -51,6 +53,17 @@ const SORTS: [Sort; 3] = [
         // DC opens when a truck arrives (migration 0028). A letter is written
         // for the truck, not for each counted line.
         subject_kind: "receipt",
+    },
+    Sort {
+        kind: "SUPPLIER_RETURN",
+        prefix: "SJR",
+        title: "Surat Jalan Retur Supplier",
+        // The return's own allotment, whole. A RETURN_TO_SUPPLIER allotment
+        // has the one destination a return can have — `external/supplier` —
+        // so unlike a delivery note there is no `{allotment}/{site}` pair to
+        // spell out: the goods, the reason and the terms travel together or
+        // not at all.
+        subject_kind: "allotment",
     },
     Sort {
         kind: "DELIVERY_NOTE",
@@ -466,6 +479,33 @@ pub async fn letter_sources(pool: &PgPool, kind: &str) -> Result<Vec<LetterSourc
             .fetch_all(pool)
             .await?
         }
+        "SUPPLIER_RETURN" => {
+            sqlx::query(
+                "SELECT r.allotment_id::text AS subject_id,\
+                 a.allotment_number AS reference,\
+                 coalesce(r.supplier_name, r.supplier_id) AS counterparty,\
+                 coalesce(site.name, p.site_id) AS place,\
+                 r.raised_at AS occurred_at,\
+                 count(l.sku_id) AS lines,\
+                 sum(l.quantity)::bigint AS quantity \
+                 FROM supplier_return r \
+                 JOIN allotment a ON a.id = r.allotment_id \
+                 JOIN allotment_line l ON l.allotment_id = r.allotment_id \
+                 LEFT JOIN operational_pool p ON p.id = l.source_pool_id \
+                 LEFT JOIN site ON site.id = p.site_id \
+                 WHERE a.status <> 'CANCELLED' \
+                   AND NOT EXISTS (\
+                     SELECT 1 FROM letter \
+                     WHERE letter.kind = 'SUPPLIER_RETURN' \
+                       AND letter.subject_id = r.allotment_id::text \
+                       AND letter.status <> 'VOID') \
+                 GROUP BY r.allotment_id, a.allotment_number, r.supplier_name,\
+                 r.supplier_id, p.site_id, site.name, r.raised_at \
+                 ORDER BY r.raised_at DESC LIMIT 100",
+            )
+            .fetch_all(pool)
+            .await?
+        }
         _ => {
             sqlx::query(
                 "SELECT a.id::text || '/' || al.destination_id AS subject_id,\
@@ -667,8 +707,12 @@ fn pair(subject_id: &str) -> Result<(Uuid, String), AppError> {
 }
 
 /// The head and the table, read off the record as it stands right now.
+///
+/// On a connection, not the pool: the supplier return's surat is drawn and
+/// issued inside the transaction that writes the return, so the paper exists
+/// exactly when the return does.
 async fn draw(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     sort: &Sort,
     subject_id: &str,
 ) -> Result<(Value, Vec<LetterLine>), AppError> {
@@ -711,15 +755,16 @@ async fn draw(
                  gr.arrived_at, gr.invoice_number, gr.opened_by, gr.status",
             )
             .bind(id)
-            .fetch_optional(pool)
+            .fetch_optional(&mut *conn)
             .await?
             .ok_or_else(|| AppError::NotFound("goods receipt".into()))?;
 
-            // Both figures are PIECES, with no conversion between them: this
-            // company orders in pieces and migration 0027 took the UOM columns
-            // out for saying so — "carrying a conversion that is always 1 is
-            // not free: it is arithmetic on every read that can be got wrong,
-            // and it was, once, turning 118 pieces into 1,416".
+            // Both figures are in the article's STOCK unit (PCS for nearly
+            // everything), with no conversion between them here: an order
+            // placed in LUSIN kept its pieces beside the unit (0399), and
+            // 0027's warning still stands — arithmetic on every read is how
+            // 118 pieces once became 1,416. The unit printed is the stock
+            // unit's own (0653).
             //
             // What the supplier calls it comes from the snapshot taken when
             // the order was raised, because a printed letter must read the way
@@ -728,16 +773,18 @@ async fn draw(
                 "SELECT pol.article_code, pol.article_name,\
                  pol.supplier_item_name_snapshot AS supplier_wording,\
                  sum(grl.quantity)::bigint AS quantity,\
-                 pol.ordered_quantity::bigint AS ordered \
+                 pol.ordered_quantity::bigint AS ordered,\
+                 lower(coalesce(max(ar.stock_unit_code), 'PCS')) AS unit \
                  FROM goods_receipt_line grl \
                  JOIN purchase_order_line pol ON pol.po_line_id = grl.po_line_id \
+                 LEFT JOIN article ar ON ar.article_code = pol.article_code \
                  WHERE grl.receipt_id = $1 \
                  GROUP BY pol.po_line_id, pol.line_number, pol.article_code, pol.article_name,\
                  pol.supplier_item_name_snapshot, pol.ordered_quantity \
                  ORDER BY pol.line_number",
             )
             .bind(id)
-            .fetch_all(pool)
+            .fetch_all(&mut *conn)
             .await?;
 
             let arrived_at: DateTime<Utc> = head.get("arrived_at");
@@ -766,8 +813,97 @@ async fn draw(
                     code: row.get("article_code"),
                     variant: None,
                     quantity: row.get("quantity"),
-                    unit: "pcs".into(),
+                    unit: row.get("unit"),
                     ordered: Some(row.get("ordered")),
+                })
+                .collect();
+            Ok((facts, lines))
+        }
+        "SUPPLIER_RETURN" => {
+            let id = Uuid::parse_str(subject_id)
+                .map_err(|_| AppError::Validation(format!("{subject_id} is not an identifier")))?;
+            // The return the Gudang is handing over: one allotment, one
+            // supplier, one reason. The goods leave a head-office return pool
+            // (0717), and that pool's site is where the surat is written.
+            let head = sqlx::query(
+                "SELECT a.allotment_number, a.created_at, \
+                 r.supplier_id, coalesce(r.supplier_name, r.supplier_id) AS supplier, \
+                 r.reason, r.settle_by, r.note, r.raised_by, r.raised_at, \
+                 coalesce(site.name, p.site_id) AS place, p.site_id AS place_id, \
+                 sum(l.quantity)::bigint AS quantity \
+                 FROM supplier_return r \
+                 JOIN allotment a ON a.id = r.allotment_id \
+                 JOIN allotment_line l ON l.allotment_id = r.allotment_id \
+                 LEFT JOIN operational_pool p ON p.id = l.source_pool_id \
+                 LEFT JOIN site ON site.id = p.site_id \
+                 WHERE r.allotment_id = $1 \
+                 GROUP BY a.allotment_number, a.created_at, r.supplier_id,\
+                 r.supplier_name, r.reason, r.settle_by, r.note, r.raised_by,\
+                 r.raised_at, p.site_id, site.name",
+            )
+            .bind(id)
+            .fetch_optional(&mut *conn)
+            .await?
+            .ok_or_else(|| AppError::NotFound("supplier return".into()))?;
+
+            // The table of goods reads the allotment's lines — what the
+            // Gudang is actually handing over — not the request's: a pick
+            // that came up a piece short is what the supplier signs for.
+            let lines = sqlx::query(
+                "SELECT sk.sku_code, ar.name AS article_name, sk.color, sk.size,\
+                 lower(ar.stock_unit_code) AS unit,\
+                 sum(l.quantity)::bigint AS quantity \
+                 FROM allotment_line l \
+                 JOIN sku sk ON sk.id = l.sku_id \
+                 JOIN article ar ON ar.id = sk.article_id \
+                 WHERE l.allotment_id = $1 \
+                 GROUP BY sk.sku_code, ar.name, sk.color, sk.size, ar.stock_unit_code \
+                 ORDER BY ar.name, sk.sku_code",
+            )
+            .bind(id)
+            .fetch_all(&mut *conn)
+            .await?;
+
+            let raised_at: DateTime<Utc> = head.get("raised_at");
+            let facts = json!({
+                "reference": head.get::<String, _>("allotment_number"),
+                "counterparty": head.get::<String, _>("supplier"),
+                "counterparty_id": head.get::<String, _>("supplier_id"),
+                "place": head.get::<String, _>("place"),
+                "place_id": head.get::<String, _>("place_id"),
+                "quantity": head.get::<i64, _>("quantity"),
+                "occurred_at": raised_at,
+                "reason": head.get::<String, _>("reason"),
+                "settle_by": head.get::<String, _>("settle_by"),
+                "raised_by": head.get::<String, _>("raised_by"),
+                "notes": head.get::<Option<String>, _>("note").unwrap_or_default(),
+            });
+
+            let lines = lines
+                .iter()
+                .map(|row| {
+                    let colour: Option<String> = row.get("color");
+                    let size: Option<String> = row.get("size");
+                    let variant = match (colour, size) {
+                        (None, None) => None,
+                        (colour, size) => Some(
+                            [colour, size]
+                                .into_iter()
+                                .flatten()
+                                .collect::<Vec<_>>()
+                                .join(" · "),
+                        ),
+                    };
+                    LetterLine {
+                        description: row.get("article_name"),
+                        code: row.get("sku_code"),
+                        variant,
+                        quantity: row.get("quantity"),
+                        unit: row.get("unit"),
+                        // Nothing to compare against: a return is not a pick
+                        // against a count, it is the whole of one.
+                        ordered: None,
+                    }
                 })
                 .collect();
             Ok((facts, lines))
@@ -791,30 +927,64 @@ async fn draw(
             )
             .bind(allotment_id)
             .bind(&destination)
-            .fetch_optional(pool)
+            .fetch_optional(&mut *conn)
             .await?
             .ok_or_else(|| AppError::NotFound("allotment for that destination".into()))?;
 
             let lines = sqlx::query(
                 "SELECT sk.sku_code, ar.name AS article_name, sk.color, sk.size,\
+                 lower(ar.stock_unit_code) AS unit,\
                  sum(al.quantity)::bigint AS allotted,\
                  sum(al.picked_quantity)::bigint AS picked \
                  FROM allotment_line al \
                  JOIN sku sk ON sk.id = al.sku_id \
                  JOIN article ar ON ar.id = sk.article_id \
                  WHERE al.allotment_id = $1 AND al.destination_id = $2 \
-                 GROUP BY sk.sku_code, ar.name, sk.color, sk.size \
+                 GROUP BY sk.sku_code, ar.name, sk.color, sk.size, ar.stock_unit_code \
                  ORDER BY ar.name, sk.sku_code",
             )
             .bind(allotment_id)
             .bind(&destination)
-            .fetch_all(pool)
+            .fetch_all(&mut *conn)
             .await?;
+
+            // The boxes going: head office allots in pieces, but once packed
+            // the goods are handed over and counted by the koli, each holding
+            // however many pieces went into it (owner, 2026-09-28). Empty
+            // until the Gudang has packed.
+            let koli = sqlx::query(
+                "SELECT k.koli_id, k.koli_number, count(u.epc)::bigint AS pieces \
+                 FROM edge_koli k \
+                 JOIN edge_koli_unit u ON u.koli_id = k.koli_id \
+                 WHERE u.allotment_id = $1 AND k.destination_store_id = $2 \
+                   AND u.released_at IS NULL \
+                 GROUP BY k.koli_id, k.koli_number, k.created_at \
+                 ORDER BY k.created_at, k.koli_number",
+            )
+            .bind(allotment_id)
+            .bind(&destination)
+            .fetch_all(&mut *conn)
+            .await?
+            .iter()
+            .map(|row| {
+                let id: Uuid = row.get("koli_id");
+                json!({
+                    // A koli packed before its number travelled, and not
+                    // moved since, is named by the start of its id.
+                    "number": row
+                        .get::<Option<String>, _>("koli_number")
+                        .unwrap_or_else(|| id.simple().to_string()[..8].to_uppercase()),
+                    "pieces": row.get::<i64, _>("pieces"),
+                })
+            })
+            .collect::<Vec<_>>();
 
             let created_at: DateTime<Utc> = head.get("created_at");
             let allotted: i64 = head.get("allotted");
             let picked: i64 = head.get("picked");
             let facts = json!({
+                "koli_count": koli.len(),
+                "koli": koli,
                 "reference": head.get::<String, _>("allotment_number"),
                 "counterparty": head.get::<String, _>("store_name"),
                 "counterparty_id": destination,
@@ -852,7 +1022,7 @@ async fn draw(
                         code: row.get("sku_code"),
                         variant,
                         quantity: going(allotted, picked),
-                        unit: "pcs".into(),
+                        unit: row.get("unit"),
                         // The comparison column, and only where there is
                         // something to compare: a line picked short shows what
                         // the shop was allotted beside what is in the vehicle,
@@ -903,7 +1073,8 @@ pub async fn draft_letter(
             Vec::new(),
         )
     } else {
-        let (drawn, lines) = draw(pool, sort, &request.subject_id).await?;
+        let mut conn = pool.acquire().await?;
+        let (drawn, lines) = draw(&mut conn, sort, &request.subject_id).await?;
         (request.subject_id.clone(), drawn, lines)
     };
 
@@ -1020,7 +1191,8 @@ pub async fn issue_letter(pool: &PgPool, id: Uuid, actor: &str) -> Result<String
     let (facts, lines) = if sort.kind == "GENERAL" {
         (json!({}), Vec::new())
     } else {
-        draw(pool, sort, &subject_id).await?
+        let mut conn = pool.acquire().await?;
+        draw(&mut conn, sort, &subject_id).await?
     };
 
     let now = Utc::now();
@@ -1070,6 +1242,62 @@ pub async fn issue_letter(pool: &PgPool, id: Uuid, actor: &str) -> Result<String
 
     tx.commit().await?;
     Ok(number)
+}
+
+/// The surat a confirmed return to a supplier leaves behind, written onto the
+/// transaction that writes the return.
+///
+/// There is no draft stage on this kind: Buying pressing Confirm on the return
+/// IS the act of issuing the paper — the number is taken, the facts are frozen
+/// and the letter is read-only in the same breath the return exists. A return
+/// without its surat would be a delivery handed over with nothing for the
+/// supplier to sign, so the two are one transaction: if the letter cannot be
+/// written, the return was not confirmed.
+///
+/// A return voided after the fact gets a VOIDED letter, and voiding puts the
+/// record back on `letter_sources`, so the paper can be written again.
+pub async fn issue_supplier_return_letter(
+    conn: &mut PgConnection,
+    allotment_id: Uuid,
+    actor: &str,
+) -> Result<(Uuid, String), AppError> {
+    let sort = sort_of("SUPPLIER_RETURN")?;
+    let (facts, lines) = draw(&mut *conn, sort, &allotment_id.to_string()).await?;
+
+    let now = Utc::now();
+    let period = format!("{:02}{:02}", now.year() % 100, now.month());
+    let next: i64 = sqlx::query_scalar(
+        "INSERT INTO letter_number_counter (kind, period, next_number) VALUES ($1,$2,2) \
+         ON CONFLICT (kind, period) \
+         DO UPDATE SET next_number = letter_number_counter.next_number + 1 \
+         RETURNING next_number - 1",
+    )
+    .bind(sort.kind)
+    .bind(&period)
+    .fetch_one(&mut *conn)
+    .await?;
+    let number = format!("{}/{}/{:04}", sort.prefix, period, next);
+
+    let letter_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO letter (letter_id,kind,status,subject_kind,subject_id,facts,lines,body,\
+         title,letter_number,period,issued_by,issued_at,created_by) \
+         VALUES ($1,$2,'ISSUED',$3,$4,$5,$6,'{}',$7,$8,$9,$10,now(),$10)",
+    )
+    .bind(letter_id)
+    .bind(sort.kind)
+    .bind(sort.subject_kind)
+    .bind(allotment_id.to_string())
+    .bind(&facts)
+    .bind(serde_json::to_value(&lines).unwrap_or_else(|_| json!([])))
+    .bind(sort.title)
+    .bind(&number)
+    .bind(&period)
+    .bind(actor)
+    .execute(&mut *conn)
+    .await?;
+
+    Ok((letter_id, number))
 }
 
 /// Stop one. The number stays spent — see the migration.

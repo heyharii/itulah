@@ -838,10 +838,10 @@ impl PushAgent {
         loop {
             ticker.tick().await;
             let drained = self.drain_once().await;
-            // The fleet page's "notifications & push" (`fleet_job_beat`): a
+            // The fleet page's "notifications & push" (`job_beat`, 0703): a
             // beat a minute is plenty for a loop that runs every two seconds.
             if drained.is_err() || last_beat.is_none_or(|at| at.elapsed() >= Duration::from_secs(60)) {
-                infrastructure::fleet_job_beat(
+                infrastructure::job_beat(
                     &self.pool,
                     infrastructure::JOB_PUSH,
                     drained.as_ref().err().map(ToString::to_string).as_deref(),

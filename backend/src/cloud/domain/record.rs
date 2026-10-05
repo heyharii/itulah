@@ -683,6 +683,9 @@ const ROUTE_SUBJECTS: &[(&str, RecordKind)] = &[
     ("/api/v1/members/{}", RecordKind::Member),
     ("/api/v1/notifications/{}", RecordKind::Notification),
     ("/api/v1/payroll/runs/{}", RecordKind::PayrollRun),
+    // An edit, a cancel and a return raised from it are all done TO the
+    // order: its sheet's Activity is where a buyer looks for them.
+    ("/api/v1/purchase-orders/{}", RecordKind::PurchaseOrder),
     (
         "/api/v1/purchase-order-lines/{}",
         RecordKind::PurchaseOrderLine,
@@ -847,6 +850,13 @@ pub const DECLARED_BY_HANDLER: &[(&str, &str, Option<RecordKind>)] = &[
         "/api/v1/article-setups",
         Some(RecordKind::ArticleSetup),
     ),
+    // One delivery line split into several articles mints several sessions;
+    // the act is filed against the first.
+    (
+        "POST",
+        "/api/v1/article-setups/split",
+        Some(RecordKind::ArticleSetup),
+    ),
     ("POST", "/api/v1/colours", Some(RecordKind::Colour)),
     (
         "POST",
@@ -915,6 +925,12 @@ pub const DECLARED_BY_HANDLER: &[(&str, &str, Option<RecordKind>)] = &[
     (
         "POST",
         "/api/v1/purchase-orders",
+        Some(RecordKind::PurchaseOrder),
+    ),
+    // The catalog composer mints the order too; its id is in the answer.
+    (
+        "POST",
+        "/api/v1/purchase-orders/catalog",
         Some(RecordKind::PurchaseOrder),
     ),
     (

@@ -154,9 +154,16 @@ pub struct MintedInvitation {
 }
 
 impl MintedInvitation {
+    /// `origin` is what `http::invitations::link_origin` answered: an origin,
+    /// followed on a sandbox server by `?business=…`, which goes after the
+    /// token.
     pub fn issued(self, origin: &str) -> IssuedInvitation {
+        let (origin, query) = match origin.split_once('?') {
+            Some((origin, query)) => (origin, format!("?{query}")),
+            None => (origin, String::new()),
+        };
         IssuedInvitation {
-            link: format!("{}/join/{}", origin.trim_end_matches('/'), self.token),
+            link: format!("{}/join/{}{query}", origin.trim_end_matches('/'), self.token),
             invitation_id: self.invitation_id,
             employee_id: self.employee_id,
             name: self.name,
@@ -743,7 +750,8 @@ pub async fn accept_invitation(
     let session =
         super::create_session_tx(&mut tx, user_id, auth_version, session_ttl_minutes).await?;
     let me = sqlx::query(
-        "SELECT u.role, u.role_code, r.name AS role_name, r.flow_roles, r.sections, r.read_only
+        "SELECT u.role, u.role_code, r.name AS role_name, r.flow_roles, r.sections, r.read_only,
+                r.unit_reach
            FROM app_user u LEFT JOIN job_role r ON r.code = u.role_code
           WHERE u.id = $1",
     )

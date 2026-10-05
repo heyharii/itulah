@@ -116,9 +116,9 @@ export function PrintSheet({
 /// receipt notes and delivery notes, and a second copy of the address is a
 /// second thing to forget on the day they move.
 export const COMPANY = {
-  name: "CENTRAL FASHION STORE",
-  address: "JL. Moh Yamin No. 1",
-  phone: "0747 322806",
+  name: "WIRA",
+  address: "Jl K.H. Mas Mansyur No 38 C-D",
+  phone: "",
 }
 
 function Letterhead({
@@ -135,7 +135,9 @@ function Letterhead({
           {COMPANY.name}
         </div>
         <div className="text-[0.875rem] text-body">{COMPANY.address}</div>
-        <div className="text-[0.875rem] text-body">{COMPANY.phone}</div>
+        {COMPANY.phone !== "" && (
+          <div className="text-[0.875rem] text-body">{COMPANY.phone}</div>
+        )}
       </div>
       <div className="shrink-0 text-right">
         <div className="text-[0.9375rem] font-semibold tracking-[0.06em] text-ink uppercase">

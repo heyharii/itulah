@@ -149,7 +149,7 @@ const columns: ColumnDef<TableSetup, RegistryDevice>[] = [
   {
     id: "last_seen",
     accessorFn: (row) => row.last_seen_at ?? "",
-    header: "Last seen",
+    header: "Last Seen",
     size: 130,
     cell: ({ row }) =>
       row.original.last_seen_at ? (
@@ -197,12 +197,19 @@ export function Devices() {
         }
       />
 
-      <SubTabs tabs={TABS} value={tab} onChange={(next) => setTab(next as Tab)} />
+      <SubTabs
+        tabs={TABS}
+        value={tab}
+        onChange={(next) => setTab(next as Tab)}
+      />
 
       {tab === "devices" ? (
         <DevicesTab />
       ) : (
-        <ReadersTab registering={registering} onRegisteringChange={setRegistering} />
+        <ReadersTab
+          registering={registering}
+          onRegisteringChange={setRegistering}
+        />
       )}
     </PageContent>
   )
@@ -251,7 +258,6 @@ function DevicesTab() {
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search"
           className="h-8 w-48"
         />
         <FilterPanel model={filters} table={table} />
@@ -263,10 +269,9 @@ function DevicesTab() {
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
-                No store server has reported a device yet, and no punch
-                station or EDC is registered. A till appears here once it has
-                joined its shop's server and the server has sent its next
-                heartbeat.
+                No store server has reported a device yet, and no punch station
+                or EDC is registered. A till appears here once it has joined its
+                shop's server and the server has sent its next heartbeat.
               </EmptyState>
             ) : (
               <DataTable<RegistryDevice>
@@ -370,7 +375,7 @@ function readerColumns(on: {
     },
     {
       accessorKey: "origin_id",
-      header: "Store server",
+      header: "Store Server",
       size: 140,
     },
     {
@@ -391,7 +396,7 @@ function readerColumns(on: {
     },
     {
       accessorKey: "offline_ttl_seconds",
-      header: "Offline lease",
+      header: "Offline Lease",
       size: 120,
       meta: { align: "right" },
       cell: ({ row }) => span(row.original.offline_ttl_seconds),
@@ -400,7 +405,7 @@ function readerColumns(on: {
       id: "last_seen",
       accessorFn: (row) =>
         row.last_seen_at === null ? 0 : Date.parse(row.last_seen_at),
-      header: "Last seen",
+      header: "Last Seen",
       size: 140,
       meta: { align: "right" },
       cell: ({ row }) =>
@@ -555,7 +560,6 @@ function ReadersTab({
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search"
           className="h-8 w-48"
         />
         <FilterPanel model={{ ...filters, fields: READER_FIELDS }} />
@@ -706,8 +710,8 @@ function RegisterReaderSheet({
         className="flex flex-col gap-3.5"
       >
         <Banner tone="info">
-          The store server mints this reader's key and hands it back once.
-          This console does not keep it and will not display it, so finish
+          The store server mints this reader's key and hands it back once. This
+          console does not keep it and will not display it, so finish
           provisioning at the server itself.
         </Banner>
 
@@ -869,9 +873,9 @@ function RotateReaderSheet({
       <div className="flex flex-col gap-3.5">
         <Banner tone="warn">
           The reader will stop working as soon as the new policy reaches its
-          store server, and the new key is not shown in this console.
-          Somebody has to be at {device?.origin_id ?? "the store server"} to
-          provision it again.
+          store server, and the new key is not shown in this console. Somebody
+          has to be at {device?.origin_id ?? "the store server"} to provision it
+          again.
         </Banner>
         <p className="text-[0.875rem] text-body">
           {device?.label} · last seen{" "}
@@ -1062,7 +1066,6 @@ function DeviceSheet({
                   rows={2}
                   value={reason}
                   onChange={(event) => setReason(event.target.value)}
-                  placeholder="Stolen from the counter on Saturday night"
                 />
               </Field>
               {change.isError && (
@@ -1110,7 +1113,7 @@ function DeviceSheet({
                     Nothing recorded yet.
                   </p>
                 ) : (
-                  <MiniTable head={["When", "What happened"]}>
+                  <MiniTable head={["When", "What Happened"]}>
                     {items.map((event, index) => (
                       <tr key={index} className="border-t border-hairline">
                         <td className="py-2 pr-3 align-top font-mono text-meta whitespace-nowrap text-mute">

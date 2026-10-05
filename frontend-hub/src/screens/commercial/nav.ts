@@ -63,11 +63,30 @@ export const commercialNav: AppModule = {
   home: "/commercial",
   sections: [
     {
+      // Owner's menu of 2026-09-28: Pricelist, Promotions, Campaigns and
+      // Vouchers are the department's own primary rows now; Overview,
+      // Changes and History (still Prices' own three tenses, in order) moved
+      // under More.
       items: [
-        { path: "/commercial", label: "Overview", icon: LayoutDashboard },
-        { path: "/commercial/prices", label: "Prices", icon: Tags },
-        { path: "/commercial/changes", label: "Changes", icon: Waypoints },
-        { path: "/commercial/history", label: "History", icon: Clock },
+        {
+          path: "/commercial",
+          label: "Overview",
+          icon: LayoutDashboard,
+          more: true,
+        },
+        { path: "/commercial/prices", label: "Pricelist", icon: Tags },
+        {
+          path: "/commercial/changes",
+          label: "Changes",
+          icon: Waypoints,
+          more: true,
+        },
+        {
+          path: "/commercial/history",
+          label: "History",
+          icon: Clock,
+          more: true,
+        },
         { path: "/commercial/promotions", label: "Promotions", icon: Percent },
         { path: "/commercial/campaigns", label: "Campaigns", icon: Megaphone },
         { path: "/commercial/vouchers", label: "Vouchers", icon: Ticket },

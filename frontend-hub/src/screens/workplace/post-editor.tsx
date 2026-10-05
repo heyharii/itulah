@@ -64,7 +64,6 @@ const TOOL =
 export function PostEditor({
   value,
   onChange,
-  placeholder,
   label,
   rows = 4,
   people = [],
@@ -72,7 +71,6 @@ export function PostEditor({
   attachments,
   onAttach,
   onRemoveAttachment,
-  uploading = false,
   onSubmit,
   autoFocus = false,
   disabled = false,
@@ -80,9 +78,6 @@ export function PostEditor({
 }: {
   value: string
   onChange: (value: string) => void
-  placeholder?: string
-  /// What the box is, for a screen reader — the placeholder disappears as
-  /// soon as somebody types.
   label?: string
   rows?: number
   /// Who can be named. Empty means `@` is typed as a character and nothing
@@ -92,7 +87,6 @@ export function PostEditor({
   attachments?: readonly PendingAttachment[]
   onAttach?: (file: File) => void
   onRemoveAttachment?: (fileId: string) => void
-  uploading?: boolean
   /// ⌘/Ctrl+Enter. The caller decides whether the post is ready.
   onSubmit?: () => void
   autoFocus?: boolean
@@ -332,12 +326,11 @@ export function PostEditor({
           {mode === "write" ? (
             <textarea
               ref={box}
-              aria-label={label ?? placeholder ?? "Post"}
+              aria-label={label ?? "Post"}
               rows={rows}
               value={value}
               disabled={disabled}
               autoFocus={autoFocus}
-              placeholder={uploading ? "Uploading…" : placeholder}
               onChange={(event) => {
                 onChange(event.target.value)
                 // Read after React has the new value; the caret is already

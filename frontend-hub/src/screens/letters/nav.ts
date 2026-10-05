@@ -16,10 +16,10 @@ import type { AppModule } from "@/lib/navigation"
 /// number, a series and a register; a button has none of those, and the
 /// register is the thing an auditor actually asks for.
 ///
-/// # Why it stands beside Discussions and the Library rather than in Buying
+/// # Why it stands beside Discussions and the Library rather than in Procurement
 ///
 /// Because the two kinds would otherwise be split across two departments — a
-/// goods receipt note is Buying's, a delivery note is Merchandise's — and the
+/// goods receipt note is Procurement's, a delivery note is Merchandise's — and the
 /// person who files them is the same person either way. What they have in
 /// common is that they are DOCUMENTS, which is what this corner of the app is
 /// already for.

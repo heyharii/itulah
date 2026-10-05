@@ -1,46 +1,47 @@
-import { useForm } from "@tanstack/react-form"
 import {
   useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { Pencil, Plus, Printer, Search, Trash2 } from "lucide-react"
-import { useMemo, useState } from "react"
+import {
+  ChevronRight,
+  Pencil,
+  Plus,
+  Printer,
+  Search,
+  Trash2,
+} from "lucide-react"
+import { createContext, use, useEffect, useMemo, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Dialog } from "@/components/ui/dialog"
+import { Dialog, SavedDialog } from "@/components/ui/dialog"
 import { Fab } from "@/components/ui/fab"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
-import { FilterPanel } from "@/components/ui/filter-panel"
 import { Switch, Toggle } from "@/components/ui/form"
-import {
-  ColumnsMenu,
-  DockedFilters,
-  ExportCsv,
-  ListOptionsSheet,
-  ViewPicker,
-} from "@/components/ui/list-chrome"
+import { RecordPanel } from "@/components/ui/record-panel"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { ColumnsMenu, ExportCsv } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { MiniTable, Section } from "@/components/ui/rows"
-import { Sheet } from "@/components/ui/sheet"
+import { MiniCell, MiniRow, MiniTable, Section } from "@/components/ui/rows"
+import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Banner, EmptyState } from "@/components/ui/states"
 import type { CsvColumn } from "@/lib/csv"
-import { useFilterState, type FilterField } from "@/lib/filters"
-import { count, day, money } from "@/lib/format"
-import { usePanelDock } from "@/lib/layout"
+import { recordKeys } from "@/lib/queries/records"
+import { count, day, dayMonth, money } from "@/lib/format"
 import {
   allSupplierContacts,
+  catalogueVocabulary,
   createSupplier,
   createSupplierContact,
-  createSupplierItem,
   listPurchaseOrders,
   procurementKeys,
   setSupplierStatus,
@@ -48,7 +49,6 @@ import {
   supplierContacts,
   supplierDetail,
   supplierPage,
-  supplierScopeFromFilters,
   updateSupplier,
   updateSupplierContact,
   type PurchaseOrderRow,
@@ -60,22 +60,33 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { toast } from "@/lib/toast"
+import { cn } from "@/lib/utils"
 import { useDebounced } from "@/lib/use-debounced"
-import { LinkButton } from "@/screens/procurement/controls"
-import { useIdempotencyKey } from "@/screens/procurement/shared"
+import { ItemDetail } from "@/screens/procurement/item-detail"
+import { ItemFormSheet } from "@/screens/procurement/item-form"
+import { OrderSheet } from "@/screens/procurement/purchase-orders"
+import { escapeHtml } from "@/screens/procurement/print"
+import { useFitHidden, useIdempotencyKey } from "@/screens/procurement/shared"
 import {
   LEGAL_FORMS,
   completeNpwp,
   emailProblem,
   formatNpwp,
   formatPhone,
+  formatPhones,
+  npwpDigits,
   npwpProblem,
   phoneProblem,
+  phonesProblem,
+  splitPhones,
   supplierDisplayName,
+  capitaliseFirst,
+  titled,
 } from "@/screens/procurement/supplier-format"
 import type {
   Supplier,
   SupplierContact,
+  SupplierItem,
   SupplierStatus,
 } from "@itulah/contract"
 
@@ -89,6 +100,8 @@ import type {
 ///  - Sorting is the column headers' and the server's. The Sort menu is gone.
 ///  - The book scrolls on, two hundred suppliers a page.
 ///  - A supplier's number is the server's to give: four digits, after Save.
+///    The form never shows a box for it; Save shows the number it was given
+///    (2026-09-28).
 ///  - The record is the form it was created with, read-only, and only the
 ///    address and the contact people can be edited — plus the switch that
 ///    says whether an order can still be raised against them.
@@ -128,44 +141,33 @@ function statusLabel(status: SupplierStatus): string {
   return status === "ACTIVE" ? "Active" : "Non-active"
 }
 
+/// The list's columns after the number. Held at the widths their headings
+/// need — measured in the browser, tracking included, at 12px a side
+/// (2026-09-28) — so the whole list fits a 920px card without scrolling
+/// sideways. The supplier's name takes what is left, never under 140px, and
+/// wraps to a second line rather than being cut.
 const columns: ColumnDef<TableSetup, SupplierRow>[] = [
-  {
-    id: "no",
-    header: "No",
-    size: 64,
-    enableSorting: false,
-    enableHiding: false,
-    meta: { align: "right", card: "hide" },
-    cell: ({ row }) => (
-      <span className="text-body tabular-nums">{row.index + 1}</span>
-    ),
-  },
   {
     accessorKey: "name",
     header: "Supplier",
-    size: 280,
-    meta: { card: "title" },
+    meta: { card: "title", grow: 140 },
+    // The code stands under the name rather than in a column of its own: one
+    // fact about the supplier, said where its name is.
     cell: ({ row }) => (
-      <span className="font-medium text-ink">
-        {supplierDisplayName(row.original)}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "supplier_code",
-    header: "Code",
-    size: 110,
-    meta: { card: "id", mono: true },
-    cell: ({ row }) => (
-      <span className="font-mono text-[0.875rem] text-body">
-        {row.original.supplier_code}
+      <span className="flex flex-col">
+        <span className="line-clamp-2 font-medium break-words whitespace-normal text-ink">
+          {supplierDisplayName(row.original)}
+        </span>
+        <span className="font-mono text-[0.875rem] text-mute">
+          {row.original.supplier_code}
+        </span>
       </span>
     ),
   },
   {
     accessorKey: "status",
     header: "Status",
-    size: 130,
+    size: 116,
     meta: { card: "status" },
     cell: ({ row }) => (
       <Pill tone={row.original.status === "ACTIVE" ? "ok" : "neutral"}>
@@ -175,44 +177,45 @@ const columns: ColumnDef<TableSetup, SupplierRow>[] = [
   },
   {
     accessorKey: "active",
-    header: "Active PO",
-    size: 110,
+    header: "Active Order",
+    size: 140,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => (
-      <span className="tabular-nums">{count(row.original.active)}</span>
-    ),
+    cell: ({ row }) => <Tally n={row.original.active} />,
   },
   {
     accessorKey: "completed",
-    header: "Completed PO",
-    size: 130,
+    header: "Completed Order",
+    size: 172,
     meta: { align: "right", card: "hide", priority: 2 },
-    cell: ({ row }) => (
-      <span className="tabular-nums">{count(row.original.completed)}</span>
-    ),
+    cell: ({ row }) => <Tally n={row.original.completed} />,
   },
   {
     accessorKey: "cancelled",
-    header: "Cancelled PO",
-    size: 130,
+    header: "Cancelled Order",
+    size: 168,
     meta: { align: "right", card: "hide", priority: 2 },
-    cell: ({ row }) => (
-      <span className="tabular-nums">{count(row.original.cancelled)}</span>
-    ),
+    cell: ({ row }) => <Tally n={row.original.cancelled} />,
   },
   {
     accessorKey: "lastOrdered",
-    header: "Last purchased",
-    size: 150,
-    meta: { card: "meta", priority: 2 },
+    header: "Last Purchased",
+    size: 164,
+    meta: { align: "right", card: "hide", priority: 2 },
     cell: ({ row }) => (
-      <span className="tabular-nums">{day(row.original.lastOrdered)}</span>
+      <span
+        className={cn(
+          "tabular-nums",
+          row.original.lastOrdered === null && "text-mute"
+        )}
+      >
+        {dayMonth(row.original.lastOrdered)}
+      </span>
     ),
   },
   // Off until somebody switches them on in Columns.
   {
     accessorKey: "address",
-    header: "Company address",
+    header: "Company Address",
     size: 260,
     enableSorting: false,
     meta: { card: "hide" },
@@ -224,7 +227,7 @@ const columns: ColumnDef<TableSetup, SupplierRow>[] = [
   },
   {
     accessorKey: "email",
-    header: "Company email",
+    header: "Company Email",
     size: 220,
     enableSorting: false,
     meta: { card: "hide" },
@@ -234,12 +237,14 @@ const columns: ColumnDef<TableSetup, SupplierRow>[] = [
   },
   {
     accessorKey: "phone",
-    header: "Company phone",
+    header: "Company Phone",
     size: 170,
     enableSorting: false,
     meta: { card: "hide" },
     cell: ({ row }) => (
-      <span className="tabular-nums">{row.original.phone ?? "—"}</span>
+      <span className="tabular-nums">
+        {row.original.phone ? formatPhones(row.original.phone) : "—"}
+      </span>
     ),
   },
   {
@@ -249,7 +254,9 @@ const columns: ColumnDef<TableSetup, SupplierRow>[] = [
     enableSorting: false,
     meta: { card: "hide" },
     cell: ({ row }) => (
-      <span className="tabular-nums">{row.original.npwp ?? "—"}</span>
+      <span className="tabular-nums">
+        {row.original.npwp ? formatNpwp(row.original.npwp) : "—"}
+      </span>
     ),
   },
   {
@@ -261,6 +268,17 @@ const columns: ColumnDef<TableSetup, SupplierRow>[] = [
     cell: ({ row }) => (row.original.is_pkp ? "Yes" : "No"),
   },
 ]
+
+/// An order count in the list. A nought is set quiet so the suppliers with
+/// something open stand out down the column — 300 rows of "0" in the same
+/// ink as "3" is a column nobody can scan.
+function Tally({ n }: { n: number }) {
+  return (
+    <span className={cn("tabular-nums", n === 0 ? "text-mute" : "text-ink")}>
+      {count(n)}
+    </span>
+  )
+}
 
 /// The optional columns, off until they are asked for.
 const HIDDEN_BY_DEFAULT: VisibilityState = {
@@ -292,6 +310,16 @@ interface ExportRow {
   readonly contact: SupplierContact | null
 }
 
+/// A stored phone number or NPWP as the screen writes it, or nothing. Also in
+/// the export: written grouped, a spreadsheet reads them as text and keeps
+/// the leading 0 it would otherwise eat.
+function shownPhone(value: string | null | undefined): string | null {
+  return value ? formatPhones(value) : null
+}
+function shownNpwp(value: string | null | undefined): string | null {
+  return value ? formatNpwp(value) : null
+}
+
 /// The export's columns, in the owner's order (2026-09-26). One row per
 /// contact person, the supplier's own facts repeated on each; a supplier with
 /// nobody on file is one row with the contact columns blank.
@@ -309,14 +337,17 @@ const EXPORT_COLUMNS: readonly CsvColumn<ExportRow>[] = [
   },
   { label: "Address", value: (row) => row.supplier.address },
   { label: "Email", value: (row) => row.supplier.email },
-  { label: "Phone number", value: (row) => row.supplier.phone },
-  { label: "NPWP", value: (row) => row.supplier.npwp },
+  { label: "Phone number", value: (row) => shownPhone(row.supplier.phone) },
+  { label: "NPWP", value: (row) => shownNpwp(row.supplier.npwp) },
   { label: "Contact name", value: (row) => row.contact?.name },
   { label: "Contact role", value: (row) => row.contact?.role },
-  { label: "Contact phone", value: (row) => row.contact?.phone },
+  { label: "Contact phone", value: (row) => shownPhone(row.contact?.phone) },
   { label: "Contact email", value: (row) => row.contact?.email },
   { label: "Contact address", value: (row) => row.contact?.address },
 ]
+
+/// The status tabs over the book: every supplier, or one status.
+type StatusTab = "ALL" | SupplierStatus
 
 export function Suppliers() {
   // Which supplier is open lives in the URL, like every other sheet in the app.
@@ -327,34 +358,28 @@ export function Suppliers() {
   const [sorting, setSorting] = useState<SortingState>([])
   const [visibility, setVisibility] =
     useState<VisibilityState>(HIDDEN_BY_DEFAULT)
+  const fit = useFitHidden(columns, visibility)
+  /// The book is narrowed by two things and only two (the owner,
+  /// 2026-09-28): its status, as tabs, and whether a supplier has an order
+  /// still open, as a switch. The filter panel, views and chips are gone.
+  const [tab, setTab] = useState<StatusTab>("ALL")
+  const [activeOnly, setActiveOnly] = useState(false)
+  /// Which suppliers are opened out to show their active orders, by id.
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleExpanded = (id: string) =>
+    setExpanded((was) => {
+      const next = new Set(was)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  /// The order being read, opened over the list without leaving it.
+  const [reading, setReading] = useState<string | null>(null)
+  const navigate = useNavigate()
 
-  /// The one thing this book can be narrowed by, and the only one the endpoint
-  /// answers. `single`, because it compares one column to one value.
-  const fields = useMemo<FilterField[]>(
-    () => [
-      {
-        column: "status",
-        label: "Status",
-        spec: {
-          kind: "option",
-          single: true,
-          operators: ["isAnyOf"],
-          options: [
-            { value: "ACTIVE", label: "Active" },
-            { value: "INACTIVE", label: "Non-active" },
-          ],
-          format: (code) => (code === "ACTIVE" ? "Active" : "Non-active"),
-        },
-      },
-    ],
-    []
-  )
-
-  const filters = useFilterState(fields)
-  const docked = usePanelDock()
-
-  /// The name typed, plus the chips, as the one request that answers both.
-  /// Debounced: every keystroke is a round trip over the whole book.
+  /// The name typed, plus the tab and the switch, as the one request that
+  /// answers all three. Debounced: every keystroke is a round trip over the
+  /// whole book.
   const typed = (search.value ?? "").trim()
   const needle = useDebounced(typed, 400)
   const order = sorting[0]
@@ -363,15 +388,16 @@ export function Suppliers() {
       // This menu is the merchandise book. PLN, the landlord and the other
       // units of the group live on Finance's Vendors screen — see 0212.
       category: "MERCHANDISE",
-      ...supplierScopeFromFilters(filters.filters),
+      ...(tab === "ALL" ? {} : { status: tab }),
+      ...(activeOnly ? { activeOrders: true } : {}),
       ...(needle === "" ? {} : { q: needle }),
       ...(order === undefined || SORTS[order.id] === undefined
         ? {}
         : { sort: SORTS[order.id], desc: order.desc }),
     }),
-    [filters.filters, needle, order]
+    [tab, activeOnly, needle, order]
   )
-  const narrowed = needle !== "" || filters.filters.length > 0
+  const narrowed = needle !== "" || tab !== "ALL" || activeOnly
 
   /// The book, a page at a time, the next one fetched as the last rows come
   /// into view. Its own key under the book's prefix: an invalidation of
@@ -393,41 +419,59 @@ export function Suppliers() {
     placeholderData: (previous) => previous,
   })
 
+  /// The five figures over the cards, asked on their own: they describe the
+  /// whole book, so no search, tab or switch may move them. One row is the
+  /// smallest page there is; the figures ride beside it.
+  const whole = useQuery({
+    queryKey: [
+      ...procurementKeys.suppliers({ category: "MERCHANDISE" }),
+      "kpis",
+    ] as const,
+    queryFn: ({ signal }) =>
+      supplierPage({ category: "MERCHANDISE", limit: 1 }, signal),
+  })
+
   const rows = useMemo<SupplierRow[]>(
     () => (book.data?.pages ?? []).flatMap(rowsOf),
     [book.data]
   )
   const first = book.data?.pages[0]
+  /// The status counts for the tabs: over what the search leaves, whatever
+  /// tab is showing.
+  const statusCount = (value: SupplierStatus) =>
+    first?.facets.statuses.find((facet) => facet.value === value)?.count ?? 0
 
-  /// The status field, carrying the server's tally over the whole book.
-  const counted = useMemo<FilterField[]>(() => {
-    const facets = first?.facets
-    if (facets === undefined) return fields
-    return fields.map((field) => ({
-      ...field,
-      spec: { ...field.spec, counted: facets.statuses },
-    }))
-  }, [fields, first])
+  /// What the expand column reads. Through a context and not through the
+  /// column definitions, so toggling never rebuilds (and remounts) the columns.
+  const expanding = useMemo<Expanding>(
+    () => ({ isOpen: (id) => expanded.has(id), toggle: toggleExpanded }),
+    // `toggleExpanded` only closes over the setter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [expanded]
+  )
 
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: ALL_COLUMNS,
         getRowId: (row: SupplierRow) => row.supplier_id,
-        state: { sorting, columnVisibility: visibility },
+        state: {
+          sorting,
+          columnVisibility: { ...visibility, ...fit.hidden },
+        },
         // The rows arrive in the order the request asked for. Sorting them
         // again here would sort what has loaded, not the book.
         manualSorting: true,
         onSortingChange: setSorting,
         onColumnVisibilityChange: setVisibility,
       }),
-      [rows, sorting, visibility]
+      [rows, sorting, fit.hidden, visibility]
     )
   )
 
-  /// Everything the filters match, every page of it, with its people.
+  /// Everything the list shows, every page of it, with its people.
   const exportRows = async (): Promise<ExportRow[]> => {
     const all: SupplierRow[] = []
     let cursor: string | undefined
@@ -456,100 +500,290 @@ export function Suppliers() {
     })
   }
 
+  const everyLoaded = !book.hasNextPage
+  const sum = (key: "active" | "completed" | "cancelled") =>
+    count(rows.reduce((total, row) => total + row[key], 0))
+
   return (
     <PageContent>
-      <PageHeader
-        title="Suppliers"
-        sub="Who we buy from, what each of them offers, and whether an order can be raised against them."
+      <PageHeader title="Suppliers" small />
+
+      {/* The owner's five figures, as cards over the list. */}
+      <KpiStrip className="md:grid-cols-5 xl:grid-cols-5">
+        {bookKpis(whole.data)?.map((kpi) => (
+          <div key={kpi.label} title={kpi.note}>
+            <Kpi label={kpi.label} value={kpi.value} />
+          </div>
+        )) ??
+          [
+            "Active suppliers",
+            "Non-active suppliers",
+            "Active PO",
+            "Active PO qty",
+            "Active PO value",
+          ].map((label) => <Kpi key={label} label={label} value="—" />)}
+      </KpiStrip>
+
+      <SubTabs
+        tabs={[
+          {
+            value: "ALL",
+            label: (
+              <TabLabel
+                text="All"
+                n={statusCount("ACTIVE") + statusCount("INACTIVE")}
+              />
+            ),
+          },
+          {
+            value: "ACTIVE",
+            label: <TabLabel text="Active" n={statusCount("ACTIVE")} />,
+          },
+          {
+            value: "INACTIVE",
+            label: <TabLabel text="Non-active" n={statusCount("INACTIVE")} />,
+          },
+        ]}
+        value={tab}
+        onChange={(next) => setTab(next as StatusTab)}
       />
 
-      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
-        <div className="flex min-w-0 flex-col">
-          <div className="mb-3 flex flex-wrap items-center gap-1.5">
-            <span className="relative min-w-0 flex-1 md:mr-auto md:flex-none">
-              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
-              <input
-                value={search.value ?? ""}
-                onChange={(event) =>
-                  event.target.value
-                    ? search.open(event.target.value)
-                    : search.close()
-                }
-                placeholder="Search supplier name"
-                aria-label="Search supplier name"
-                className="h-[2.125rem] w-full rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent md:w-64 pointer-coarse:h-11"
-              />
-            </span>
-            <ListOptionsSheet
-              model={filters}
-              filterModel={{ ...filters, fields: counted }}
-              table={table}
-              sorting={sorting}
-              onSort={(id, desc) => setSorting([{ id, desc }])}
-              id="suppliers"
-              all="All suppliers"
-              className="md:hidden"
+      {/* One line from a tablet up: the search gives up width before any
+          button drops to a line of its own. */}
+      <div className="mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 md:flex-nowrap">
+        <>
+          <span className="relative min-w-[11rem] flex-1 lg:max-w-64">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
+            <input
+              value={search.value ?? ""}
+              onChange={(event) =>
+                event.target.value
+                  ? search.open(event.target.value)
+                  : search.close()
+              }
+              aria-label="Search supplier name"
+              className="h-[2.125rem] w-full rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.9375rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent pointer-coarse:h-11"
             />
-            <div className="hidden md:contents">
-              {!docked && (
-                <FilterPanel model={{ ...filters, fields: counted }} />
-              )}
-              <ColumnsMenu table={table} />
-              <ExportCsv
-                title="Suppliers"
-                columns={EXPORT_COLUMNS}
-                rows={exportRows}
-              />
-              <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
-              <ViewPicker model={filters} id="suppliers" all="All suppliers" />
-              <Button variant="primary" onClick={() => supplier.open("new")}>
-                New supplier
-              </Button>
-            </div>
+          </span>
+          {/* A control of the toolbar's own height and edge, beside the
+                search it narrows with — bare on the page, the switch's pale
+                track read as nothing at all. */}
+          <label className="inline-flex h-[2.125rem] shrink-0 cursor-pointer items-center gap-2 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.875rem] whitespace-nowrap text-ink shadow-soft select-none pointer-coarse:h-11">
+            <Switch
+              on={activeOnly}
+              label="Only suppliers with an active order"
+              onToggle={() => setActiveOnly(!activeOnly)}
+            />
+            Active order
+          </label>
+          <span className="flex-1 max-lg:hidden" />
+          <div className="hidden md:contents">
+            <ColumnsMenu table={table} />
+            <ExportCsv
+              title="Suppliers"
+              columns={EXPORT_COLUMNS}
+              rows={exportRows}
+            />
+            <Button variant="primary" onClick={() => supplier.open("new")}>
+              New supplier
+            </Button>
           </div>
-          <Fab label="New supplier" onClick={() => supplier.open("new")} />
+        </>
+      </div>
+      <Fab label="New supplier" onClick={() => supplier.open("new")} />
 
-          <Card className="overflow-hidden">
-            {queryState(book, {
-              loading: "Reading the supplier list…",
-              render: () =>
-                rows.length === 0 ? (
-                  <EmptyState>
-                    {narrowed
-                      ? "No supplier matches what you asked for."
-                      : "Nobody has been set up as a supplier yet."}
-                  </EmptyState>
-                ) : (
-                  <>
-                    <DataTable<SupplierRow>
-                      table={table}
-                      cardSort={false}
-                      onRowClick={(row) => supplier.open(row.supplier_id)}
-                      isSelected={(row) => row.supplier_id === supplier.value}
-                      more={book}
-                      className="max-h-[calc(100vh-14rem)]"
-                    />
-                  </>
-                ),
-            })}
-          </Card>
-        </div>
-
-        <DockedFilters
-          model={{ ...filters, fields: counted }}
-          kpis={bookKpis(first)}
-          id="suppliers"
-          subject="Supplier"
-          className="hidden dock:flex"
-        />
+      {/* `overflow-clip`, not `overflow-hidden`: hidden makes the card a
+          scroll box, and the table's heading would stick to the card instead
+          of the window. */}
+      <div ref={fit.ref}>
+        <Card className="overflow-clip">
+          {queryState(book, {
+            loading: "Reading the supplier list…",
+            render: () =>
+              rows.length === 0 ? (
+                <EmptyState>
+                  {narrowed
+                    ? "No supplier matches what you asked for."
+                    : "Nobody has been set up as a supplier yet."}
+                </EmptyState>
+              ) : (
+                <ExpandContext value={expanding}>
+                  <DataTable<SupplierRow>
+                    table={table}
+                    cardSort={false}
+                    onRowClick={(row) => supplier.open(row.supplier_id)}
+                    isSelected={(row) => row.supplier_id === supplier.value}
+                    isExpanded={(row) => expanded.has(row.supplier_id)}
+                    renderSub={(row) => (
+                      <ActiveOrders
+                        supplier={row}
+                        onOpen={setReading}
+                        onViewAll={() => supplier.open(row.supplier_id)}
+                      />
+                    )}
+                    more={book}
+                    // The floating footer: how many suppliers the list holds —
+                    // the server's count, not the rows loaded — and the order
+                    // columns added up once every page is in.
+                    summary={{
+                      name: (
+                        <span>
+                          {count(first?.total ?? rows.length)}{" "}
+                          <span className="font-normal text-body">
+                            {(first?.total ?? rows.length) === 1
+                              ? "supplier"
+                              : "suppliers"}
+                          </span>
+                          {!everyLoaded && (
+                            <span className="font-normal text-body">
+                              {" "}
+                              · {count(rows.length)} loaded
+                            </span>
+                          )}
+                        </span>
+                      ),
+                      ...(everyLoaded
+                        ? {
+                            active: sum("active"),
+                            completed: sum("completed"),
+                            cancelled: sum("cancelled"),
+                          }
+                        : {}),
+                    }}
+                    pageScroll
+                  />
+                </ExpandContext>
+              ),
+          })}
+        </Card>
       </div>
 
-      <SupplierSheet
-        id={supplier.value ?? null}
-        onClose={supplier.close}
-        onOpen={(id) => supplier.open(id)}
+      <SupplierSheet id={supplier.value ?? null} onClose={supplier.close} />
+      <OrderSheet
+        id={reading}
+        onClose={() => setReading(null)}
+        onEdit={(id) =>
+          void navigate({
+            to: "/procurement/orders",
+            search: { "edit-order": id },
+          } as never)
+        }
       />
     </PageContent>
+  )
+}
+
+/// Which suppliers are opened out, for the expand column's chevrons.
+interface Expanding {
+  readonly isOpen: (id: string) => boolean
+  readonly toggle: (id: string) => void
+}
+
+const ExpandContext = createContext<Expanding | null>(null)
+
+/// The chevron that opens a supplier's active orders under its row. It stops
+/// the click, so it never also opens the supplier's sheet.
+function ExpandToggle({ row }: { row: SupplierRow }) {
+  const expanding = use(ExpandContext)
+  if (expanding === null) throw new Error("ExpandContext is missing")
+  const open = expanding.isOpen(row.supplier_id)
+  return (
+    <span
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
+      className="-mx-1 flex"
+    >
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label={`Show active orders for ${supplierDisplayName(row)}`}
+        onClick={() => expanding.toggle(row.supplier_id)}
+        className="grid size-8 place-items-center rounded-full text-line-ico transition-colors hover:bg-soft-2 hover:text-text pointer-coarse:size-tap"
+      >
+        <ChevronRight
+          className={cn(
+            "size-4 transition-transform duration-150",
+            open && "rotate-90"
+          )}
+        />
+      </button>
+    </span>
+  )
+}
+
+const EXPAND_COLUMN: ColumnDef<TableSetup, SupplierRow> = {
+  id: "expand",
+  header: () => <span className="sr-only">Active orders</span>,
+  size: 44,
+  enableSorting: false,
+  enableHiding: false,
+  meta: { card: "hide" },
+  cell: ({ row }) => <ExpandToggle row={row.original} />,
+}
+
+const ALL_COLUMNS: ColumnDef<TableSetup, SupplierRow>[] = [
+  EXPAND_COLUMN,
+  ...columns,
+]
+
+/// A supplier's active orders, opened under its row in the list: the five
+/// newest and View all for the rest. Mounted only while the row is open, so
+/// the order book is read on demand — through the same query the supplier's
+/// own Orders tab uses, so the two share one cache entry.
+function ActiveOrders({
+  supplier,
+  onOpen,
+  onViewAll,
+}: {
+  supplier: SupplierRow
+  onOpen: (id: string) => void
+  onViewAll: () => void
+}) {
+  const scope = { suppliers: [supplier.supplier_code] }
+  const orders = useQuery({
+    queryKey: procurementKeys.orders(scope),
+    queryFn: ({ signal }) => listPurchaseOrders(scope, signal),
+  })
+  const active = useMemo(() => {
+    const group = GROUPS[0]
+    return [...(orders.data ?? [])]
+      .filter((row) => group.statuses.includes(row.lifecycle))
+      .sort(newestFirst)
+  }, [orders.data])
+
+  return (
+    <div className="flex flex-col gap-2 bg-soft px-3.5 py-3 pl-[5.5rem]">
+      {queryState(orders, {
+        loading: "Reading the order book…",
+        render: () =>
+          active.length === 0 ? (
+            <p className="py-1 text-[0.875rem] text-body">No active orders.</p>
+          ) : (
+            <>
+              <OrdersTable
+                group={GROUPS[0]}
+                rows={active.slice(0, 5)}
+                onOpen={onOpen}
+              />
+              {active.length > 5 && (
+                <Button variant="ghost" className="w-full" onClick={onViewAll}>
+                  View all {count(active.length)}
+                </Button>
+              )}
+            </>
+          ),
+      })}
+    </div>
+  )
+}
+
+/// A tab's word and how many are under it, the count quieter than the word.
+function TabLabel({ text, n }: { text: string; n: number }) {
+  return (
+    <span>
+      {text}
+      <span className="ml-1.5 text-body tabular-nums">{count(n)}</span>
+    </span>
   )
 }
 
@@ -579,14 +813,14 @@ function bookKpis(page: SupplierPage | undefined) {
     page.facets.statuses.find((facet) => facet.value === value)?.count ?? 0
   return [
     {
-      label: "Active",
+      label: "Active suppliers",
       value: count(of("ACTIVE")),
-      note: "Active suppliers.",
+      note: "Suppliers a purchase order can be issued to.",
     },
     {
-      label: "Non-active",
+      label: "Non-active suppliers",
       value: count(of("INACTIVE")),
-      note: "Non-active suppliers.",
+      note: "Suppliers no purchase order can be issued to.",
     },
     {
       label: "Active PO",
@@ -594,12 +828,12 @@ function bookKpis(page: SupplierPage | undefined) {
       note: "Purchase orders still waiting on goods: active or partially received.",
     },
     {
-      label: "PO qty",
-      value: count(page.book.open_units),
+      label: "Active PO qty",
+      value: `${count(page.book.open_units)} pcs`,
       note: "Pieces the active purchase orders still expect.",
     },
     {
-      label: "PO value",
+      label: "Active PO value",
       value: brief(page.book.open_value_minor),
       note: money(page.book.open_value_minor),
     },
@@ -632,34 +866,22 @@ const EMPTY: SupplierDraft = {
   notes: "",
 }
 
-function draftOf(supplier: Supplier): SupplierDraft {
-  return {
-    legalForm: supplier.legal_form ?? "",
-    name: supplier.name,
-    address: supplier.address ?? "",
-    email: supplier.email ?? "",
-    phone: supplier.phone ?? "",
-    npwp: supplier.npwp ?? "",
-    isPkp: supplier.is_pkp,
-    notes: supplier.notes ?? "",
-  }
-}
-
 function blank(value: string): string | null {
   return value.trim() === "" ? null : value.trim()
 }
 
-/// What a saveable supplier is: a name, an address and a phone number — the
-/// three the owner starred — each well-formed, and a well-formed email and
-/// NPWP when given.
-function saveable(draft: SupplierDraft, quick = false): boolean {
+/// What a saveable supplier is: a name, a legal form, an address and a phone
+/// number — the four the owner starred — each well-formed, and a well-formed
+/// email and NPWP when given.
+function saveable(draft: SupplierDraft): boolean {
   return (
     draft.name.trim() !== "" &&
+    draft.legalForm.trim() !== "" &&
     draft.address.trim() !== "" &&
-    draft.phone.trim() !== "" &&
-    phoneProblem(draft.phone) === null &&
-    (quick ||
-      (emailProblem(draft.email) === null && npwpProblem(draft.npwp) === null))
+    splitPhones(draft.phone).some((one) => one !== "") &&
+    phonesProblem(draft.phone) === null &&
+    emailProblem(draft.email) === null &&
+    npwpProblem(draft.npwp) === null
   )
 }
 
@@ -683,7 +905,7 @@ function contactDraftOf(contact: SupplierContact): ContactDraft {
     version: contact.version,
     name: contact.name,
     role: contact.role ?? "",
-    phone: contact.phone ?? "",
+    phone: shownPhone(contact.phone) ?? "",
     email: contact.email ?? "",
     address: contact.address ?? "",
   }
@@ -726,8 +948,12 @@ function contactsSaveable(contacts: readonly ContactDraft[]): boolean {
   return contacts.every((one) => contactProblem(one) === null)
 }
 
-/// The company's facts, in the owner's order: number, legal form, name,
-/// address, email, phone, NPWP, PKP.
+/// The company's facts, in the owner's order: name and legal form, address,
+/// email, phone, NPWP, PKP.
+///
+/// No box for the supplier's number (the owner, 2026-09-28): the server gives
+/// it on Save, a disabled empty field only said so, and a record already
+/// carries it over its name.
 ///
 /// `locked` says which fields are read rather than typed: all of them on a
 /// record being read, all but the address on a record being edited, none on a
@@ -735,17 +961,15 @@ function contactsSaveable(contacts: readonly ContactDraft[]): boolean {
 function CompanyFields({
   draft,
   set,
-  code,
   locked,
-  quick = false,
+  tried = false,
 }: {
   draft: SupplierDraft
   set: (patch: Partial<SupplierDraft>) => void
-  /// The supplier's number, or null before it has one.
-  code: string | null
   locked: (field: keyof SupplierDraft) => boolean
-  /// The order composer's quick add: the four facts a buyer at a counter has.
-  quick?: boolean
+  /// Save has been pressed on a form that is not ready: every problem is
+  /// said now, under its own box, the empty required ones included.
+  tried?: boolean
 }) {
   const [touched, setTouched] = useState({
     phone: false,
@@ -754,123 +978,170 @@ function CompanyFields({
   })
   const touch = (patch: Partial<typeof touched>) =>
     setTouched((was) => ({ ...was, ...patch }))
-  const phone = phoneProblem(draft.phone)
+  const numbers = draft.phone.split(",")
+  const phone = !splitPhones(draft.phone).some((one) => one !== "")
+    ? tried
+      ? "Fill in a phone number."
+      : null
+    : phonesProblem(draft.phone)
   const email = emailProblem(draft.email)
   const npwp = npwpProblem(draft.npwp)
+  const name =
+    tried && draft.name.trim() === "" ? "Fill in the supplier's name." : null
+  const legalForm =
+    tried && draft.legalForm.trim() === "" ? "Choose the legal form." : null
+  const address =
+    tried && draft.address.trim() === "" ? "Fill in the address." : null
 
   return (
-    <Section title="Company">
-      <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Supplier number">
-          <Input
-            value={code ?? ""}
-            disabled
-            placeholder="Given when the supplier is saved"
-            className="font-mono"
-          />
-        </Field>
-        <Field label="Legal form">
-          <Select
-            aria-label="Legal form"
-            value={draft.legalForm}
-            disabled={locked("legalForm")}
-            onChange={(legalForm) => set({ legalForm })}
-          >
-            <option value="">—</option>
-            {LEGAL_FORMS.map((form) => (
-              <option key={form} value={form}>
-                {form}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Name" required className="md:col-span-2">
-          <Input
-            value={draft.name}
-            disabled={locked("name")}
-            onChange={(event) => set({ name: event.target.value })}
-            placeholder="Sepatu Sejahtera"
-          />
-        </Field>
-        <Field label="Address" required className="md:col-span-2">
+    // Flush: it is the first thing in the sheet, and the line and the air
+    // above it only underlined the header (the owner, 2026-09-28).
+    <Section title="Company" flush>
+      <div className="grid gap-6 md:grid-cols-2">
+        {/* Name, then its legal form beside it — the order the two are
+            written in: "Sepatu Sejahtera, CV". */}
+        <div className="grid gap-6 md:col-span-2 md:grid-cols-[minmax(0,1fr)_9rem]">
+          <Field label="Name" required problem={name}>
+            <Input
+              value={draft.name}
+              disabled={locked("name")}
+              onChange={(event) => titled(event, (name) => set({ name }))}
+            />
+          </Field>
+          <Field label="Legal Form" required problem={legalForm}>
+            <Select
+              aria-label="Legal Form"
+              value={draft.legalForm}
+              disabled={locked("legalForm")}
+              onChange={(legalForm) => set({ legalForm })}
+            >
+              <option value="">—</option>
+              {LEGAL_FORMS.map((form) => (
+                <option key={form} value={form}>
+                  {form}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+        <Field
+          label="Address"
+          required
+          problem={address}
+          className="md:col-span-2"
+        >
+          {/* A street, a kelurahan, a city and a postcode: four lines of
+              room, so a whole address is read without scrolling a box. */}
           <Textarea
-            rows={2}
+            rows={4}
             value={draft.address}
             disabled={locked("address")}
-            onChange={(event) => set({ address: event.target.value })}
-            placeholder="Jl. Industri Raya No. 14, Bandung"
+            onChange={(event) => titled(event, (address) => set({ address }))}
             className="disabled:opacity-50"
           />
         </Field>
-        {!quick && (
-          <Field label="Email" problem={touched.email ? email : null}>
-            <Input
-              type="email"
-              inputMode="email"
-              value={draft.email}
-              disabled={locked("email")}
-              onChange={(event) => set({ email: event.target.value })}
-              onBlur={() => touch({ email: true })}
-              placeholder="orders@sepatusejahtera.co.id"
-            />
-          </Field>
-        )}
-        <Field
-          label="Phone number"
-          required
-          problem={touched.phone ? phone : null}
-        >
+        <Field label="Email" problem={touched.email || tried ? email : null}>
           <Input
-            type="tel"
-            inputMode="tel"
-            value={draft.phone}
-            disabled={locked("phone")}
-            onChange={(event) =>
-              set({ phone: formatPhone(event.target.value) })
-            }
-            onBlur={() => touch({ phone: true })}
-            className="tabular-nums"
-            placeholder="0887 7993 12312"
+            type="email"
+            inputMode="email"
+            value={draft.email}
+            disabled={locked("email")}
+            onChange={(event) => set({ email: event.target.value })}
+            onBlur={() => touch({ email: true })}
           />
         </Field>
-        {!quick && (
-          <Field
-            label="NPWP"
-            aside="16 digits"
-            problem={touched.npwp ? npwp : null}
-          >
-            <Input
-              inputMode="numeric"
-              value={draft.npwp}
-              disabled={locked("npwp")}
-              onChange={(event) =>
-                set({ npwp: formatNpwp(event.target.value) })
-              }
-              onBlur={() => {
-                set({ npwp: completeNpwp(draft.npwp) })
-                touch({ npwp: true })
-              }}
-              className="tabular-nums"
-              placeholder="0012345678901000"
-            />
-          </Field>
-        )}
-        {!quick && (
-          <div className="md:col-span-2">
-            <Toggle
-              on={draft.isPkp}
-              onToggle={() => {
-                if (!locked("isPkp")) set({ isPkp: !draft.isPkp })
-              }}
-              label="Pengusaha Kena Pajak (PKP)"
-              note={
-                draft.isPkp
-                  ? "Their bills carry PPN and a faktur pajak number."
-                  : "Their bills carry no PPN."
-              }
-            />
+        <Field
+          label="Phone Number"
+          required
+          problem={touched.phone || tried ? phone : null}
+        >
+          {/* One row a number, the first required; the rest are stored beside
+              it in the same column, separated by commas. */}
+          <div className="flex flex-col gap-2">
+            {numbers.map((number, at) => (
+              <div key={at} className="flex items-center gap-2">
+                <Input
+                  type="tel"
+                  inputMode="tel"
+                  aria-label={
+                    at === 0 ? "Phone Number" : `Phone Number ${at + 1}`
+                  }
+                  value={number.trim()}
+                  disabled={locked("phone")}
+                  onChange={(event) =>
+                    set({
+                      phone: numbers
+                        .map((one, index) =>
+                          index === at ? formatPhone(event.target.value) : one
+                        )
+                        .join(","),
+                    })
+                  }
+                  onBlur={() => touch({ phone: true })}
+                  className="tabular-nums"
+                />
+                {at > 0 && !locked("phone") && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Remove phone number ${at + 1}`}
+                    onClick={() =>
+                      set({
+                        phone: numbers.filter((_, i) => i !== at).join(","),
+                      })
+                    }
+                  >
+                    <Trash2 />
+                  </Button>
+                )}
+              </div>
+            ))}
+            {!locked("phone") && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="self-start"
+                onClick={() => set({ phone: `${draft.phone},` })}
+              >
+                <Plus />
+                Add number
+              </Button>
+            )}
           </div>
-        )}
+        </Field>
+        <Field
+          label="NPWP"
+          aside="16 digits"
+          problem={touched.npwp || tried ? npwp : null}
+        >
+          <Input
+            inputMode="numeric"
+            value={draft.npwp}
+            disabled={locked("npwp")}
+            onChange={(event) => set({ npwp: formatNpwp(event.target.value) })}
+            onBlur={() => {
+              set({ npwp: completeNpwp(draft.npwp) })
+              touch({ npwp: true })
+            }}
+            className="tabular-nums"
+          />
+        </Field>
+        {/* Beside the NPWP it belongs to, its foot on the box's line. */}
+        <div className="md:self-end">
+          <Toggle
+            on={draft.isPkp}
+            onToggle={() => {
+              if (!locked("isPkp")) set({ isPkp: !draft.isPkp })
+            }}
+            label="PKP"
+            disabled={locked("isPkp")}
+            note={
+              draft.isPkp
+                ? "Their bills carry PPN and a faktur pajak number."
+                : "Their bills carry no PPN."
+            }
+          />
+        </div>
       </div>
     </Section>
   )
@@ -896,31 +1167,33 @@ function ContactsFields({
 
   if (readOnly) {
     return (
-      <Section title="Contact person">
+      <Section title="Contact person" rule={false} quiet>
         {contacts.length === 0 ? (
           <p className="text-[0.875rem] text-body">
             Nobody is on file at this supplier yet.
           </p>
         ) : (
-          <MiniTable head={["Name", "Role", "Phone", "Email", "Address"]}>
+          <MiniTable
+            // Words, not figures: every column reads from the left, so each
+            // heading stands over its own values.
+            head={[
+              "Name",
+              { label: "Role", align: "left" },
+              { label: "Phone", align: "left" },
+              { label: "Email", align: "left" },
+              { label: "Address", align: "left" },
+            ]}
+          >
             {contacts.map((one) => (
-              <tr key={one.key} className="border-t border-hairline">
-                <td className="py-2 pr-3 text-[0.875rem] text-ink">
-                  {one.name}
-                </td>
-                <td className="py-2 pr-3 text-[0.875rem] text-text">
-                  {one.role || "—"}
-                </td>
-                <td className="py-2 pr-3 text-[0.875rem] text-text tabular-nums">
+              <MiniRow key={one.key}>
+                <MiniCell className="py-2.5 text-ink">{one.name}</MiniCell>
+                <MiniCell className="py-2.5">{one.role || "—"}</MiniCell>
+                <MiniCell className="py-2.5 tabular-nums">
                   {one.phone || "—"}
-                </td>
-                <td className="py-2 pr-3 text-[0.875rem] text-text">
-                  {one.email || "—"}
-                </td>
-                <td className="py-2 text-[0.875rem] text-text">
-                  {one.address || "—"}
-                </td>
-              </tr>
+                </MiniCell>
+                <MiniCell className="py-2.5">{one.email || "—"}</MiniCell>
+                <MiniCell className="py-2.5">{one.address || "—"}</MiniCell>
+              </MiniRow>
             ))}
           </MiniTable>
         )}
@@ -928,24 +1201,51 @@ function ContactsFields({
     )
   }
 
+  // Add stands at the heading, level with "Contact person" (the owner,
+  // 2026-09-28), so it stays in one place however many people are listed.
   return (
-    <Section title="Contact person">
+    <Section
+      title="Contact person"
+      rule={false}
+      quiet
+      actions={
+        <Button onClick={() => onChange([...contacts, newContact()])}>
+          <Plus />
+          Add
+        </Button>
+      }
+    >
       <div className="flex flex-col gap-3">
         {contacts.map((one, index) => {
           const problem = contactProblem(one)
           return (
             <div
               key={one.key}
-              className="flex flex-col gap-2 rounded-inner border border-hairline p-3 transition-[opacity,translate] duration-200 ease-(--ease-out) starting:translate-y-1 starting:opacity-0 motion-reduce:starting:translate-none"
+              className="flex flex-col gap-3 rounded-inner border border-hairline p-4 transition-[opacity,translate] duration-200 ease-(--ease-out) starting:translate-y-1 starting:opacity-0 motion-reduce:starting:translate-none"
             >
-              <div className="grid gap-3 md:grid-cols-[1.2fr_0.8fr_1fr_1.2fr_auto] md:items-end">
+              {/* Two boxes a row, not four: four in one row left each too
+                  narrow to hold an email or a phone number whole. */}
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[0.875rem] font-medium text-body">
+                  Contact {index + 1}
+                </span>
+                <Button
+                  variant="quiet"
+                  aria-label={`Remove contact ${index + 1}`}
+                  onClick={() =>
+                    onChange(contacts.filter((other) => other.key !== one.key))
+                  }
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
                 <Field label="Name">
                   <Input
                     value={one.name}
                     onChange={(event) =>
-                      patch(one.key, { name: event.target.value })
+                      titled(event, (name) => patch(one.key, { name }))
                     }
-                    placeholder="Budi Santoso"
                     aria-label={`Contact ${index + 1} name`}
                   />
                 </Field>
@@ -953,9 +1253,8 @@ function ContactsFields({
                   <Input
                     value={one.role}
                     onChange={(event) =>
-                      patch(one.key, { role: event.target.value })
+                      titled(event, (role) => patch(one.key, { role }))
                     }
-                    placeholder="Sales"
                     aria-label={`Contact ${index + 1} role`}
                   />
                 </Field>
@@ -967,7 +1266,6 @@ function ContactsFields({
                     onChange={(event) =>
                       patch(one.key, { phone: formatPhone(event.target.value) })
                     }
-                    placeholder="0812 3456 7890"
                     className="tabular-nums"
                     aria-label={`Contact ${index + 1} phone`}
                   />
@@ -980,44 +1278,71 @@ function ContactsFields({
                     onChange={(event) =>
                       patch(one.key, { email: event.target.value })
                     }
-                    placeholder="budi@sepatusejahtera.co.id"
                     aria-label={`Contact ${index + 1} email`}
                   />
                 </Field>
-                <Button
-                  variant="quiet"
-                  aria-label={`Remove contact ${index + 1}`}
-                  onClick={() =>
-                    onChange(contacts.filter((other) => other.key !== one.key))
-                  }
-                  className="size-10 self-end"
-                >
-                  <Trash2 />
-                </Button>
+                <Field label="Address" className="md:col-span-2">
+                  <Input
+                    value={one.address}
+                    onChange={(event) =>
+                      titled(event, (address) => patch(one.key, { address }))
+                    }
+                    aria-label={`Contact ${index + 1} address`}
+                  />
+                </Field>
               </div>
-              <Field label="Address">
-                <Input
-                  value={one.address}
-                  onChange={(event) =>
-                    patch(one.key, { address: event.target.value })
-                  }
-                  placeholder="Where this person is, if not the company address"
-                  aria-label={`Contact ${index + 1} address`}
-                />
-              </Field>
               {problem !== null && (
-                <span className="text-[0.875rem] text-bad">{problem}</span>
+                <span data-problem className="text-[0.875rem] text-bad">
+                  {problem}
+                </span>
               )}
             </div>
           )
         })}
-        <div>
-          <Button onClick={() => onChange([...contacts, newContact()])}>
-            <Plus />
-            Add
-          </Button>
-        </div>
+        {contacts.length === 0 && (
+          <p className="text-[0.875rem] text-body">
+            Nobody yet. Add puts a contact person here.
+          </p>
+        )}
       </div>
+    </Section>
+  )
+}
+
+/// The company's facts as a record reads them: a label over its value, the
+/// way this sheet read before it became a disabled copy of the form (the
+/// owner, 2026-09-28 — "kayak awal, bukan input"). The name and the number
+/// are the sheet's own title. The address is the one fact an edit reaches,
+/// so an edit hands in its box to stand in the fact's place; everything
+/// else stays read.
+function CompanyFacts({
+  supplier,
+  address,
+}: {
+  supplier: Supplier
+  address?: React.ReactNode
+}) {
+  return (
+    <Section title="Company" flush quiet>
+      <Facts className="gap-x-10 gap-y-5 [&_dd]:mt-1">
+        <div className="col-span-2">
+          {address === undefined ? (
+            <Fact term="Address">
+              <span className="whitespace-pre-line">
+                {supplier.address?.trim() || "—"}
+              </span>
+            </Fact>
+          ) : (
+            <Field label="Address" required>
+              {address}
+            </Field>
+          )}
+        </div>
+        <Fact term="Phone Number">{shownPhone(supplier.phone) ?? "—"}</Fact>
+        <Fact term="Email">{supplier.email ?? "—"}</Fact>
+        <Fact term="NPWP">{shownNpwp(supplier.npwp) ?? "—"}</Fact>
+        <Fact term="PKP">{supplier.is_pkp ? "Yes" : "No"}</Fact>
+      </Facts>
     </Section>
   )
 }
@@ -1032,14 +1357,13 @@ function NotesField({
   disabled: boolean
 }) {
   return (
-    <Section title="Notes">
+    <Section title="Notes" rule={false}>
       <Textarea
         rows={3}
         aria-label="Notes"
         value={value}
         disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder="Anything worth knowing about this supplier."
+        onChange={(event) => titled(event, onChange, capitaliseFirst)}
         className="disabled:opacity-50"
       />
     </Section>
@@ -1050,22 +1374,28 @@ function NotesField({
 // Creating one
 
 /// Creating one — a task over the page, the form the owner laid out:
-/// Company, then Contact person, then Notes, and the number after Save.
+/// Company, then Contact person, then Notes. The same form wherever a
+/// supplier is registered, the order composer's included (the owner,
+/// 2026-09-28): there is one supplier record, so there is one way to write it.
+///
+/// Save holds the sheet and says the number the supplier was given in a small
+/// dialog in the middle of the screen; the sheet hands over once it is read
+/// (the owner, 2026-10-04).
 export function SupplierComposer({
   open,
   onClose,
   onCreated,
-  quick = false,
+  savedNote,
 }: {
   open: boolean
   onClose: () => void
-  /// The supplier that was just registered, for a caller with somewhere to
-  /// put it — the order composer selects it into its picker, the book opens
-  /// its record so the new number can be read.
+  /// The supplier that was just registered, the moment it exists, for a
+  /// caller with somewhere to put it — the order composer selects it into its
+  /// picker while the number is still showing.
   onCreated?: (supplier: Supplier) => void
-  /// The order composer's way in: legal form, name, address and phone, and
-  /// nothing else — a buyer at a supplier's counter knows those four.
-  quick?: boolean
+  /// One line under the number in the toast saying what happens next, where
+  /// the caller has something to say — "Chosen as this order's supplier."
+  savedNote?: string
 }) {
   const client = useQueryClient()
   const idempotency = useIdempotencyKey()
@@ -1073,6 +1403,34 @@ export function SupplierComposer({
   const [contacts, setContacts] = useState<readonly ContactDraft[]>(() => [
     newContact(),
   ])
+  /// How many times Save was pressed on a form not ready to save. Save is
+  /// never disabled (the owner, 2026-09-28): a greyed button says something
+  /// is missing and not what. Pressing it says every problem under its box
+  /// and brings the first one into view — each press, so a second press
+  /// after scrolling away finds it again.
+  const [asked, setAsked] = useState(0)
+  const form = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (asked === 0) return
+    // A frame later: a field marks its box invalid through its own context,
+    // which lands a render after the problem it was handed.
+    const frame = requestAnimationFrame(() => {
+      const first = form.current?.querySelector<HTMLElement>(
+        '[aria-invalid="true"], [data-problem]'
+      )
+      if (!first) return
+      const still = window.matchMedia(
+        "(prefers-reduced-motion: reduce)"
+      ).matches
+      first.scrollIntoView({
+        block: "center",
+        behavior: still ? "auto" : "smooth",
+      })
+      if (first.matches("input, textarea, select, button"))
+        first.focus({ preventScroll: true })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [asked])
   const set = (patch: Partial<SupplierDraft>) =>
     setDraft((was) => ({ ...was, ...patch }))
   const people = contacts.filter((one) => !contactEmpty(one))
@@ -1088,11 +1446,12 @@ export function SupplierComposer({
           // The first contact's name is still kept on the supplier's own row
           // for the screens that read one name off it.
           contact_name: blank(people[0]?.name ?? ""),
-          phone: blank(draft.phone),
+          phone: blank(formatPhones(draft.phone)),
           email: blank(draft.email),
           address: blank(draft.address),
           status: "ACTIVE",
-          npwp: blank(draft.npwp),
+          // The digits alone: the dots are for reading.
+          npwp: blank(npwpDigits(draft.npwp)),
           is_pkp: draft.isPkp,
           notes: blank(draft.notes),
         },
@@ -1118,14 +1477,22 @@ export function SupplierComposer({
     onSuccess: (supplier) => {
       void client.invalidateQueries({ queryKey: procurementKeys.suppliers() })
       idempotency.rotate()
-      toast.success(`Supplier ${supplier.supplier_code} created`, {
-        description: supplierDisplayName(supplier),
-      })
-      reset()
       onCreated?.(supplier)
-      if (onCreated === undefined) onClose()
+      // The number is the receipt; it stays in the middle of the screen until
+      // it is read (the owner, 2026-10-04), and the sheet hands over only
+      // once it is dismissed — "save, see the number, close".
+      setSaved(supplier)
     },
   })
+  /// The supplier the save minted, held in the receipt dialog until it is
+  /// read. `close()` waits for the button because the composer unmounts the
+  /// moment the record sheet behind it lets go of `?supplier=new` — state
+  /// released there would die with it.
+  const [saved, setSaved] = useState<Supplier | null>(null)
+  const readSaved = () => {
+    setSaved(null)
+    close()
+  }
 
   const reset = () => {
     setDraft(EMPTY)
@@ -1136,56 +1503,66 @@ export function SupplierComposer({
   const close = () => {
     create.reset()
     reset()
+    setAsked(0)
     onClose()
   }
 
-  const ready = saveable(draft, quick) && (quick || contactsSaveable(contacts))
+  const ready = saveable(draft) && contactsSaveable(contacts)
 
   return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => !next && close()}
-      title="New supplier"
-      width="wide"
-      footer={
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="ghost" onClick={close}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            pending={create.isPending}
-            disabled={!ready}
-            onClick={() => create.mutate()}
-          >
-            {create.isPending ? "Saving…" : "Save"}
-          </Button>
-        </div>
-      }
-    >
-      <div className="flex flex-col gap-4">
-        {create.isError && (
-          <Banner tone="bad">{(create.error as Error).message}</Banner>
-        )}
-        <CompanyFields
-          draft={draft}
-          set={set}
-          code={null}
-          locked={() => false}
-          quick={quick}
-        />
-        {!quick && (
+    <>
+      <Sheet
+        open={open}
+        onOpenChange={(next) => !next && close()}
+        title="New supplier"
+        width="wide"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="ghost" onClick={close}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              pending={create.isPending}
+              onClick={() =>
+                ready ? create.mutate() : setAsked((was) => was + 1)
+              }
+            >
+              {create.isPending ? "Submitting…" : "Submit"}
+            </Button>
+          </div>
+        }
+      >
+        {/* Pulled up 12px: the sheet's own 32px above the first heading read as
+            a gap, not as air (the owner, 2026-10-05). */}
+        <div ref={form} className="-mt-2 flex flex-col gap-4 md:-mt-3">
+          {create.isError && (
+            <Banner tone="bad">{(create.error as Error).message}</Banner>
+          )}
+          <CompanyFields
+            draft={draft}
+            set={set}
+            locked={() => false}
+            tried={asked > 0}
+          />
           <ContactsFields contacts={contacts} onChange={setContacts} />
-        )}
-        {!quick && (
           <NotesField
             value={draft.notes}
             onChange={(notes) => set({ notes })}
             disabled={false}
           />
-        )}
-      </div>
-    </Sheet>
+        </div>
+      </Sheet>
+      <SavedDialog
+        open={saved !== null}
+        onOpenChange={(next) => {
+          if (!next) readSaved()
+        }}
+        title={<>{saved?.supplier_code} saved</>}
+      >
+        {savedNote}
+      </SavedDialog>
+    </>
   )
 }
 
@@ -1197,11 +1574,9 @@ export function SupplierComposer({
 function SupplierSheet({
   id,
   onClose,
-  onOpen,
 }: {
   id: string | null
   onClose: () => void
-  onOpen: (id: string) => void
 }) {
   const client = useQueryClient()
   const idempotency = useIdempotencyKey()
@@ -1210,12 +1585,15 @@ function SupplierSheet({
   /// The edit in progress, carrying the id it was typed against: the sheet
   /// stays mounted while the list swaps records under it, and a draft about
   /// another supplier counts as no draft at all.
-  const [edit, setEdit] = useState<{
-    readonly id: string
-    readonly address: string
-    readonly notes: string
-    readonly contacts: readonly ContactDraft[]
-  } | null>(null)
+  /// The company facts are all editable (the owner, 2026-10-04): the same
+  /// draft the composer holds, with the notes and contacts beside it.
+  const [edit, setEdit] = useState<
+    | (SupplierDraft & {
+        readonly id: string
+        readonly contacts: readonly ContactDraft[]
+      })
+    | null
+  >(null)
   const editing = edit !== null && edit.id === id ? edit : null
 
   const detail = useQuery({
@@ -1233,16 +1611,27 @@ function SupplierSheet({
     mutationFn: async () => {
       const supplier = detail.data!
       const draft = editing!
-      if (
+      const changed =
+        supplier.name !== draft.name.trim() ||
+        (supplier.legal_form ?? "") !== draft.legalForm ||
         (supplier.address ?? "") !== draft.address.trim() ||
+        (supplier.email ?? "") !== draft.email.trim() ||
+        (shownPhone(supplier.phone) ?? "") !== formatPhones(draft.phone) ||
+        (supplier.npwp ?? "") !== npwpDigits(draft.npwp) ||
+        (supplier.is_pkp ?? false) !== draft.isPkp ||
         (supplier.notes ?? "") !== draft.notes.trim()
-      ) {
+      if (changed) {
         await updateSupplier(
           supplier.supplier_id,
           {
             supplier_code: null,
-            name: null,
+            name: draft.name.trim(),
+            legal_form: blank(draft.legalForm),
             address: blank(draft.address),
+            email: blank(draft.email),
+            phone: blank(formatPhones(draft.phone)),
+            npwp: blank(npwpDigits(draft.npwp)),
+            is_pkp: draft.isPkp,
             notes: blank(draft.notes),
           },
           supplier.version,
@@ -1277,7 +1666,9 @@ function SupplierSheet({
         if (
           was.name !== contact.name.trim() ||
           (was.role ?? "") !== contact.role.trim() ||
-          (was.phone ?? "") !== contact.phone.trim() ||
+          // Compared as written: the box shows a stored number grouped, and
+          // an untouched one must not read as a change.
+          (shownPhone(was.phone) ?? "") !== contact.phone.trim() ||
           (was.email ?? "") !== contact.email.trim() ||
           (was.address ?? "") !== contact.address.trim()
         ) {
@@ -1316,7 +1707,7 @@ function SupplierSheet({
       void client.invalidateQueries({ queryKey: procurementKeys.suppliers() })
       idempotency.rotate()
       setEdit(null)
-      toast.success("Supplier saved")
+      setSavedEdit(true)
     },
     onError: () => {
       // Whatever part went through is on the server now; read it back so the
@@ -1326,15 +1717,14 @@ function SupplierSheet({
       })
     },
   })
+  /// A save that went through, held in the receipt dialog until it is read —
+  /// the sheet underneath already reads the record again.
+  const [savedEdit, setSavedEdit] = useState(false)
 
   if (creating) {
-    return (
-      <SupplierComposer
-        open
-        onClose={onClose}
-        onCreated={(made) => onOpen(made.supplier_id)}
-      />
-    )
+    // Back to the book once the number has been read: the owner's "save,
+    // see the number, close" (2026-09-28). The row is in the list, refetched.
+    return <SupplierComposer open onClose={onClose} />
   }
 
   const supplier = detail.data
@@ -1343,141 +1733,164 @@ function SupplierSheet({
     : (people.data ?? []).map(contactDraftOf)
 
   return (
-    <Sheet
-      open={id !== null}
-      onOpenChange={(open) => !open && onClose()}
-      id={supplier?.supplier_code}
-      title={
-        supplier === undefined ? "Supplier" : supplierDisplayName(supplier)
-      }
-      // Under the name, the two facts somebody opened this to find: where they
-      // are and how to call them.
-      caption={
-        supplier &&
-        [supplier.address, supplier.phone].filter(Boolean).join(" · ")
-      }
-      badge={
-        supplier && (
-          <Pill tone={supplier.status === "ACTIVE" ? "ok" : "neutral"}>
-            {statusLabel(supplier.status)}
-          </Pill>
-        )
-      }
-      width="wide"
-      actions={
-        supplier &&
-        !editing && (
-          <>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() =>
-                printSupplier(supplier, (people.data ?? []).map(contactDraftOf))
-              }
-            >
-              <Printer />
-              Print
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => {
-                save.reset()
-                setTab("details")
-                setEdit({
-                  id: id!,
-                  address: supplier.address ?? "",
-                  notes: supplier.notes ?? "",
-                  contacts: [...(people.data ?? []).map(contactDraftOf)],
-                })
-              }}
-            >
-              <Pencil />
-              Edit
-            </Button>
-          </>
-        )
-      }
-      footer={
-        editing && (
-          <div className="flex items-center justify-end gap-2">
-            <Button variant="ghost" onClick={() => setEdit(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              pending={save.isPending}
-              disabled={
-                editing.address.trim() === "" ||
-                !contactsSaveable(editing.contacts)
-              }
-              onClick={() => save.mutate()}
-            >
-              {save.isPending ? "Saving…" : "Save"}
-            </Button>
-          </div>
-        )
-      }
-    >
-      {queryState(detail, {
-        loading: "Loading the supplier…",
-        render: (record) => (
-          <div className="flex flex-col gap-4">
-            {!editing && (
-              <SubTabs
-                className="mb-0"
-                tabs={[
-                  { value: "details", label: "Details" },
-                  { value: "orders", label: "Orders" },
-                  { value: "catalogue", label: "Catalogue" },
-                ]}
-                value={tab}
-                onChange={setTab}
-              />
-            )}
-            {(editing || tab === "details") && (
-              <>
-                {save.isError && (
-                  <Banner tone="bad">{(save.error as Error).message}</Banner>
-                )}
-                {editing && <StatusSwitch supplier={record} />}
-                <CompanyFields
-                  draft={{
-                    ...draftOf(record),
-                    ...(editing ? { address: editing.address } : {}),
-                  }}
-                  set={(patch) => {
-                    if (patch.address !== undefined && editing)
-                      setEdit({ ...editing, address: patch.address })
-                  }}
-                  code={record.supplier_code}
-                  locked={(field) => !editing || field !== "address"}
+    <>
+      <Sheet
+        open={id !== null}
+        onOpenChange={(open) => !open && onClose()}
+        id={supplier?.supplier_code}
+        title={
+          supplier === undefined ? "Supplier" : supplierDisplayName(supplier)
+        }
+        badge={
+          supplier && (
+            <Pill tone={supplier.status === "ACTIVE" ? "ok" : "neutral"}>
+              {statusLabel(supplier.status)}
+            </Pill>
+          )
+        }
+        width="wide"
+        actions={
+          supplier &&
+          !editing && (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  printSuppliers([
+                    {
+                      supplier,
+                      contacts: (people.data ?? []).map(contactDraftOf),
+                    },
+                  ])
+                }
+              >
+                <Printer />
+                Print
+              </Button>
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => {
+                  save.reset()
+                  setTab("details")
+                  setEdit({
+                    id: id!,
+                    name: supplier.name,
+                    legalForm: supplier.legal_form ?? "",
+                    address: supplier.address ?? "",
+                    email: supplier.email ?? "",
+                    phone: shownPhone(supplier.phone) ?? "",
+                    npwp: formatNpwp(supplier.npwp ?? ""),
+                    isPkp: supplier.is_pkp ?? false,
+                    notes: supplier.notes ?? "",
+                    contacts: [...(people.data ?? []).map(contactDraftOf)],
+                  })
+                }}
+              >
+                <Pencil />
+                Edit
+              </Button>
+            </>
+          )
+        }
+        footer={
+          editing && (
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="ghost" onClick={() => setEdit(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                pending={save.isPending}
+                disabled={
+                  !saveable(editing) || !contactsSaveable(editing.contacts)
+                }
+                onClick={() => save.mutate()}
+              >
+                {save.isPending ? "Submitting…" : "Submit"}
+              </Button>
+            </div>
+          )
+        }
+      >
+        {queryState(detail, {
+          loading: "Loading the supplier…",
+          render: (record) => (
+            // The tabs keep their own air under them; each tab's body sets
+            // its own rhythm below that.
+            <div className="flex flex-col">
+              {!editing && (
+                <SubTabs
+                  tabs={[
+                    { value: "details", label: "Details" },
+                    { value: "orders", label: "Orders" },
+                    { value: "catalogue", label: "Catalogue" },
+                  ]}
+                  value={tab}
+                  onChange={setTab}
                 />
-                <ContactsFields
-                  contacts={contacts}
-                  readOnly={!editing}
-                  onChange={(next) =>
-                    editing && setEdit({ ...editing, contacts: next })
-                  }
-                />
-                <NotesField
-                  value={editing ? editing.notes : (record.notes ?? "")}
-                  onChange={(notes) =>
-                    editing && setEdit({ ...editing, notes })
-                  }
-                  disabled={!editing}
-                />
-              </>
-            )}
-            {!editing && tab === "orders" && (
-              <SupplierOrders supplier={record} />
-            )}
-            {!editing && tab === "catalogue" && (
-              <SupplierCatalogue supplierId={record.supplier_id} />
-            )}
-          </div>
-        ),
-      })}
-    </Sheet>
+              )}
+              {(editing || tab === "details") && (
+                // Room between the parts of the record (2026-09-28: "kurang
+                // spacing"): each section's rule sits in 24px of air, not 16.
+                <div className="flex flex-col gap-7 pt-2">
+                  {save.isError && (
+                    <Banner tone="bad">{(save.error as Error).message}</Banner>
+                  )}
+                  {editing && <StatusSwitch supplier={record} />}
+                  {editing ? (
+                    // The same form the supplier was created with, every box
+                    // open (the owner, 2026-10-04).
+                    <CompanyFields
+                      draft={editing}
+                      set={(patch) => setEdit({ ...editing, ...patch })}
+                      locked={() => false}
+                      tried
+                    />
+                  ) : (
+                    <CompanyFacts supplier={record} />
+                  )}
+                  <ContactsFields
+                    contacts={contacts}
+                    readOnly={!editing}
+                    onChange={(next) =>
+                      editing && setEdit({ ...editing, contacts: next })
+                    }
+                  />
+                  {/* Notes are read as a fact here; they are not part of the edit. */}
+                  <Section title="Notes" rule={false} quiet>
+                    <p className="text-[0.875rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
+                      {record.notes?.trim() || (
+                        <span className="text-body">—</span>
+                      )}
+                    </p>
+                  </Section>
+                  {!editing && (
+                    <RecordPanel
+                      subject={{ kind: "supplier", id: record.supplier_id }}
+                    />
+                  )}
+                </div>
+              )}
+              {!editing && tab === "orders" && (
+                <SupplierOrders supplier={record} />
+              )}
+              {!editing && tab === "catalogue" && (
+                <SupplierCatalogue supplierId={record.supplier_id} />
+              )}
+            </div>
+          ),
+        })}
+      </Sheet>
+      <SavedDialog
+        open={savedEdit}
+        onOpenChange={(next) => {
+          if (!next) setSavedEdit(false)
+        }}
+        title="Supplier saved"
+      />
+    </>
   )
 }
 
@@ -1505,6 +1918,10 @@ function StatusSwitch({ supplier }: { supplier: Supplier }) {
         queryKey: procurementKeys.supplier(supplier.supplier_id),
       })
       void client.invalidateQueries({ queryKey: procurementKeys.suppliers() })
+      // The Activity under the record says it was switched.
+      void client.invalidateQueries({
+        queryKey: recordKeys.info("supplier", supplier.supplier_id),
+      })
       idempotency.rotate()
     },
     onError: (problem: Error) => toast.error(problem.message),
@@ -1518,8 +1935,8 @@ function StatusSwitch({ supplier }: { supplier: Supplier }) {
         </span>
         <span className="text-[0.875rem] text-body">
           {active
-            ? "Purchase orders can be raised against this supplier."
-            : "No purchase order can be raised against this supplier."}
+            ? "Purchase orders can be issued to this supplier."
+            : "No purchase order can be issued to this supplier."}
         </span>
       </span>
       <Switch
@@ -1537,6 +1954,7 @@ function StatusSwitch({ supplier }: { supplier: Supplier }) {
         title="Make this supplier non-active?"
         confirm="Continue"
         cancel="Cancel"
+        tone="danger"
         pending={change.isPending}
         onConfirm={() => {
           setAsking(false)
@@ -1554,22 +1972,39 @@ function StatusSwitch({ supplier }: { supplier: Supplier }) {
 
 type OrderGroup = "active" | "completed" | "cancelled"
 
+/// Each group's second date is the one that matters for it (the owner,
+/// 2026-09-28): an active order is waiting on its delivery date, a completed
+/// one was fulfilled on a day, a cancelled one was cancelled on a day.
+/// `fulfilled_at` carries both of the last two — for a cancelled order it is
+/// when its lines were closed, which is the cancellation.
 const GROUPS: readonly {
   readonly key: OrderGroup
   readonly title: string
   readonly statuses: readonly string[]
+  readonly dateLabel: string
+  readonly date: (order: PurchaseOrderRow) => string | null
 }[] = [
   {
     key: "active",
     title: "Active order",
     statuses: ["ACTIVE", "PARTIALLY_RECEIVED"],
+    dateLabel: "Delivery date",
+    date: (order) => order.expected_arrival,
   },
   {
     key: "completed",
     title: "Completed order",
     statuses: ["FULLY_RECEIVED", "SHORT_RECEIVED"],
+    dateLabel: "Date fulfilled",
+    date: (order) => order.fulfilled_at,
   },
-  { key: "cancelled", title: "Cancelled order", statuses: ["CANCELLED"] },
+  {
+    key: "cancelled",
+    title: "Cancelled order",
+    statuses: ["CANCELLED"],
+    dateLabel: "Date cancelled",
+    date: (order) => order.fulfilled_at,
+  },
 ]
 
 /// Newest issued first — the order the tab and its sheet both read in.
@@ -1584,6 +2019,9 @@ function newestFirst(left: PurchaseOrderRow, right: PurchaseOrderRow): number {
 /// business-code snapshot, not the register's uuid.
 function SupplierOrders({ supplier }: { supplier: Supplier }) {
   const [all, setAll] = useState<OrderGroup | null>(null)
+  /// The order being read, opened over this sheet without leaving it.
+  const [reading, setReading] = useState<string | null>(null)
+  const navigate = useNavigate()
   const scope = { suppliers: [supplier.supplier_code] }
   const orders = useQuery({
     queryKey: procurementKeys.orders(scope),
@@ -1605,14 +2043,14 @@ function SupplierOrders({ supplier }: { supplier: Supplier }) {
   return queryState(orders, {
     loading: "Reading the order book…",
     render: () => (
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-10 pt-6">
         {/* The owner's model (2026-09-26): each kind of order as a heading
             with its orders listed under it — the five newest, and View all
             for the rest. */}
         {GROUPS.map((group) => {
           const rows = grouped[group.key]
           return (
-            <section key={group.key} className="flex flex-col gap-2">
+            <section key={group.key} className="flex flex-col gap-3.5">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-[0.9375rem] font-semibold text-ink">
                   {group.title}
@@ -1620,20 +2058,24 @@ function SupplierOrders({ supplier }: { supplier: Supplier }) {
                     {count(rows.length)}
                   </span>
                 </h3>
-                {rows.length > 5 && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setAll(group.key)}
-                  >
-                    View all
-                  </Button>
-                )}
               </div>
               {rows.length === 0 ? (
                 <p className="text-[0.875rem] text-body">None.</p>
               ) : (
-                <OrderList rows={rows.slice(0, 5)} />
+                <OrdersTable
+                  group={group}
+                  rows={rows.slice(0, 5)}
+                  onOpen={setReading}
+                />
+              )}
+              {rows.length > 5 && (
+                <Button
+                  variant="ghost"
+                  className="w-full"
+                  onClick={() => setAll(group.key)}
+                >
+                  View all {count(rows.length)}
+                </Button>
               )}
             </section>
           )
@@ -1645,77 +2087,75 @@ function SupplierOrders({ supplier }: { supplier: Supplier }) {
           caption={supplierDisplayName(supplier)}
           width="wide"
         >
-          {open !== undefined && <OrdersTable rows={grouped[open.key]} />}
+          {open !== undefined && (
+            <OrdersTable
+              group={open}
+              rows={grouped[open.key]}
+              onOpen={setReading}
+            />
+          )}
         </Sheet>
+        <OrderSheet
+          id={reading}
+          onClose={() => setReading(null)}
+          onEdit={(id) =>
+            void navigate({
+              to: "/procurement/orders",
+              search: { "edit-order": id },
+            } as never)
+          }
+        />
       </div>
     ),
   })
 }
 
-/// One order per line, under its group's heading: the number, then when it
-/// was issued, how many pieces and what it is worth.
-function OrderList({ rows }: { rows: readonly PurchaseOrderRow[] }) {
-  return (
-    <ul className="flex flex-col divide-y divide-hairline rounded-inner border border-hairline">
-      {rows.map((order) => (
-        <li
-          key={order.purchase_order_id}
-          className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3.5 py-2.5 text-[0.875rem]"
-        >
-          <LinkButton
-            to="/procurement/orders"
-            sheet={{ key: "order", value: order.purchase_order_id }}
-            className="h-auto border-0 bg-transparent px-0 font-mono text-[0.875rem] font-medium text-accent hover:bg-transparent hover:underline"
-          >
-            {order.po_number}
-          </LinkButton>
-          <span className="text-body tabular-nums">
-            {day(order.issued_at)}
-            {order.fulfilled_at !== null && ` → ${day(order.fulfilled_at)}`}
-          </span>
-          <span className="ml-auto text-body tabular-nums">
-            {count(order.expected_stock_units)} pcs
-          </span>
-          <span className="w-32 text-right font-medium text-ink tabular-nums">
-            {money(order.net_minor)}
-          </span>
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-/// Order | Date issued | Date fulfilled | Qty | Value, each row crossing into
-/// the order.
-function OrdersTable({ rows }: { rows: readonly PurchaseOrderRow[] }) {
+/// Order | Date issued | the group's date | Qty | Value, each row crossing
+/// into the order. The same table under each heading and in View all, so the
+/// five newest read exactly like the rest.
+function OrdersTable({
+  group,
+  rows,
+  onOpen,
+}: {
+  group: (typeof GROUPS)[number]
+  rows: readonly PurchaseOrderRow[]
+  onOpen: (id: string) => void
+}) {
   return (
     <MiniTable
-      head={["Order", "Date issued", "Date fulfilled", "Qty", "Value"]}
+      head={[
+        "Order",
+        { label: "Date Issued", align: "left" },
+        { label: group.dateLabel, align: "left" },
+        "Quantity",
+        "Value",
+      ]}
     >
       {rows.map((order) => (
-        <tr key={order.purchase_order_id} className="border-t border-hairline">
-          <td className="py-2 pr-2">
-            <LinkButton
-              to="/procurement/orders"
-              sheet={{ key: "order", value: order.purchase_order_id }}
-              className="h-auto border-0 bg-transparent px-0 font-mono text-[0.875rem] font-normal text-accent hover:bg-transparent hover:underline"
+        <MiniRow key={order.purchase_order_id}>
+          <MiniCell className="py-2.5">
+            <button
+              type="button"
+              onClick={() => onOpen(order.purchase_order_id)}
+              className="font-mono text-[0.875rem] text-accent hover:underline"
             >
               {order.po_number}
-            </LinkButton>
-          </td>
-          <td className="py-2 pr-2 text-[0.875rem] tabular-nums">
+            </button>
+          </MiniCell>
+          <MiniCell className="py-2.5 tabular-nums">
             {day(order.issued_at)}
-          </td>
-          <td className="py-2 pr-2 text-[0.875rem] tabular-nums">
-            {day(order.fulfilled_at)}
-          </td>
-          <td className="py-2 pr-2 text-right text-[0.875rem] tabular-nums">
+          </MiniCell>
+          <MiniCell className="py-2.5 tabular-nums">
+            {day(group.date(order))}
+          </MiniCell>
+          <MiniCell align="right" className="py-2.5">
             {count(order.expected_stock_units)}
-          </td>
-          <td className="py-2 text-right text-[0.875rem] font-medium text-ink tabular-nums">
+          </MiniCell>
+          <MiniCell align="right" className="py-2.5 font-medium text-ink">
             {money(order.net_minor)}
-          </td>
-        </tr>
+          </MiniCell>
+        </MiniRow>
       ))}
     </MiniTable>
   )
@@ -1724,23 +2164,31 @@ function OrdersTable({ rows }: { rows: readonly PurchaseOrderRow[] }) {
 // ---------------------------------------------------------------------------
 // Printing
 
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-}
-
-/// The supplier on one A5 sheet, printed from a window of its own.
+/// Suppliers on A5, one sheet each, printed from a window of their own.
 ///
 /// Its own document rather than a print stylesheet over the app: the sheet
 /// the record sits in is a portal over a list over a shell, and hiding all of
 /// that for the printer is a fight with every layer. A5 is the owner's size.
-function printSupplier(supplier: Supplier, contacts: readonly ContactDraft[]) {
+/// Several at once — ticked on the list — is one print job with a page break
+/// between them (the owner, 2026-09-28).
+function printSuppliers(
+  pages: readonly {
+    readonly supplier: Supplier
+    readonly contacts: readonly ContactDraft[]
+  }[]
+) {
+  if (pages.length === 0) return
   const fact = (term: string, value: string | null | undefined) =>
     `<tr><th>${escapeHtml(term)}</th><td>${escapeHtml(value?.trim() || "—")}</td></tr>`
-  const people =
+  const page = (
+    supplier: Supplier,
+    contacts: readonly ContactDraft[]
+  ) => `<section class="page">
+<div class="code">${escapeHtml(supplier.supplier_code)}</div>
+<h1>${escapeHtml(supplierDisplayName(supplier))}</h1>
+<h2>Company</h2>
+<table class="facts">${fact("Status", statusLabel(supplier.status))}${fact("Address", supplier.address)}${fact("Email", supplier.email)}${fact("Phone number", shownPhone(supplier.phone))}${fact("NPWP", shownNpwp(supplier.npwp))}${fact("PKP", supplier.is_pkp ? "Yes" : "No")}</table>
+<h2>Contact person</h2>${
     contacts.length === 0
       ? `<p class="none">No contact person on file.</p>`
       : `<table class="grid"><thead><tr><th>Name</th><th>Role</th><th>Phone</th><th>Email</th><th>Address</th></tr></thead><tbody>${contacts
@@ -1749,12 +2197,21 @@ function printSupplier(supplier: Supplier, contacts: readonly ContactDraft[]) {
               `<tr><td>${escapeHtml(one.name)}</td><td>${escapeHtml(one.role || "—")}</td><td>${escapeHtml(one.phone || "—")}</td><td>${escapeHtml(one.email || "—")}</td><td>${escapeHtml(one.address || "—")}</td></tr>`
           )
           .join("")}</tbody></table>`
+  }
+<h2>Notes</h2><p class="notes">${escapeHtml(supplier.notes?.trim() || "—")}</p>
+</section>`
+  const title =
+    pages.length === 1
+      ? `${pages[0].supplier.supplier_code} ${supplierDisplayName(pages[0].supplier)}`
+      : `${pages.length} suppliers`
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(
-    `${supplier.supplier_code} ${supplierDisplayName(supplier)}`
+    title
   )}</title><style>
 @page { size: A5; margin: 12mm; }
 * { box-sizing: border-box; }
 body { font-family: Inter, -apple-system, "Segoe UI", sans-serif; font-size: 14px; color: #1d1f1a; margin: 0; }
+.page { break-after: page; }
+.page:last-child { break-after: auto; }
 h1 { font-size: 18px; margin: 0 0 2px; }
 .code { font-family: ui-monospace, Menlo, monospace; color: #5b6158; font-size: 14px; }
 h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: #5b6158; margin: 16px 0 6px; }
@@ -1765,12 +2222,7 @@ table { width: 100%; border-collapse: collapse; }
 .grid th { font-weight: 500; color: #5b6158; }
 .none, .notes { margin: 0; white-space: pre-wrap; }
 </style></head><body>
-<div class="code">${escapeHtml(supplier.supplier_code)}</div>
-<h1>${escapeHtml(supplierDisplayName(supplier))}</h1>
-<h2>Company</h2>
-<table class="facts">${fact("Status", statusLabel(supplier.status))}${fact("Address", supplier.address)}${fact("Email", supplier.email)}${fact("Phone number", supplier.phone)}${fact("NPWP", supplier.npwp)}${fact("PKP", supplier.is_pkp ? "Yes" : "No")}</table>
-<h2>Contact person</h2>${people}
-<h2>Notes</h2><p class="notes">${escapeHtml(supplier.notes?.trim() || "—")}</p>
+${pages.map((one) => page(one.supplier, one.contacts)).join("\n")}
 </body></html>`
   const view = window.open("", "_blank", "width=620,height=860")
   if (view === null) {
@@ -1788,63 +2240,87 @@ table { width: 100%; border-collapse: collapse; }
 // ---------------------------------------------------------------------------
 // The catalogue
 
+/// A vocabulary code written for reading: `SANDAL_SEPATU` → "Sandal sepatu".
+function humanCode(code: string | null | undefined): string {
+  if (!code) return "—"
+  const text = code.replaceAll("_", " ").toLowerCase()
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+/// Code | Item | Division | Tags | Price | Status. A row opens the item as
+/// sourcing reads it, over this sheet.
+function CatalogueTable({
+  items,
+  onOpen,
+}: {
+  items: readonly SupplierItem[]
+  onOpen: (item: SupplierItem) => void
+}) {
+  return (
+    <MiniTable
+      head={[
+        { label: "Code", align: "left" },
+        { label: "Item", align: "left" },
+        { label: "Division", align: "left" },
+        { label: "Tags", align: "left" },
+        { label: "Price", align: "right" },
+        { label: "Status", align: "right" },
+      ]}
+    >
+      {items.map((item) => (
+        <tr
+          key={item.supplier_item_id}
+          onClick={() => onOpen(item)}
+          className="cursor-pointer border-t border-hairline transition-colors hover:bg-soft-2"
+        >
+          <td className="py-4 pl-3 font-mono text-[0.875rem] text-mute first:pl-0">
+            {item.supplier_item_code}
+          </td>
+          <td className="py-4 pl-3 first:pl-0">
+            <span className="text-[0.875rem] text-accent">{item.name}</span>
+          </td>
+          <td className="py-4 pl-3 text-[0.875rem] text-body first:pl-0">
+            {humanCode(item.division_code)}
+          </td>
+          <td className="py-4 pl-3 text-[0.875rem] text-mute first:pl-0">
+            {item.tags.map(humanCode).join(", ") || "—"}
+          </td>
+          <td className="py-4 pl-3 text-right text-[0.9375rem] font-semibold text-ink tabular-nums">
+            {money(item.unit_price_minor)}
+          </td>
+          <td className="py-4 pl-3 text-right">
+            <Pill tone={item.status === "ACTIVE" ? "ok" : "neutral"}>
+              {item.status === "ACTIVE" ? "Active" : "Cancelled"}
+            </Pill>
+          </td>
+        </tr>
+      ))}
+    </MiniTable>
+  )
+}
+
 /// What this supplier offers, and adding to it.
 function SupplierCatalogue({ supplierId }: { supplierId: string }) {
-  const client = useQueryClient()
-  const idempotency = useIdempotencyKey()
-  // Whether the panel is open, not what is in it: a disclosure, so `useState`.
+  const [viewAll, setViewAll] = useState(false)
+  /// The item being read, opened over this sheet without leaving it.
+  const [reading, setReading] = useState<SupplierItem | null>(null)
+  const vocabulary = useQuery({
+    queryKey: procurementKeys.vocabulary(),
+    queryFn: ({ signal }) => catalogueVocabulary(signal),
+    staleTime: 30 * 60 * 1000,
+  })
+  /// The full item form, the one Catalogue and the order composer use, over
+  /// this sheet; `editing` is the item being corrected.
   const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState(false)
 
   const items = useQuery({
     queryKey: procurementKeys.supplierCatalogue(supplierId),
     queryFn: ({ signal }) => supplierCatalogue(supplierId, {}, signal),
   })
 
-  const add = useMutation({
-    mutationFn: (draft: { code: string; name: string; price: string }) =>
-      createSupplierItem(
-        supplierId,
-        {
-          supplier_item_code: draft.code.trim(),
-          name: draft.name.trim(),
-          description: null,
-          image_url: null,
-          unit_price_minor: Number.parseInt(draft.price, 10),
-          currency: "IDR",
-          internal_article_code: null,
-          status: "ACTIVE",
-          division_code: null,
-          tags: [],
-          colour_codes: [],
-          size_codes: [],
-          units: [],
-        },
-        idempotency.key
-      ),
-    onSuccess: () => {
-      void client.invalidateQueries({
-        queryKey: procurementKeys.supplierCatalogue(supplierId),
-      })
-      void client.invalidateQueries({
-        queryKey: procurementKeys.supplierItems(),
-      })
-      idempotency.rotate()
-      setAdding(false)
-      form.reset()
-    },
-  })
-
-  const form = useForm({
-    defaultValues: { code: "", name: "", price: "" },
-    onSubmit: ({ value }) => add.mutate(value),
-  })
-
   return (
-    <div className="flex flex-col gap-3.5">
-      {add.isError && (
-        <Banner tone="bad">{(add.error as Error).message}</Banner>
-      )}
-
+    <div className="flex flex-col gap-3.5 pt-6">
       {queryState(items, {
         loading: "Reading the catalogue…",
         render: (page) =>
@@ -1854,35 +2330,45 @@ function SupplierCatalogue({ supplierId }: { supplierId: string }) {
             </p>
           ) : (
             <>
-              <MiniTable head={["Item", "Price", "Status"]}>
-                {page.items.map((item) => (
-                  <tr
-                    key={item.supplier_item_id}
-                    className="border-t border-hairline"
-                  >
-                    <td className="py-2 pr-2">
-                      <LinkButton
-                        to="/procurement/catalogue"
-                        sheet={{ key: "item", value: item.supplier_item_id }}
-                        className="h-auto border-0 bg-transparent px-0 text-[0.875rem] font-normal text-accent hover:bg-transparent hover:underline"
-                      >
-                        {item.name}
-                      </LinkButton>
-                      <span className="block font-mono text-[0.875rem] text-mute">
-                        {item.supplier_item_code}
-                      </span>
-                    </td>
-                    <td className="py-2 text-right text-[0.875rem] tabular-nums">
-                      {money(item.unit_price_minor)}
-                    </td>
-                    <td className="py-2 text-right">
-                      <Pill tone={item.status === "ACTIVE" ? "ok" : "neutral"}>
-                        {item.status === "ACTIVE" ? "Active" : "Cancelled"}
-                      </Pill>
-                    </td>
-                  </tr>
-                ))}
-              </MiniTable>
+              <CatalogueTable
+                items={page.items.slice(0, 5)}
+                onOpen={setReading}
+              />
+              {page.items.length > 5 && (
+                <Button
+                  variant="ghost"
+                  className="w-full"
+                  onClick={() => setViewAll(true)}
+                >
+                  View all {count(page.items.length)}
+                </Button>
+              )}
+              <Sheet
+                open={viewAll}
+                onOpenChange={setViewAll}
+                title="Catalogue"
+                width="wide"
+              >
+                <CatalogueTable items={page.items} onOpen={setReading} />
+              </Sheet>
+              <Sheet
+                open={reading !== null}
+                onOpenChange={(next) => !next && setReading(null)}
+                id={reading?.supplier_item_code}
+                title={reading?.name ?? ""}
+                width="wide"
+                actions={
+                  reading !== null && (
+                    <Button size="sm" onClick={() => setEditing(true)}>
+                      Edit
+                    </Button>
+                  )
+                }
+              >
+                {reading !== null && (
+                  <ItemDetail item={reading} vocabulary={vocabulary.data} />
+                )}
+              </Sheet>
               {page.next_cursor !== null && (
                 <p className="text-[0.875rem] text-body">
                   The first {count(page.limit)} of this supplier's catalogue.
@@ -1893,76 +2379,23 @@ function SupplierCatalogue({ supplierId }: { supplierId: string }) {
           ),
       })}
 
-      {adding ? (
-        <form
-          onSubmit={(event) => {
-            event.preventDefault()
-            form.handleSubmit()
+      <Button onClick={() => setAdding(true)}>Add item</Button>
+      <ItemFormSheet
+        open={adding}
+        supplierId={supplierId}
+        onClose={() => setAdding(false)}
+        onSaved={() => setAdding(false)}
+      />
+      {reading !== null && (
+        <ItemFormSheet
+          open={editing}
+          item={reading}
+          onClose={() => setEditing(false)}
+          onSaved={(saved) => {
+            setEditing(false)
+            setReading(saved)
           }}
-          className="flex flex-col gap-3 rounded-inner border border-hairline p-3.5"
-        >
-          <form.Field name="code">
-            {(field) => (
-              <Field label="Supplier's code for it">
-                <Input
-                  value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                />
-              </Field>
-            )}
-          </form.Field>
-          <form.Field name="name">
-            {(field) => (
-              <Field label="Name">
-                <Input
-                  value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                />
-              </Field>
-            )}
-          </form.Field>
-          <form.Field name="price">
-            {(field) => (
-              <Field label="Unit price" hint="Rupiah.">
-                <Input
-                  type="number"
-                  min={0}
-                  value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                />
-              </Field>
-            )}
-          </form.Field>
-          <div className="flex gap-2">
-            <form.Subscribe
-              selector={(state) =>
-                state.values.code.trim() !== "" &&
-                state.values.name.trim() !== "" &&
-                Number.isFinite(Number.parseInt(state.values.price, 10))
-              }
-            >
-              {(ready) => (
-                <Button
-                  type="submit"
-                  variant="soft"
-                  className="flex-1"
-                  pending={add.isPending}
-                  disabled={!ready}
-                >
-                  {add.isPending ? "Adding…" : "Add it"}
-                </Button>
-              )}
-            </form.Subscribe>
-            <Button variant="quiet" onClick={() => setAdding(false)}>
-              Cancel
-            </Button>
-          </div>
-        </form>
-      ) : (
-        <Button onClick={() => setAdding(true)}>Add an item</Button>
+        />
       )}
     </div>
   )

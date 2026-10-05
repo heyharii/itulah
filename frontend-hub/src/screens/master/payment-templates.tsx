@@ -678,7 +678,6 @@ function TemplateForm({
             if (template === null && !codeTyped)
               setCode(snake(event.target.value))
           }}
-          placeholder="40% advance, 60% at 30 days"
         />
       </Field>
 
@@ -697,7 +696,6 @@ function TemplateForm({
               setCode(event.target.value)
             }}
             className="font-mono"
-            placeholder="ADV40_NET30"
           />
         </Field>
         <Field label="Order" problem={problems.order}>
@@ -706,7 +704,6 @@ function TemplateForm({
             min={0}
             value={order}
             onChange={(event) => setOrder(event.target.value)}
-            placeholder="Last"
           />
         </Field>
       </div>
@@ -853,10 +850,10 @@ function TemplateForm({
         disabled={blocked}
       >
         {save.isPending
-          ? "Saving…"
+          ? "Submitting…"
           : template === null
-            ? "Add template"
-            : "Save"}
+            ? "Submit"
+            : "Submit"}
       </Button>
 
       {template && (
@@ -881,7 +878,7 @@ function TemplateForm({
             onClick={() => lifecycle.mutate(!template.active)}
           >
             {lifecycle.isPending
-              ? "Saving…"
+              ? "Submitting…"
               : template.active
                 ? "Cancel template"
                 : "Reactivate template"}
@@ -1046,7 +1043,6 @@ function TermForm({
             setLabel(event.target.value)
             if (term === null && !codeTyped) setCode(snake(event.target.value))
           }}
-          placeholder="Net 60"
         />
       </Field>
 
@@ -1065,7 +1061,6 @@ function TermForm({
               setCode(event.target.value)
             }}
             className="font-mono"
-            placeholder="NET_60"
           />
         </Field>
         <Field label="Order" problem={problems.order}>
@@ -1074,7 +1069,6 @@ function TermForm({
             min={0}
             value={order}
             onChange={(event) => setOrder(event.target.value)}
-            placeholder="Last"
           />
         </Field>
       </div>
@@ -1129,7 +1123,7 @@ function TermForm({
         pending={save.isPending}
         disabled={blocked}
       >
-        {save.isPending ? "Saving…" : term === null ? "Add term" : "Save"}
+        {save.isPending ? "Submitting…" : term === null ? "Submit" : "Submit"}
       </Button>
 
       {term && (
@@ -1157,7 +1151,7 @@ function TermForm({
             onClick={() => lifecycle.mutate(!term.active)}
           >
             {lifecycle.isPending
-              ? "Saving…"
+              ? "Submitting…"
               : term.active
                 ? "Cancel term"
                 : "Reactivate term"}

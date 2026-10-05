@@ -11,6 +11,7 @@ import {
   supplierItemImage,
 } from "@/lib/queries/procurement"
 import { sizeLabel, termLabel } from "@/screens/procurement/shared"
+import { supplierDisplayName } from "@/screens/procurement/supplier-format"
 import type {
   CatalogueVocabulary,
   PurchaseHistory,
@@ -85,7 +86,9 @@ export function ItemDetail({
             sheet={{ key: "supplier", value: item.supplier_id }}
             className="text-accent hover:underline"
           >
-            {supplier.data?.name ?? supplier.data?.supplier_code ?? "Supplier"}
+            {supplier.data === undefined
+              ? "Supplier"
+              : supplierDisplayName(supplier.data)}
           </AppLink>
         </Fact>
         <Fact term="Supplier code">{item.supplier_item_code}</Fact>

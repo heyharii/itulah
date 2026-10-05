@@ -8,15 +8,16 @@
 //! sign in there — and to the bound it then imposes: the node's own place for
 //! HR, the node's own site for GA, whatever the person could reach elsewhere.
 
-use axum::body::{to_bytes, Body};
-use http::{header, Request, StatusCode};
+use axum::body::{Body, to_bytes};
+use http::{Request, StatusCode, header};
 use inventory_backend::cloud::{
+    AppConfig, AppState,
     application::{CreateUserRequest, UpsertEdgeAssignmentRequest},
     domain::Role,
-    http as cloud_http, postgres as cloud, AppConfig, AppState,
+    http as cloud_http, postgres as cloud,
 };
 use inventory_backend::security;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sqlx::PgPool;
 use std::{net::SocketAddr, path::PathBuf};
 use tower::ServiceExt;
@@ -207,7 +208,12 @@ async fn head_office(app: &axum::Router) -> Vec<(String, String)> {
         Some(json!({ "username": "admin", "password": ADMIN_PASSWORD })),
     )
     .await;
-    assert_eq!(response.status, StatusCode::OK, "admin sign-in: {:?}", response.body);
+    assert_eq!(
+        response.status,
+        StatusCode::OK,
+        "admin sign-in: {:?}",
+        response.body
+    );
     let session = cookie_pair(&response.set_cookies, security::SESSION_COOKIE);
     let csrf = cookie_pair(&response.set_cookies, security::CSRF_COOKIE);
     let token = csrf
@@ -230,7 +236,12 @@ async fn employ(app: &axum::Router, hq: &[(String, String)], code: &str, unit: &
         Some(json!({ "employee_code": code })),
     )
     .await;
-    assert_eq!(registered.status, StatusCode::OK, "register: {:?}", registered.body);
+    assert_eq!(
+        registered.status,
+        StatusCode::OK,
+        "register: {:?}",
+        registered.body
+    );
     let employee_id = registered.body["employee_id"]
         .as_str()
         .unwrap_or_else(|| panic!("employee_id: {:?}", registered.body))
@@ -290,11 +301,20 @@ async fn a_relayed_call_is_refused_unless_path_node_and_person_all_check_out(poo
         &app,
         "GET",
         "/api/v1/employees/me/reach",
-        relayed(ORIGIN_07, "store-07-a-key-somebody-guessed-000000000", manager),
+        relayed(
+            ORIGIN_07,
+            "store-07-a-key-somebody-guessed-000000000",
+            manager,
+        ),
         None,
     )
     .await;
-    assert_eq!(wrong_key.status, StatusCode::FORBIDDEN, "{:?}", wrong_key.body);
+    assert_eq!(
+        wrong_key.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        wrong_key.body
+    );
     let mut keyless = relayed(ORIGIN_07, KEY_07, manager);
     keyless.retain(|(name, _)| name != "x-sync-key");
     let keyless = send(&app, "GET", "/api/v1/employees/me/reach", keyless, None).await;
@@ -332,7 +352,14 @@ async fn a_relayed_call_is_refused_unless_path_node_and_person_all_check_out(poo
         ("GET", "/api/v1/ga/overview"),
         ("GET", "/api/v1/health"),
     ] {
-        let refused = send(&app, method, path, relayed(ORIGIN_07, KEY_07, manager), None).await;
+        let refused = send(
+            &app,
+            method,
+            path,
+            relayed(ORIGIN_07, KEY_07, manager),
+            None,
+        )
+        .await;
         assert_eq!(
             refused.status,
             StatusCode::FORBIDDEN,
@@ -390,7 +417,12 @@ async fn a_relayed_call_is_refused_unless_path_node_and_person_all_check_out(poo
         None,
     )
     .await;
-    assert_eq!(placeless.status, StatusCode::FORBIDDEN, "{:?}", placeless.body);
+    assert_eq!(
+        placeless.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        placeless.body
+    );
 
     // Revoking the assignment stops the relay on the next call.
     sqlx::query("UPDATE edge_identity_assignment SET active = false WHERE user_id = $1")
@@ -422,11 +454,20 @@ async fn a_relayed_call_is_never_the_development_admin(pool: PgPool) {
         &app,
         "GET",
         "/api/v1/employees/me/reach",
-        relayed(ORIGIN_07, "store-07-a-key-somebody-guessed-000000000", cashier),
+        relayed(
+            ORIGIN_07,
+            "store-07-a-key-somebody-guessed-000000000",
+            cashier,
+        ),
         None,
     )
     .await;
-    assert_eq!(wrong_key.status, StatusCode::FORBIDDEN, "{:?}", wrong_key.body);
+    assert_eq!(
+        wrong_key.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        wrong_key.body
+    );
 
     let off_list = send(
         &app,
@@ -436,7 +477,12 @@ async fn a_relayed_call_is_never_the_development_admin(pool: PgPool) {
         None,
     )
     .await;
-    assert_eq!(off_list.status, StatusCode::FORBIDDEN, "{:?}", off_list.body);
+    assert_eq!(
+        off_list.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        off_list.body
+    );
 
     let reach = send(
         &app,
@@ -495,7 +541,12 @@ async fn a_relayed_call_reaches_the_nodes_unit_and_no_other(pool: PgPool) {
         None,
     )
     .await;
-    assert_eq!(asked_elsewhere.status, StatusCode::FORBIDDEN, "{:?}", asked_elsewhere.body);
+    assert_eq!(
+        asked_elsewhere.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        asked_elsewhere.body
+    );
     let one_elsewhere = send(
         &app,
         "GET",
@@ -505,7 +556,10 @@ async fn a_relayed_call_reaches_the_nodes_unit_and_no_other(pool: PgPool) {
     )
     .await;
     assert!(
-        matches!(one_elsewhere.status, StatusCode::FORBIDDEN | StatusCode::NOT_FOUND),
+        matches!(
+            one_elsewhere.status,
+            StatusCode::FORBIDDEN | StatusCode::NOT_FOUND
+        ),
         "{:?}: {:?}",
         one_elsewhere.status,
         one_elsewhere.body
@@ -554,6 +608,97 @@ async fn a_relayed_call_reaches_the_nodes_unit_and_no_other(pool: PgPool) {
     assert_eq!(list.status, StatusCode::FORBIDDEN, "{:?}", list.body);
 }
 
+/// A node is registered to a physical site; HR is scoped to the unit that owns
+/// that site. Keep those identifiers distinct here to catch clients that use
+/// the node's `site_id` as an HR `unit_id`.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_relayed_store_uses_the_site_owning_unit_for_hr(pool: PgPool) {
+    cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
+        .await
+        .unwrap_or_else(|error| panic!("bootstrap: {error}"));
+    let app = cloud_http::router(AppState::new(pool.clone(), config(true)));
+    let _hq = head_office(&app).await;
+
+    // Model an estate where this till's premises is operated under another
+    // unit. The other store unit remains a valid unit, but not this site's HR
+    // scope.
+    let moved = sqlx::query("UPDATE site SET unit_id = 'store-03' WHERE id = 'store-07'")
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("move store-07 site: {error}"));
+    assert_eq!(moved.rows_affected(), 1);
+    register_origin(&pool, ORIGIN_07, KEY_07, "store-07").await;
+
+    let hr = login(&pool, "hr.site.unit", Role::Admin).await;
+    assign(&pool, ORIGIN_07, hr, Role::Admin).await;
+    let through_till = || relayed(ORIGIN_07, KEY_07, hr);
+
+    let reach = send(
+        &app,
+        "GET",
+        "/api/v1/employees/me/reach",
+        through_till(),
+        None,
+    )
+    .await;
+    assert_eq!(reach.status, StatusCode::OK, "{:?}", reach.body);
+    assert_eq!(reach.body["scope"], "ONE_UNIT", "{:?}", reach.body);
+    assert_eq!(reach.body["unit_id"], "store-03", "{:?}", reach.body);
+
+    // These are the unit values the store HR client must pass. The premises id
+    // is not a valid substitute even though this is the site registered to the
+    // node.
+    let list = send(
+        &app,
+        "GET",
+        "/api/v1/employees?unit_id=store-03&limit=200",
+        through_till(),
+        None,
+    )
+    .await;
+    assert_eq!(list.status, StatusCode::OK, "{:?}", list.body);
+    assert_eq!(list.body["unit_id"], "store-03", "{:?}", list.body);
+
+    let site_as_unit = send(
+        &app,
+        "GET",
+        "/api/v1/employees?unit_id=store-07&limit=200",
+        through_till(),
+        None,
+    )
+    .await;
+    assert_eq!(
+        site_as_unit.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        site_as_unit.body
+    );
+
+    let roster = send(
+        &app,
+        "GET",
+        "/api/v1/roster?unit=store-03&from=2026-01-06&to=2026-01-06",
+        through_till(),
+        None,
+    )
+    .await;
+    assert_eq!(roster.status, StatusCode::OK, "{:?}", roster.body);
+    let roster_at_site_id = send(
+        &app,
+        "GET",
+        "/api/v1/roster?unit=store-07&from=2026-01-06&to=2026-01-06",
+        through_till(),
+        None,
+    )
+    .await;
+    assert_eq!(
+        roster_at_site_id.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        roster_at_site_id.body
+    );
+}
+
 /// GA resolves no `Reach`; its rows carry a site. Through a till, the site is
 /// the till's: forced on a list, checked on a row, matched on a body.
 #[sqlx::test(migrations = "./migrations/postgres")]
@@ -592,7 +737,10 @@ async fn general_affairs_through_a_till_is_the_tills_own_site(pool: PgPool) {
         .as_array()
         .unwrap_or_else(|| panic!("supplies: {:?}", supplies.body));
     assert_eq!(rows.len(), 1, "{rows:?}");
-    assert!(rows.iter().all(|row| row["site_id"] == "store-07"), "{rows:?}");
+    assert!(
+        rows.iter().all(|row| row["site_id"] == "store-07"),
+        "{rows:?}"
+    );
 
     // An asset and a contract at each shop, and one contract covering every
     // store — written straight in, the way the GA tests seed their registers.
@@ -644,7 +792,12 @@ async fn general_affairs_through_a_till_is_the_tills_own_site(pool: PgPool) {
         format!("/api/v1/ga/contracts/{}", contracts_at["store-03"]),
     ] {
         let refused = send(&app, "GET", &path, as_manager(), None).await;
-        assert_eq!(refused.status, StatusCode::FORBIDDEN, "{path}: {:?}", refused.body);
+        assert_eq!(
+            refused.status,
+            StatusCode::FORBIDDEN,
+            "{path}: {:?}",
+            refused.body
+        );
     }
 
     // The till's own place, its own things, its own paper — and the paper
@@ -675,7 +828,10 @@ async fn general_affairs_through_a_till_is_the_tills_own_site(pool: PgPool) {
         .unwrap_or_else(|| panic!("facets: {facets:?}"))
         .iter()
         .collect();
-    assert!(sites.iter().all(|facet| facet["value"] == "store-07"), "{facets:?}");
+    assert!(
+        sites.iter().all(|facet| facet["value"] == "store-07"),
+        "{facets:?}"
+    );
     for counted_across_the_estate in ["classes", "builds", "conditions", "statuses"] {
         assert_eq!(facets[counted_across_the_estate], json!([]), "{facets:?}");
     }
@@ -724,7 +880,14 @@ async fn general_affairs_through_a_till_is_the_tills_own_site(pool: PgPool) {
         .await
         .unwrap_or_else(|error| panic!("repair at {site}: {error}"));
     }
-    let repairs = send(&app, "GET", "/api/v1/ga/repairs?site=store-07", as_manager(), None).await;
+    let repairs = send(
+        &app,
+        "GET",
+        "/api/v1/ga/repairs?site=store-07",
+        as_manager(),
+        None,
+    )
+    .await;
     assert_eq!(repairs.status, StatusCode::OK, "{:?}", repairs.body);
     let rows = repairs.body["rows"]
         .as_array()
@@ -740,16 +903,31 @@ async fn general_affairs_through_a_till_is_the_tills_own_site(pool: PgPool) {
             .iter()
             .filter_map(|entry| entry["count"].as_i64())
             .sum();
-        assert_eq!(counted, 1, "{facet} counts only the till's repair: {facets:?}");
+        assert_eq!(
+            counted, 1,
+            "{facet} counts only the till's repair: {facets:?}"
+        );
     }
     for path in [
         "/api/v1/ga/repairs?site=store-03",
         "/api/v1/ga/maintenance-tasks?site=store-03",
     ] {
         let refused = send(&app, "GET", path, as_manager(), None).await;
-        assert_eq!(refused.status, StatusCode::FORBIDDEN, "{path}: {:?}", refused.body);
+        assert_eq!(
+            refused.status,
+            StatusCode::FORBIDDEN,
+            "{path}: {:?}",
+            refused.body
+        );
     }
-    let tasks = send(&app, "GET", "/api/v1/ga/maintenance-tasks", as_manager(), None).await;
+    let tasks = send(
+        &app,
+        "GET",
+        "/api/v1/ga/maintenance-tasks",
+        as_manager(),
+        None,
+    )
+    .await;
     assert_eq!(tasks.status, StatusCode::OK, "{:?}", tasks.body);
 
     // A repair must be at this shop, on this shop's thing.
@@ -788,7 +966,12 @@ async fn general_affairs_through_a_till_is_the_tills_own_site(pool: PgPool) {
         Some(filing("store-03")),
     )
     .await;
-    assert_eq!(elsewhere.status, StatusCode::FORBIDDEN, "{:?}", elsewhere.body);
+    assert_eq!(
+        elsewhere.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        elsewhere.body
+    );
     let own = send(
         &app,
         "POST",
@@ -810,4 +993,318 @@ async fn general_affairs_through_a_till_is_the_tills_own_site(pool: PgPool) {
             .await
             .unwrap_or_else(|error| panic!("filed by: {error}"));
     assert_eq!(filed_by, "mgr.seven", "the person, not the node");
+}
+
+/// Training rosters keep employee names inside the reachable unit, preserve
+/// attendance decisions with their reasons, and leave attendance open after
+/// head office closes a programme.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn training_rosters_are_unit_scoped_and_attendance_is_audited(pool: PgPool) {
+    use inventory_backend::clock::ClockMode;
+
+    cloud::bootstrap_admin(&pool, Some(ADMIN_PASSWORD), true)
+        .await
+        .unwrap_or_else(|error| panic!("bootstrap: {error}"));
+    let mut config = config(true);
+    config.clock = Some(ClockMode::Controlled {
+        at: chrono::DateTime::parse_from_rfc3339("2026-06-15T12:00:00Z")
+            .unwrap_or_else(|error| panic!("controlled clock: {error}"))
+            .with_timezone(&chrono::Utc),
+    });
+    let app = cloud_http::router(AppState::new(pool.clone(), config));
+    let hq = head_office(&app).await;
+    register_origin(&pool, ORIGIN_07, KEY_07, "store-07").await;
+    let here = employ(&app, &hq, "TRN0701", "store-07").await;
+    let there = employ(&app, &hq, "TRN0301", "store-03").await;
+    let hr = login(&pool, "training.hr", Role::Admin).await;
+    assign(&pool, ORIGIN_07, hr, Role::Admin).await;
+    let store = || relayed(ORIGIN_07, KEY_07, hr);
+
+    let defined = send(
+        &app,
+        "POST",
+        "/api/v1/training-programs",
+        hq.clone(),
+        Some(json!({
+            "title": "Pelayanan pelanggan",
+            "on_date": "2026-06-14",
+            "place": "Ruang pelatihan",
+            "cost_minor": 250000,
+            "reason": "Program semester pertama",
+        })),
+    )
+    .await;
+    assert_eq!(defined.status, StatusCode::OK, "{:?}", defined.body);
+    assert_eq!(defined.body[0]["cost_minor"], 250000);
+    let program_id = defined.body[0]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("program: {:?}", defined.body))
+        .to_owned();
+
+    let nominated = send(
+        &app,
+        "POST",
+        &format!("/api/v1/training-programs/{program_id}/participants"),
+        store(),
+        Some(json!({
+            "employee_id": here,
+            "reason": "Membutuhkan pelatihan layanan",
+        })),
+    )
+    .await;
+    assert_eq!(nominated.status, StatusCode::OK, "{:?}", nominated.body);
+    assert_eq!(nominated.body["participants"], 1);
+    assert!(
+        nominated.body["cost_minor"].is_null(),
+        "store cost leak: {:?}",
+        nominated.body
+    );
+
+    let duplicate = send(
+        &app,
+        "POST",
+        &format!("/api/v1/training-programs/{program_id}/participants"),
+        store(),
+        Some(json!({
+            "employee_id": here,
+            "reason": "Nominasi kedua",
+        })),
+    )
+    .await;
+    assert_eq!(
+        duplicate.status,
+        StatusCode::CONFLICT,
+        "{:?}",
+        duplicate.body
+    );
+
+    let outside_unit = send(
+        &app,
+        "POST",
+        &format!("/api/v1/training-programs/{program_id}/participants"),
+        store(),
+        Some(json!({
+            "employee_id": there,
+            "reason": "Tidak boleh lintas unit",
+        })),
+    )
+    .await;
+    assert_eq!(
+        outside_unit.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        outside_unit.body
+    );
+
+    let hq_nominates = send(
+        &app,
+        "POST",
+        &format!("/api/v1/training-programs/{program_id}/participants"),
+        hq.clone(),
+        Some(json!({
+            "employee_id": there,
+            "reason": "Peserta dari toko lain",
+        })),
+    )
+    .await;
+    assert_eq!(
+        hq_nominates.status,
+        StatusCode::OK,
+        "{:?}",
+        hq_nominates.body
+    );
+
+    let store_roster = send(
+        &app,
+        "GET",
+        &format!("/api/v1/training-programs/{program_id}/participants"),
+        store(),
+        None,
+    )
+    .await;
+    assert_eq!(
+        store_roster.status,
+        StatusCode::OK,
+        "{:?}",
+        store_roster.body
+    );
+    let store_participants = store_roster.body.as_array().expect("store roster array");
+    assert_eq!(store_participants.len(), 1, "{:?}", store_roster.body);
+    assert_eq!(store_participants[0]["employee_id"], here);
+    assert!(!store_roster.body.to_string().contains(&there));
+
+    let hq_roster = send(
+        &app,
+        "GET",
+        &format!("/api/v1/training-programs/{program_id}/participants"),
+        hq.clone(),
+        None,
+    )
+    .await;
+    assert_eq!(hq_roster.status, StatusCode::OK, "{:?}", hq_roster.body);
+    assert_eq!(hq_roster.body.as_array().map(Vec::len), Some(2));
+
+    let completed = send(
+        &app,
+        "POST",
+        &format!("/api/v1/training-programs/{program_id}/completion"),
+        hq.clone(),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(completed.status, StatusCode::OK, "{:?}", completed.body);
+    let completed_again = send(
+        &app,
+        "POST",
+        &format!("/api/v1/training-programs/{program_id}/completion"),
+        hq.clone(),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(
+        completed_again.status,
+        StatusCode::CONFLICT,
+        "{:?}",
+        completed_again.body
+    );
+    let nominate_closed = send(
+        &app,
+        "POST",
+        &format!("/api/v1/training-programs/{program_id}/participants"),
+        store(),
+        Some(json!({
+            "employee_id": here,
+            "reason": "Tidak boleh setelah selesai",
+        })),
+    )
+    .await;
+    assert_eq!(
+        nominate_closed.status,
+        StatusCode::CONFLICT,
+        "{:?}",
+        nominate_closed.body
+    );
+
+    let attendance = send(
+        &app,
+        "POST",
+        &format!("/api/v1/training-programs/{program_id}/participants/{here}/attendance"),
+        store(),
+        Some(json!({
+            "attended": true,
+            "reason": "Hadir sampai sesi selesai",
+        })),
+    )
+    .await;
+    assert_eq!(attendance.status, StatusCode::OK, "{:?}", attendance.body);
+    assert_eq!(attendance.body["attended"], true);
+    assert_eq!(
+        attendance.body["attendance_history"][0]["actor"],
+        "training.hr"
+    );
+    assert_eq!(
+        attendance.body["attendance_history"][0]["reason"],
+        "Hadir sampai sesi selesai"
+    );
+
+    let corrected = send(
+        &app,
+        "POST",
+        &format!("/api/v1/training-programs/{program_id}/participants/{here}/attendance"),
+        store(),
+        Some(json!({
+            "attended": false,
+            "reason": "Koreksi setelah mencocokkan daftar hadir bertanda tangan",
+        })),
+    )
+    .await;
+    assert_eq!(corrected.status, StatusCode::OK, "{:?}", corrected.body);
+    assert_eq!(corrected.body["attended"], false);
+    assert_eq!(
+        corrected.body["attendance_history"]
+            .as_array()
+            .map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(
+        corrected.body["attendance_history"][1]["reason"],
+        "Koreksi setelah mencocokkan daftar hadir bertanda tangan"
+    );
+
+    let no_reason = send(
+        &app,
+        "POST",
+        &format!("/api/v1/training-programs/{program_id}/participants/{here}/attendance"),
+        store(),
+        Some(json!({ "attended": false, "reason": "  " })),
+    )
+    .await;
+    assert_eq!(
+        no_reason.status,
+        StatusCode::BAD_REQUEST,
+        "{:?}",
+        no_reason.body
+    );
+
+    let cross_unit_attendance = send(
+        &app,
+        "POST",
+        &format!("/api/v1/training-programs/{program_id}/participants/{there}/attendance"),
+        store(),
+        Some(json!({ "attended": true, "reason": "Lintas unit" })),
+    )
+    .await;
+    assert_eq!(
+        cross_unit_attendance.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        cross_unit_attendance.body
+    );
+
+    let future = send(
+        &app,
+        "POST",
+        "/api/v1/training-programs",
+        hq,
+        Some(json!({
+            "title": "Pelatihan mendatang",
+            "on_date": "2026-06-16",
+            "place": "Ruang pelatihan",
+            "cost_minor": 100000,
+            "reason": "Program berikutnya",
+        })),
+    )
+    .await;
+    assert_eq!(future.status, StatusCode::OK, "{:?}", future.body);
+    let future_id = future.body[0]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("future program: {:?}", future.body));
+    let future_nomination = send(
+        &app,
+        "POST",
+        &format!("/api/v1/training-programs/{future_id}/participants"),
+        store(),
+        Some(json!({ "employee_id": here, "reason": "Untuk jadwal besok" })),
+    )
+    .await;
+    assert_eq!(
+        future_nomination.status,
+        StatusCode::OK,
+        "{:?}",
+        future_nomination.body
+    );
+    let too_early = send(
+        &app,
+        "POST",
+        &format!("/api/v1/training-programs/{future_id}/participants/{here}/attendance"),
+        store(),
+        Some(json!({ "attended": true, "reason": "Belum waktunya" })),
+    )
+    .await;
+    assert_eq!(
+        too_early.status,
+        StatusCode::CONFLICT,
+        "{:?}",
+        too_early.body
+    );
 }

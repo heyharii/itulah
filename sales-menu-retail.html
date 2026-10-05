@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Retail sales menu</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Sales menu for retail. Each option copies a real retail back office's
+   Sales menu and files it in Central's own shape: department → rows and
+   sub-menus that fold (as Finance since 29 Sep). No switcher, no third level.
+   Hub as built today: charcoal column, neutral greys, Inter only, 22px page
+   title, 18px figures, 36px controls, 52px rows. Nothing below 14px.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --font:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9;
+  --canvas:#fff; --soft:#f8f8f9; --soft-2:#f0f0f2; --soft-3:#f6f6f7;
+  --hairline:#e6e6e9; --hairline-2:#dadade; --ctl:#d3d3d8;
+  --rail:#242526; --rail-2:#303234; --rail-3:#393b3d; --rail-ink:#fff; --rail-text:#c3c4c7; --rail-mute:#a1a3a8; --rail-hair:#343638;
+  --primary:#2563eb; --primary-ink:#1d4ed8; --primary-soft:#eef4ff;
+  --ok:#22a55a; --ok-fg:#15803d; --warn:#d99a2b; --warn-fg:#b45309; --bad:#e25555; --bad-fg:#be123c; --info:#2563eb; --new:#7c3aed;
+  --meter:#394150; --shadow:0 1px 2px rgb(20 20 24/.04);
+  --h-ctl:36px; --h-row:52px;
+  --ease:cubic-bezier(.23,1,.32,1);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ink:#f1f2f4; --text:#d0d3d8; --body:#a9adb5; --mute:#8e939c; --faint:#50545b;
+  --canvas:#1d1e20; --soft:#232427; --soft-2:#2a2b2e; --soft-3:#161719;
+  --hairline:#2e3033; --hairline-2:#383a3e; --ctl:#43464b;
+  --rail:#1b1c1d; --rail-2:#27282a; --rail-3:#313335; --rail-hair:#2c2d2f;
+  --primary:#4f83f5; --primary-ink:#8cb0ff; --primary-soft:#1d2a44;
+  --ok-fg:#5fd08a; --warn-fg:#f0b44f; --bad-fg:#ff8a8a; --new:#a78bfa; --meter:#c9ced6; --shadow:none;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --ink:#f1f2f4; --text:#d0d3d8; --body:#a9adb5; --mute:#8e939c; --faint:#50545b;
+  --canvas:#1d1e20; --soft:#232427; --soft-2:#2a2b2e; --soft-3:#161719;
+  --hairline:#2e3033; --hairline-2:#383a3e; --ctl:#43464b;
+  --rail:#1b1c1d; --rail-2:#27282a; --rail-3:#313335; --rail-hair:#2c2d2f;
+  --primary:#4f83f5; --primary-ink:#8cb0ff; --primary-soft:#1d2a44;
+  --ok-fg:#5fd08a; --warn-fg:#f0b44f; --bad-fg:#ff8a8a; --new:#a78bfa; --meter:#c9ced6; --shadow:none;
+  color-scheme:dark}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--soft-3)}
+body{font:400 14px/20px var(--font);color:var(--text);-webkit-font-smoothing:antialiased;min-height:100vh}
+button,select,input{font:inherit;color:inherit}
+button{cursor:pointer;background:none;border:0;text-align:left}
+svg.i{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+
+/* ── Prototype bar ── */
+.proto{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:16px;height:52px;padding:0 16px;background:var(--canvas);border-bottom:1px solid var(--hairline)}
+.proto .t{font-weight:600;color:var(--ink);white-space:nowrap}
+.proto .t span{color:var(--mute);font-weight:400}
+.seg{display:flex;gap:2px;padding:3px;border-radius:9px;background:var(--soft-2);overflow-x:auto;scrollbar-width:none;min-width:0}
+.seg button{height:30px;padding:0 12px;border-radius:7px;color:var(--body);font-weight:500;white-space:nowrap;transition:background-color .2s var(--ease),color .2s}
+.seg button:hover{color:var(--ink)}
+.seg button[aria-pressed=true]{background:var(--canvas);color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0/.08),0 0 0 1px var(--hairline)}
+.seg .star{color:var(--primary)}
+.proto .sp{flex:1}
+.proto .theme{height:30px;padding:0 10px;border-radius:7px;color:var(--body)}
+.proto .theme:hover{background:var(--soft-2);color:var(--ink)}
+
+/* ── Central's column (charcoal) ── */
+.app{display:grid;grid-template-columns:256px minmax(0,1fr) 344px;min-height:calc(100vh - 52px)}
+.side{background:var(--rail);color:var(--rail-text);padding:0 12px 16px;position:sticky;top:52px;height:calc(100vh - 52px);overflow:auto;scrollbar-width:thin;scrollbar-color:var(--rail-3) transparent}
+.brand{display:flex;align-items:center;gap:10px;height:52px;border-bottom:1px solid var(--rail-hair);margin:0 -12px;padding:0 16px}
+.mark{width:28px;height:28px;border-radius:7px;background:#0d0d0f;box-shadow:inset 0 0 0 1px #3a3b3e;color:#fff;display:grid;place-items:center;font-weight:600;font-size:15px;position:relative}
+.mark::after{content:"";position:absolute;right:5px;bottom:6px;width:5px;height:5px;border-radius:50%;background:#2563eb}
+.brand b{color:var(--rail-ink);font-weight:600;font-size:15px}
+.find{display:flex;align-items:center;gap:8px;height:36px;margin:12px 0 10px;padding:0 10px;border-radius:7px;box-shadow:inset 0 0 0 1px var(--rail-hair);color:var(--rail-mute)}
+.find .i{width:16px;height:16px}
+.find span{flex:1}
+.dep{display:flex;align-items:center;gap:12px;width:100%;height:36px;padding:0 10px;border-radius:7px;color:var(--rail-text);transition:background-color .15s,color .15s}
+.dep:hover{background:var(--rail-2);color:var(--rail-ink)}
+.dep .i{color:var(--rail-mute)}
+.dep .cv{margin-left:auto;width:16px;height:16px;color:var(--rail-mute);transition:transform .25s var(--ease)}
+.dep.open{color:var(--rail-ink);font-weight:500}
+.dep.open .i{color:var(--rail-ink)}
+.dep.open .cv{transform:rotate(90deg)}
+.dep.inert{cursor:default}
+.dep.inert:hover{background:none;color:var(--rail-text)}
+.guide{margin:2px 0 8px 19px;padding-left:8px;border-left:1px solid var(--rail-hair);display:flex;flex-direction:column;gap:1px}
+.nr{display:flex;align-items:center;gap:8px;width:100%;min-height:34px;padding:0 10px;border-radius:7px;color:var(--rail-text);transition:background-color .15s,color .15s}
+.nr:hover{background:var(--rail-2);color:var(--rail-ink)}
+.nr[aria-current]{background:var(--rail-3);color:var(--rail-ink);font-weight:500}
+.nr .lb{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nr .cv{width:16px;height:16px;color:var(--rail-mute);transition:transform .25s var(--ease)}
+.nr.fold[aria-expanded=true] .cv{transform:rotate(90deg)}
+.nr.fold.here{color:var(--rail-ink);font-weight:500}
+.nr.soon{cursor:default;color:rgb(161 163 168/.7)}
+.nr.soon:hover{background:none}
+.pill{border-radius:99px;padding:0 6px;line-height:20px;color:rgb(161 163 168/.85);box-shadow:inset 0 0 0 1px var(--rail-hair)}
+.cnt{min-width:22px;padding:0 6px;border-radius:99px;text-align:center;line-height:20px;color:var(--rail-mute);font-weight:500}
+.cnt.bad{background:rgb(226 85 85/.2);color:#ffa3a3}
+.nw{color:#b9a4ff}
+.kids{display:flex;flex-direction:column;gap:1px;padding:0 0 4px 12px}
+.kids .nr,.guide>.nr{animation:rise .3s var(--ease) both}
+@keyframes rise{from{opacity:0;transform:translateY(-3px)}}
+
+/* ── Page ── */
+main{min-width:0;padding:28px 32px 72px}
+.page{animation:page .26s var(--ease)}
+@keyframes page{from{opacity:0;transform:translateY(5px)}}
+.crumb{color:var(--mute)}
+.head{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+.head .tx{flex:1;min-width:260px}
+.h1{margin-top:2px;font-size:22px;line-height:30px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+.desc{margin-top:4px;color:var(--body);max-width:660px}
+.desc .nwt{color:var(--new);font-weight:500}
+.desc .xt{color:var(--warn-fg);font-weight:500}
+.acts{display:flex;gap:8px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:8px;height:var(--h-ctl);padding:0 14px;border-radius:7px;font-weight:500;white-space:nowrap;transition:background-color .2s,transform .16s var(--ease)}
+.btn:active{transform:scale(.98)}
+.btn-g{background:var(--canvas);box-shadow:inset 0 0 0 1px var(--ctl);color:var(--text)}
+.btn-g:hover{background:var(--soft)}
+.btn-g .i{color:var(--mute);width:16px;height:16px}
+.btn-p{background:var(--primary);color:#fff;font-weight:600}
+.btn-p:hover{background:var(--primary-ink)}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.kpi{background:var(--canvas);border:1px solid var(--hairline);border-radius:10px;padding:13px 16px;box-shadow:var(--shadow)}
+.kpi .l{color:var(--body);font-weight:500}
+.kpi .v{margin-top:8px;font-size:18px;line-height:24px;font-weight:600;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums}
+.kpi .s{margin-top:4px;color:var(--mute)}
+.panel{background:var(--canvas);border:1px solid var(--hairline);border-radius:10px;overflow:hidden;box-shadow:var(--shadow)}
+.panel+.panel{margin-top:16px}
+.bar{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--hairline);flex-wrap:wrap}
+.search{flex:1;min-width:180px;display:flex;align-items:center;gap:8px;height:var(--h-ctl);padding:0 12px;border-radius:7px;box-shadow:inset 0 0 0 1px var(--ctl);color:var(--mute)}
+.search .i{width:16px;height:16px}
+.search input{border:0;outline:0;background:none;flex:1;min-width:0;color:var(--ink)}
+.sel{position:relative;display:inline-flex;align-items:center}
+.sel select{appearance:none;height:var(--h-ctl);padding:0 34px 0 12px;border-radius:7px;border:0;background:var(--canvas);box-shadow:inset 0 0 0 1px var(--ctl);color:var(--ink);font-weight:500;cursor:pointer}
+.sel select:hover{background:var(--soft)}
+.sel .i{position:absolute;right:10px;pointer-events:none;color:var(--mute);width:16px;height:16px}
+.h2{padding:14px 16px 6px;font-weight:600;color:var(--ink)}
+.h2 span{color:var(--mute);font-weight:400}
+table{width:100%;border-collapse:collapse}
+th{height:40px;padding:0 16px;text-align:left;font-weight:500;color:var(--body);border-bottom:1px solid var(--hairline);white-space:nowrap}
+td{height:var(--h-row);padding:0 16px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+th.n,td.n{text-align:right;font-variant-numeric:tabular-nums}
+tbody tr.link{cursor:pointer}
+tbody tr.link:hover td{background:var(--soft)}
+tr.kid td{height:44px;color:var(--body);background:var(--soft)}
+tr.kid td:first-child{padding-left:42px}
+.caret{display:inline-block;width:18px;color:var(--mute);transition:transform .2s var(--ease)}
+tr.open .caret{transform:rotate(90deg)}
+.t1{color:var(--ink);font-weight:500}
+.t2{color:var(--mute)}
+.up{color:var(--ok-fg)} .down{color:var(--bad-fg)}
+.dot{display:inline-flex;align-items:center;gap:7px;font-weight:500;color:var(--text)}
+.dot::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--faint)}
+.dot.ok::before{background:var(--ok)} .dot.info::before{background:var(--info)}
+.dot.warn{color:var(--warn-fg)} .dot.warn::before{background:var(--warn)}
+.dot.bad{color:var(--bad-fg)} .dot.bad::before{background:var(--bad)}
+.meter{display:flex;align-items:center;gap:10px;min-width:140px}
+.meter i{flex:1;height:4px;background:var(--soft-2);border-radius:4px;position:relative;overflow:hidden}
+.meter i b{position:absolute;inset:0 auto 0 0;background:var(--meter);border-radius:4px}
+.meter i b.ok{background:var(--ok)}
+.meter span{width:40px;text-align:right;font-variant-numeric:tabular-nums}
+.tw{overflow-x:auto}
+.foot{padding:12px 16px;color:var(--mute);border-top:1px solid var(--hairline)}
+.list .it{display:flex;align-items:center;gap:14px;min-height:var(--h-row);padding:10px 16px;border-top:1px solid var(--hairline);cursor:pointer}
+.list .it:first-child{border-top:0}
+.list .it:hover{background:var(--soft)}
+.list .it .tx{flex:1;min-width:0}
+.list .it .i{color:var(--faint)}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:16px}
+.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.split>div+div{border-left:1px solid var(--hairline)}
+.facts{display:grid;grid-template-columns:minmax(0,1fr) auto;padding:4px 16px 8px}
+.facts div{padding:12px 0;border-bottom:1px solid var(--hairline)}
+.facts div:nth-last-child(-n+2){border-bottom:0}
+.facts .l{color:var(--body)} .facts .v{text-align:right;color:var(--ink);font-variant-numeric:tabular-nums}
+.facts .tot{font-weight:600;color:var(--ink)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.card{background:var(--canvas);border:1px solid var(--hairline);border-radius:10px;padding:14px 16px;box-shadow:var(--shadow)}
+.card .t1{display:block}
+.card .row{display:flex;justify-content:space-between;margin-top:6px;color:var(--body)}
+.card .row b{color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums}
+.card .btn{margin-top:12px;height:32px;padding:0 12px}
+.links{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0}
+.links>div:last-child{border-right:0}
+.links>div{padding:6px 16px 14px;border-right:1px solid var(--hairline)}
+.links a{display:block;padding:5px 0;color:var(--text);cursor:pointer;text-decoration:none}
+.links a:hover{color:var(--primary)}
+.shorts{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.chart{display:flex;align-items:flex-end;gap:14px;height:150px;padding:16px 20px 0}
+.chart div{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end}
+.chart b{width:100%;max-width:44px;background:var(--meter);border-radius:4px 4px 0 0;opacity:.85}
+.chart span{color:var(--mute)}
+
+/* ── Notes column ── */
+.about{border-left:1px solid var(--hairline);background:var(--canvas);padding:24px 20px 56px;position:sticky;top:52px;height:calc(100vh - 52px);overflow:auto}
+.about .k{color:var(--mute)}
+.about h3{margin-top:2px;font-size:18px;line-height:26px;font-weight:600;color:var(--ink);letter-spacing:-.015em}
+.about p{margin-top:8px;color:var(--text)}
+.about .meta{display:flex;gap:16px;margin-top:14px;padding:12px 0;border-top:1px solid var(--hairline);border-bottom:1px solid var(--hairline)}
+.about .meta div{flex:1}
+.about .meta b{display:block;font-size:18px;line-height:24px;font-weight:600;color:var(--ink)}
+.about .meta span{color:var(--body)}
+.about h4{margin-top:20px;font-weight:600;color:var(--ink)}
+.theirs{margin-top:6px}
+.theirs div{padding:6px 0;border-bottom:1px solid var(--hairline)}
+.theirs b{display:block;color:var(--ink);font-weight:500}
+.theirs span{color:var(--body)}
+.map{margin-top:6px}
+.map div{display:grid;grid-template-columns:1fr 16px 1fr;gap:6px;padding:6px 0;border-bottom:1px solid var(--hairline);align-items:start}
+.map .a{color:var(--body)} .map .b{color:var(--ink);font-weight:500} .map .ar{color:var(--faint)}
+.pc{margin-top:6px;padding-left:18px;color:var(--text)}
+.pc li{margin-top:4px}
+.rec{margin-top:16px;padding:12px 14px;border-radius:10px;background:var(--primary-soft);color:var(--ink)}
+.rec b{color:var(--primary-ink)}
+.caveat{margin-top:16px;color:var(--mute)}
+
+/* ── Compare ── */
+.compare{max-width:1240px;margin:0 auto;padding:32px 24px 72px}
+.compare td{white-space:normal;height:auto;padding-top:11px;padding-bottom:11px;vertical-align:top}
+.compare td.none{color:var(--faint)}
+.compare th.us,.compare td.us{background:var(--primary-soft)}
+.compare .notes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:16px}
+.compare .notes .card p{margin-top:4px;color:var(--body)}
+
+@media (max-width:1600px){
+  .two,.split{grid-template-columns:minmax(0,1fr)}
+  .split>div+div{border-left:0;border-top:1px solid var(--hairline)}
+}
+@media (max-width:1520px){
+  .app{grid-template-columns:232px minmax(0,1fr)}
+  .about{grid-column:2;position:static;height:auto;border-left:0;border-top:1px solid var(--hairline);padding:24px 32px 56px}
+}
+@media (max-width:860px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .side{position:static;height:auto}
+  .side .dep:not(.open),.find{display:none}
+  main{padding:20px 16px 48px}
+  .about{grid-column:1;padding:20px 16px 40px}
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .compare .notes{grid-template-columns:minmax(0,1fr)}
+  .proto .t span,.proto .theme{display:none}
+  .compare{padding:24px 16px 56px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="t">Sales menu <span>· retail</span></div>
+  <div class="seg" id="seg" role="group" aria-label="Option"></div>
+  <div class="sp"></div>
+  <button class="theme" id="theme" title="Light / dark">◐</button>
+</div>
+<div id="root"></div>
+
+<script>
+/* ───────────────────────── helpers ──────────────────────────────────── */
+const I={
+  home:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
+  cart:'<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.2a1.5 1.5 0 0 0 1.5 1.3h8.6a1.5 1.5 0 0 0 1.5-1.2L21 8H6"/>',
+  shirt:'<path d="M8 3 3 6l2 5 2-1v11h10V10l2 1 2-5-5-3a4 4 0 0 1-8 0z"/>',
+  truck:'<path d="M2 6h12v10H2zM14 9h4l4 4v3h-8"/><circle cx="6.5" cy="17.5" r="1.8"/><circle cx="17.5" cy="17.5" r="1.8"/>',
+  box:'<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  mega:'<path d="M3 11v2a1 1 0 0 0 1 1h3l6 4V6L7 10H4a1 1 0 0 0-1 1zM17 9a4 4 0 0 1 0 6"/>',
+  trend:'<path d="M3 17 9 11l4 4 8-8"/><path d="M15 7h6v6"/>',
+  wallet:'<path d="M3 7a2 2 0 0 1 2-2h13v4"/><path d="M3 7v11a2 2 0 0 0 2 2h15V9H5a2 2 0 0 1-2-2z"/><circle cx="16" cy="14.5" r="1"/>',
+  users:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2 .8 3.5 3 3.5 6"/>',
+  person:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  chev:'<path d="m6 9 6 6 6-6"/>',
+  right:'<path d="m9 6 6 6-6 6"/>',
+  down:'<path d="M12 4v12M6 12l6 6 6-6M4 21h16"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+}
+const ic=(k,c="i")=>`<svg class="${c}" viewBox="0 0 24 24" aria-hidden="true">${I[k]||""}</svg>`
+const nf=new Intl.NumberFormat("id-ID"), n=v=>nf.format(v)
+const neg=v=>v<0?'−'+n(-v):n(v)
+const pct=v=>v===0?'<span class="t2">—</span>':`<span class="${v>0?'up':'down'}">${v>0?'+':'−'}${Math.abs(v)}%</span>`
+const meter=(v,tone)=>`<div class="meter"><i><b class="${tone||''}" style="width:${Math.min(v,100)}%"></b></i><span>${v}%</span></div>`
+const sel=(opts,on)=>`<label class="sel"><select ${on?`onchange="${on}"`:''}>${opts.map((o,i)=>`<option ${on&&i===S.view?'selected':''}>${o}</option>`).join('')}</select>${ic('chev')}</label>`
+const search=ph=>`<label class="search">${ic('search')}<input placeholder="${ph}"></label>`
+const views=r=>r.views?sel(r.views.map(v=>v.label),'setView(this.selectedIndex)'):''
+const exp=`<button class="btn btn-g">${ic('down')}Export</button>`
+const panel=(bar,thead,rows,foot)=>`<div class="panel">${bar?`<div class="bar">${bar}</div>`:''}<div class="tw"><table><thead><tr>${thead}</tr></thead><tbody>${rows}</tbody></table></div>${foot?`<div class="foot">${foot}</div>`:''}</div>`
+
+/* ───────────────────────── sample data ──────────────────────────────── */
+// store, code, net yesterday, receipts yesterday, vs last year %, month vs target %, manager, tills
+const ST=[
+  ['Senayan City','SNC',78412500,212,12,92,'Rina Wulandari',4],
+  ['Grand Indonesia','GI',71905000,188,6,88,'Andi Saputra',4],
+  ['Kemang','KMG',64230000,176,9,95,'Maya Kusuma',3],
+  ['PIM 2','PIM',61540500,169,-4,81,'Yoga Prasetyo',3],
+  ['Tunjungan Plaza','TP',58710000,151,3,86,'Sari Handayani',3],
+  ['Paris Van Java','PVJ',55102500,147,15,97,'Dedi Kurnia',2],
+  ['Pakuwon Mall','PKW',49820000,121,-7,74,'Lina Marlina',2],
+  ['Beachwalk Bali','BWK',46630000,50,21,102,'Komang Adi',2],
+]
+const STORES=['All stores',...ST.map(s=>s[0])]
+const PERIOD=['This month','Last 7 days','Yesterday','This season','Custom…']
+// article, code, division, pcs sold, net, sell-through %, stock left, weeks of cover
+const ART=[
+  ['Kaos Oversize Nara','21030044','Apparel',1184,177600000,62,726,3],
+  ['Sandal Rinjani','11040112','Footwear',842,210500000,48,912,5],
+  ['Sneaker Arka Low','11020341','Footwear',516,386970000,71,212,2],
+  ['Kemeja Linen Bara','21010208','Apparel',402,140700000,58,291,4],
+  ['Tote Kanvas Rupa','31010007','Accessories',388,77600000,44,494,7],
+  ['Jaket Denim Kala','21070031','Apparel',136,108800000,39,212,9],
+  ['Loafer Senja','11020377','Footwear',121,96800000,64,68,3],
+  ['Celana Chino Laras','21050019','Apparel',88,39600000,17,430,26],
+]
+// PO, supplier, received, bought, sold, net, weeks on floor
+const PO=[
+  ['PO-2607-014','CV Sinar Garmen, Bandung','14 Jul',2400,1846,276900000,11],
+  ['PO-2607-022','PT Langkah Jaya, Tangerang','22 Jul',1600,1142,571000000,9],
+  ['PO-2608-003','CV Rupa Kriya, Yogyakarta','5 Aug',900,396,79200000,7],
+  ['PO-2608-017','CV Sinar Garmen, Bandung','19 Aug',1200,402,140700000,5],
+  ['PO-2608-029','Koperasi Denim Kudus','28 Aug',600,136,108800000,4],
+  ['PO-2609-006','CV Tekstil Laras, Pekalongan','6 Sep',1400,238,107100000,3],
+]
+// division, net, pcs, sell-through, vs LY, gross margin
+const DIV=[['Footwear',694270000,1479,58,14,46],['Apparel',466700000,1810,49,6,55],['Accessories',77600000,388,44,-3,61],['Kids',41200000,206,35,22,52]]
+const DIV_TOTAL=DIV.reduce((a,d)=>a+d[1],0)
+const MEM=[['Ayu Lestari','4471','Senayan City','Yesterday',18420000,'VIP',1842],['Budi Santoso','2208','Kemang','3 days ago',6250000,'Regular',625],['Citra Maharani','9015','Grand Indonesia','Yesterday',12980000,'VIP',1298],['Dimas Pratama','6630','PIM 2','41 days ago',2140000,'Lapsed',214],['Eka Putri','1187','Paris Van Java','Today',890000,'New',89],['Fajar Nugroho','5542','Tunjungan Plaza','12 days ago',4470000,'Regular',447],['Hendra Wijaya','8826','Pakuwon Mall','96 days ago',3050000,'Lapsed',305]]
+const CASH=['Nita','Rizky','Putri','Agus','Wulan','Bayu','Dewi','Fikri']
+const TX=Array.from({length:10},(_,i)=>{const s=ST[i%8];const type=i===3?'Refund':i===8?'Void':i===6?'Exchange':'Sale'
+  return {no:`${s[1]}-2809-${String(214-i*7).padStart(4,'0')}`,time:`${20-Math.floor(i/2)}:${String((i*17)%60).padStart(2,'0')}`,store:s[0],till:1+(i%3),cashier:CASH[i%8],type,member:i%3===0?MEM[i%7][0]:'',items:1+(i*3)%5,pay:['Cash','QRIS','Debit BCA','Credit card','QRIS'][i%5],total:(type==='Refund'?-1:type==='Exchange'?0:1)*[389000,749000,1249000,459000,899000,5480000,329000,1598000,699000,1149000][i]}})
+// method, receipts, amount (yesterday), settled
+const PAY=[['Cash',318,112480000,'Banked'],['Debit card · EDC BCA',262,121904000,'Settled 28 Sep'],['Credit card · EDC Mandiri',141,98210500,'Settled 28 Sep'],['QRIS',421,127066000,'warn:Rp 12.940.000 not settled'],['Voucher',38,15240000,'—'],['Member points',34,11450000,'—']]
+const PAY_TOTAL=PAY.reduce((a,p)=>a+p[2],0)
+// store, till · shift, cashier, closed, expected, counted, banked
+const CLOSE=[['Senayan City','1 · evening','Nita','22:04',8420000,8420000,1],['PIM 2','2 · evening','Putri','22:11',5290000,5040000,1],['Tunjungan Plaza','1 · evening','Agus','22:02',7710000,7710000,0],['Kemang','1 · evening','Wulan','21:58',4980000,5000000,1],['Pakuwon Mall','2 · evening','Bayu',null,null,null,0],['Paris Van Java','1 · evening','Dewi','22:07',6320000,6320000,1],['Beachwalk Bali','1 · evening','Fikri','22:15',3940000,3940000,1]]
+// name, store, receipts, net, UPT, refunds
+const STAFF=[['Nita Anggraini','Senayan City',96,38420000,1.7,0],['Rizky Firmansyah','Grand Indonesia',88,33170000,1.5,1],['Wulan Sari','Kemang',81,30960000,1.6,0],['Putri Ayu','PIM 2',77,27840000,1.4,2],['Agus Setiawan','Tunjungan Plaza',70,26210000,1.5,0],['Dewi Lestari','Paris Van Java',69,26880000,1.6,1],['Bayu Pratama','Pakuwon Mall',58,21030000,1.3,3]]
+// day, net, receipts, refunds, vs last year %
+const DAYS=[['Tue 22 Sep',289460500,779,5,1],['Wed 23 Sep',301227000,812,4,4],['Thu 24 Sep',318904500,861,7,-2],['Fri 25 Sep',402118000,1033,6,7],['Sat 26 Sep',512880000,1302,11,11],['Sun 27 Sep',548120000,1391,12,9],['Mon 28 Sep',486350500,1214,9,8]]
+
+/* ───────────────────────── screens ──────────────────────────────────── */
+const head=(r,acts='')=>`<div class="head"><div class="tx"><div class="crumb">Sales${r.fold?' · '+r.fold:''}</div><div class="h1">${r.label}</div><div class="desc">${r.desc||''}${r.isNew?' <span class="nwt">New screen.</span>':''}${r.extra?' <span class="xt">Our extra, not in theirs.</span>':''}</div></div><div class="acts">${acts}</div></div>`
+const needs=[
+  ['bad','Drawer short Rp 250.000','PIM 2 · till 2 · Putri · last night'],
+  ['bad','Yesterday’s cash not banked','Tunjungan Plaza · Rp 7.710.000'],
+  ['warn','QRIS not settled for 2 days','Rp 12.940.000 from 26 Sep'],
+  ['warn','Sneaker Arka Low sells out in 2 weeks','71% sold · 212 pcs left across 8 stores'],
+]
+const storeRow=s=>`<tr class="link"><td class="t1">${s[0]}</td><td class="n">${n(s[2])}</td><td class="n">${pct(s[4])}</td><td>${meter(s[5],s[5]>=100?'ok':'')}</td></tr>`
+const T={
+overview:r=>`${head(r,exp)}
+  <div class="kpis">
+    <div class="kpi"><div class="l">Net sales, yesterday</div><div class="v">Rp 486,4 jt</div><div class="s">${pct(8)} vs last Monday</div></div>
+    <div class="kpi"><div class="l">Receipts</div><div class="v">1.214</div><div class="s">Avg basket Rp 400.600</div></div>
+    <div class="kpi"><div class="l">Pieces per receipt</div><div class="v">1,54</div><div class="s">${pct(3)} vs last Monday</div></div>
+    <div class="kpi"><div class="l">September to date</div><div class="v">89%</div><div class="s">of target · 1 day left</div></div>
+  </div>
+  <div class="two">
+    <div class="panel"><div class="h2">Needs someone <span>${needs.length}</span></div><div class="list">
+      ${needs.map(x=>`<div class="it"><span class="dot ${x[0]}"></span><div class="tx"><div class="t1">${x[1]}</div><div class="t2">${x[2]}</div></div>${ic('right')}</div>`).join('')}
+    </div></div>
+    <div class="panel"><div class="h2">Stores, yesterday</div><div class="tw"><table><thead><tr><th>Store</th><th class="n">Net sales (Rp)</th><th class="n">vs last year</th><th>Month vs target</th></tr></thead><tbody>${ST.map(storeRow).join('')}</tbody></table></div></div>
+  </div>`,
+
+workspace:r=>`${head(r)}
+  <div class="shorts">${['POS Invoice','POS Closing Entry','Sales Analytics','Customer'].map(l=>`<button class="btn btn-g" onclick="goLabel('${l}')">${l}</button>`).join('')}</div>
+  <div class="kpis">
+    <div class="kpi"><div class="l">POS Invoices, yesterday</div><div class="v">1.214</div><div class="s">Rp 486.350.500</div></div>
+    <div class="kpi"><div class="l">Returns, yesterday</div><div class="v">9</div><div class="s">Rp 7.409.500</div></div>
+    <div class="kpi"><div class="l">Open POS entries</div><div class="v">19</div><div class="s">of 23 profiles</div></div>
+    <div class="kpi"><div class="l">New customers, September</div><div class="v">688</div><div class="s">${pct(11)} vs August</div></div>
+  </div>
+  <div class="panel"><div class="h2">Sales trends <span>· last 7 days</span></div><div class="chart">${DAYS.map(d=>`<div><b style="height:${Math.round(d[1]/548120000*100)}%"></b><span>${d[0].slice(0,6)}</span></div>`).join('')}</div><div style="height:14px"></div></div>
+  <div class="panel"><div class="links">${[['Point of Sale',['POS Invoice','POS Opening Entry','POS Closing Entry']],['Selling',['Customer','Customer Group','Sales Person']],['Loyalty',['Loyalty Program','Loyalty Point Entry']],['Key Reports',['Sales Analytics','Item-wise Sales History','Sales Payment Summary','Customer Acquisition and Loyalty','Inactive Customers']]].map(g=>`<div><div class="h2" style="padding:12px 0 4px">${g[0]}</div>${g[1].map(l=>`<a onclick="goLabel('${l}')">${l}</a>`).join('')}</div>`).join('')}</div></div>`,
+
+posCards:r=>`${head(r)}<div class="cards">
+  ${[['Senayan City','Till 1','Nita','In progress','Rp 14.820.000'],['Senayan City','Till 2','Rizky','In progress','Rp 11.305.000'],['Grand Indonesia','Till 1','Andi','In progress','Rp 12.460.000'],['Kemang','Till 1','Wulan','In progress','Rp 9.110.000'],['PIM 2','Till 2','Putri','In progress','Rp 2.740.000'],['Pakuwon Mall','Till 2','Bayu','Closing control','Rp 0'],['Paris Van Java','Till 1','Dewi','In progress','Rp 7.920.000'],['Beachwalk Bali','Till 2','','Closed','Rp 0']].map(c=>`<div class="card"><span class="t1">${c[0]} · ${c[1]}</span><div class="row"><span>${c[3]==='Closed'?'Last closing':'Opened by'}</span><b>${c[3]==='Closed'?'28 Sep 22:15':c[2]}</b></div><div class="row"><span>This session</span><b>${c[4]}</b></div><div class="row"><span>State</span>${c[3]==='In progress'?'<b>In progress</b>':c[3]==='Closed'?'<span class="t2">Closed</span>':'<span class="dot warn">Closing control</span>'}</div><button class="btn ${c[3]==='Closed'?'btn-p':'btn-g'}">${c[3]==='Closed'?'Open register':c[3]==='In progress'?'Continue selling':'Close session'}</button></div>`).join('')}
+  </div><p class="t2" style="margin-top:12px">Odoo draws one card per till. For eight stores that is 23 cards; eight are shown.</p>`,
+
+receipts:r=>`${head(r,exp)}${panel(`${search('Receipt number, member or phone')}${sel(['Yesterday','Today','Last 7 days','This month'])}${sel(STORES)}${sel(['Every type','Sales','Refunds','Exchanges','Voids'])}`,
+  `<th>Receipt</th><th>Time</th><th>Store · till</th><th>Cashier</th><th>Member</th><th>Type</th><th>Paid by</th><th class="n">Items</th><th class="n">Total (Rp)</th>`,
+  TX.map(t=>`<tr class="link"><td class="t1">${t.no}</td><td>${t.time}</td><td>${t.store} <span class="t2">· ${t.till}</span></td><td>${t.cashier}</td><td>${t.member||'<span class="t2">—</span>'}</td><td>${t.type==='Sale'?'Sale':`<span class="dot ${t.type==='Void'?'warn':''}">${t.type}</span>`}</td><td>${t.type==='Void'?'<span class="t2">—</span>':t.pay}</td><td class="n">${t.items}</td><td class="n">${t.total===0?'<span class="t2">0</span>':neg(t.total)}</td></tr>`).join(''),
+  'A receipt opens as a sheet: its lines, payments, member, and the refund against it if there is one.')}`,
+
+history:r=>`${head(r,exp)}${panel(`${search('Receipt number, member or phone')}${sel(['Last 7 days','This month','Last month'])}${sel(STORES)}${sel(['Every type','Sales','Refunds','Exchanges','Voids'])}`,
+  `<th>Trading day</th><th class="n">Receipts</th><th class="n">Refunds</th><th class="n">Avg basket</th><th class="n">Net sales (Rp)</th><th class="n">vs last year</th>`,
+  DAYS.slice().reverse().map(d=>`<tr class="link" onclick="toggleKids(this)"><td class="t1"><span class="caret">›</span>${d[0]}</td><td class="n">${n(d[2])}</td><td class="n">${d[3]}</td><td class="n">${n(Math.round(d[1]/d[2]/100)*100)}</td><td class="n">${n(d[1])}</td><td class="n">${pct(d[4])}</td></tr>
+   ${ST.map(s=>`<tr class="kid" hidden><td>${s[0]}</td><td class="n">${n(Math.round(d[2]*s[3]/1214))}</td><td></td><td class="n">${n(Math.round(s[2]/s[3]/100)*100)}</td><td class="n">${n(Math.round(d[1]*s[2]/486350500/500)*500)}</td><td class="n">${pct(s[4])}</td></tr>`).join('')}`).join(''),
+  'A day unfolds into its stores; a store-day opens its receipts. A receipt number in the search opens that receipt straight away.')}`,
+
+closings:r=>`${head(r,exp)}${panel(`${sel(['Yesterday','Today','Last 7 days'])}${sel(STORES)}${sel(['Every closing','With a difference','Not banked','Not closed'])}`,
+  `<th>Store</th><th>Till · shift</th><th>Cashier</th><th>Closed</th><th class="n">Cash expected (Rp)</th><th class="n">Counted</th><th class="n">Difference</th><th>Banked</th>`,
+  CLOSE.map(x=>{const d=x[4]==null?null:x[5]-x[4];return `<tr class="link"><td class="t1">${x[0]}</td><td>${x[1]}</td><td>${x[2]}</td><td>${x[3]||'<span class="dot warn">Not closed</span>'}</td><td class="n">${x[4]==null?'<span class="t2">—</span>':n(x[4])}</td><td class="n">${x[5]==null?'<span class="t2">—</span>':n(x[5])}</td><td class="n">${d==null?'':d===0?'<span class="t2">0</span>':d<0?`<span class="dot bad">−${n(-d)}</span>`:'+'+n(d)}</td><td>${x[6]?'Yes':x[4]==null?'<span class="t2">—</span>':'<span class="dot bad">Not yet</span>'}</td></tr>`}).join(''),
+  'A closing opens its count: notes and coins, card and QRIS totals from the till, and who signed it.')}`,
+
+openings:r=>`${head(r)}${panel(`${sel(['Today','Yesterday'])}${sel(STORES)}${sel(['Every entry','Open','Closed'])}`,
+  `<th>Name</th><th>POS Profile</th><th>User</th><th>Period start</th><th class="n">Opening cash (Rp)</th><th>Status</th>`,
+  [['POS-OPE-2026-01842','Senayan City · till 1','Nita','29 Sep 10:00',1000000,'Open'],['POS-OPE-2026-01841','Senayan City · till 2','Rizky','29 Sep 10:00',1000000,'Open'],['POS-OPE-2026-01840','Kemang · till 1','Wulan','29 Sep 10:02',750000,'Open'],['POS-OPE-2026-01839','PIM 2 · till 2','Putri','29 Sep 14:00',750000,'Open'],['POS-OPE-2026-01818','Pakuwon Mall · till 2','Bayu','28 Sep 14:00',750000,'warn:Not closed']].map(x=>{const [k,w]=x[5].includes(':')?x[5].split(':'):['',x[5]];return `<tr class="link"><td class="t1">${x[0]}</td><td>${x[1]}</td><td>${x[2]}</td><td>${x[3]}</td><td class="n">${n(x[4])}</td><td>${k?`<span class="dot ${k}">${w}</span>`:w}</td></tr>`}).join(''))}`,
+
+sessions:r=>`${head(r)}${panel(`${search('Session or point of sale')}${sel(['Every state','In progress','Closing control','Closed & posted'])}`,
+  `<th>Session</th><th>Point of sale</th><th>Opened by</th><th>Opening date</th><th>Closing date</th><th class="n">Difference (Rp)</th><th>Status</th>`,
+  [['POS/SNC1/02188','Senayan City · till 1','Nita','29 Sep 10:00','',null,'In progress'],['POS/PKW2/01412','Pakuwon Mall · till 2','Bayu','28 Sep 14:00','',null,'warn:Closing control'],['POS/PIM2/01730','PIM 2 · till 2','Putri','28 Sep 14:00','28 Sep 22:11',-250000,'Closed & posted'],['POS/SNC1/02187','Senayan City · till 1','Nita','28 Sep 10:00','28 Sep 22:04',0,'Closed & posted'],['POS/KMG1/01955','Kemang · till 1','Wulan','28 Sep 10:02','28 Sep 21:58',20000,'Closed & posted']].map(x=>{const [k,w]=x[6].includes(':')?x[6].split(':'):['',x[6]];return `<tr class="link"><td class="t1">${x[0]}</td><td>${x[1]}</td><td>${x[2]}</td><td>${x[3]}</td><td>${x[4]||'<span class="t2">—</span>'}</td><td class="n">${x[5]==null?'<span class="t2">—</span>':x[5]===0?'<span class="t2">0</span>':x[5]<0?`<span class="down">−${n(-x[5])}</span>`:'+'+n(x[5])}</td><td>${k?`<span class="dot ${k}">${w}</span>`:w}</td></tr>`}).join(''),
+  'A session is one till from open to close. Its orders, payments and cash count all hang off it.')}`,
+
+statements:r=>`${head(r)}${panel(`${sel(['This week','Yesterday','This month'])}${sel(STORES)}${sel(['Every status','Open','Calculated','Posted'])}`,
+  `<th>Statement</th><th>Store</th><th>Trans. date</th><th class="n">Net sales (Rp)</th><th class="n">Tender difference</th><th>Status</th>`,
+  [['STMT-SNC-0928','Senayan City','28 Sep',81920500,0,'Posted'],['STMT-PIM-0928','PIM 2','28 Sep',64110000,-250000,'bad:Calculated'],['STMT-TP-0928','Tunjungan Plaza','28 Sep',60240000,0,'warn:Calculated'],['STMT-PKW-0928','Pakuwon Mall','28 Sep',null,null,'warn:Open'],['STMT-KMG-0928','Kemang','28 Sep',66780500,20000,'Posted']].map(x=>{const [k,w]=x[5].includes(':')?x[5].split(':'):['',x[5]];return `<tr class="link"><td class="t1">${x[0]}</td><td>${x[1]}</td><td>${x[2]}</td><td class="n">${x[3]==null?'<span class="t2">—</span>':n(x[3])}</td><td class="n">${x[4]==null?'':x[4]===0?'<span class="t2">0</span>':x[4]<0?`<span class="down">−${n(-x[4])}</span>`:'+'+n(x[4])}</td><td>${k?`<span class="dot ${k}">${w}</span>`:w}</td></tr>`}).join(''),
+  'One statement per store per day: Open → Calculated (tenders counted) → Posted (to the books).')}`,
+
+payments:r=>`${head(r,exp)}${panel(`${sel(['Yesterday','Last 7 days','This month'])}${sel(STORES)}`,
+  `<th>Method</th><th class="n">Receipts</th><th class="n">Amount (Rp)</th><th>Share</th><th>Money</th>`,
+  PAY.map(p=>{const [k,w]=p[3].includes(':')?p[3].split(':'):['',p[3]];return `<tr class="link"><td class="t1">${p[0]}</td><td class="n">${n(p[1])}</td><td class="n">${n(p[2])}</td><td>${meter(Math.round(p[2]/PAY_TOTAL*100))}</td><td>${k?`<span class="dot ${k}">${w}</span>`:w==='—'?'<span class="t2">—</span>':w}</td></tr>`}).join('')+`<tr><td class="t1">Total</td><td class="n t1">${n(PAY.reduce((a,p)=>a+p[1],0))}</td><td class="n t1">${n(PAY_TOTAL)}</td><td></td><td></td></tr>`,
+  'Money is marked only when it has not arrived. A method opens its payments, store by store.')}`,
+
+cashMoves:r=>`${head(r)}${panel(`${sel(['Today','Yesterday','Last 7 days'])}${sel(STORES)}${sel(['Every movement','Float in','Cash out','Bank drop'])}`,
+  `<th>Time</th><th>Store · till</th><th>By</th><th>Movement</th><th>Note</th><th class="n">Amount (Rp)</th>`,
+  [['10:00','Senayan City · 1','Nita','Float in','Opening float',1000000],['13:42','Kemang · 1','Wulan','Cash out','Galon + plastic bags',-86000],['15:10','Senayan City · 1','Nita','Bank drop','Mid-day drop to safe',-6000000],['16:25','PIM 2 · 2','Putri','Cash out','Parking for DC driver',-20000]].map(x=>`<tr class="link"><td>${x[0]}</td><td class="t1">${x[1]}</td><td>${x[2]}</td><td>${x[3]}</td><td>${x[4]}</td><td class="n">${neg(x[5])}</td></tr>`).join(''))}`,
+
+live:r=>`${head(r)}<div class="kpis"><div class="kpi"><div class="l">Tills open now</div><div class="v">19</div><div class="s">of 23, in 8 stores</div></div><div class="kpi"><div class="l">Sales so far today</div><div class="v">Rp 212,8 jt</div><div class="s">up to 15:40</div></div><div class="kpi"><div class="l">Baskets left open</div><div class="v">1</div><div class="s">Kemang · 3 hours</div></div><div class="kpi"><div class="l">Tills offline</div><div class="v">1</div><div class="s">Pakuwon Mall · till 2</div></div></div>
+  ${panel('',`<th>Store</th><th>Till</th><th>Cashier</th><th>Open since</th><th class="n">This shift (Rp)</th><th>State</th>`,
+  [['Senayan City',1,'Nita','10:00',14820000,''],['Kemang',1,'Wulan','10:02',9110000,'warn:Basket open 3h'],['PIM 2',2,'Putri','14:00',2740000,''],['Pakuwon Mall',2,'—','—',0,'bad:Offline 25 min'],['Beachwalk Bali',1,'Fikri','10:00',6380000,'']].map(x=>{const [k,w]=(x[5]||':').split(':');return `<tr class="link"><td class="t1">${x[0]}</td><td>${x[1]}</td><td>${x[2]}</td><td>${x[3]}</td><td class="n">${x[4]?n(x[4]):'<span class="t2">—</span>'}</td><td>${k?`<span class="dot ${k}">${w}</span>`:'Selling'}</td></tr>`}).join(''))}`,
+
+byStore:r=>`${head(r,exp)}${panel(`${views(r)}${sel(PERIOD)}${sel(['vs last year','vs last period','vs target'])}`,
+  `<th>Store</th><th class="n">Net sales (Rp)</th><th class="n">Receipts</th><th class="n">Avg basket</th><th class="n">Pcs / receipt</th><th class="n">vs last year</th><th>Month vs target</th>`,
+  ST.map(s=>`<tr class="link"><td class="t1">${s[0]}</td><td class="n">${n(s[2]*26)}</td><td class="n">${n(s[3]*26)}</td><td class="n">${n(Math.round(s[2]/s[3]/100)*100)}</td><td class="n">${(1.35+(s[4]+10)/100).toFixed(2).replace('.',',')}</td><td class="n">${pct(s[4])}</td><td>${meter(s[5],s[5]>=100?'ok':'')}</td></tr>`).join(''),
+  'A store opens its page: its days, its articles, its staff, its closings.')}`,
+
+byArticle:r=>`${head(r,exp)}${panel(`${views(r)}${search('Article name or code')}${sel(PERIOD)}${sel(STORES)}${sel(['All divisions','Footwear','Apparel','Accessories','Kids'])}`,
+  `<th>Article</th><th>Division</th><th class="n">Pieces sold</th><th class="n">Net sales (Rp)</th><th>Sell-through</th><th class="n">Stock left</th><th class="n">Weeks of cover</th>`,
+  ART.map(a=>`<tr class="link"><td><div class="t1">${a[0]}</div><div class="t2">${a[1]}</div></td><td>${a[2]}</td><td class="n">${n(a[3])}</td><td class="n">${n(a[4])}</td><td>${meter(a[5])}</td><td class="n">${n(a[6])}</td><td class="n">${a[7]<=2||a[7]>=20?`<span class="dot warn">${a[7]}</span>`:a[7]}</td></tr>`).join(''),
+  'An article opens its sizes and colours by store. Weeks of cover is marked at 2 or less (runs out) and 20 or more (not moving).')}`,
+
+byPO:r=>`${head(r,exp)}${panel(`${views(r)}${search('PO number or supplier')}${sel(['Received this season','Received last 90 days','All'])}`,
+  `<th>Purchase order</th><th>Received</th><th class="n">Bought</th><th class="n">Sold</th><th>Sell-through</th><th class="n">Net sales (Rp)</th><th class="n">Weeks on floor</th>`,
+  PO.map(p=>{const st=Math.round(p[4]/p[3]*100);const slow=st/p[6]<6;return `<tr class="link"><td><div class="t1">${p[0]}</div><div class="t2">${p[1]}</div></td><td>${p[2]}</td><td class="n">${n(p[3])}</td><td class="n">${n(p[4])}</td><td>${meter(st)}</td><td class="n">${n(p[5])}</td><td class="n">${slow?`<span class="dot warn">${p[6]}</span>`:p[6]}</td></tr>`}).join(''),
+  'The buyer’s question: did what we bought sell? Marked when a PO sells under 6% a week.')}`,
+
+byDivision:r=>`${head(r,exp)}${panel(`${views(r)}${sel(PERIOD)}${sel(STORES)}`,
+  `<th>Division</th><th class="n">Net sales (Rp)</th><th class="n">Share</th><th class="n">Pieces</th><th>Sell-through</th><th class="n">Gross margin</th><th class="n">vs last year</th>`,
+  DIV.map(d=>`<tr class="link" onclick="toggleKids(this)"><td class="t1"><span class="caret">›</span>${d[0]}</td><td class="n">${n(d[1])}</td><td class="n">${Math.round(d[1]/DIV_TOTAL*100)}%</td><td class="n">${n(d[2])}</td><td>${meter(d[3])}</td><td class="n">${d[5]}%</td><td class="n">${pct(d[4])}</td></tr>
+    ${ART.filter(a=>a[2]===d[0]).map(a=>`<tr class="kid" hidden><td>${a[0]}</td><td class="n">${n(a[4])}</td><td></td><td class="n">${n(a[3])}</td><td>${meter(a[5])}</td><td></td><td></td></tr>`).join('')}`).join(''),
+  'A division unfolds into its articles.')}`,
+
+byStaff:r=>`${head(r,exp)}${panel(`${views(r)}${sel(PERIOD)}${sel(STORES)}`,
+  `<th>Staff</th><th>Store</th><th class="n">Receipts</th><th class="n">Net sales (Rp)</th><th class="n">Avg basket</th><th class="n">Pcs / receipt</th><th class="n">Refunds</th>`,
+  STAFF.map(s=>`<tr class="link"><td class="t1">${s[0]}</td><td>${s[1]}</td><td class="n">${n(s[2])}</td><td class="n">${n(s[3])}</td><td class="n">${n(Math.round(s[3]/s[2]/100)*100)}</td><td class="n">${String(s[4]).replace('.',',')}</td><td class="n">${s[5]>=3?`<span class="dot warn">${s[5]}</span>`:s[5]||'<span class="t2">0</span>'}</td></tr>`).join(''),
+  'For store heads and commission. Refunds are marked at 3 or more in the period.')}`,
+
+summary:r=>`${head(r,exp)}<div class="panel"><div class="bar">${sel(['Yesterday','Today','Last 7 days','This month'])}${sel(STORES)}</div><div class="split">
+  <div><div class="h2">${r.gp?'Gross profit':'Sales'}</div><div class="facts">
+    ${(r.gp?[['Net sales','486.350.500'],['Cost of goods sold','−233.448.200'],['Gross profit','252.902.300',1],['Gross margin','52%']]:[['Gross sales','532.180.000'],['Discounts','−38.420.000'],['Refunds','−7.409.500'],['Net sales','486.350.500',1],['PPN 11%, included','48.196.000'],['Rounding','−1.850']]).map(x=>`<div class="l ${x[2]?'tot':''}">${x[0]}</div><div class="v ${x[2]?'tot':''}">${x[1]}</div>`).join('')}
+  </div></div>
+  <div><div class="h2">Collected by method</div><div class="facts">${PAY.map(p=>`<div class="l">${p[0]}</div><div class="v">${n(p[2])}</div>`).join('')}<div class="l tot">Total collected</div><div class="v tot">${n(PAY_TOTAL)}</div></div></div>
+  </div></div>`,
+
+discounts:r=>`${head(r,exp)}${panel(`${sel(PERIOD)}${sel(STORES)}`,
+  `<th>Discount</th><th class="n">Receipts</th><th class="n">Given away (Rp)</th><th class="n">Net sales on them (Rp)</th>`,
+  [['Payday 15%',412,21480000,121720000],['Member birthday 10%',96,4210000,37890000],['Buy 2 get 10% · Kaos',188,6140000,55260000],['Store manager’s discretion',37,6590000,29870000,1]].map(x=>`<tr class="link"><td class="t1">${x[0]}</td><td class="n">${n(x[1])}</td><td class="n">${x[4]?`<span class="dot warn">${n(x[2])}</span>`:n(x[2])}</td><td class="n">${n(x[3])}</td></tr>`).join(''))}`,
+
+members:r=>`${head(r,exp)}${panel(`${views(r)}${search('Name or phone')}${r.lapsed?sel(['No purchase for 90 days','60 days','180 days']):sel(['All members','VIP','Regular','New','Lapsed'])}`,
+  `<th>${r.cust?'Customer':'Member'}</th><th>Phone</th><th>Home store</th><th>Last visit</th><th class="n">Spend, 12 months (Rp)</th><th class="n">Points</th><th>Segment</th>`,
+  MEM.filter(m=>!r.lapsed||m[5]==='Lapsed').map(m=>`<tr class="link"><td class="t1">${m[0]}</td><td>0812 •••• ${m[1]}</td><td>${m[2]}</td><td>${m[3]}</td><td class="n">${n(m[4])}</td><td class="n">${n(m[6])}</td><td>${m[5]==='Lapsed'?'<span class="dot warn">Lapsed</span>':m[5]}</td></tr>`).join(''),
+  'A member opens their receipts as a sheet.')}`,
+
+segments:r=>`${head(r,`<button class="btn btn-p">${ic('plus')}New ${r.club?'club':'segment'}</button>`)}${panel('',
+  `<th>${r.club?'Group':'Segment'}</th><th>Rule</th><th class="n">Members</th><th class="n">Spend, 12 months (Rp)</th><th class="n">Share of sales</th>`,
+  [['VIP','Spent above Rp 10 jt in 12 months',412,5870400000,'31%'],['Regular','Bought in the last 60 days',3905,9120600000,'48%'],['New','Joined in the last 30 days',688,610200000,'3%'],['Lapsed','No purchase for 90 days',2140,1840000000,'10%']].map(x=>`<tr class="link"><td class="t1">${x[0]}</td><td>${x[1]}</td><td class="n">${n(x[2])}</td><td class="n">${n(x[3])}</td><td class="n">${x[4]}</td></tr>`).join(''))}`,
+
+points:r=>`${head(r,exp)}${panel(`${search('Member, phone or receipt')}${sel(['Last 7 days','This month'])}${sel(['Earned and spent','Earned','Spent','Expired'])}`,
+  `<th>Date</th><th>Member</th><th>Store</th><th>Receipt</th><th class="n">Points</th><th class="n">Balance</th>`,
+  [['28 Sep 19:42','Ayu Lestari','Senayan City','SNC-2809-0193',125,1842],['28 Sep 17:10','Citra Maharani','Grand Indonesia','GI-2809-0151',-500,1298],['28 Sep 15:03','Eka Putri','Paris Van Java','PVJ-2809-0088',89,89],['27 Sep 20:12','Fajar Nugroho','Tunjungan Plaza','TP-2709-0145',-200,447],['1 Sep','Hendra Wijaya','Pakuwon Mall','Expired',-120,305]].map(x=>`<tr class="link"><td>${x[0]}</td><td class="t1">${x[1]}</td><td>${x[2]}</td><td>${x[3]==='Expired'?'<span class="t2">Expired</span>':x[3]}</td><td class="n">${x[4]>0?'+'+n(x[4]):'−'+n(-x[4])}</td><td class="n">${n(x[5])}</td></tr>`).join(''))}`,
+
+programs:r=>`${head(r,`<button class="btn btn-p">${ic('plus')}New</button>`)}${panel('',
+  `<th>Loyalty program</th><th>Type</th><th>Earn</th><th>Spend</th><th>Expiry</th><th class="n">Members</th>`,
+  [['Central Member','Multiple tier','1 point per Rp 10.000','1 point = Rp 100','12 months',7145]].map(x=>`<tr class="link"><td class="t1">${x[0]}</td><td>${x[1]}</td><td>${x[2]}</td><td>${x[3]}</td><td>${x[4]}</td><td class="n">${n(x[5])}</td></tr>`).join(''),
+  'ERPNext keeps the program next to the points. In Central the rule lives in Marketing.')}`,
+
+acq:r=>`${head(r,exp)}${panel(`${sel(['This year','Last 12 months'])}${sel(STORES)}`,
+  `<th>Month</th><th class="n">New customers</th><th class="n">Repeat customers</th><th class="n">New revenue (Rp)</th><th class="n">Repeat revenue (Rp)</th><th class="n">Repeat share</th>`,
+  [['September',688,2914,610200000,4420900000],['August',619,3102,548300000,4697400000],['July',702,2988,640100000,4351800000],['June',555,2870,489500000,4102300000]].map(x=>`<tr class="link"><td class="t1">${x[0]}</td><td class="n">${n(x[1])}</td><td class="n">${n(x[2])}</td><td class="n">${n(x[3])}</td><td class="n">${n(x[4])}</td><td class="n">${Math.round(x[4]/(x[3]+x[4])*100)}%</td></tr>`).join(''))}`,
+
+profiles:r=>`${head(r)}${panel('',
+  `<th>POS Profile</th><th>Store</th><th>Stock from</th><th>Price list</th><th>Payment methods</th>`,
+  ST.slice(0,5).map((s,i)=>`<tr class="link"><td class="t1">${s[1]}-${1+(i%2)}</td><td>${s[0]}</td><td>${s[0]} · floor</td><td>Retail ${s[0]==='Beachwalk Bali'?'Bali':'Jawa'}</td><td>Cash, EDC BCA, EDC Mandiri, QRIS</td></tr>`).join(''),
+  'Setup. In Central this belongs to Setup › Devices, not to Sales.')}`,
+}
+
+/* ───────────────────────── options ──────────────────────────────────── */
+const R=(label,tpl,o={})=>({label,tpl,...o})
+const F=(fold,items)=>({fold,items})
+const PERF=[
+  R('By store','byStore',{desc:'Which store carried the period, against last year and against target.',was:'Sales by store'}),
+  R('By article','byArticle',{desc:'What sold, in pieces and rupiah, with sell-through and how long the stock left will last.'}),
+  R('By PO','byPO',{desc:'Every received purchase order with its sell-through.'}),
+  R('By division','byDivision',{desc:'Which part of the range is moving, unfolding into its articles.'}),
+]
+const OPTS={
+ today:{name:'Today',kicker:'As built, 29 Sep',title:'Your four rows',
+   rows:[R('Sales by store','byStore',{desc:'The only built row.'}),R('Sales by articles','byArticle',{soon:1}),R('Sales by PO','byPO',{soon:1}),R('Sales by division','byDivision',{soon:1})],
+   sum:'Your list of 28 Sep. Three rows are Soon. Receipts, Returns, Shop floor, Stores, Exceptions, Members and Segments still route but have no row, because More is off.',
+   meta:[4,4,3],pros:['Your own words, four rows.','Answers the merchandiser and the buyer.'],
+   cons:['Nothing for the tills: no receipts, no closings, no payments. Every retail back office leads with these.','A drawer short or cash not banked has nowhere to show.','Returns and Members are reachable only by ⌘K.']},
+
+ retail:{name:'Retail',star:1,kicker:'Proposal',title:'Retail · Overview + three sub-menus',
+   rows:[
+     R('Overview','overview',{ct:4,bad:1,desc:'Yesterday across the stores, the month against target, and one list of what needs someone.',was:'Shop floor, Exceptions'}),
+     F('Tills',[
+       R('Sales history','history',{desc:'Every trading day, unfolding into stores and then receipts. Refunds, exchanges and voids are a Type.',was:'Sales, Returns'}),
+       R('Closings','closings',{ct:2,bad:1,isNew:1,desc:'Each till’s close: cash expected against counted, and whether it reached the bank.'}),
+       R('Payments','payments',{isNew:1,desc:'Takings by method, and whether card and QRIS money has settled.'}),
+       R('Live','live',{desc:'Which tills are open right now and what is stuck.',was:'Shop floor'}),
+     ]),
+     F('Performance',[...PERF,R('By staff','byStaff',{isNew:1,desc:'Receipts, basket and refunds per cashier.'})]),
+     F('Members',[R('Members','members',{desc:'The people who buy.'}),R('Segments','segments',{desc:'Members read as groups.'}),R('Points','points',{isNew:1,desc:'Points earned and spent, receipt by receipt.'})]),
+   ],
+   sum:'What every retail back office has, in Central’s menu → sub-menu shape: a ledger of receipts, till closings, payments by method, your four readings, and members. Folded, the department reads as four lines.',
+   theirs:[['Tills','Lightspeed’s Sales history + Register closures, Odoo’s Sessions, Moka’s Riwayat transaksi + Shift'],['Performance','Your four rows, plus the salesperson report every one of them has'],['Members','Customers + loyalty, beside Sales in all six']],
+   meta:[4,13,7],
+   map:[['Sales, Returns','Tills › Sales history'],['Exceptions (money)','Overview + Tills › Closings'],['Shop floor','Tills › Live'],['Sales by store + 3 Soon','Performance'],['Members, Segments','Members'],['Points (hidden)','Members › Points']],
+   pros:['Store heads and finance get the till side, which every retail system has and Central lacks.','Your four rows stay together, in your order.','Returns become a Type on Sales history: every one of the five keeps refunds in the same list as sales.','Keeps your 13 Sep rule: no flat register. Days unfold into stores, and a store-day opens its receipts.','Closed, it is four lines: Overview, Tills, Performance, Members.'],
+   cons:['By article is one click deeper than today (open Performance first).','Closings, Payments, By staff and Points are new, on top of the three Soon; each needs a backend read.','Points has no endpoint at the centre yet (it renders a placeholder today).'],
+   rec:'<b>Proposed.</b> Overview on top like Finance and Inventory, then three sub-menus: <b>Tills</b> for the stores’ money, <b>Performance</b> for your four readings, <b>Members</b> for the people. A fold opens by itself when you are on one of its rows.'},
+
+ erpnext:{name:'ERPNext',kicker:'Copied from ERPNext (Selling + POS)',title:'ERPNext · POS documents',
+   rows:[
+     R('Home','workspace',{desc:'ERPNext’s Selling workspace: shortcuts, number cards, a chart and link cards.'}),
+     F('Point of Sale',[R('POS Invoice','receipts',{desc:'Every till receipt. A return is a POS Invoice with “Is Return” ticked, against the original.'}),R('POS Opening Entry','openings',{desc:'The cash a till opens with, per user and POS Profile.'}),R('POS Closing Entry','closings',{ct:2,bad:1,desc:'Expected against closing amount per payment method, for one opening entry.'})]),
+     F('Selling',[R('Customer','members',{cust:1,desc:'Every customer. A walk-in is “Walk-in Customer”.'}),R('Customer Group','segments',{desc:'Groups of customers.'}),R('Sales Person','byStaff',{desc:'The staff tree, with their sales.'})]),
+     F('Loyalty',[R('Loyalty Program','programs',{desc:'Earn and redeem rules, with tiers.'}),R('Loyalty Point Entry','points',{desc:'Every point earned or redeemed.'})]),
+     F('Key Reports',[
+       R('Sales Analytics','byStore',{desc:'One report; the Tree Type decides what a row is.',views:[{label:'Tree Type: Territory (store)',tpl:'byStore'},{label:'Tree Type: Item',tpl:'byArticle'},{label:'Tree Type: Item Group',tpl:'byDivision'}]}),
+       R('Item-wise Sales History','byArticle',{desc:'Every item sold, with quantity and amount.'}),
+       R('Sales Payment Summary','payments',{desc:'Takings by mode of payment.'}),
+       R('Customer Acquisition and Loyalty','acq',{desc:'New against repeat customers, month by month.'}),
+       R('Inactive Customers','members',{lapsed:1,cust:1,desc:'Customers with no order in the chosen days.'}),
+       R('Sales by PO','byPO',{extra:1,desc:'ERPNext has no report that joins receiving to sales.'}),
+     ]),
+     F('Settings',[R('POS Profile','profiles',{desc:'Per till: store, stock, price list, payment methods.'})]),
+   ],
+   sum:'ERPNext files retail as documents: POS Invoice for every receipt, POS Opening and Closing Entry for each shift, and reports named by what they read. Filed in our menu → sub-menu shape, as Finance was.',
+   theirs:[['Point of Sale','POS Invoice · POS Opening Entry · POS Closing Entry · POS Profile · POS Settings'],['Selling','Customer · Customer Group · Sales Person · Sales Invoice (hidden: we have no B2B invoices)'],['Loyalty','Loyalty Program · Loyalty Point Entry'],['Reports','Sales Analytics · Item-wise Sales History · Sales Payment Summary · Customer Acquisition and Loyalty · Inactive Customers · POS Register']],
+   meta:[6,16,12],
+   map:[['Sales, Returns','POS Invoice'],['Exceptions (money)','POS Closing Entry'],['Sales by store + 2 Soon','Sales Analytics · Tree Type'],['By PO (Soon)','Key Reports › Sales by PO (extra)'],['Members, Segments','Customer, Customer Group']],
+   pros:['Same vocabulary as Finance, which is ERPNext now: POS Closing Entry is what the books post from.','Anyone who knows ERPNext finds everything.','Nothing invented: every row is an ERPNext doctype or report.'],
+   cons:['Store staff say receipt, not POS Invoice.','Your four readings become one report with a Tree Type dropdown; By PO is an extra ERPNext does not have.','Six sub-menus, and Settings is rarely opened.']},
+
+ odoo:{name:'Odoo',kicker:'Copied from Odoo Point of Sale',title:'Odoo · Sessions and orders',
+   rows:[
+     R('Dashboard','posCards',{desc:'One card per till: who opened it, what it has taken, and the button to sell or to close.'}),
+     F('Orders',[R('Orders','receipts',{desc:'Every order from every till. A refund is an order with negative lines.'}),R('Sessions','sessions',{ct:1,bad:1,desc:'Each till from open to close.'}),R('Payments','payments',{desc:'Every payment line; grouped by method here.'}),R('Customers','members',{cust:1,desc:'The people who buy.'})]),
+     F('Reporting',[R('Orders','byStore',{desc:'A pivot of orders. Group by decides what a row is.',views:[{label:'Group by: Point of Sale',tpl:'byStore'},{label:'Group by: Product',tpl:'byArticle'},{label:'Group by: Product Category',tpl:'byDivision'},{label:'Group by: Salesperson',tpl:'byStaff'}]}),R('Sales Details','summary',{desc:'The period’s totals: sales, taxes and payments, per point of sale.'})]),
+   ],
+   sum:'Odoo’s Point of Sale app. The session, one till from open to close, is the unit everything hangs off. Products and Configuration are left out: in Central they are Merchandise, Marketing and Setup.',
+   theirs:[['Dashboard','one card per point of sale'],['Orders','Orders · Sessions · Payments · Customers'],['Products','Products · Pricelists · Discount & Loyalty · Gift cards (left out)'],['Reporting','Orders · Sales Details'],['Configuration','Settings · Point of Sales · Payment Methods · Coins/Bills (left out)']],
+   meta:[3,7,9],
+   map:[['Sales, Returns','Orders › Orders'],['Exceptions (money)','Orders › Sessions'],['Shop floor','Dashboard'],['Sales by store + 3 Soon','Reporting › Orders · Group by'],['Members','Customers']],
+   pros:['The shortest menu: seven rows.','Sessions give finance one place per till per shift.','Payments as lines is what finance matches against EDC and QRIS statements.'],
+   cons:['A dashboard of till cards does not scale: 23 cards for 8 stores.','“Orders” twice, once for the list and once for the pivot.','Your four readings hide in a Group by; By PO does not exist.']},
+
+ lightspeed:{name:'Lightspeed',kicker:'Copied from Lightspeed Retail (X-Series)',title:'Lightspeed · Sell and Reporting',
+   rows:[
+     R('Home','overview',{desc:'Lightspeed’s Retail dashboard: today’s sales, the targets, and what needs attention.'}),
+     F('Sell',[R('Sales history','receipts',{desc:'Every sale, return, layby and on-account sale. Returns sit in the same list.'}),R('Cash management','cashMoves',{desc:'Cash put in or taken out of a drawer between opening and closing.'}),R('Status','live',{desc:'Registers open now, and anything waiting to sync.'})]),
+     F('Reporting',[R('Sales reports','byStore',{desc:'One report; “Measure by” decides what a row is.',views:[{label:'Measure by: Outlet',tpl:'byStore'},{label:'Measure by: Product',tpl:'byArticle'},{label:'Measure by: Product type',tpl:'byDivision'},{label:'Measure by: Supplier',tpl:'byPO'},{label:'Measure by: Salesperson',tpl:'byStaff'}]}),R('Payment reports','payments',{desc:'Takings by payment type.'}),R('Register closures','closings',{ct:2,bad:1,desc:'Every register closure: counted against expected, per payment type.'})]),
+     F('Customers',[R('Customers','members',{cust:1,desc:'The people who buy, with their balance and loyalty.'}),R('Groups','segments',{desc:'Customer groups.'})]),
+   ],
+   sum:'Lightspeed splits doing (Sell) from reading (Reporting). Register closures and payments are reports of their own. Catalog, Inventory and Setup are left out: they are other departments in Central.',
+   theirs:[['Sell','Sell · Open/Close · Sales history · Cash management · Status'],['Reporting','Retail dashboard · Sales reports · Inventory reports · Payment reports · Register closures · Tax, gift card, store credit reports'],['Customers','Customers · Groups']],
+   meta:[4,9,8],
+   map:[['Sales, Returns','Sell › Sales history'],['Shop floor','Sell › Status'],['Exceptions (money)','Reporting › Register closures'],['Sales by store + 3 Soon','Sales reports · Measure by'],['Members, Segments','Customers, Groups']],
+   pros:['Doing and reading are two clear sub-menus.','Register closures and payments are first-class.','“Measure by: Supplier” is the closest any till system gets to By PO.'],
+   cons:['Sell and Open/Close are till actions; at head office they are empty.','Your four readings are one row with a dropdown.','Supplier is not PO: two POs from one supplier are summed together.']},
+
+ ls:{name:'LS Central',kicker:'Modelled on LS Central (chains on Business Central)',title:'LS Central · Statements',
+   rows:[
+     R('Role centre','overview',{desc:'The retail role centre: cues for open statements, differences and today’s sales.'}),
+     F('Store operations',[R('Statements','statements',{ct:2,bad:1,desc:'One statement per store per day: counted tenders against sales, then posted.'}),R('Transaction register','receipts',{desc:'Every POS transaction, with its sales, payment and discount lines.'}),R('POS terminals','live',{desc:'Every terminal and whether it is online.'})]),
+     F('Sales analysis',[R('Store sales','byStore',{desc:'Sales by store and day.'}),R('Item sales','byArticle',{desc:'Sales by item and variant (size, colour).'}),R('Product group sales','byDivision',{desc:'Sales by retail product group.'}),R('Sell-through by PO','byPO',{extra:1,desc:'LS reports sell-through by item, not per purchase order.'}),R('Staff sales','byStaff',{desc:'Sales per staff member.'})]),
+     F('Member management',[R('Member accounts','members',{desc:'Members and their cards.'}),R('Member clubs','segments',{club:1,desc:'Clubs and schemes (levels).'}),R('Member point entries','points',{desc:'Every point earned, spent or expired.'})]),
+   ],
+   sum:'The one built for chains with a head office and a DC, like us. HO checks stores through statements (one per store per day), and variants (size, colour) are first-class. Replenishment is left out: that is Buying and Inventory.',
+   theirs:[['Store operations','Statements · Posted statements · Transaction register · POS terminals'],['Sales analysis','Store, item, variant and product-group sales · staff sales'],['Member management','Member accounts · Clubs · Schemes · Point entries'],['Replenishment','left out']],
+   meta:[4,12,7],
+   map:[['Sales, Returns','Transaction register'],['Exceptions (money)','Statements'],['Shop floor','POS terminals'],['Sales by store + 3 Soon','Sales analysis'],['Members, Segments, Points','Member management']],
+   pros:['Shaped for many stores, not one shop: a statement is how HO checks each store each day.','Close to the Retail proposal, with heavier words.','Size and colour reporting come with it.'],
+   cons:['“Statement”, “Transaction register”, “Cues”: accountant words for store heads.','Posting a statement overlaps Finance’s Sales postings.','Names are from product knowledge, not a live copy: check before building.']},
+
+ moka:{name:'Moka · Majoo',kicker:'Copied from Moka Backoffice (Indonesian POS)',title:'Moka · Flat reports',
+   rows:[
+     R('Dashboard','overview',{desc:'Today’s gross sales, transactions and average, per outlet.'}),
+     F('Reports',[R('Sales summary','summary',{desc:'Ringkasan penjualan: gross, discounts, refunds, net, tax.'}),R('Gross profit','summary',{gp:1,desc:'Laba kotor: net sales less cost of goods.'}),R('Payment methods','payments',{desc:'Metode pembayaran.'}),R('Item sales','byArticle',{desc:'Penjualan barang.'}),R('Category sales','byDivision',{desc:'Penjualan kategori.'}),R('Discounts','discounts',{desc:'Diskon: what each discount gave away.'}),R('Collected by','byStaff',{desc:'Dikumpulkan oleh: sales per cashier.'}),R('Transactions','receipts',{desc:'Riwayat transaksi: every sale, refund and void.'}),R('Shifts','closings',{ct:2,bad:1,desc:'Riwayat shift: each cashier’s open, close and cash difference.'})]),
+     F('Customers',[R('Customer list','members',{cust:1,desc:'Daftar pelanggan.'}),R('Loyalty','points',{desc:'Points earned and redeemed.'})]),
+   ],
+   sum:'What store staff in Indonesia already know from Moka, Majoo and iSeller: one flat list of reports named by what they read. F&B reports (modifiers, gratuity, sales type) are left out.',
+   theirs:[['Laporan','Ringkasan penjualan · Laba kotor · Metode pembayaran · Tipe penjualan · Penjualan barang · Penjualan kategori · Penjualan modifier · Diskon · Pajak · Gratifikasi · Dikumpulkan oleh · Riwayat transaksi · Shift'],['Pelanggan','Daftar pelanggan · Loyalty · Feedback']],
+   meta:[3,12,10],
+   map:[['Sales, Returns','Reports › Transactions'],['Exceptions (money)','Reports › Shifts'],['Sales by store','Outlet filter on every report'],['By article, By division','Item sales, Category sales'],['By PO (Soon)','not in Moka']],
+   pros:['Familiar to every store head who has used a local POS.','Gross profit and discounts are reports of their own.'],
+   cons:['Nine rows in one sub-menu.','Built for one outlet: By store disappears into a filter.','No PO, and category is the highest level.']},
+}
+const ORDER=['today','retail','erpnext','odoo','lightspeed','ls','moka','compare']
+const DEPTS=[['home','home','Home'],['buy','cart','Buying'],['merch','shirt','Merchandise'],['ops','truck','Ops'],['inv','box','Inventory'],['mkt','mega','Marketing'],['sales','trend','Sales'],['fin','wallet','Finance'],['hr','users','HR'],['ga','person','GA']]
+
+/* ───────────────────────── state and render ─────────────────────────── */
+const S={opt:'retail',id:'0',view:0,open:{}}
+try{const v=JSON.parse(localStorage.getItem('sales-menu-retail')||'null');if(v&&ORDER.includes(v.opt))S.opt=v.opt;const th=localStorage.getItem('sales-menu-retail-theme');if(th)document.documentElement.dataset.theme=th}catch(e){}
+
+// Every row with an id ("2" or "1.3") and the fold it sits in.
+function flat(o){const out=[];o.rows.forEach((e,i)=>{if(e.fold)e.items.forEach((r,j)=>out.push({...r,id:`${i}.${j}`,fold:e.fold}));else out.push({...e,id:String(i)})});return out}
+const cur=()=>{const all=flat(OPTS[S.opt]);return all.find(r=>r.id===S.id)||all.find(r=>!r.soon)}
+function badge(r){return r.ct?`<span class="cnt ${r.bad?'bad':''}">${r.ct}</span>`:r.isNew?'<span class="nw">New</span>':''}
+function navRow(r,here){
+  if(r.soon)return `<span class="nr soon" title="Not built yet"><span class="lb">${r.label}</span><span class="pill">Soon</span></span>`
+  return `<button class="nr" ${here?'aria-current="page"':''} onclick="go('${r.id}')"><span class="lb">${r.label}</span>${badge(r)}</button>`
+}
+function side(){
+  const o=OPTS[S.opt], c=cur()
+  let h=`<div class="brand"><div class="mark">C</div><b>Central</b></div><div class="find">${ic('search')}<span>Search</span>⌘K</div>`
+  for(const [id,icn,label] of DEPTS){
+    if(id!=='sales'){h+=`<button class="dep inert" title="Prototype: only Sales opens">${ic(icn)}${label}${ic('right','i cv')}</button>`;continue}
+    h+=`<button class="dep open">${ic(icn)}${label}${ic('right','i cv')}</button><div class="guide">`
+    o.rows.forEach((e,i)=>{
+      if(!e.fold){h+=navRow({...e,id:String(i)},c.id===String(i));return}
+      const inside=c.fold===e.fold, open=S.open[e.fold]??inside
+      const rows=e.items.map((r,j)=>({...r,id:`${i}.${j}`}))
+      h+=`<button class="nr fold ${inside&&!open?'here':''}" aria-expanded="${open}" onclick="fold('${e.fold}',${!open})"><span class="lb">${e.fold}</span>${open?'':rows.filter(r=>r.ct).map(badge).join('')}${ic('right','i cv')}</button>`
+      if(open)h+=`<div class="kids">${rows.map((r,k)=>navRow(r,c.id===r.id).replace('class="nr','style="animation-delay:'+k*25+'ms" class="nr')).join('')}</div>`
+    })
+    h+='</div>'
+  }
+  return h
+}
+function page(){const r=cur();const v=r.views?r.views[S.view]:null;return T[v?v.tpl:r.tpl](r)}
+function about(){
+  const o=OPTS[S.opt], folds=o.rows.filter(e=>e.fold).length
+  return `<div class="k">${o.kicker}</div><h3>${o.title}${o.star?' <span style="color:var(--primary)">★</span>':''}</h3><p>${o.sum}</p>
+  <div class="meta"><div><b>${o.meta[0]}</b><span>lines, folded</span></div><div><b>${o.meta[1]}</b><span>rows inside</span></div><div><b>${o.meta[2]}</b><span>to build</span></div></div>
+  ${o.theirs?`<h4>${o.star?'Built from':'Their menu, as they file it'}</h4><div class="theirs">${o.theirs.map(t=>`<div><b>${t[0]}</b><span>${t[1]}</span></div>`).join('')}</div>`:''}
+  ${o.map?`<h4>Where today’s screens go</h4><div class="map">${o.map.map(m=>`<div><span class="a">${m[0]}</span><span class="ar">→</span><span class="b">${m[1]}</span></div>`).join('')}</div>`:''}
+  <h4>Good</h4><ul class="pc">${o.pros.map(x=>`<li>${x}</li>`).join('')}</ul>
+  <h4>Costs</h4><ul class="pc">${o.cons.map(x=>`<li>${x}</li>`).join('')}</ul>
+  ${o.rec?`<div class="rec">${o.rec}</div>`:''}
+  ${S.opt!=='today'&&S.opt!=='retail'?'<p class="caveat">Menus are summarised from product knowledge, not a live crawl. Worth a spot-check before building one literally.</p>':''}`
+}
+
+/* ───────────────────────── compare ──────────────────────────────────── */
+const CMP=[
+ ['Landing page','—','Overview','Selling workspace','Dashboard (till cards)','Retail dashboard','Role centre','Dashboard'],
+ ['Every receipt','⌘K only','Sales history (day → store → receipt)','POS Invoice','Orders','Sales history','Transaction register','Riwayat transaksi'],
+ ['Refunds','⌘K only','Sales history · Type','POS Invoice · Is Return','Orders (refund)','Sales history','Transaction register','Riwayat transaksi'],
+ ['Till closing','—','Closings','POS Closing Entry','Sessions','Register closures','Statements','Shift'],
+ ['Payments by method','—','Payments','Sales Payment Summary','Payments','Payment reports','Statement tenders','Metode pembayaran'],
+ ['Tills right now','⌘K only','Live','—','Dashboard','Status','POS terminals','—'],
+ ['By store','By store','By store','Sales Analytics · Territory','Orders · Point of Sale','Sales · Outlet','Store sales','outlet filter'],
+ ['By article','Soon','By article','Item-wise Sales History','Orders · Product','Sales · Product','Item sales','Penjualan barang'],
+ ['By PO','Soon','By PO','—','—','Sales · Supplier (not per PO)','—','—'],
+ ['By division','Soon','By division','Sales Analytics · Item Group','Orders · Product Category','Sales · Product type','Product group sales','Penjualan kategori'],
+ ['By staff','—','By staff','Sales Person','Orders · Salesperson','Sales · Salesperson','Staff sales','Dikumpulkan oleh'],
+ ['Members','⌘K only','Members','Customer','Customers','Customers','Member accounts','Daftar pelanggan'],
+ ['Points','hidden','Points','Loyalty Point Entry','Discount & Loyalty','Customers (loyalty)','Member point entries','Loyalty'],
+]
+function compare(){
+  const H=['','Today','★ Retail','ERPNext','Odoo','Lightspeed','LS Central','Moka · Majoo']
+  return `<div class="compare"><div class="crumb">Compare</div><div class="h1">Where each one files the same thing</div><div class="desc">Thirteen things a retail Sales menu has to hold, and what each product calls them. A dash means it has no place for it.</div>
+  <div class="panel" style="margin-top:20px"><div class="tw"><table><thead><tr>${H.map((h,i)=>`<th class="${i===2?'us':''}">${h}</th>`).join('')}</tr></thead><tbody>
+  ${CMP.map(r=>`<tr>${r.map((c,i)=>`<td class="${i===0?'t1':''} ${i===2?'us t1':''} ${c==='—'?'none':''}">${c}</td>`).join('')}</tr>`).join('')}
+  </tbody></table></div></div>
+  <div class="notes">
+    <div class="card"><span class="t1">All six have a till closing</span><p>Closings, Sessions, Register closures, Statements, Shift. Central has none as a list today, only the exceptions it raises.</p></div>
+    <div class="card"><span class="t1">None gives refunds their own row</span><p>A refund sits in the same list as sales in every one of them. They all list receipts flat; the proposal keeps your day → store → receipt instead.</p></div>
+    <div class="card"><span class="t1">Only Central answers By PO</span><p>Till systems stop at supplier. It is a buyer’s report, and it stays our extra in every option.</p></div>
+  </div></div>`
+}
+
+function render(){
+  document.getElementById('seg').innerHTML=ORDER.map(k=>`<button aria-pressed="${S.opt===k}" onclick="pick('${k}')">${k==='compare'?'Compare':OPTS[k].name}${OPTS[k]&&OPTS[k].star?' <span class="star">★</span>':''}</button>`).join('')
+  const root=document.getElementById('root')
+  root.innerHTML=S.opt==='compare'?compare():`<div class="app"><aside class="side">${side()}</aside><main><div class="page">${page()}</div></main><aside class="about">${about()}</aside></div>`
+  try{localStorage.setItem('sales-menu-retail',JSON.stringify({opt:S.opt}))}catch(e){}
+}
+function pick(k){Object.assign(S,{opt:k,id:'0',view:0,open:{}});if(k!=='compare')S.id=cur().id;render();scrollTo(0,0)}
+function go(id){Object.assign(S,{id,view:0});const r=cur();if(r.fold)S.open[r.fold]=true;render();scrollTo(0,0)}
+function goLabel(l){const r=flat(OPTS[S.opt]).find(x=>x.label===l);if(r)go(r.id)}
+function fold(f,v){S.open[f]=v;render()}
+function setView(i){S.view=i;render()}
+function toggleKids(tr){tr.classList.toggle('open');let x=tr.nextElementSibling;while(x&&x.classList.contains('kid')){x.hidden=!x.hidden;x=x.nextElementSibling}}
+document.getElementById('theme').onclick=()=>{const r=document.documentElement;const dark=r.dataset.theme?r.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;r.dataset.theme=dark?'light':'dark';try{localStorage.setItem('sales-menu-retail-theme',r.dataset.theme)}catch(e){}}
+render()
+</script>
+</body>
+</html>

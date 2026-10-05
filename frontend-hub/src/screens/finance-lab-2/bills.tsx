@@ -12,6 +12,7 @@ import { count, day, money } from "@/lib/format"
 import { financeKeys, listBills } from "@/lib/queries/finance"
 import { useSiteLabel } from "@/lib/queries/organisation"
 import { Grid, Td, Th } from "@/screens/finance-lab-2/parts"
+import { useSupplierName } from "@/screens/finance/hooks"
 
 type Scope = "open" | "overdue" | "paid" | "all"
 
@@ -40,6 +41,7 @@ export function Bills() {
   const [scope, setScope] = useState<Scope>("open")
   const [needle, setNeedle] = useState("")
   const siteName = useSiteLabel()
+  const supplierName = useSupplierName()
 
   const bills = useQuery({
     // Its own entry under the bills prefix. `financeKeys.bills(null)` holds
@@ -59,7 +61,11 @@ export function Bills() {
         if (scope === "overdue" && !row.overdue) return false
         if (scope === "paid" && row.outstanding_minor !== 0) return false
         if (text === "") return true
-        return [row.invoice_number, row.supplier_name ?? "", siteName(row.site_id)]
+        return [
+          row.invoice_number,
+          supplierName(row.supplier_id, row.supplier_name),
+          siteName(row.site_id),
+        ]
           .join(" ")
           .toLowerCase()
           .includes(text)
@@ -74,7 +80,7 @@ export function Bills() {
         if (b.due_date === null) return -1
         return a.due_date.localeCompare(b.due_date)
       })
-  }, [bills.data, scope, needle, siteName])
+  }, [bills.data, scope, needle, siteName, supplierName])
 
   const owed = rows.reduce((sum, row) => sum + row.outstanding_minor, 0)
 
@@ -103,7 +109,6 @@ export function Bills() {
             <input
               value={needle}
               onChange={(event) => setNeedle(event.target.value)}
-              placeholder="Vendor or invoice number"
               aria-label="Search bills"
               className="h-8 w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink outline-none placeholder:text-body focus:border-accent"
             />
@@ -145,7 +150,7 @@ export function Bills() {
                   <tr key={row.invoice_id}>
                     <Td>
                       <span className="text-ink">
-                        {row.supplier_name ?? "—"}
+                        {supplierName(row.supplier_id, row.supplier_name)}
                       </span>
                       <span className="block text-[0.875rem] text-mute">
                         {siteName(row.site_id)}

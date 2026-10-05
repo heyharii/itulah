@@ -1460,3 +1460,136 @@ pub async fn payment_ledger_integrity(
         rows,
     })
 }
+
+
+// ---------------------------------------------------------------------------
+// A party's movements — 7Soft's Kartu Hutang, ERPNext's Supplier Ledger
+// ---------------------------------------------------------------------------
+
+/// One posting against a party, with the balance after it.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PartyMovementRow {
+    pub journal_line_id: Uuid,
+    pub entry_id: Uuid,
+    pub entry_number: String,
+    pub posting_date: NaiveDate,
+    pub source_kind: String,
+    pub source_id: Option<String>,
+    pub account_code: String,
+    pub account_name: String,
+    pub unit_id: String,
+    pub memo: String,
+    pub debit_minor: i64,
+    pub credit_minor: i64,
+    /// What is owed to the party after this line: credits less debits, so a
+    /// bill raises it and a payment or an advance lowers it.
+    pub balance_minor: i64,
+}
+
+/// A party's movements over a window, opening and closing balance included.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PartyMovements {
+    pub party_type: String,
+    pub party_id: String,
+    pub from: NaiveDate,
+    pub to: NaiveDate,
+    pub unit_id: Option<String>,
+    pub opening_minor: i64,
+    pub debit_minor: i64,
+    pub credit_minor: i64,
+    pub closing_minor: i64,
+    pub rows: Vec<PartyMovementRow>,
+}
+
+/// Every journal line tagged with the party — the payable accounts and the
+/// advance account alike, since an advance is money the party already holds —
+/// read from the general ledger itself, so the balance here is the balance
+/// the books carry and not a second opinion assembled from documents.
+pub async fn party_movements(
+    pool: &PgPool,
+    party_type: &str,
+    party_id: &str,
+    from: NaiveDate,
+    to: NaiveDate,
+    unit_id: Option<&str>,
+) -> Result<PartyMovements, AppError> {
+    if to < from {
+        return Err(AppError::Validation(format!(
+            "the window ends ({to}) before it starts ({from})"
+        )));
+    }
+    let opening: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(l.credit_minor - l.debit_minor), 0)::bigint
+           FROM journal_line l JOIN journal_entry e USING (entry_id)
+          WHERE l.party_type = $1 AND l.party_id = $2
+            AND ($3::text IS NULL OR l.unit_id = $3)
+            AND e.posting_date < $4",
+    )
+    .bind(party_type)
+    .bind(party_id)
+    .bind(unit_id)
+    .bind(from)
+    .fetch_one(pool)
+    .await?;
+
+    let lines = sqlx::query(
+        "SELECT l.line_id, e.entry_id, e.entry_number, e.posting_date, e.source_kind,
+                e.source_id, l.account_code, a.name AS account_name, l.unit_id,
+                COALESCE(l.memo, e.memo, '') AS memo, l.debit_minor, l.credit_minor
+           FROM journal_line l
+           JOIN journal_entry e USING (entry_id)
+           JOIN ledger_account a ON a.account_code = l.account_code
+          WHERE l.party_type = $1 AND l.party_id = $2
+            AND ($3::text IS NULL OR l.unit_id = $3)
+            AND e.posting_date BETWEEN $4 AND $5
+          ORDER BY e.posting_date, e.entry_number, l.line_number",
+    )
+    .bind(party_type)
+    .bind(party_id)
+    .bind(unit_id)
+    .bind(from)
+    .bind(to)
+    .fetch_all(pool)
+    .await?;
+
+    let mut balance = opening;
+    let mut debit_total = 0i64;
+    let mut credit_total = 0i64;
+    let mut rows = Vec::with_capacity(lines.len());
+    for line in &lines {
+        let debit: i64 = line.try_get("debit_minor")?;
+        let credit: i64 = line.try_get("credit_minor")?;
+        balance += credit - debit;
+        debit_total += debit;
+        credit_total += credit;
+        rows.push(PartyMovementRow {
+            journal_line_id: line.try_get("line_id")?,
+            entry_id: line.try_get("entry_id")?,
+            entry_number: line.try_get("entry_number")?,
+            posting_date: line.try_get("posting_date")?,
+            source_kind: line.try_get("source_kind")?,
+            source_id: line.try_get("source_id")?,
+            account_code: line.try_get("account_code")?,
+            account_name: line.try_get("account_name")?,
+            unit_id: line.try_get("unit_id")?,
+            memo: line.try_get("memo")?,
+            debit_minor: debit,
+            credit_minor: credit,
+            balance_minor: balance,
+        });
+    }
+    Ok(PartyMovements {
+        party_type: party_type.to_string(),
+        party_id: party_id.to_string(),
+        from,
+        to,
+        unit_id: unit_id.map(str::to_string),
+        opening_minor: opening,
+        debit_minor: debit_total,
+        credit_minor: credit_total,
+        closing_minor: balance,
+        rows,
+    })
+}

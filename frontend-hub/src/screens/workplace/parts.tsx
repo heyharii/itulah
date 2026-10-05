@@ -324,7 +324,6 @@ export function AttachmentChips({
 /// holds. A slow attachment never blocks a send, and a send that fails does not
 /// lose the upload.
 export function Composer({
-  placeholder,
   onSend,
   onAttach,
   attachments,
@@ -335,7 +334,6 @@ export function Composer({
   disabledReason,
   rows = 1,
 }: {
-  placeholder: string
   onSend: (body: string) => void
   onAttach?: (file: File) => void
   attachments?: readonly PendingAttachment[]
@@ -383,7 +381,6 @@ export function Composer({
               send()
             }
           }}
-          placeholder={uploading ? "Uploading…" : placeholder}
           className="max-h-40 w-full resize-none overflow-y-auto rounded-inner border border-hairline-2 bg-canvas px-3.5 py-2 text-[0.875rem] leading-normal text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-strong"
         />
 

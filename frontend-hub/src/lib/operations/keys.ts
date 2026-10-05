@@ -34,6 +34,8 @@ export const keys = {
   invoiceDocument: (receiptId: string) =>
     ["dc", "goods-receipt", receiptId, "invoice-document"] as const,
   verifyQueue: () => ["dc", "purchase-counts"] as const,
+  /// Excess beyond a PO, waiting for this node to hand it to the supplier.
+  purchaseReturns: () => ["dc", "purchase-returns"] as const,
 
   // ── Intake: a store's return, received blind and then inspected ─────────
   storeInbound: (status?: string) =>
@@ -41,6 +43,9 @@ export const keys = {
   storeInboundDetail: (deliveryId: string) =>
     ["dc", "store-inbound", "delivery", deliveryId] as const,
   returnInspections: () => ["dc", "return-inspections"] as const,
+  /// Which supplier each SKU's goods came from, for one set of codes.
+  skuSuppliers: (skus: readonly string[]) =>
+    ["inventory", "sku-suppliers", skus] as const,
   returnInspection: (deliveryId: string) =>
     ["dc", "return-inspections", deliveryId] as const,
 
@@ -79,12 +84,20 @@ export const keys = {
   picklist: () => ["dc", "picklist"] as const,
   /// The picklists themselves: rounds that have been walked.
   picklists: () => ["dc", "picklists"] as const,
+  /// Every picklist still to pick, one per allotment × shop (owner, 29 Sep
+  /// 2026: nobody composes one — it exists as soon as the allotment is
+  /// here) — the Picking screen's "To pick" card.
+  picklistsToPick: () => ["dc", "picklists-to-pick"] as const,
   pickRound: (sessionId: string) => ["dc", "pick-session", sessionId] as const,
 
   // ── Packing ──────────────────────────────────────────────────────────────
   /// Every shop with something outstanding — the packer's queue.
   destinations: () => ["dc", "destinations"] as const,
   koli: (filter: ListFilter = {}) => ["dc", "koli", filter] as const,
+  /// Boxes opened against a target and still waiting for their RFID sweep.
+  packingBoxes: () => ["dc", "packing-boxes"] as const,
+  /// The reading sessions the node has heard from, newest first.
+  rfidSessions: () => ["dc", "rfid-sessions"] as const,
   manifest: (koliId: string) => ["dc", "koli", koliId, "manifest"] as const,
   outstanding: (storeId: string) => ["dc", "outstanding", storeId] as const,
 
@@ -94,6 +107,10 @@ export const keys = {
   dispatches: (filter: ListFilter = {}) =>
     ["dc", "dispatches", filter] as const,
   dispatch: (id: string) => ["dc", "dispatch", id] as const,
+  /// Surat jalan the shops have received — read from the centre, so it sits
+  /// outside `dc` and a DC action does not refetch it.
+  receivedShipments: (since: string) =>
+    ["inventory", "shipments-received", since] as const,
 
   // ── Stock, which every station moves ─────────────────────────────────────
   pools: () => ["inventory", "pools"] as const,

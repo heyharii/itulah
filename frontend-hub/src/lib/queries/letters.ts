@@ -21,7 +21,11 @@ import type {
 /// which kinds exist, what each is called on paper, and the keys the cache is
 /// filed under.
 
-export type LetterKind = "GOODS_RECEIPT" | "DELIVERY_NOTE" | "GENERAL"
+export type LetterKind =
+  | "GOODS_RECEIPT"
+  | "SUPPLIER_RETURN"
+  | "DELIVERY_NOTE"
+  | "GENERAL"
 export type LetterStatus = "DRAFT" | "ISSUED" | "VOID"
 
 /// What each kind is called, and what its series is.
@@ -57,6 +61,17 @@ export const LETTER_KINDS: readonly {
     appLabel: "Delivery note",
     prefix: "SJ",
     source: "an allotment going out to a shop",
+  },
+  {
+    value: "SUPPLIER_RETURN",
+    // The paper prints in English, as the purchase order now does (owner,
+    // 2026-10-04): the supplier reads it, and it is their note to count and
+    // sign against, not ours to file.
+    label: "Return Delivery Note",
+    english: "Return delivery note",
+    appLabel: "Return to supplier",
+    prefix: "SJR",
+    source: "a return to supplier, at the moment it is confirmed",
   },
   {
     value: "GENERAL",

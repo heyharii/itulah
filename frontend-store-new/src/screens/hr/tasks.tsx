@@ -37,7 +37,7 @@ import type { EmployeeList, LifecycleTaskView } from "@itulah/contract"
 /// the prototype keeps it off the store's.
 export function HrTasks() {
   return (
-    <HrWorkspace sub="Joining and leaving checklists from head office's template. Every task has an owner — this shop, head office, IT or the employee — and the shop closes its own.">
+    <HrWorkspace>
       {(scope) => <Tasks scope={scope} />}
     </HrWorkspace>
   )
@@ -116,7 +116,7 @@ function Tasks({ scope }: { scope: StoreScope }) {
         ]}
       />
       {centreState(tasks, {
-        loading: "Reading the checklists…",
+        loading: "Loading…",
         what: "this shop's checklists",
         render: () => (
           <PeopleTable
@@ -125,8 +125,8 @@ function Tasks({ scope }: { scope: StoreScope }) {
             onRowClick={(list) => setOpen(list.key)}
             empty={
               tab === "ONBOARDING"
-                ? "Nobody is joining. Onboarding opens with the record a hire creates."
-                : "Nobody is leaving. An exit checklist opens when head office applies a separation."
+                ? "Nobody joining."
+                : "Nobody leaving."
             }
             columns={[
               {
@@ -227,10 +227,6 @@ function ChecklistSheet({
           ))}
         </ul>
       </SheetSection>
-      <p className="text-meta text-mute">
-        Only this shop's tasks can be closed here. The employee's are closed in
-        their app; head office's and IT's at head office.
-      </p>
     </PeopleSheet>
   )
 }
@@ -268,7 +264,7 @@ function TaskRow({ task }: { task: LifecycleTaskView }) {
             {task.label}
           </span>
           {finished && task.done_by !== null && (
-            <span className="block text-[0.6875rem] text-mute">
+            <span className="block text-meta text-mute">
               by {task.done_by}
             </span>
           )}
@@ -279,8 +275,7 @@ function TaskRow({ task }: { task: LifecycleTaskView }) {
         (closing ? (
           <div className="mt-2.5 flex flex-col gap-2">
             <Field
-              label="Why now"
-              hint="Required — the record of what was done."
+              label="Note"
             >
               <Input
                 value={reason}

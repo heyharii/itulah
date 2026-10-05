@@ -65,7 +65,7 @@ export function AllotmentsView() {
         },
         signal
       ),
-    // Picking happens in a warehouse, not on this screen. A list left open goes
+    // Picking happens in the Gudang, not on this screen. A list left open goes
     // stale within the minute it takes somebody there to scan a carton.
     refetchInterval: 60_000,
   })
@@ -183,7 +183,7 @@ export function AllotmentsView() {
                 <span>
                   {shortages.length} SKU
                   {shortages.length === 1 ? " is" : "s are"} promised out of the
-                  DC warehouse beyond what is in it.
+                  Gudang beyond what is in it.
                 </span>
                 <span className="ml-auto shrink-0 underline">
                   {showShortages ? "Hide" : "Show"}

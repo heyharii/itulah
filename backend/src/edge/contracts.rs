@@ -510,6 +510,16 @@ pub struct PickRequest {
     /// make the paperwork the point instead of the goods.
     #[serde(default)]
     pub pick_session_id: Option<String>,
+    /// The shop this pick is for (owner, 29 Sep 2026: one picklist per
+    /// shop). When set, the pick is held to what THAT shop is still owed,
+    /// less what already waits in the pick area for it. `None` is a pick for
+    /// nobody in particular, as every pick used to be.
+    #[serde(default)]
+    pub destination_id: Option<String>,
+    /// The allotment this pick answers, with `destination_id`: held to that
+    /// allotment's lines for that shop as well as to the shop as a whole.
+    #[serde(default)]
+    pub allotment_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -542,6 +552,15 @@ pub struct CreatePicklistRequest {
     pub actor_id: String,
     pub note: Option<String>,
     pub idempotency_key: String,
+    /// The shop the round is walked for. A picklist is per shop since the
+    /// owner's ruling of 29 Sep 2026, so packing can take a shop's carton
+    /// straight off its picklist. Optional on the wire for older callers.
+    #[serde(default)]
+    pub destination_id: Option<String>,
+    /// The allotment the round answers. A picklist exists per allotment ×
+    /// shop (owner, 29 Sep 2026); accepting one sends both.
+    #[serde(default)]
+    pub allotment_id: Option<String>,
 }
 
 /// How much of one SKU this round is meant to fetch.
@@ -582,6 +601,11 @@ pub struct PackKoliRequest {
     pub epcs: Vec<String>,
     pub actor_id: String,
     pub idempotency_key: String,
+    /// Draw these allotments' lines first, then the rest oldest first. Set
+    /// when a carton is packed from picklists that each answer an allotment,
+    /// so the pieces count against the allotment they were picked for.
+    #[serde(default)]
+    pub prefer_allotment_ids: Vec<String>,
 }
 
 /// Pack a carton by SAYING HOW MUCH, rather than by scanning each piece.
@@ -610,6 +634,14 @@ pub struct PackRequest {
     /// the same carton would need.
     #[serde(default)]
     pub seal: bool,
+    /// Pack from these picklists: the pieces are the ones they moved into
+    /// the pick area, and the destination is the shop they were walked for —
+    /// all the same shop. A packer gathers a shop's picklists, one per
+    /// allotment, into its cartons (owner, 29 Sep 2026). No reader involved:
+    /// the picklists already say what the pieces are. Empty = pack from the
+    /// whole pick area, as before.
+    #[serde(default)]
+    pub pick_session_ids: Vec<String>,
 }
 
 /// How much of one SKU goes in the box.
@@ -624,6 +656,24 @@ pub struct PackLine {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct CreateKoliShipmentRequest {
     pub shipment_reference: String,
+    pub actor_id: String,
+    pub idempotency_key: String,
+}
+
+/// Dispatch: sealed cartons onto one trip, in one act.
+///
+/// Owner, 29 Sep 2026: there is no Shipments station. Dispatch makes one
+/// surat jalan per shop out of the cartons ticked, puts them on one trip, and
+/// the goods are in transit — generating the surat jalan IS sending it. What
+/// the bay knows about the trip (plate, driver, courier, anything) is one
+/// free-text note rather than fields nobody fills in the same way twice.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct DispatchTripRequest {
+    pub koli_ids: Vec<String>,
+    #[serde(default)]
+    pub trip_note: Option<String>,
+    #[serde(default)]
     pub actor_id: String,
     pub idempotency_key: String,
 }
@@ -714,6 +764,51 @@ pub struct PoolBalance {
     /// which took the whole pool list down with it.
     pub shortfall: i64,
     pub missing: i64,
+}
+
+/// One SKU's spendable units at this site, split by the room they stand in.
+///
+/// Spendable means on hand less what this site has already promised to send
+/// away, never below nought. Which pool is which room is
+/// [`sku_stock_pools`]'s to say.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SkuStockRow {
+    pub sku_code: String,
+    pub floor: i64,
+    pub warehouse: i64,
+    /// `floor + warehouse`. Rejects are not stock a shopper can be sold.
+    pub total: i64,
+}
+
+/// `GET /api/v1/inventory/sku-stock`: every SKU with spendable units here.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SkuStock {
+    pub as_of: DateTime<Utc>,
+    pub items: Vec<SkuStockRow>,
+}
+
+/// The two rooms a SKU's stock is split into, as `(floor, warehouse)`.
+///
+/// - FLOOR is `{site}.floor` ([`OperationalPool::StoreFloor`], role `Floor`):
+///   the selling floor. It is the pool a sale moves goods out of, so it is
+///   what a shopper can pick up now.
+/// - WAREHOUSE is `{site}.warehouse` ([`OperationalPool::Stockroom`], role
+///   `Stockroom`): at a shop, the back room (gudang). The same pool at the
+///   Gudang is its racks, which is why a DC answers with a floor of nought.
+///
+/// `{site}.reject`, returns and the outbound stages are in neither: none of
+/// them can be sold from this shop.
+pub fn sku_stock_pools(site_id: &SiteId) -> (OperationalPool, OperationalPool) {
+    (
+        OperationalPool::StoreFloor {
+            store_id: site_id.clone(),
+        },
+        OperationalPool::Stockroom {
+            site_id: site_id.clone(),
+        },
+    )
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -887,6 +982,8 @@ pub trait EdgeInventory: Send + Sync {
         request: super::outbound::OpenPackingBoxRequest,
     ) -> Result<super::outbound::PackingBox, EdgeError>;
     fn packing_box(&self, session_id: &str) -> Result<super::outbound::PackingBox, EdgeError>;
+    fn open_packing_boxes(&self) -> Result<Vec<super::outbound::PackingBox>, EdgeError>;
+    fn box_candidates(&self, session_id: &str) -> Result<super::outbound::BoxCandidates, EdgeError>;
     fn outstanding_for_destination(
         &self,
         destination_store_id: &str,
@@ -913,6 +1010,15 @@ pub trait EdgeInventory: Send + Sync {
     ) -> Result<super::outbound::Dispatch, EdgeError>;
     fn depart_dispatch(&self, dispatch_id: &str) -> Result<super::outbound::Dispatch, EdgeError>;
     fn picklist(&self) -> Result<Vec<super::outbound::PicklistLine>, EdgeError>;
+    /// Every picklist still to pick, one per allotment × shop — see
+    /// [`super::outbound::picklists_to_pick`].
+    fn picklists_to_pick(&self) -> Result<Vec<super::outbound::AllotmentPick>, EdgeError>;
+    /// Sealed cartons onto a trip: surat jalan per shop, in transit. See
+    /// [`DispatchTripRequest`].
+    fn dispatch_trip(
+        &self,
+        request: DispatchTripRequest,
+    ) -> Result<super::outbound::DispatchDetail, EdgeError>;
     fn list_koli(
         &self,
         filter: super::outbound::ListFilter,
@@ -990,6 +1096,13 @@ pub trait EdgeInventory: Send + Sync {
     /// Deliveries head office announced to this shop — blind while in
     /// transit. See [`super::inbound`]. `status` is `IN_TRANSIT`, `RECEIVED`
     /// or `ALL` (the default).
+    /// The returns Merchandise asked this shop for — see
+    /// [`super::store_returns`].
+    fn store_return_asks(&self) -> Result<super::store_returns::StoreReturnList, EdgeError> {
+        Err(EdgeError::Forbidden(
+            "a shop's returns are kept by the SQLite edge".into(),
+        ))
+    }
     fn store_inbound_list(
         &self,
         _status: Option<&str>,
@@ -1012,6 +1125,17 @@ pub trait EdgeInventory: Send + Sync {
         &self,
         _delivery_id: &str,
         _request: super::inbound::StoreInboundReceiveRequest,
+    ) -> Result<super::inbound::StoreInboundDetail, EdgeError> {
+        Err(EdgeError::Forbidden(
+            "announced deliveries are only available on Store Edge".into(),
+        ))
+    }
+    /// Receive an announced delivery from a blind count per SKU, no reader —
+    /// see [`super::inbound::StoreInboundCountRequest`].
+    fn receive_store_inbound_by_count(
+        &self,
+        _delivery_id: &str,
+        _request: super::inbound::StoreInboundCountRequest,
     ) -> Result<super::inbound::StoreInboundDetail, EdgeError> {
         Err(EdgeError::Forbidden(
             "announced deliveries are only available on Store Edge".into(),
@@ -1098,6 +1222,9 @@ pub trait EdgeInventory: Send + Sync {
     /// directly: it can no longer be spent at this till.
     fn close_voucher_hold(&self, code: &str, checkout_id: &str) -> Result<(), EdgeError>;
     fn list_pools(&self) -> Result<Vec<PoolBalance>, EdgeError>;
+    /// Spendable units per SKU on the floor and in the warehouse, for every
+    /// SKU with any. See [`sku_stock_pools`] for which pool is which.
+    fn sku_stock(&self) -> Result<Vec<SkuStockRow>, EdgeError>;
     /// Who these SKUs are, without pricing them.
     ///
     /// A DC has no catalogue in the selling sense — it does not sell, so it has
@@ -1222,6 +1349,27 @@ pub trait EdgeInventory: Send + Sync {
     ) -> Result<super::till::ShiftReport, EdgeError>;
     /// The Z report for one shift, closed or still running.
     fn shift_report(&self, shift_id: &str) -> Result<super::till::ShiftReport, EdgeError>;
+    /// The store's till seats — head office's number of them — and who holds
+    /// each now.
+    fn till_seats(&self) -> Result<Vec<super::till::TillSeat>, EdgeError>;
+    /// Take a seat from whoever holds it, and open one's own drawer there.
+    /// No approval; the shift it ends waits for its holder's count.
+    fn take_over_seat(
+        &self,
+        request: super::till::TakeOverRequest,
+    ) -> Result<super::till::TakeOverOutcome, EdgeError>;
+    /// Count a drawer somebody took the seat from — by its holder, or a
+    /// supervisor.
+    fn count_shift(
+        &self,
+        shift_id: &str,
+        request: super::till::CloseShiftRequest,
+    ) -> Result<super::till::ShiftReport, EdgeError>;
+    /// The drawer one person holds, and the ones taken over from them that
+    /// they have not counted.
+    fn my_shifts(&self, actor: &str) -> Result<super::till::MyShifts, EdgeError>;
+    /// Every drawer open in the store now.
+    fn open_shifts(&self) -> Result<Vec<super::till::ShiftReport>, EdgeError>;
     /// A supervisor's yes to a basket edit — a unit taken off, a basket
     /// abandoned, a parked basket thrown away — with the grant spent on it.
     fn record_till_approval(
@@ -1254,12 +1402,15 @@ pub trait EdgeInventory: Send + Sync {
     // pots and which one a shop is allowed to spend.
 
     /// Record a cost paid out of the petty cash tin. Refuses a category the
-    /// chart does not know, an amount above what a store manager may approve,
-    /// an approver who is the claimant, and more than the tin holds.
+    /// chart does not know, more than the tin holds, and an amount above the
+    /// line without Finance's code (`approval`, checked at the centre first).
     fn record_expense(
         &self,
         request: super::petty::RecordExpenseRequest,
+        approval: Option<super::petty::ExpenseApproval>,
     ) -> Result<super::petty::ExpenseRecorded, EdgeError>;
+    /// Keep the expense-code line the centre last said.
+    fn learn_expense_code_line(&self, code_above_minor: i64) -> Result<(), EdgeError>;
     /// Record the float head office handed over. Not an expense: this is the
     /// imprest being put back.
     fn record_petty_cash_top_up(
@@ -1327,6 +1478,16 @@ pub trait EdgeInventory: Send + Sync {
     ) -> Result<OfficialCountSubmitResult, EdgeError>;
     /// The purchase order lines this node still owes a delivery against.
     fn open_purchase_lines(&self) -> Result<Vec<PurchaseWorkLine>, EdgeError>;
+    /// Purchase returns this DC holds: open ones, then the last fortnight's
+    /// handed over (`0068`).
+    fn purchase_returns(&self) -> Result<Vec<PurchaseReturnWork>, EdgeError>;
+    /// Hand a purchase return to the supplier: its pieces leave the
+    /// Unidentified pool for the supplier, and the movement tells the centre.
+    fn hand_over_purchase_return(
+        &self,
+        return_id: uuid::Uuid,
+        request: PurchaseReturnHandoverRequest,
+    ) -> Result<PurchaseReturnWork, EdgeError>;
     /// Record a blind count of what arrived. A document only: nothing becomes
     /// inventory until a verifier accepts it.
     fn count_purchase(
@@ -1481,6 +1642,12 @@ pub struct TaggingWorkJob {
     pub image_url: Option<String>,
     pub total_quantity: i64,
     pub issued_at: String,
+    /// The purchase order the goods came in on, its supplier, and when the
+    /// delivery was counted — so Printing lists labels by PO. `None` for a
+    /// job raised before the node kept its delivery line (`0071`).
+    pub po_number: Option<String>,
+    pub supplier_name: Option<String>,
+    pub delivered_at: Option<String>,
     pub lines: Vec<TaggingWorkLine>,
 }
 
@@ -1550,6 +1717,14 @@ pub struct PurchaseCountRequest {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
     pub counted_unit_quantity: Option<String>,
+    /// Of the counted pieces, how many are NOT the article the line names —
+    /// the supplier's picker put another colour, model or article in the
+    /// carton. Part of the physical count, part of no acceptance: matching
+    /// runs on `counted_quantity − wrong_quantity`, and the wrong pieces go
+    /// back to the supplier on a purchase return (0710). Typed in pieces.
+    /// Absent means none.
+    #[serde(default)]
+    pub wrong_quantity: i64,
     pub actor_id: String,
     pub idempotency_key: String,
 }
@@ -1562,6 +1737,11 @@ pub struct PurchaseCountUnit {
     pub label: String,
     /// Pieces in one, as a decimal string: "20", "12".
     pub factor: String,
+    /// The one unit the line's stock is kept in (the article's stock unit,
+    /// PCS for nearly everything) — what a total is printed in. False on
+    /// orders sent before 0653, where the reader falls back to PCS.
+    #[serde(default)]
+    pub is_stock: bool,
 }
 
 /// A count awaiting a verifier.
@@ -1571,6 +1751,8 @@ pub struct PurchaseCountResult {
     pub count_id: uuid::Uuid,
     pub po_line_id: uuid::Uuid,
     pub counted_quantity: i64,
+    /// What the checker wrote as not matching the order, inside the count.
+    pub wrong_quantity: i64,
     pub counted_by: String,
     pub counted_at: chrono::DateTime<chrono::Utc>,
 }
@@ -1605,6 +1787,65 @@ pub struct PurchaseWorkLine {
     /// for it, because the book holds numbers in several shapes and sorting
     /// them as text puts `PO-R1-…` above every dated one.
     pub activated_at: chrono::DateTime<chrono::Utc>,
+    /// Set when the buyer sent this line's last count back to be counted
+    /// again: their reason (empty when they gave none). The bay shows "Count
+    /// again" with it instead of a fresh line.
+    pub recount_reason: Option<String>,
+}
+
+/// One receipt line's excess on a purchase return (`0068`).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PurchaseReturnWorkLine {
+    pub receipt_line_id: uuid::Uuid,
+    pub po_line_id: uuid::Uuid,
+    pub article_code: String,
+    pub article_name: String,
+    pub quantity: i64,
+}
+
+/// Goods beyond an order that the buyer is sending back, as the bay sees it:
+/// what to hand over, to which supplier, and whether it has been.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PurchaseReturnWork {
+    pub return_id: uuid::Uuid,
+    pub return_number: String,
+    pub po_number: String,
+    pub supplier_id: String,
+    pub supplier_name: Option<String>,
+    pub note: Option<String>,
+    pub raised_by: String,
+    /// When the return reached this node.
+    pub received_at: String,
+    /// `OPEN` or `HANDED_OVER`.
+    pub status: String,
+    pub handed_over_by: Option<String>,
+    pub handed_over_to: Option<String>,
+    pub handed_over_at: Option<String>,
+    /// The Gudang's person in charge, named when the surat jalan was generated
+    /// (0917); `None` until it is.
+    #[serde(default)]
+    pub note_pic: Option<String>,
+    /// When the surat jalan was generated; `None` until it is.
+    #[serde(default)]
+    pub note_generated_at: Option<String>,
+    /// Pieces, over every line.
+    pub quantity: i64,
+    pub lines: Vec<PurchaseReturnWorkLine>,
+}
+
+/// Handing a purchase return to the supplier: every piece on it leaves the
+/// Unidentified pool for the supplier in one movement.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PurchaseReturnHandoverRequest {
+    pub actor_id: String,
+    /// Who took the goods for the supplier — a driver's name. Optional: a
+    /// supplier who collects does not always leave one.
+    #[serde(default)]
+    pub handed_to: Option<String>,
+    pub idempotency_key: String,
 }
 
 /// What a completed receipt did.
@@ -1640,10 +1881,12 @@ pub struct RejectDeliveryRequest {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PurchaseVerifyRequest {
     pub count_id: uuid::Uuid,
+    /// Who is accepting. Who may accept — and whether that may be the person
+    /// who counted, or the one who raised the order — is the caller's role
+    /// and permission, not a name comparison (owner, 2026-10-04).
     pub verifier_actor_id: String,
     /// The verifier approves the checker's number as it stands. There is no
-    /// field for a quantity of their own: someone who can both approve a
-    /// delivery and decide what it was has the whole control to themselves.
+    /// field for a quantity of their own: accepting a count never edits it.
     pub decision: PurchaseVerifyDecision,
     /// Required for a recount, so the checker knows what to look at again.
     #[serde(default)]
@@ -1690,7 +1933,13 @@ pub struct PurchaseVerifyResult {
     pub matched_quantity: Option<i64>,
     /// And how much it did not. Real goods, commercially unresolved until a
     /// buyer decides; they create no expected value and no liability.
+    /// Includes the wrong pieces: everything beyond what the order can take
+    /// goes back to the supplier together (0710).
     pub excess_quantity: Option<i64>,
+    /// How much of the excess the checker had already written down as not
+    /// matching the order. A part of `excess_quantity`, named so the return
+    /// that takes it back can say why. `None` on a recount.
+    pub wrong_quantity: Option<i64>,
     /// The agreed price that applied at this moment, written onto the
     /// acceptance so a later amendment cannot restate what this delivery was
     /// worth.
@@ -1716,7 +1965,10 @@ pub struct PurchaseCountAwaitingVerification {
     /// The delivery document this count hangs off — and the only thing the
     /// supplier's invoice can be attached to. A verifier holding the paper
     /// would otherwise have to guess which of a supplier's open deliveries it
-    /// belongs to, and on a busy bay that guess is wrong.
+    /// belongs to, and on a busy bay that guess is wrong. One receipt holds
+    /// one order's counts: a count for a second order of the same lorry is
+    /// put on that order's own receipt (`receipt_for_order`), so an invoice
+    /// filed here is compared with this order's lines only.
     pub receipt_id: uuid::Uuid,
     pub po_line_id: uuid::Uuid,
     pub po_number: String,
@@ -1724,6 +1976,11 @@ pub struct PurchaseCountAwaitingVerification {
     pub article_code: String,
     pub article_name: String,
     pub counted_quantity: i64,
+    /// What the checker wrote as not matching the order, inside the count:
+    /// pieces on the lorry that are not this article. Received runs on
+    /// `counted_quantity − wrong_quantity`; the wrong pieces go back to the
+    /// supplier on a purchase return.
+    pub wrong_quantity: i64,
     pub counted_by: String,
     pub counted_at: chrono::DateTime<chrono::Utc>,
     /// What the order expects, in the same unit the checker counted in.
@@ -1750,6 +2007,9 @@ pub struct PurchaseCountAwaitingVerification {
     /// pieces.
     pub counted_unit_code: Option<String>,
     pub counted_unit_quantity: Option<String>,
+    /// The unit the line's stock is kept in — PCS, or GRAM/CM for goods kept
+    /// by weight or length (0653). Null on orders sent before it: PCS.
+    pub stock_unit_code: Option<String>,
 }
 
 /// A voucher hold as head office granted it, recorded by the node that relayed

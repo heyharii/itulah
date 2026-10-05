@@ -1564,7 +1564,14 @@ pub(super) async fn insert_bill(
                 // Postgres refuses FOR UPDATE on a grouped query, and the lock
                 // on the receipt row is the whole point.
                 "SELECT r.supplier_id,
-                        (SELECT COALESCE(SUM(rl.quantity * pl.unit_price_minor), 0)::bigint
+                        -- The matched pieces by the one valuation rule, net
+                        -- of their share of the order discount (0823): the
+                        -- bill is compared after its own discount too.
+                        (SELECT COALESCE(SUM(purchase_receipt_value(
+                                                 rl.matched_quantity, rl.agreed_unit_price_minor,
+                                                 pl.unit_price_minor, pl.order_unit_price_minor,
+                                                 pl.unit_factor)
+                                             - rl.allocated_discount_minor), 0)::bigint
                            FROM goods_receipt_line rl
                            LEFT JOIN purchase_order_line pl ON pl.po_line_id = rl.po_line_id
                           WHERE rl.receipt_id = r.receipt_id) AS ordered
@@ -2026,7 +2033,10 @@ const UNBILLED_ROWS: &str = "SELECT r.receipt_id, r.receipt_number, r.supplier_i
                     r.site_id
                 ) AS site_id,
                 r.invoice_number, r.invoice_total_minor,
-                COALESCE(SUM(rl.quantity * pl.unit_price_minor), 0)::bigint AS value_at_order_price,
+                COALESCE(SUM(purchase_receipt_value(rl.matched_quantity, rl.agreed_unit_price_minor,
+                                                    pl.unit_price_minor, pl.order_unit_price_minor,
+                                                    pl.unit_factor)), 0)::bigint
+                    AS value_at_order_price,
                 COUNT(rl.receipt_line_id)::bigint AS line_count,
                 (CURRENT_DATE - r.arrived_at::date)::int AS days_waiting
            FROM goods_receipt r
@@ -2248,6 +2258,12 @@ pub async fn payables_aging(
                                          FROM supplier_advance_application ap
                                          JOIN journal_entry e ON e.entry_id = ap.journal_entry_id
                                         WHERE ap.invoice_id = i.invoice_id
+                                          AND e.posting_date <= $1), 0)
+                           -- A contractor's advance set against the bill (0723).
+                           + COALESCE((SELECT SUM(cpi.applied_minor)
+                                         FROM contractor_project_invoice cpi
+                                         JOIN journal_entry e ON e.entry_id = cpi.applied_entry_id
+                                        WHERE cpi.invoice_id = i.invoice_id
                                           AND e.posting_date <= $1), 0))::bigint AS paid_minor
                ) settled
                -- The earliest instalment the payments made by `$1` have not

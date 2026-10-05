@@ -11,8 +11,14 @@ import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, LoadingState } from "@/components/ui/states"
 import { count, money } from "@/lib/format"
 import { financeKeys, listCompanyBankAccounts } from "@/lib/queries/finance"
+import { useSheet } from "@/lib/sheets"
 import { BankReconciliation as ReconcileTool } from "@/screens/finance-lab-2/bank-reconciliation"
-import { BANK_POTS, useMoney, useStatements } from "@/screens/finance-lab-2/hooks"
+import { PairedReconciliation } from "@/screens/finance-lab-2/bank-reconciliation-paired"
+import {
+  BANK_POTS,
+  useMoney,
+  useStatements,
+} from "@/screens/finance-lab-2/hooks"
 import { Grid, Td, Th } from "@/screens/finance-lab-2/parts"
 import { useUnitName } from "@/screens/finance/hooks"
 
@@ -27,10 +33,20 @@ import { useUnitName } from "@/screens/finance/hooks"
 /// account's lines. So the route lands on the accounts, and the matcher is
 /// what a row opens.
 ///
-/// The matcher itself is unchanged and still lives in `bank-reconciliation`.
-/// This file does not reimplement it; it chooses which one to open.
+/// The row a person opens now lands on `bank-reconciliation-paired`'s
+/// "Sejajar otomatis" view (owner, 2026-09-29: "bank rekon kita seperti ini
+/// kali ya … yg sejajar otomatis") rather than straight into the full
+/// matcher — which is still `bank-reconciliation` and is one press away
+/// ("Open the full matcher") for whatever the paired view cannot auto-pair.
+///
+/// Which statement is open lives in the URL under the `statement` sheet key
+/// (`lib/sheets.ts`), the same one `bank-transactions` links into from a
+/// line's own detail — so a link carrying `?statement=…` opens straight to
+/// this account's reconciliation from either screen.
 export function BankReconciliationList() {
-  const [open, setOpen] = useState<string | null>(null)
+  const statementSheet = useSheet("statement")
+  const open = statementSheet.value ?? null
+  const [full, setFull] = useState(false)
   const statements = useStatements()
   const overview = useMoney()
   const unitName = useUnitName()
@@ -135,9 +151,10 @@ export function BankReconciliationList() {
         had.statementId = row.statement_id
       }
     }
-    return [...table.values()].sort((a, b) =>
-      (a.bank ?? "").localeCompare(b.bank ?? "") ||
-      unitName(a.unit_id).localeCompare(unitName(b.unit_id))
+    return [...table.values()].sort(
+      (a, b) =>
+        (a.bank ?? "").localeCompare(b.bank ?? "") ||
+        unitName(a.unit_id).localeCompare(unitName(b.unit_id))
     )
   }, [rows, bankOfUnit, unitName, account, month, year])
 
@@ -149,24 +166,38 @@ export function BankReconciliationList() {
   if (open !== null) {
     return (
       <>
-        <div className="px-5 pt-4">
-          <Button variant="ghost" onClick={() => setOpen(null)}>
+        <div className="flex items-center justify-between px-5 pt-4">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              statementSheet.close()
+              setFull(false)
+            }}
+          >
             <ChevronLeft className="size-4" />
             All accounts
           </Button>
+          {!full && (
+            <Button variant="ghost" size="sm" onClick={() => setFull(true)}>
+              Open the full matcher
+            </Button>
+          )}
         </div>
-        <ReconcileTool statementId={open} />
+        {full ? (
+          <ReconcileTool statementId={open} />
+        ) : (
+          <PairedReconciliation
+            statementId={open}
+            onOpenFullMatcher={() => setFull(true)}
+          />
+        )}
       </>
     )
   }
 
   return (
     <PageContent>
-      <PageHeader
-        crumb="Finance · Cash &amp; Bank"
-        title="Bank Reconciliation"
-        sub="How far each account is from matching its bank."
-      />
+      <PageHeader crumb="Finance · Banking" title="Bank Reconciliation" />
 
       <div className="flex flex-col gap-4">
         <Toolbar>
@@ -174,7 +205,7 @@ export function BankReconciliationList() {
             aria-label="Bank account"
             value={account}
             onChange={setAccount}
-            className="h-8 w-56"
+            className="h-control w-56"
           >
             <option value="">All accounts</option>
             {[...new Set(rows.map((row) => row.unit_id))]
@@ -196,7 +227,7 @@ export function BankReconciliationList() {
             aria-label="Month"
             value={month}
             onChange={setMonth}
-            className="h-8 w-36"
+            className="h-control w-36"
           >
             <option value="">All months</option>
             {MONTHS.map((one, index) => (
@@ -209,7 +240,7 @@ export function BankReconciliationList() {
             aria-label="Year"
             value={year}
             onChange={setYear}
-            className="h-8 w-28"
+            className="h-control w-28"
           >
             <option value="">All years</option>
             {years.map((one) => (
@@ -218,6 +249,11 @@ export function BankReconciliationList() {
               </option>
             ))}
           </Select>
+          <Toolbar.Spacer />
+          <span className="text-[0.875rem] text-mute">
+            {count(accounts.length)}{" "}
+            {accounts.length === 1 ? "account" : "accounts"}
+          </span>
         </Toolbar>
 
         {statements.isPending ? (
@@ -273,7 +309,9 @@ export function BankReconciliationList() {
                       </Td>
                       <Td align="right">{count(row.lines)}</Td>
                       <Td align="right">
-                        <span className={row.reconciled === 0 ? "text-mute" : ""}>
+                        <span
+                          className={row.reconciled === 0 ? "text-mute" : ""}
+                        >
                           {count(row.reconciled)}
                         </span>
                       </Td>
@@ -301,7 +339,7 @@ export function BankReconciliationList() {
                         <Button
                           size="sm"
                           variant={pending === 0 ? "ghost" : "primary"}
-                          onClick={() => setOpen(row.statementId)}
+                          onClick={() => statementSheet.open(row.statementId)}
                         >
                           Reconcile
                         </Button>
@@ -319,16 +357,16 @@ export function BankReconciliationList() {
 }
 
 const MONTHS = [
-  "Januari",
-  "Februari",
-  "Maret",
+  "January",
+  "February",
+  "March",
   "April",
-  "Mei",
-  "Juni",
-  "Juli",
-  "Agustus",
+  "May",
+  "June",
+  "July",
+  "August",
   "September",
-  "Oktober",
+  "October",
   "November",
-  "Desember",
+  "December",
 ]

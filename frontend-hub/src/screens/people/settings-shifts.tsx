@@ -293,14 +293,12 @@ function NewShiftSheet({
           <Input
             value={draft.id}
             onChange={(event) => set({ id: event.target.value })}
-            placeholder="PAGI"
           />
         </Field>
         <Field label="Name" required>
           <Input
             value={draft.name}
             onChange={(event) => set({ name: event.target.value })}
-            placeholder="Pagi"
           />
         </Field>
         <div className="grid grid-cols-2 gap-3">
@@ -308,14 +306,12 @@ function NewShiftSheet({
             <Input
               value={draft.startsAt}
               onChange={(event) => set({ startsAt: event.target.value })}
-              placeholder="09:00"
             />
           </Field>
           <Field label="Ends" required>
             <Input
               value={draft.endsAt}
               onChange={(event) => set({ endsAt: event.target.value })}
-              placeholder="17:00"
             />
           </Field>
         </div>
@@ -344,7 +340,6 @@ function NewShiftSheet({
           <Input
             value={draft.breakStartsAt}
             onChange={(event) => set({ breakStartsAt: event.target.value })}
-            placeholder="12:00"
           />
         </Field>
         <Toggle

@@ -29,6 +29,15 @@ export function moment(iso: string | null | undefined): string {
   })
 }
 
+/// A date, with no time: where the day is all that matters, such as when a
+/// delivery left and when it arrived.
+export function day(iso: string | null | undefined): string {
+  if (!iso) return "—"
+  const parsed = new Date(iso)
+  if (Number.isNaN(parsed.getTime())) return "—"
+  return parsed.toLocaleDateString("id-ID", { day: "2-digit", month: "short" })
+}
+
 /// The retail status taxonomy, one mapping for the whole app.
 ///
 /// Payment: Paid→ok · Pending→warn · Shipped/Processing→info · Cancelled→bad.

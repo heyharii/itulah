@@ -177,11 +177,7 @@ function Opening({ spent }: { spent: boolean }) {
           <span className="block text-ink">What can I help you with?</span>
         </h1>
 
-        <Composer
-          autoFocus
-          className="mt-6 px-4 py-3.5"
-          placeholder="Ask anything about this business…"
-        />
+        <Composer autoFocus className="mt-6 px-4 py-3.5" />
 
         {prompts.length > 0 && (
           <ul className="mt-5 flex flex-col">

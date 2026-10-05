@@ -1,6 +1,6 @@
 # Matriks konsistensi — setiap aturan data, dan di mana ia dijaga
 
-**Tanggal:** 26 Sep 2026 · **Status:** hidup — ubah bersama kode yang mengubah penjagaan aturan
+**Tanggal:** 28 Sep 2026 (versi unit/site; revisi pertama 26 Sep) · **Status:** hidup — ubah bersama kode yang mengubah penjagaan aturan
 
 Data konsisten kalau aturannya **dipaksakan saat data ditulis**. Mengecek setelahnya
 hanya jaring pengaman. Dokumen ini menjawab satu pertanyaan per aturan: *kalau ada
@@ -22,12 +22,16 @@ Penjaga yang ada:
 
 ## 1. Finance (buku besar)
 
-HO = site `dc`. Guard membandingkan literal `'dc'`, bukan `site.kind`.
+HO = **unit** ber-kind `HO`, ditemukan lewat `head_office_unit_id()` (0605) atau
+`head_office_site_id()` untuk premisnya (0603). Buku dikunci per unit sejak
+0605: `journal_line.unit_id`, `counter_unit_id`, `budget.unit_id`. Tidak ada
+kode yang membandingkan sebuah id ke literal `'dc'`; yang tersisa hanyalah
+`sync_origin_credential.node_role = 'DC'`, kosakata wire yang memang sengaja.
 
 | Aturan | Dijaga di | Cek |
 |---|---|---|
 | Entry seimbang, header = baris (I3) | **DB**: constraint trigger `journal_entry_balances` / `journal_line_balances` (0051). **Rust**: `poster::check_balanced` | `finance.entry_balances` |
-| Setiap site seimbang di bukunya sendiri (I3) | **DB**: `journal_line_balances_per_site` (0120; hanya INSERT, baris sebelum 0120 tidak divalidasi ulang). **Rust**: `poster::balanced_per_site` | `finance.site_balances` |
+| Setiap unit seimbang di bukunya sendiri (I3) | **DB**: constraint trigger `journal_line_balances_per_unit` (0605; per site dari 0120, hanya INSERT, baris sebelum 0120 tidak divalidasi ulang). **Rust**: `poster::balanced_per_site` | `finance.unit_balances` |
 | Jurnal append-only | **DB**: trigger `journal_*_append_only` (0051). Pernah dimatikan sementara oleh migrasi 0083/0140/0244/0248/0254 | — |
 | Reversal = cermin persis entry aslinya | **Rust**: `poster::reverse` menyalin baris. **DB**: hanya `UNIQUE reversal_of` | `finance.reversal_mirrors` |
 | Satu entry per dokumen per langkah | **DB**: `ux_journal_entry_source_purpose` (0140) | — (index tidak bisa di-bypass) |
@@ -36,15 +40,15 @@ HO = site `dc`. Guard membandingkan literal `'dc'`, bukan `site.kind`.
 | Akun pensiun tidak bisa diposting | **Rust saja**: `ledger::assert_postable`. Reversal sengaja melewatinya (membalik yang dulu sah) | `finance.no_postings_on_retired_accounts` |
 | BLOCKED / AUTO_ONLY / `manual_je_policy` | **Rust saja**: `validate_account_posting`. Saat ini tidak berpengaruh, karena semua 263 leaf aktif MANUAL/YES | — |
 | `account_source_rule`: 1004 hanya CASH_SHIFT/OPENING (I6), 1110 hanya manual (I12), 3004 (P21) | **Rust saja**: `validate_account_posting`. Tidak ada trigger yang membaca tabel ini | `finance.source_rules` |
-| Hutang supplier/pinjaman hanya di HO (I4) | **DB**: trigger `journal_line_external_party_is_head_office` (0376/0380; OPENING dikecualikan). **Rust**: `dimension='company'` | `finance.external_party_at_head_office` |
+| Hutang supplier/pinjaman hanya di HO (I4) | **DB**: trigger `journal_line_external_party_is_head_office` (0376/0380; menanyakan kind unit sejak 0605; OPENING dikecualikan). **Rust**: `dimension='company'` | `finance.external_party_at_head_office` |
 | Semua akun `dimension='company'` hanya di HO | **Rust saja** untuk 1016, 1017, 1018, 2033, 6002. DB hanya menjaga subset registry | `finance.company_accounts_at_head_office` |
-| Sisi afiliasi: HO = piutang 1057/1058/1059, unit = hutang 2028/2029/2030 (I7) | **Hanya data** (`account_map` per site). **Tidak ada yang menolak baris yang menyebut akun langsung** | `finance.affiliate_side` · gap **G1** |
-| Lawan afiliasi selalu HO ↔ unit, tidak pernah unit ↔ unit (I8) | Hanya perilaku balancer. **Tidak ada penolakan** | `finance.affiliate_counter_site` · gap **G1** |
-| Akun `requires_counter_site` harus menyebut lawan | **Rust saja** (hanya memeriksa ada tidaknya) | `finance.counter_site_named` |
+| Sisi afiliasi: HO = piutang 1057/1058/1059, unit = hutang 2028/2029/2030 (I7) | **DB**: trigger `journal_line_affiliate_sides` (0708; HO dibaca dari data lewat `head_office_unit_id()` 0605, OPENING/REVERSAL dikecualikan seperti aturan baris lain). Sebelum 0708 hanya **data** (`account_link` per unit lewat `account_resolution`, 0606) | `finance.affiliate_side` |
+| Lawan afiliasi selalu HO ↔ unit, tidak pernah unit ↔ unit (I8) | **DB**: trigger yang sama menuntut `counter_unit_id` = unit untuk 1057/1058/1059 dan = HO untuk 2028/2029/2030, jadi unit ↔ unit ditolak | `finance.affiliate_counter_unit` |
+| Akun `requires_counter_site` harus menyebut lawan | **Rust saja** (hanya memeriksa ada tidaknya) | `finance.counter_unit_named` |
 | Saldo antar-unit saling menghapus (I7) | Hanya checklist tutup buku (`finance_control` INTERUNIT_NETS) | `finance.interunit_nets_to_zero` |
 | Laba ditahan 3003 tidak ditulis otomatis (I10) | **—** | `finance.retained_earnings_derived` · gap **G5** |
 | Biaya bank ≠ bunga bank (I11) | **—** | `finance.bank_charge_is_not_interest` |
-| `account_map` menunjuk leaf aktif (I9) | FK untuk heading. Aktif hanya dijaga DO-block sekali jalan (0364–0380) dan Rust | `finance.map_points_at_live_leaves` |
+| `account_link` menunjuk leaf aktif (I9) | FK untuk heading. Aktif hanya dijaga DO-block sekali jalan (0364–0380) dan Rust | `finance.map_points_at_live_leaves` |
 | Chart = 263 leaf aktif (P1) | **—** | `finance.chart_is_the_clients` |
 | Budget STOP tidak terlampaui | **Rust**: `poster::enforce_budgets`, tanpa lock (race **R1**) | `finance.stop_budgets_hold` |
 | Kategori baris cocok dengan akun | **DB**: trigger `journal_line_category_fits` (0288) | — |
@@ -76,7 +80,7 @@ HO = site `dc`. Guard membandingkan literal `'dc'`, bukan `site.kind`.
 | Saldo voucher = jumlah movement | **DB**: trigger `voucher_movement_consistency` (0090, hanya saat INSERT movement) | `commercial.voucher_balance_is_movements` |
 | Hold voucher ≤ saldo | **Rust**: `authorize_voucher`. **Tidak dijaga oleh `redeem_voucher`** (gap **G3**) | `commercial.voucher_holds_within_balance` |
 | Pemakaian promo = fakta penjualan | **Rust**: `apply_sale` penulis tunggal. **Tidak ada rebuild** | `commercial.usage_matches_sale_facts` |
-| Pembagian limit promo per toko ≤ limit (0387) | Kernel murni `split::rebalance` saja. `rebalance_allocations` tanpa lock (race **R2**) | `commercial.cap_grants_within_limit` |
+| Pembagian limit promo per toko ≤ limit (0387) | **Rust**: `rebalance_allocations` mengunci policy sebelum membaca usage/grants dan menulis semua grant dalam satu transaksi; grant origin retired tetap dihitung | `commercial.cap_grants_within_limit` |
 | Kupon sekali pakai hanya sekali | **DB**: partial unique + trigger (0170) | — |
 
 ---
@@ -95,7 +99,7 @@ Isolasi DB READ COMMITTED; tidak ada `SERIALIZABLE` di mana pun.
 | Upload sync dobel bersamaan | **Aman** | watermark FOR UPDATE | `an_upload_delivered_twice_at_once_lands_once` |
 | Nomor PO | **Aman** | satu upsert + UNIQUE | — |
 | **R1** Budget STOP | **BOLONG** | `enforce_budgets` menjumlah tanpa lock: dua posting yang masing-masing di bawah batas bersama-sama melewatinya | `a_stop_budget_holds_against_two_postings_at_once` (ignored) |
-| **R2** Split limit promo | **BOLONG** | Dua rebalance dengan snapshot berbeda, dan `GREATEST` menyimpan keduanya. Contoh: limit 1.000.000 terbagi 1.166.666 | `a_split_limit_is_never_over_granted` (ignored) |
+| **R2** Split limit promo | **DITUTUP** (2 Okt 2026) | Policy `FOR UPDATE` menyerialkan snapshot dan seluruh upsert grant dalam satu transaksi. Origin tanpa grant menerima allowance nol | `a_split_limit_is_never_over_granted` + regression grant retired, allowance nol, dan kegagalan publikasi |
 | **R3** Satu redeem request aktif per member | **BOLONG** (kecil) | SELECT autocommit lalu INSERT, tanpa lock/partial unique. Poin tetap tidak bisa negatif | `a_member_has_one_live_redeem_request` (ignored) |
 | **D1** Checklist tutup buku | Lemah | `period_checklist` berjalan di luar transaksi close; entry yang masuk di sela-selanya tertutup tanpa dicek | — |
 | **D2** Deadlock | Mungkin | Sales day mengunci artikel tanpa `ORDER BY`. `commit_voucher_hold` dan `…_for_fact` mengunci voucher/otorisasi dalam urutan terbalik. Hasilnya 40P01 → 500 (tidak ada data rusak) | — |
@@ -105,7 +109,7 @@ Isolasi DB READ COMMITTED; tidak ada `SERIALIZABLE` di mana pun.
 
 | ID | Apa | Di mana | Saran perbaikan |
 |---|---|---|---|
-| **G1** | Akun afiliasi di sisi yang salah (1057 di toko, 2028 di HO) dan unit ↔ unit **diterima**. Fixture `posting_matrix` mengharapkan REFUSE, tapi tidak ada kode yang menolaknya | `ledger::validate_account_posting` | Trigger DB di `journal_line` seperti 0376: 1057/1058/1059 ⇒ `site_id='dc'` dan counter = unit; 2028/2029/2030 ⇒ `site_id<>'dc'` dan counter = `dc` |
+| **G1** | ~~Akun afiliasi di sisi yang salah (1057 di toko, 2028 di HO) dan unit ↔ unit **diterima**. Fixture `posting_matrix` mengharapkan REFUSE, tapi tidak ada kode yang menolaknya~~ **TUTUP** — trigger `journal_line_affiliate_sides` (0708) menolak 1057/1058/1059 di luar buku HO dan 2028/2029/2030 di buku HO, dan menuntut lawannya unit/HO, jadi unit ↔ unit ikut ditolak. OPENING/REVERSAL tetap dikecualikan, seperti aturan baris lain | `ledger::validate_account_posting` | — |
 | **G2** | Akun pensiun, BLOCKED, dan `account_source_rule` hanya dijaga Rust | ledger.rs | Trigger yang membaca `ledger_account.is_active` dan `account_source_rule` (kecualikan REVERSAL/OPENING) |
 | **G3** | `redeem_voucher` mengabaikan hold aktif; hold itu nanti ditolak saat commit dan stream sync toko tersumbat | vouchers.rs:~900 | Bandingkan dengan `available_minor` (saldo − hold), seperti `authorize_voucher` |
 | **G5** | Tidak ada yang menolak posting otomatis ke 3003 | — | `account_source_rule` ALLOW untuk 3003 (MANUAL, RECLASS, ADJUSTMENT, OPENING) |
@@ -113,20 +117,20 @@ Isolasi DB READ COMMITTED; tidak ada `SERIALIZABLE` di mana pun.
 | **G7** | Trigger party 0300 **tidak mungkin menyala**: menguji `category_family IN ('RECEIVABLE','PAYABLE')`, padahal CHECK kolom itu `^[a-z]…` | 0300 / 0288 | Perbaiki kondisi atau hapus triggernya |
 | **G8** | `account_map` → leaf aktif hanya dicek oleh DO-block migrasi. Mempensiunkan akun yang sudah dipetakan tidak dicegah | — | Trigger di `ledger_account` UPDATE `is_active` |
 | **S1** | Unwind COGS (`sales_posting_unconsume_cost`) menulis stock ledger tanpa lock artikel, dan `qty_after` diambil dari baris asli, bukan posisi saat ini. Running total bisa rusak | sales_posting.rs:~1693 | `lock_article_basis` + `running_position` seperti penulis lain |
-| **S2** | Stok kurang **membatalkan** sales day, padahal owner memutuskan "short stock never stops the sales day". `Insufficient` → `Conflict`, sedangkan fallback hanya menangkap `Validation` | sales_posting.rs:~1632 + stock_ledger.rs:454 | Tangkap `Conflict` dari `Insufficient` juga, atau petakan ke `Validation` |
+| **S2** | ~~Stok kurang membatalkan sales day~~ **TUTUP** — jalur sales_posting kini menangkap `Conflict` dari `Insufficient`, jadi stok kurang tidak lagi membatalkan sales day | sales_posting.rs | — |
 | **S3** | CHECK `price_rule_names_one_level` hilang (ter-drop bersama kolom `tier` di 0080). Diverifikasi: tidak ada di DB 0387 | 0033/0080 | Tambahkan lagi |
 | **S4** | Snapshot memakai `stock = on_hand + allotted + missing`, padahal dokumen bilang `stock + shortfall = …`. Snapshot dengan shortfall ditolak | 0012 / `sync/inventory.rs` | Samakan dengan dokumen |
-| **S5** | Cek integritas `stock.quantity_position` & `stock.value_vs_gl` hanya placeholder, tidak pernah didaftarkan | integrity.rs:1547 | Daftarkan, atau panggil katalog ini |
+| **S5** | Cek integritas `stock.quantity_position` & `stock.value_vs_gl` masih placeholder (`CheckResult::awaiting`), tidak pernah didaftarkan. `stock.value_vs_gl` sudah diproduksi di jalur opening, jadi yang kurang tinggal pendaftarannya | `cloud/postgres/integrity.rs:1544-1573` | Daftarkan, atau panggil katalog ini |
 | **S6** | `edge_inventory_fact_position`, `commercial_usage`, dan running total stock ledger tidak punya fungsi rebuild | — | Rebuild dari fakta, dengan query cek di katalog sebagai spesifikasinya |
 | **B1** | Tabel `budget` dibaca poster, tapi **tidak ada penulis** di Rust: budget hanya bisa diisi lewat SQL | — | Endpoint Finance HO untuk menetapkan budget |
-| **B2** | `SUM(bigint)` di Postgres bernilai `numeric`, dan `numeric` tidak bisa di-decode ke `i64`. Akibatnya **setiap posting yang terkena budget STOP gagal 500** ("database operation failed"); tidak ada test yang pernah menyentuhnya. **Sudah diperbaiki** di `poster::enforce_budgets` (`::bigint`). Pola yang sama masih ada di `exit.rs:385` dan `:406` (hitungan uang muka dan klaim saat karyawan keluar); file itu belum di-commit dan sedang ditulis lane lain | poster.rs, exit.rs | Tambahkan `::bigint` di `exit.rs` |
+| **B2** | `SUM(bigint)` di Postgres bernilai `numeric`, dan `numeric` tidak bisa di-decode ke `i64`. **Sudah diperbaiki** di `poster::enforce_budgets` (`::bigint`); `exit.rs` sudah ikut memakai `::bigint` dan file-nya sudah di-commit | poster.rs, exit.rs | — |
 | **Q1** | Script seed menulis SQL langsung: `COPY edge_sale_promotion`, `DELETE`/`INSERT commercial_usage`, fakta edge buatan. Data seed melanggar invariant yang dijaga penulis asli | `scripts/seed-*.py` | Seed lewat API atau `crates/sim`. Jalankan `check-invariants.py` sesudah setiap seed |
 
 Catatan: `sales_posting.rs`, `vouchers.rs`, `loyalty.rs`, `period_close.rs`, dan `cap_allocation.rs`
 sedang diedit session lain saat dokumen ini ditulis. Perbaikan S1/S2/G3/R2/R3 harus
 dikoordinasikan dengan lane itu.
 
-## 6. Temuan di database lokal (26 Sep 2026)
+## 6. Temuan di database lokal (26 Sep 2026 — historis: DB itu sudah tidak ada)
 
 | DB (migrasi) | Temuan | Sebab |
 |---|---|---|

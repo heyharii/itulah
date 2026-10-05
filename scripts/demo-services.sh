@@ -8,13 +8,13 @@
 #
 # launchd agents, so every piece comes back after a crash, a logout, sleep or a
 # reboot:
-#   rig       scripts/rig.sh up demo — Cloud :8180, DC edge :8182, Store edge :8181
+#   rig       scripts/rig.sh up demo — Cloud :8180, DC edge :8181, Store edge :8182
 #             (on its existing data; waits for Postgres first)
-#   hub       frontend-hub       :5350  → Cloud 8180, DC edge 8182
+#   hub       frontend-hub       :5350  → Cloud 8180, DC edge 8181
 #             (its Operations screens are the DC floor; the separate floor
 #             app on :5351 was retired 2026-09-26)
 #   customer  frontend-customer  :5352  → Cloud 8180
-#   store     frontend-store-new :5353  → Store edge 8181 (the shop's back office)
+#   store     frontend-store-new :5353  → Store edge 8182 (the shop's back office)
 #
 # Fixed ports rather than portless: a handheld, a phone or the till on the LAN
 # cannot resolve `*.localhost`, but it can reach http://<this-mac-ip>:<port>.
@@ -35,9 +35,9 @@ label() { echo "id.itulah.demo.$1"; }
 command_for() {
     case "$1" in
         rig)      echo "until pg_isready -q; do sleep 2; done; exec '$root/scripts/rig.sh' up demo" ;;
-        hub)      echo "cd '$root/frontend-hub' && VITE_API_TARGET=http://127.0.0.1:8180 VITE_EDGE_TARGET=http://127.0.0.1:8182 exec npm run dev -- --port 5350 --strictPort --host" ;;
+        hub)      echo "cd '$root/frontend-hub' && VITE_API_TARGET=http://127.0.0.1:8180 VITE_EDGE_TARGET=http://127.0.0.1:8181 exec npm run dev -- --port 5350 --strictPort --host" ;;
         customer) echo "cd '$root/frontend-customer' && VITE_API_TARGET=http://127.0.0.1:8180 exec npm run dev -- --port 5352 --strictPort --host" ;;
-        store)    echo "cd '$root/frontend-store-new' && VITE_API_TARGET=http://127.0.0.1:8181 exec npm run dev -- --port 5353 --strictPort --host" ;;
+        store)    echo "cd '$root/frontend-store-new' && VITE_API_TARGET=http://127.0.0.1:8182 exec npm run dev -- --port 5353 --strictPort --host" ;;
     esac
 }
 
@@ -48,7 +48,7 @@ status() {
         printf '  %-9s %s\n' "$s" "${state:-not loaded}"
     done
     printf '\n  Hub       http://localhost:5350\n  Customer  http://%s:5352\n  Store app http://%s:5353\n' "$ip" "$ip"
-    printf '  DC edge   http://%s:8182   (handheld C5 at the DC)\n  Store     http://%s:8181   (till + R3, handheld C5 at the shop)\n' "$ip" "$ip"
+    printf '  DC edge   http://%s:8181   (handheld C5 at the DC)\n  Store     http://%s:8182   (till + R3, handheld C5 at the shop)\n' "$ip" "$ip"
 }
 
 case "${1:-install}" in

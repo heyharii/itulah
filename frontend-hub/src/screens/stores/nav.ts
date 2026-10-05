@@ -17,12 +17,15 @@ export const storesNav: AppModule = {
   home: "/stores",
   sections: [
     {
+      // Both rows `more` since the owner's menu of 2026-09-28: Sales leads
+      // the Sales domain now, and Stores sits under its More fold.
       items: [
-        { path: "/stores", label: "Stores", icon: Store },
+        { path: "/stores", label: "Stores", icon: Store, more: true },
         {
           path: "/stores/exceptions",
           label: "Exceptions",
           icon: AlertTriangle,
+          more: true,
         },
         {
           path: "/stores/$unit",

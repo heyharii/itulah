@@ -49,6 +49,9 @@ use object_store::{Config, ObjectStore};
 #[derive(Clone)]
 pub struct AttachmentConfig {
     pub account_id: String,
+    /// See `MediaConfig::endpoint`: `STORAGE_ENDPOINT` points this at Google
+    /// Cloud Storage instead of R2.
+    pub endpoint: Option<String>,
     pub bucket: String,
     pub access_key_id: String,
     pub secret_access_key: String,
@@ -62,6 +65,7 @@ impl std::fmt::Debug for AttachmentConfig {
         formatter
             .debug_struct("AttachmentConfig")
             .field("account_id", &self.account_id)
+            .field("endpoint", &self.endpoint)
             .field("bucket", &self.bucket)
             .field("access_key_id", &self.access_key_id)
             .field("secret_access_key", &"<redacted>")
@@ -80,8 +84,13 @@ impl AttachmentConfig {
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty())
         };
+        let endpoint = read("STORAGE_ENDPOINT");
         Some(Self {
-            account_id: read("R2_ACCOUNT_ID")?,
+            account_id: match &endpoint {
+                Some(_) => read("R2_ACCOUNT_ID").unwrap_or_default(),
+                None => read("R2_ACCOUNT_ID")?,
+            },
+            endpoint,
             bucket: read("R2_ATTACHMENT_BUCKET")?,
             access_key_id: read("R2_ATTACHMENT_ACCESS_KEY_ID")
                 .or_else(|| read("R2_ACCESS_KEY_ID"))?,
@@ -102,13 +111,16 @@ impl AttachmentStore {
         // No `with_public_base_url`, ever. See the module comment: the whole
         // point of this store is that its objects have no address a browser
         // can reach directly.
-        let store = ObjectStore::new(Config::r2(
+        let mut store_config = Config::r2(
             &config.account_id,
             config.bucket.clone(),
             config.access_key_id.clone(),
             config.secret_access_key.clone(),
-        ))
-        .map_err(|error| AppError::Configuration(format!("attachment store: {error}")))?;
+        );
+        if let Some(endpoint) = &config.endpoint {
+            store_config = store_config.with_endpoint(endpoint.clone());
+        }
+        let store = ObjectStore::new(store_config).map_err(|error| AppError::Configuration(format!("attachment store: {error}")))?;
         Ok(Self { store })
     }
 

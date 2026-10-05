@@ -58,7 +58,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicI64, Ordering};
 use uuid::Uuid;
 
-/// The job beat the sweep writes (`fleet_job_beat`, 0640).
+/// The sweep's job key (`job_definition`, 0703).
 pub const JOB_EXCEPTIONS: &str = "exceptions";
 
 /// A read sweeps first when the last sweep in this process is older than
@@ -342,8 +342,9 @@ async fn detect_open_shifts(
         "WITH open_shift AS (
              SELECT c.shift_id, c.site_id, c.terminal_id, c.opened_by, c.opened_at,
                     s.unit_id, s.name AS site_name,
-                    site_local_date(c.opened_at, c.site_id) AS business_day,
-                    ((site_local_date(c.opened_at, c.site_id) + 1)::timestamp
+                    COALESCE(c.business_date, site_local_date(c.opened_at, c.site_id))
+                        AS business_day,
+                    ((COALESCE(c.business_date, site_local_date(c.opened_at, c.site_id)) + 1)::timestamp
                         AT TIME ZONE site_business_timezone(c.site_id)) AS day_ended_at
                FROM cash_shift c
                JOIN site s ON s.id = c.site_id
@@ -486,15 +487,14 @@ async fn detect_missing_deposits(
                     site_local_date(now(), clock_site) - $1::int AS first_day
                FROM store WHERE clock_site IS NOT NULL
          ), sale_cash AS (
-             SELECT sp.unit_id, site_local_date(e.occurred_at, e.site_id) AS day,
+             SELECT sp.unit_id, e.business_date AS day,
                     GREATEST(SUM(t.amount_minor) - e.change_minor, 0) AS cash
                FROM span sp
                JOIN site s ON s.unit_id = sp.unit_id
                JOIN edge_sale e ON e.site_id = s.id AND e.status = 'COMPLETED'
                JOIN edge_sale_tender t ON t.sale_id = e.sale_id AND t.method = 'CASH'
-              WHERE e.occurred_at >= (sp.first_day::timestamp
-                                        AT TIME ZONE site_business_timezone(sp.clock_site))
-              GROUP BY sp.unit_id, e.sale_id, e.site_id, e.occurred_at, e.change_minor
+              WHERE e.business_date >= sp.first_day
+              GROUP BY sp.unit_id, e.sale_id, e.business_date, e.change_minor
          ), days AS (
              SELECT unit_id, day, SUM(cash)::bigint AS cash
                FROM sale_cash GROUP BY unit_id, day

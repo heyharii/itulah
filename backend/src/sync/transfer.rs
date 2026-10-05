@@ -139,10 +139,13 @@ pub struct InTransitReleasePayload {
     /// key a replay is recognised by.
     pub release_id: Uuid,
     /// The site the goods left, as the origin's own IN_TRANSIT claim spelled
-    /// it — the node this is addressed to.
-    pub source_site_id: String,
-    /// The site that counted them in, as its claim spelled it.
-    pub destination_site_id: String,
+    /// it — the node this is addressed to. Named for the wire, like the claim
+    /// it pairs with (`TransferClaimPayload`), and it holds a site of any kind
+    /// since 0611: a shop's return leaves a shop, not a Gudang (0612).
+    pub source_dc_id: String,
+    /// The site that counted them in, as its claim spelled it. A site of any
+    /// kind, named for the wire — see `source_dc_id`.
+    pub destination_store_id: String,
     pub shipment_reference: Option<String>,
     pub koli_id: Uuid,
     pub epc: String,
@@ -160,8 +163,8 @@ impl InTransitReleasePayload {
             return Err("in-transit release ids must not be nil".into());
         }
         for (field, value) in [
-            ("source_site_id", self.source_site_id.as_str()),
-            ("destination_site_id", self.destination_site_id.as_str()),
+            ("source_dc_id", self.source_dc_id.as_str()),
+            ("destination_store_id", self.destination_store_id.as_str()),
             ("epc", self.epc.as_str()),
             ("sku_code", self.sku_code.as_str()),
         ] {
@@ -173,7 +176,7 @@ impl InTransitReleasePayload {
         {
             return Err("in-transit release EPC and SKU must be uppercase".into());
         }
-        if self.source_site_id == self.destination_site_id {
+        if self.source_dc_id == self.destination_store_id {
             return Err("in-transit release source and destination must differ".into());
         }
         Ok(())
@@ -182,6 +185,62 @@ impl InTransitReleasePayload {
 
 pub fn parse_in_transit_release(value: &serde_json::Value) -> Result<InTransitReleasePayload, String> {
     let payload: InTransitReleasePayload =
+        serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
+    payload.validate()?;
+    Ok(payload)
+}
+
+/// Cloud → origin node: the destination counted a delivery in and this EPC was
+/// not among what it found. Book it Missing where it stands in transit.
+///
+/// Every shortage is Missing (owner, 1 Oct 2026), and a shortage at the door
+/// is no different from one at a count: the piece left, nobody has it. The
+/// origin moves it from its in-transit pool's on-hand to that pool's
+/// `:missing` — its ledger is its own to write — and Inventory settles it
+/// there (Found or written off). If the destination finds it later, the
+/// release for that EPC takes it out of Missing first.
+///
+/// Sent only to a node whose heartbeat carries
+/// [`crate::sync::workflow::TRANSIT_SHORT_CAPABILITY`].
+pub const INVENTORY_IN_TRANSIT_SHORT_V1: &str = "inventory.in_transit.short.v1";
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct InTransitShortPayload {
+    /// The origin's IN_TRANSIT claim for this EPC: one short per piece, and
+    /// the key a replay is recognised by.
+    pub short_id: Uuid,
+    /// The site the goods left, as the origin's own claim spelled it.
+    pub source_dc_id: String,
+    pub destination_store_id: String,
+    pub shipment_reference: Option<String>,
+    pub epc: String,
+    pub sku_code: String,
+    /// The destination's receipt that did not find it.
+    pub receipt_id: Uuid,
+    pub received_at: DateTime<Utc>,
+}
+
+impl InTransitShortPayload {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.short_id.is_nil() || self.receipt_id.is_nil() {
+            return Err("in-transit short ids must not be nil".into());
+        }
+        for (field, value) in [
+            ("source_dc_id", self.source_dc_id.as_str()),
+            ("destination_store_id", self.destination_store_id.as_str()),
+            ("epc", self.epc.as_str()),
+            ("sku_code", self.sku_code.as_str()),
+        ] {
+            validate_required(field, value).map_err(|error| error.to_string())?;
+        }
+        validate_optional("shipment_reference", self.shipment_reference.as_deref())
+            .map_err(|error| error.to_string())?;
+        Ok(())
+    }
+}
+
+pub fn parse_in_transit_short(value: &serde_json::Value) -> Result<InTransitShortPayload, String> {
+    let payload: InTransitShortPayload =
         serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
     payload.validate()?;
     Ok(payload)

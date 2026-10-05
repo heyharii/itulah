@@ -2,12 +2,19 @@ import type { ScreenMap } from "@/screens/registry"
 
 import { OperationsGate } from "@/screens/operations/gate"
 
+import { screens as activity } from "@/screens/operations/activity"
+import { screens as articles } from "@/screens/operations/articles"
+import { screens as board } from "@/screens/operations/board"
+import { screens as count } from "@/screens/operations/count"
 import { screens as despatch } from "@/screens/operations/despatch"
 import { screens as intake } from "@/screens/operations/intake"
+import { screens as ledger } from "@/screens/operations/ledger"
 import { screens as node } from "@/screens/operations/node"
 import { screens as packing } from "@/screens/operations/packing"
 import { screens as picking } from "@/screens/operations/picking"
+import { screens as stock } from "@/screens/operations/stock"
 import { screens as tagging } from "@/screens/operations/tagging"
+import { screens as workload } from "@/screens/operations/workload"
 
 /// The module's screens, gathered from its six stations.
 ///
@@ -40,11 +47,23 @@ function gated(screens: ScreenMap): ScreenMap {
   )
 }
 
-export const screens: ScreenMap = gated({
-  ...intake,
-  ...tagging,
-  ...picking,
-  ...packing,
-  ...despatch,
-  ...node,
-})
+export const screens: ScreenMap = {
+  // Stock reads the CLOUD — `fleetPools`, the purchase and allotment books —
+  // not the DC edge node, so it sits outside `gated()`: the one Operations
+  // screen nobody needs a warehouse sign-in to open.
+  ...stock,
+  ...articles,
+  ...gated({
+    ...activity,
+    ...intake,
+    ...tagging,
+    ...board,
+    ...picking,
+    ...packing,
+    ...despatch,
+    ...node,
+    ...count,
+    ...ledger,
+    ...workload,
+  }),
+}

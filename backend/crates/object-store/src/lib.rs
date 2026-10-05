@@ -63,6 +63,15 @@ impl Config {
         }
     }
 
+    /// Point the same S3 client at another S3-compatible endpoint — Google
+    /// Cloud Storage's interoperability API (`https://storage.googleapis.com`,
+    /// HMAC keys) is the one in use. Path-style addressing and SigV4 are what
+    /// both speak; GCS accepts `auto` as the region.
+    pub fn with_endpoint(mut self, endpoint: impl Into<String>) -> Self {
+        self.endpoint = endpoint.into().trim_end_matches('/').to_string();
+        self
+    }
+
     pub fn with_public_base_url(mut self, base: impl Into<String>) -> Self {
         self.public_base_url = Some(base.into().trim_end_matches('/').to_string());
         self

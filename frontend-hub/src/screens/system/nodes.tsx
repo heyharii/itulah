@@ -120,7 +120,7 @@ const columns: ColumnDef<TableSetup, NodeRow>[] = [
   {
     id: "happening",
     accessorFn: (row) => row.health?.assessment.headline ?? "",
-    header: "What is happening",
+    header: "What Is Happening",
     size: 320,
     cell: ({ row }) => {
       const health = row.original.health
@@ -146,7 +146,7 @@ const columns: ColumnDef<TableSetup, NodeRow>[] = [
   },
   {
     id: "strip",
-    header: "Last 4 hours",
+    header: "Last 4 Hours",
     size: 120,
     enableSorting: false,
     cell: ({ row }) =>
@@ -206,7 +206,7 @@ const columns: ColumnDef<TableSetup, NodeRow>[] = [
   {
     id: "last_ack",
     accessorFn: (row) => row.last_ack_age_seconds ?? 0,
-    header: "Last ack",
+    header: "Last Ack",
     size: 110,
     meta: { align: "right" },
     cell: ({ row }) => span(row.original.last_ack_age_seconds),
@@ -340,7 +340,6 @@ export function Nodes({
       <Input
         value={query}
         onChange={(event) => setQuery(event.target.value)}
-        placeholder="Search"
         className="h-8 w-48"
       />
       {/* Typing keys is the fallback now; a code the machine claims is
@@ -358,8 +357,8 @@ export function Nodes({
           convergence figures, and it has to say which half is missing. */}
       {fleet.isError && (
         <Banner tone="warn" className="mb-3">
-          The register loaded, but the fleet's command positions did not.
-          Every server below is shown without how far behind it is.
+          The register loaded, but the fleet's command positions did not. Every
+          server below is shown without how far behind it is.
         </Banner>
       )}
 
@@ -816,7 +815,7 @@ function RegisterSheet({
         <form.Field name="inventory">
           {(field) => (
             <Checkbox
-              label="Accepts inventory snapshots"
+              label="Accepts inventory checkpoints"
               checked={field.state.value}
               onChange={(next) => field.handleChange(next)}
             />

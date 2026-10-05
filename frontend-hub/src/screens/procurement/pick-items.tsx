@@ -63,9 +63,9 @@ export function CataloguePicker({
   open: boolean
   supplierId: string
   supplierName: string
-  /// What is already on the order. Shown as chosen and not selectable: adding
-  /// the same item twice is a validation error the server raises, and offering
-  /// somebody a choice that can only fail is worse than not offering it.
+  /// What is already on the order. Marked, and still pickable: the pieces
+  /// picked again join the item's line, in whatever unit they are added in
+  /// (10 kodi + 2 pcs) — the server takes one line per item.
   already: readonly string[]
   onClose: () => void
   onPick: (rows: readonly SourcedItem[]) => void
@@ -217,7 +217,6 @@ export function CataloguePicker({
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search this supplier's catalogue"
               className="pl-9"
               aria-label="Search this supplier's catalogue"
             />
@@ -228,7 +227,6 @@ export function CataloguePicker({
             choices={divisionChoices}
             value={division}
             onChange={setDivision}
-            placeholder="Any division"
           />
 
           <PickMany
@@ -236,7 +234,6 @@ export function CataloguePicker({
             choices={tagChoices}
             values={tags}
             onChange={setTags}
-            placeholder="Any tag"
           />
         </div>
 
@@ -289,24 +286,24 @@ function PickCard({
   onToggle: () => void
 }) {
   const { item } = row
-  const chosen = on || picked
+  const chosen = picked
 
   return (
     <button
       type="button"
-      disabled={on}
       onClick={onToggle}
       aria-pressed={chosen}
       className={cn(
         "overflow-hidden rounded-card border bg-canvas text-left shadow-soft transition duration-150",
         chosen
           ? "border-ink"
-          : "border-hairline hover:-translate-y-0.5 hover:shadow-pop",
-        on && "opacity-60"
+          : "border-hairline hover:-translate-y-0.5 hover:shadow-pop"
       )}
     >
       <Thumbnail
         url={item.image_url}
+        name={item.name}
+        division={item.division_code}
         fallback="No photograph"
         className="h-[7.5rem] w-full"
       >

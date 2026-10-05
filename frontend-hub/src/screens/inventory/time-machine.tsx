@@ -32,6 +32,11 @@ import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { Choice } from "@/screens/inventory/parts"
 import { edgeOrigins, signed } from "@/screens/inventory/shared"
+import {
+  DisplayUnitPicker,
+  useDisplayUnit,
+  type DisplayUnit,
+} from "@/screens/inventory/unit-display"
 
 /// The deterministic divergence debugger, four questions deep.
 ///
@@ -52,7 +57,7 @@ import { edgeOrigins, signed } from "@/screens/inventory/shared"
 /// still exact and what is above it is simply absent, which the screen says
 /// rather than quietly showing less.
 
-const stateColumns: ColumnDef<
+function stateColumns(display: DisplayUnit): ColumnDef<
   TableSetup,
   {
     subject_id: string
@@ -60,53 +65,58 @@ const stateColumns: ColumnDef<
     quantity: number
     last_fact_sequence: number
   }
->[] = [
-  {
-    accessorKey: "place_id",
-    header: "Place",
-    size: 260,
-    /// `text`, because a place is `<pool>:<state>` and the question is always a
-    /// part of it — "contains :missing", "starts with store-07". A fold of the
-    /// whole ledger has more places than a facet list can hold.
-    meta: { filter: { kind: "text" } },
-    cell: ({ row }) => (
-      <span className="font-mono text-id text-body">
-        {row.original.place_id}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "subject_id",
-    header: "Subject",
-    size: 300,
-    // No filter: a subject is a uuid somebody arrives holding, and the box
-    // that takes one is the what-if tab.
-    cell: ({ row }) => (
-      <span className="font-mono text-id text-mute">
-        {row.original.subject_id}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "quantity",
-    header: "Quantity",
-    size: 110,
-    /// "Less than 0" is the clause this tool exists for: a negative position in
-    /// a fold is an invariant the ledger broke, and the violations card above
-    /// only lists the ones the server checked for.
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
-    cell: ({ row }) => count(row.original.quantity),
-  },
-  {
-    accessorKey: "last_fact_sequence",
-    header: "Last fact",
-    size: 120,
-    // The decision metric here: which rows moved most recently is what an
-    // operator scans for when a fold looks wrong.
-    meta: { align: "right", filter: { kind: "number" } },
-    cell: ({ row }) => count(row.original.last_fact_sequence),
-  },
-]
+>[] {
+  return [
+    {
+      accessorKey: "place_id",
+      header: "Place",
+      size: 260,
+      /// `text`, because a place is `<pool>:<state>` and the question is
+      /// always a part of it — "contains :missing", "starts with
+      /// store-07". A fold of the whole ledger has more places than a
+      /// facet list can hold.
+      meta: { filter: { kind: "text" } },
+      cell: ({ row }) => (
+        <span className="font-mono text-id text-body">
+          {row.original.place_id}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "subject_id",
+      header: "Subject",
+      size: 300,
+      // No filter: a subject is a uuid somebody arrives holding, and the
+      // box that takes one is the what-if tab.
+      cell: ({ row }) => (
+        <span className="font-mono text-id text-mute">
+          {row.original.subject_id}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "quantity",
+      header: "Quantity",
+      size: 110,
+      /// "Less than 0" is the clause this tool exists for: a negative
+      /// position in a fold is an invariant the ledger broke, and the
+      /// violations card above only lists the ones the server checked for.
+      /// The filter stays in pieces regardless of what the cell prints.
+      meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+      cell: ({ row }) => display.format(row.original.quantity),
+    },
+    {
+      accessorKey: "last_fact_sequence",
+      header: "Last Fact",
+      size: 120,
+      // The decision metric here: which rows moved most recently is what
+      // an operator scans for when a fold looks wrong. A sequence number,
+      // not a quantity — never read through the unit picker.
+      meta: { align: "right", filter: { kind: "number" } },
+      cell: ({ row }) => count(row.original.last_fact_sequence),
+    },
+  ]
+}
 
 export function TimeMachine() {
   const [tab, setTab] = useState("state")
@@ -139,6 +149,7 @@ export function TimeMachine() {
 }
 
 function StateTab() {
+  const display = useDisplayUnit()
   const [seq, setSeq] = useState("")
   const [pool, setPool] = useState("")
   const [sorting, setSorting] = useState<SortingState>([
@@ -157,11 +168,13 @@ function StateTab() {
 
   const rows = useMemo(() => world.data?.items ?? [], [world.data])
 
+  const columns = useMemo(() => stateColumns(display), [display])
+
   /// Only this tab gets a panel. The three beside it are a diff report, a
   /// two-log comparison and a form — none of them a list, and a filter over a
   /// timeline of what happened in what order would be a way to hide the event
   /// that explains the one still on screen.
-  const filters = useFilters(stateColumns)
+  const filters = useFilters(columns)
 
   const table = useTable(
     useMemo(
@@ -184,7 +197,6 @@ function StateTab() {
         <Input
           value={seq}
           onChange={(event) => setSeq(event.target.value)}
-          placeholder="Fact sequence — empty means now"
           className="h-8 w-64"
         />
         <Choice
@@ -194,10 +206,11 @@ function StateTab() {
             value: one.id,
             label: one.label,
           }))}
-          placeholder="Whole ledger"
           className="max-w-72"
         />
         <FilterPanel model={filters} table={table} />
+        <Toolbar.Spacer />
+        <DisplayUnitPicker display={display} />
       </Toolbar>
 
       {queryState(world, {
@@ -366,7 +379,6 @@ function DivergenceTab() {
             value: one.id,
             label: one.label,
           }))}
-          placeholder="Whole ledger"
           className="max-w-72"
         />
       </Toolbar>
@@ -447,15 +459,11 @@ function SyncTab() {
             value: one.origin_id,
             label: `${one.label} · gen ${one.generation}`,
           }))}
-          placeholder="Choose an Edge node"
           className="max-w-72"
         />
         <Input
           value={generation}
           onChange={(event) => setGeneration(event.target.value)}
-          placeholder={
-            chosen ? `Generation ${chosen.generation}` : "Generation"
-          }
           className="h-8 w-44"
         />
       </Toolbar>
@@ -609,7 +617,6 @@ function WhatIfTab() {
                 value: one.id,
                 label: one.label,
               }))}
-              placeholder="Whole ledger"
               className="h-9 w-full max-w-none"
             />
           </Field>
@@ -618,7 +625,6 @@ function WhatIfTab() {
               value={subject}
               onChange={(event) => setSubject(event.target.value)}
               className="font-mono"
-              placeholder="Subject uuid from a divergence"
             />
           </Field>
           <Field label="Place" required>
@@ -626,7 +632,6 @@ function WhatIfTab() {
               value={place}
               onChange={(event) => setPlace(event.target.value)}
               className="font-mono"
-              placeholder="dc.warehouse:on_hand"
             />
           </Field>
           <Field label="Quantity delta" hint="Negative takes stock out.">

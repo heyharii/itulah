@@ -61,7 +61,7 @@ export function GeneralLedgerScreen() {
         <ScreenState>
           Pick an account to see its movements. A heading works too — asking for{" "}
           <span className="font-mono">1011001</span> gives cash across all fourteen
-          locations, because the client's codes are a tree and this matches by prefix.
+          units, because the client's codes are a tree and this matches by prefix.
         </ScreenState>
       ) : (
         <ScreenBody>

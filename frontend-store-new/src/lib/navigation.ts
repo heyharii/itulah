@@ -6,9 +6,12 @@ import {
   Building2,
   Briefcase,
   CalendarClock,
+  CalendarCheck,
   CalendarRange,
+  ClipboardCheck,
   ClipboardList,
   Clock4,
+  Coins,
   Gauge,
   Hammer,
   HandCoins,
@@ -19,21 +22,19 @@ import {
   Package,
   PackagePlus,
   RefreshCw,
+  ScanBarcode,
   Scale,
-  Send as SendIcon,
+  Undo2,
   Server,
   Sun,
-  Target,
   TrendingUp,
   Users,
   Wallet,
   Fingerprint,
-  GraduationCap,
   HeartHandshake,
   Receipt,
   Repeat2,
   Percent,
-  PlayCircle,
   Megaphone,
   TicketPercent,
   TrendingDown,
@@ -104,7 +105,7 @@ const catalogue: AppModule = {
         { path: "/catalogue", label: "Catalogue", icon: LayoutGrid },
         {
           path: "/catalogue/product",
-          label: "Product",
+          label: "Article",
           icon: LayoutGrid,
           hidden: true,
           back: "/catalogue",
@@ -137,9 +138,10 @@ const promotions: AppModule = {
         },
         { path: "/promotions/campaigns", label: "Campaigns", icon: Megaphone },
         {
-          path: "/promotions/price-drops",
-          label: "Price drops",
+          path: "/promotions/price-changes",
+          label: "Price changes",
           icon: TrendingDown,
+          moved: ["/promotions/price-drops"],
         },
         {
           path: "/promotions/vouchers",
@@ -161,10 +163,15 @@ const stock: AppModule = {
   sections: [
     {
       items: [
-        { path: "/stock", label: "On hand", icon: Layers },
+        { path: "/stock", label: "Stock", icon: Layers },
         { path: "/receive", label: "Receive", icon: PackagePlus },
-        { path: "/stock/send", label: "Send", icon: SendIcon },
-        { path: "/stock/movements", label: "Movements", icon: ArrowLeftRight },
+        { path: "/stock/count", label: "Count", icon: ClipboardCheck },
+        { path: "/stock/returns", label: "Return to HO", icon: Undo2 },
+        {
+          path: "/stock/movements",
+          label: "Stock ledger",
+          icon: ArrowLeftRight,
+        },
       ],
     },
   ],
@@ -183,6 +190,7 @@ const money: AppModule = {
         { path: "/money/sales", label: "Sales", icon: TrendingUp },
         { path: "/money/reconciliation", label: "Reconciliation", icon: Scale },
         { path: "/money/expenses", label: "Expenses", icon: HandCoins },
+        { path: "/money/cash-count", label: "Cash count", icon: Coins },
         { path: "/reports", label: "Reports", icon: BarChart3 },
       ],
     },
@@ -195,8 +203,8 @@ const money: AppModule = {
 // "HR toko", `navModel()`): the same menu head office has, minus Setup and the
 // HRMS map — a shop records what happened (who came, who asked for leave, who
 // worked late, what was spent) and head office owns the rules and the money.
-// Fourteen screens in the prototype's four groups and its order; Payroll is a
-// shop's month close, not a run.
+// Fourteen screens in the prototype's four groups and its order. A shop signs
+// off attendance periods; payroll runs belong to head office.
 
 const people: AppModule = {
   id: "people",
@@ -214,7 +222,7 @@ const people: AppModule = {
         },
         {
           path: "/hr/directory",
-          label: "Directory",
+          label: "Employees",
           icon: Users,
           moved: ["/hr/team"],
         },
@@ -225,6 +233,13 @@ const people: AppModule = {
       items: [
         { path: "/hr/roster", label: "Roster", icon: CalendarRange },
         { path: "/hr/attendance", label: "Attendance", icon: Fingerprint },
+        {
+          // Keep the historical route while naming the work this screen does.
+          path: "/hr/payroll",
+          label: "Period close",
+          icon: CalendarCheck,
+          moved: ["/hr/period"],
+        },
         {
           path: "/hr/leave",
           label: "Leave",
@@ -237,12 +252,6 @@ const people: AppModule = {
     {
       label: "Pay",
       items: [
-        {
-          path: "/hr/payroll",
-          label: "Payroll",
-          icon: PlayCircle,
-          moved: ["/hr/period"],
-        },
         { path: "/hr/expenses", label: "Expenses", icon: Receipt },
         { path: "/hr/benefits", label: "Benefits", icon: HeartHandshake },
       ],
@@ -267,8 +276,6 @@ const people: AppModule = {
           label: "Employment changes",
           icon: Repeat2,
         },
-        { path: "/hr/performance", label: "Performance", icon: Target },
-        { path: "/hr/training", label: "Training", icon: GraduationCap },
       ],
     },
   ],
@@ -323,7 +330,7 @@ const ga: AppModule = {
 }
 
 /// The rail's column, top to bottom, in the order a shift reaches for them.
-export const modules: readonly AppModule[] = [
+const everyColumn: readonly AppModule[] = [
   catalogue,
   promotions,
   stock,
@@ -331,6 +338,14 @@ export const modules: readonly AppModule[] = [
   people,
   ga,
 ]
+
+/// Left out of the rail for now (owner, 2 Oct 2026): People and GA. Their
+/// screens and routes stay, only the menu stops offering them.
+const HIDDEN_FROM_RAIL: ReadonlySet<string> = new Set(["people", "ga"])
+
+export const modules: readonly AppModule[] = everyColumn.filter(
+  (module) => !HIDDEN_FROM_RAIL.has(module.id),
+)
 
 /// This machine: the one module that is about the node rather than the shop.
 /// It sits at the foot of the rail as a bare icon, the way the hub's System
@@ -356,7 +371,7 @@ export const nodeModule: AppModule = {
 /// rather than a tile in the column.
 export const newsModule: AppModule = {
   id: "news",
-  label: "Kabar",
+  label: "Discuss",
   icon: BellRing,
   home: "/news",
   sections: [
@@ -364,7 +379,7 @@ export const newsModule: AppModule = {
       items: [
         {
           path: "/news",
-          label: "Kabar",
+          label: "Discuss",
           icon: BellRing,
           moved: ["/shop/news"],
         },
@@ -373,8 +388,30 @@ export const newsModule: AppModule = {
   ],
 }
 
+/// The till, as a link rather than a screen of this app.
+///
+/// The counter is its own app (`pos-desktop/ui`) with its own sign-in, basket
+/// and shift, and it opens in a tab of its own so a sale in progress is never
+/// one click away from a stock screen. Outside a counter machine it runs as a
+/// web page served beside this node; `VITE_TILL_URL` says where. Development
+/// falls back to the rig's till port on this host, and a build without the
+/// setting shows no link rather than one that goes nowhere.
+export const tillLink: {
+  readonly label: string
+  readonly icon: LucideIcon
+  readonly url: string | null
+} = {
+  label: "Cashier",
+  icon: ScanBarcode,
+  url:
+    import.meta.env.VITE_TILL_URL ??
+    (import.meta.env.DEV
+      ? `${window.location.protocol}//${window.location.hostname}:5484`
+      : null),
+}
+
 export const allModules: readonly AppModule[] = [
-  ...modules,
+  ...everyColumn,
   newsModule,
   nodeModule,
 ]

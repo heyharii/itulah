@@ -3,11 +3,11 @@
 /**
  * One thing a payment answers.
  */
-export type PaymentObligation = {
+export type PaymentObligation = { 
 /**
  * `BILL`, `PAYROLL_SLIP`, `FUND_ALLOCATION`.
  */
-kind: string, id: string,
+kind: string, id: string, 
 /**
  * What the recipient will recognise: an invoice number, a period.
  */

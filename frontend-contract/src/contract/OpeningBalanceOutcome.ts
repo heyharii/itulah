@@ -10,21 +10,21 @@ import type { OpeningUnitTotal } from "./OpeningUnitTotal";
  * is whether the transaction was committed — and two shapes would let a screen
  * present a rehearsal as something other than what will happen.
  */
-export type OpeningBalanceOutcome = { cutover_date: string,
+export type OpeningBalanceOutcome = { cutover_date: string, 
 /**
  * False when this was a rehearsal, and every figure below is what the run
  * would produce rather than what it produced.
  */
-committed: boolean, lines: number,
+committed: boolean, lines: number, 
 /**
  * One per unit, in the order the file names them.
  */
-units: Array<OpeningUnitTotal>, entries: Array<OpeningPostedEntry>,
+units: Array<OpeningUnitTotal>, entries: Array<OpeningPostedEntry>, 
 /**
  * The client's own references, so a person can see at a glance which of
  * their reports this came off.
  */
-document_numbers: Array<string>,
+document_numbers: Array<string>, 
 /**
  * What the equations say as at the cutover date, computed inside the same
  * transaction — so a rehearsal reports the state the run would leave.

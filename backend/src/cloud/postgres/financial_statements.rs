@@ -560,3 +560,144 @@ pub async fn dimension_results(
         })
         .collect())
 }
+
+// ---------------------------------------------------------------------------
+// Expenses by month
+// ---------------------------------------------------------------------------
+
+/// The cost sections an expense report reads: what the business spends to
+/// run, not what it pays for the goods it sells. Cost of sales is left out on
+/// purpose — it is the stock leaving, and it already has Sales by Division —
+/// and income tax is the result of the year rather than a cost anybody chose.
+const EXPENSE_SECTIONS: [&str; 3] = ["OPERATING_EXPENSE", "OTHER_OPERATING_EXPENSE", "OTHER_EXPENSE"];
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ExpenseMonthLine {
+    pub account_code: String,
+    pub account_name: String,
+    /// The account's parent heading (BIAYA SEWA, BIAYA GAJI…), which is the
+    /// "category" a reader groups by — the client's own words, from the chart.
+    pub group_code: Option<String>,
+    pub group_name: Option<String>,
+    pub section: String,
+    /// One figure per month in `ExpensesByMonth::months`, in the same order,
+    /// zero where nothing moved. Positive is a cost; a refund larger than the
+    /// month's spending shows negative rather than being hidden.
+    pub by_month_minor: Vec<i64>,
+    pub total_minor: i64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ExpensesByMonth {
+    pub from: NaiveDate,
+    pub to: NaiveDate,
+    pub unit_id: Option<String>,
+    /// The first day of every month the window touches, oldest first.
+    pub months: Vec<NaiveDate>,
+    pub lines: Vec<ExpenseMonthLine>,
+    pub total_minor: i64,
+}
+
+/// Every expense account with a movement in the window, month by month.
+///
+/// Built from the journal like the two statements, and with the same rule
+/// about the year-end voucher: a Period Closing Voucher empties every expense
+/// account into retained earnings, and counting it would make December's
+/// spending read as minus the whole year.
+pub async fn expenses_by_month(
+    pool: &PgPool,
+    from: NaiveDate,
+    to: NaiveDate,
+    unit_id: Option<&str>,
+) -> Result<ExpensesByMonth, AppError> {
+    if from > to {
+        return Err(AppError::Validation(
+            "the window starts after it ends; `from` has to be on or before `to`".into(),
+        ));
+    }
+    let months = months_between(from, to);
+    if months.len() > 24 {
+        return Err(AppError::Validation(format!(
+            "{} months is more than one report can lay side by side; choose 24 or fewer",
+            months.len()
+        )));
+    }
+    let owned: Vec<String> = EXPENSE_SECTIONS.iter().map(|s| (*s).to_string()).collect();
+    let rows = sqlx::query(
+        "SELECT l.account_code, a.name AS account_name, a.statement_section,
+                a.parent_code AS group_code, parent.name AS group_name,
+                date_trunc('month', e.posting_date)::date AS month,
+                SUM(l.debit_minor - l.credit_minor)::bigint AS movement
+           FROM journal_line l
+           JOIN journal_entry e ON e.entry_id = l.entry_id
+           JOIN ledger_account a ON a.account_code = l.account_code
+           LEFT JOIN ledger_account parent ON parent.account_code = a.parent_code
+          WHERE a.statement_section = ANY($1)
+            AND e.posting_date BETWEEN $2 AND $3
+            AND ($4::text IS NULL OR l.unit_id = $4)
+            AND NOT journal_entry_closes_books(e.source_kind, e.reversal_of)
+          GROUP BY l.account_code, a.name, a.statement_section, a.parent_code, parent.name,
+                   date_trunc('month', e.posting_date)
+         HAVING SUM(l.debit_minor - l.credit_minor) <> 0
+          ORDER BY a.parent_code NULLS LAST, l.account_code",
+    )
+    .bind(&owned)
+    .bind(from)
+    .bind(to)
+    .bind(unit_id)
+    .fetch_all(pool)
+    .await?;
+
+    let mut lines: Vec<ExpenseMonthLine> = Vec::new();
+    for row in &rows {
+        let code: String = row.try_get("account_code")?;
+        let section: String = row.try_get("statement_section")?;
+        let month: NaiveDate = row.try_get("month")?;
+        let amount = presented(&section, row.try_get("movement")?);
+        let Some(slot) = months.iter().position(|m| *m == month) else {
+            continue;
+        };
+        let line = match lines.iter_mut().position(|l| l.account_code == code) {
+            Some(at) => &mut lines[at],
+            None => {
+                lines.push(ExpenseMonthLine {
+                    account_code: code,
+                    account_name: row.try_get("account_name")?,
+                    group_code: row.try_get("group_code")?,
+                    group_name: row.try_get("group_name")?,
+                    section,
+                    by_month_minor: vec![0; months.len()],
+                    total_minor: 0,
+                });
+                lines.last_mut().expect("just pushed")
+            }
+        };
+        line.by_month_minor[slot] += amount;
+        line.total_minor += amount;
+    }
+    let total_minor = lines.iter().map(|l| l.total_minor).sum();
+    Ok(ExpensesByMonth {
+        from,
+        to,
+        unit_id: unit_id.map(str::to_string),
+        months,
+        lines,
+        total_minor,
+    })
+}
+
+/// The first day of every month from `from`'s to `to`'s, inclusive.
+fn months_between(from: NaiveDate, to: NaiveDate) -> Vec<NaiveDate> {
+    use chrono::Datelike;
+    let mut months = Vec::new();
+    let mut cursor = NaiveDate::from_ymd_opt(from.year(), from.month(), 1).expect("day one");
+    while cursor <= to {
+        months.push(cursor);
+        cursor = cursor
+            .checked_add_months(chrono::Months::new(1))
+            .expect("a month after a valid date");
+    }
+    months
+}

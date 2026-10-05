@@ -4,6 +4,7 @@ import * as api from "@/api"
 import { publish } from "@/customer-link"
 import { useApproval } from "@/approval"
 import { device, inShell, openCustomerDisplay, readRfidSingle } from "@/edge"
+import { isWeb } from "@/edition"
 import { Icon, type IconName } from "@/icons"
 import { useWaitingTills } from "@/joining"
 import {
@@ -17,6 +18,7 @@ import { useShortcuts } from "@/shortcuts"
 import { enqueue, flush, forget, useOutbox } from "@/outbox"
 import { drawerOnSale, printReceiptHere, receiptTarget } from "@/peripherals"
 import { authorizeVoucher, releaseVoucher } from "@/vouchers"
+import { seatNow, useSeat } from "@/seat"
 import { lookupBenefit, returnBenefit, spendBenefit, type BenefitHolder } from "@/benefit"
 import { useNodeConfig, useSession } from "@/session"
 import { refreshPaymentMethods, usePaymentMethods } from "@/payment-methods"
@@ -232,6 +234,7 @@ export function Till({
   onGo,
   onSignOut,
   onLock,
+  onSeatLost,
 }: {
   actorId: string
   terminalId: string
@@ -239,6 +242,9 @@ export function Till({
   onGo: (next: Where) => void
   onSignOut: () => void
   onLock: () => void
+  /// The node says the shift this till is selling on is no longer the
+  /// person's — somebody took the seat. `by` is who, when the node said.
+  onSeatLost: (by: string | null) => void
 }) {
   const [rows, setRows] = useState<readonly api.CatalogRow[]>([])
   const [bookProblem, setBookProblem] = useState<string | null>(null)
@@ -627,6 +633,7 @@ export function Till({
         actorId={actorId}
         onBack={() => onGo("sale")}
         onSold={setSold}
+        onSeatLost={onSeatLost}
       />
     )
   }
@@ -653,11 +660,18 @@ export function Till({
         onSignOut={onSignOut}
         onLock={onLock}
         onSetup={() => onGo("setup")}
-        onDisplay={() => {
-          void openCustomerDisplay().then((problem) => {
-            if (problem !== null) setNote({ bad: true, text: problem })
-          })
-        }}
+        // The second window is a Tauri window `openCustomerDisplay` opens on
+        // this machine — nothing a browser tab can do — so web never gets the
+        // button that would call it.
+        onDisplay={
+          isWeb
+            ? undefined
+            : () => {
+                void openCustomerDisplay().then((problem) => {
+                  if (problem !== null) setNote({ bad: true, text: problem })
+                })
+              }
+        }
       />
       {bookProblem !== null && (
         <div className="banner bad">
@@ -731,15 +745,20 @@ export function Till({
                   <Icon name="arrow" />
                 </button>
               </div>
-              <button
-                className="scan-r3"
-                type="button"
-                onClick={() => void readWithR3()}
-                disabled={!inShell() || rfidBusy}
-                aria-label="Baca satu tag dengan Chainway R3"
-              >
-                {rfidBusy ? "Membaca…" : "Baca R3"}
-              </button>
+              {/* The R3 is a USB reader bound in the shell — `readRfidSingle`
+                  refuses outright with no bridge — so a browser tab never
+                  draws a button that can only ever refuse. */}
+              {!isWeb && (
+                <button
+                  className="scan-r3"
+                  type="button"
+                  onClick={() => void readWithR3()}
+                  disabled={!inShell() || rfidBusy}
+                  aria-label="Baca satu tag dengan Chainway R3"
+                >
+                  {rfidBusy ? "Membaca…" : "Baca R3"}
+                </button>
+              )}
             </form>
             {note !== null && (
               <div
@@ -1162,6 +1181,7 @@ export function Topbar({
   // Every screen wears the same header, so the terminal and the person are read
   // from the one session rather than handed down by whoever drew it.
   const session = useSession()
+  const seat = useSeat()
   const terminal = terminalId ?? session.terminalId
   const who =
     actorId ?? session.me?.display_name ?? session.me?.username ?? null
@@ -1208,9 +1228,32 @@ export function Topbar({
         {(onDisplay !== undefined || onSetup !== undefined || onLock !== undefined) && (
           <span className="top-sep" />
         )}
-        <span className="badge plain">
-          {inShell() ? terminal : "Browser"}
-        </span>
+        {/* Web has no shell to ask, so `inShell()` never returns true there —
+            but it still knows its own terminal id (`web.ts` mints one), and
+            "Browser" would say less than that. A small marker beside it says
+            which edition this tab is, since the two look identical
+            otherwise. */}
+        {/* The till is the seat the person holds, not the machine: "Kasir 3",
+            with the machine kept beside it (web) or as the hover text
+            (desktop) for whoever has to find which box it is. */}
+        {isWeb ? (
+          <>
+            {seat !== null && <span className="badge plain">{seat.label}</span>}
+            <span
+              className="badge plain"
+              style={seat !== null ? { marginLeft: 6 } : undefined}
+            >
+              {terminal}
+            </span>
+            <span className="badge plain" style={{ marginLeft: 6 }}>
+              Web
+            </span>
+          </>
+        ) : (
+          <span className="badge plain" title={seat !== null ? terminal : undefined}>
+            {seat !== null ? seat.label : inShell() ? terminal : "Browser"}
+          </span>
+        )}
         {who !== null && (
           <span className="avatar" title={who}>
             {who.slice(0, 2).toUpperCase()}
@@ -1517,6 +1560,11 @@ function Statusbar({
     readonly { readonly what: string; readonly on: boolean; readonly detail: string }[]
   >([])
   useEffect(() => {
+    // Both devices are shell-bound — `device()` answers `bound: false` with
+    // no shell to ask — and web has neither an RFID reader nor a fingerprint
+    // scanner to report on, so it never asks and the strip stays empty of
+    // them rather than showing two lights that can only ever be off.
+    if (isWeb) return
     let alive = true
     void (async () => {
       const [rfid, fp] = await Promise.all([
@@ -1585,6 +1633,7 @@ function Payment({
   actorId,
   onBack,
   onSold,
+  onSeatLost,
 }: {
   units: readonly Unit[]
   currency: string
@@ -1599,6 +1648,7 @@ function Payment({
   actorId: string
   onBack: () => void
   onSold: (sale: Sold) => void
+  onSeatLost: (by: string | null) => void
 }) {
   const tiles = usePaymentMethods()
   // The tile's key (a tender type, or the old tile value on the fallback list).
@@ -1684,6 +1734,28 @@ function Payment({
   async function complete() {
     setBusy(true)
     setProblem(null)
+    // The node attaches a sale to the shift of whoever rings it, so a person
+    // whose seat was taken since the last poll would be ringing money into
+    // nobody's drawer. Asked once more right before the money is recorded. A
+    // node that cannot answer does not stop the sale — the outbox is for that.
+    const seat = seatNow()
+    if (seat !== null) {
+      const mine = await api.myShifts()
+      if (
+        mine.ok &&
+        (mine.body.open === null || mine.body.open.shift_id !== seat.shift_id)
+      ) {
+        setBusy(false)
+        // Back out the way a cashier would, so a voucher hold taken for this
+        // basket is given back, then let the counter know.
+        await leavePayment()
+        onSeatLost(
+          mine.body.uncounted.find((one) => one.shift_id === seat.shift_id)
+            ?.taken_over_by ?? null,
+        )
+        return
+      }
+    }
     // Written to disk, with its key, before a single byte goes on the wire.
     // Everything after this line is the outbox's problem — including the case
     // where this terminal never manages to send it at all.
@@ -2323,7 +2395,10 @@ function Sale({
       const drawer = copy ? "NONE" : drawerOnSale(config)
       const done = copy ? "Salinan struk dicetak." : "Struk dicetak."
       // The USB printer on this till: the node renders, this till sends.
-      if (usb !== null) {
+      // `usb` is never set in web — there is no peripherals screen there to
+      // choose one — but the shell-only send is skipped by edition too,
+      // rather than trusted to stay that way.
+      if (!isWeb && usb !== null) {
         const printed = await printReceiptHere(sold.saleId, {
           paper: config.paper,
           drawer,

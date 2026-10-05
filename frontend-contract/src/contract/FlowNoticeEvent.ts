@@ -3,11 +3,11 @@
 /**
  * One event of a document, as a list shows it.
  */
-export type FlowNoticeEvent = { event_id: number, stage_kind: string | null,
+export type FlowNoticeEvent = { event_id: number, stage_kind: string | null, 
 /**
  * `STAGE_DONE`, `STAGE_PARKED`, `MOVEMENT`, `STATUS`…
  */
-event_type: string,
+event_type: string, 
 /**
  * `NODE` or `HUB`.
  */

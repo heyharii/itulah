@@ -4,7 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { CalendarPlus, ClipboardCheck, Plus } from "lucide-react"
+import { CalendarCheck, CalendarPlus, ClipboardCheck, Plus } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -30,10 +30,16 @@ import {
   recordGaInspection,
   recordGaRepair,
   recordGaTask,
+  updateGaMaintenanceTask,
+  useGaSites,
 } from "@/lib/queries/ga"
-import { financeKeys, listAssets } from "@/lib/queries/finance"
 import { ResultPill, TaskStatePill } from "@/screens/maintenance/parts"
-import { INSPECTION_RESULTS, intervalLabel } from "@/screens/maintenance/format"
+import {
+  INSPECTION_RESULTS,
+  intervalLabel,
+  nextDueAfter,
+} from "@/screens/maintenance/format"
+import type { GaMaintenanceTaskRow } from "@itulah/contract"
 
 /// Jadwal & inspeksi — the quiet half of maintenance.
 ///
@@ -56,6 +62,8 @@ const PAGE = 100
 export function Schedule() {
   const [addingTask, setAddingTask] = useState(false)
   const [addingInspection, setAddingInspection] = useState(false)
+  // The task whose service is being recorded as done, if any.
+  const [doing, setDoing] = useState<GaMaintenanceTaskRow | null>(null)
 
   // Both lists page from the server in the order they are read — tasks
   // soonest due first (undated last), inspections newest first — so neither
@@ -118,19 +126,20 @@ export function Schedule() {
         }
         loading={tasks.isPending}
       >
-        <div className="min-w-[66rem]">
-          <div className="grid h-10 grid-cols-[minmax(13rem,1fr)_minmax(13rem,1fr)_9rem_9rem_10rem_9rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
+        <div className="min-w-[74rem]">
+          <div className="grid h-10 grid-cols-[minmax(13rem,1fr)_minmax(13rem,1fr)_9rem_9rem_10rem_9rem_8rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
             <span>Task</span>
             <span>Asset / location</span>
             <span>Interval</span>
             <span>Next due</span>
             <span>Contract</span>
             <span>Status</span>
+            <span />
           </div>
           {taskRows.map((row) => (
             <div
               key={row.task_id}
-              className="grid grid-cols-[minmax(13rem,1fr)_minmax(13rem,1fr)_9rem_9rem_10rem_9rem] items-center gap-3 border-b border-hairline px-3.5 py-2.5 last:border-b-0"
+              className="grid grid-cols-[minmax(13rem,1fr)_minmax(13rem,1fr)_9rem_9rem_10rem_9rem_8rem] items-center gap-3 border-b border-hairline px-3.5 py-2.5 last:border-b-0"
             >
               <div className="min-w-0">
                 <span className="block truncate text-cell font-medium text-ink">
@@ -166,6 +175,14 @@ export function Schedule() {
               </span>
               <span>
                 <TaskStatePill nextDue={row.next_due} />
+              </span>
+              <span className="flex justify-end">
+                {row.status === "ACTIVE" && (
+                  <Button variant="ghost" onClick={() => setDoing(row)}>
+                    <CalendarCheck />
+                    Record done
+                  </Button>
+                )}
               </span>
             </div>
           ))}
@@ -223,6 +240,23 @@ export function Schedule() {
       <InspectionComposer
         open={addingInspection}
         onClose={() => setAddingInspection(false)}
+      />
+
+      {/* A task on one asset is done by inspecting it: the inspection names
+          the task and the server moves the next date from the day it was
+          done. A task on a whole location has no asset to inspect, so its
+          next date is moved directly. Keyed by the task so each opening
+          starts from that task's own values. */}
+      <InspectionComposer
+        key={`done-${doing?.task_id ?? "none"}`}
+        open={doing !== null && doing.asset_id !== null}
+        task={doing}
+        onClose={() => setDoing(null)}
+      />
+      <TaskDoneSheet
+        key={`site-${doing?.task_id ?? "none"}`}
+        task={doing !== null && doing.asset_id === null ? doing : null}
+        onClose={() => setDoing(null)}
       />
     </PageContent>
   )
@@ -307,12 +341,7 @@ function TaskComposer({
     staleTime: 5 * 60 * 1000,
   })
 
-  const shape = useQuery({
-    queryKey: financeKeys.assets(false, null),
-    queryFn: ({ signal }) => listAssets({ limit: 1 }, signal),
-    enabled: open,
-    staleTime: 5 * 60 * 1000,
-  })
+  const { sites: siteOptions } = useGaSites(open)
 
   const vendors = useQuery({
     queryKey: [...procurementKeys.suppliers(), "book", "EXPENSE"],
@@ -383,7 +412,7 @@ function TaskComposer({
               Cancel
             </Button>
             <Button variant="primary" pending={save.isPending} onClick={submit}>
-              {save.isPending ? "Saving…" : "Save task"}
+              {save.isPending ? "Submitting…" : "Submit"}
             </Button>
           </div>
         </div>
@@ -444,7 +473,7 @@ function TaskComposer({
                 aria-label="Location"
               >
                 <option value="">Choose…</option>
-                {(shape.data?.facets.sites ?? []).map((one) => (
+                {siteOptions.map((one) => (
                   <option key={one.value} value={one.value}>
                     {one.label ?? one.value}
                   </option>
@@ -456,7 +485,6 @@ function TaskComposer({
             <Input
               value={form.title ?? ""}
               onChange={(event) => set("title", event.target.value)}
-              placeholder="e.g. Genset DC service"
             />
           </Field>
         </Section>
@@ -482,7 +510,6 @@ function TaskComposer({
                 inputMode="numeric"
                 value={form.value ?? ""}
                 onChange={(event) => set("value", event.target.value)}
-                placeholder="3"
               />
             </Field>
           </div>
@@ -524,7 +551,6 @@ function TaskComposer({
             <Input
               value={form.notes ?? ""}
               onChange={(event) => set("notes", event.target.value)}
-              placeholder="e.g. coordinate with the store manager"
             />
           </Field>
         </Section>
@@ -545,17 +571,25 @@ function TaskComposer({
 /// in the asset's history, with the inspection as its evidence.
 function InspectionComposer({
   open,
+  task = null,
   onClose,
 }: {
   open: boolean
+  /// The scheduled task this inspection answers. Its asset is fixed, and
+  /// saving moves the task's next date.
+  task?: GaMaintenanceTaskRow | null
   onClose: () => void
 }) {
   const client = useQueryClient()
-  const [form, setForm] = useState<Record<string, string>>({
+  const blankForm = (): Record<string, string> => ({
     result: "BAIK",
     by: "Staf GA",
     inspected_on: new Date().toISOString().slice(0, 10),
+    ...(task !== null && task.asset_id !== null
+      ? { asset: task.asset_id, findings: `${task.title} done` }
+      : {}),
   })
+  const [form, setForm] = useState<Record<string, string>>(blankForm)
   const [problems, setProblems] = useState<Record<string, string>>({})
   const [makeRepair, setMakeRepair] = useState(true)
   const set = (key: string, value: string) => {
@@ -594,7 +628,7 @@ function InspectionComposer({
         inspected_by: (form.by ?? "").trim(),
         result,
         findings: (form.findings ?? "").trim(),
-        task_id: null,
+        task_id: task?.task_id ?? null,
       })
       if (!needsRepair) return inspection
       return recordGaRepair({
@@ -617,11 +651,7 @@ function InspectionComposer({
       // The schedule's inspection table, the Perbaikan book and the asset's
       // history all read from the GA namespace.
       void client.invalidateQueries({ queryKey: gaKeys.all })
-      setForm({
-        result: "BAIK",
-        by: "Staf GA",
-        inspected_on: new Date().toISOString().slice(0, 10),
-      })
+      setForm(blankForm())
       setMakeRepair(true)
       onClose()
     },
@@ -647,8 +677,12 @@ function InspectionComposer({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       width="wide"
-      title="New inspection"
-      caption="The result of inspecting one asset. A finding that needs action can become a repair right away."
+      title={task === null ? "New inspection" : `Record done · ${task.title}`}
+      caption={
+        task === null
+          ? "The result of inspecting one asset. A finding that needs action can become a repair right away."
+          : "The service is recorded as an inspection of the asset, and the task's next due date moves on from the date below."
+      }
       footer={
         <div className="flex items-center justify-between gap-3">
           <span className="text-pill text-mute">
@@ -663,7 +697,7 @@ function InspectionComposer({
               Cancel
             </Button>
             <Button variant="primary" pending={save.isPending} onClick={submit}>
-              {save.isPending ? "Saving…" : "Save inspection"}
+              {save.isPending ? "Submitting…" : "Submit"}
             </Button>
           </div>
         </div>
@@ -680,10 +714,21 @@ function InspectionComposer({
               value={form.asset ?? ""}
               onChange={(next) => set("asset", next)}
               aria-label="Asset"
+              disabled={task !== null}
             >
+              {/* The task's own asset, in case it is past the first page of
+                  the list below. */}
+              {task !== null && task.asset_id !== null && (
+                <option value={task.asset_id}>
+                  {task.asset_name ?? task.asset_id}
+                </option>
+              )}
               <option value="">Choose…</option>
               {(assets.data?.rows ?? [])
-                .filter((one) => one.status !== "DRAFT")
+                .filter(
+                  (one) =>
+                    one.status !== "DRAFT" && one.asset_id !== task?.asset_id
+                )
                 .map((one) => (
                   <option key={one.asset_id} value={one.asset_id}>
                     {one.name} · {one.asset_number} · {one.site_id}
@@ -696,7 +741,6 @@ function InspectionComposer({
               <Input
                 value={form.by ?? ""}
                 onChange={(event) => set("by", event.target.value)}
-                placeholder="e.g. Technician from CV Sejuk Teknik"
               />
             </Field>
             <Field label="Date">
@@ -732,7 +776,6 @@ function InspectionComposer({
             <Input
               value={form.findings ?? ""}
               onChange={(event) => set("findings", event.target.value)}
-              placeholder="e.g. Compressor noisy, performance dropping"
               autoFocus
             />
           </Field>
@@ -772,6 +815,106 @@ function InspectionComposer({
             </>
           )}
         </Section>
+      </div>
+    </Sheet>
+  )
+}
+
+/// Recording that a location-wide task was done: an AC wash across a store, a
+/// pest-control visit. There is no single asset to inspect, so nothing is
+/// written to an asset's history — only the task's next date moves, counted
+/// from the day the work was actually done.
+function TaskDoneSheet({
+  task,
+  onClose,
+}: {
+  task: GaMaintenanceTaskRow | null
+  onClose: () => void
+}) {
+  const client = useQueryClient()
+  const today = new Date().toISOString().slice(0, 10)
+  const [doneOn, setDoneOn] = useState(today)
+  // Null until somebody types a date of their own; until then the next date
+  // follows the done date.
+  const [typed, setTyped] = useState<string | null>(null)
+  const proposed =
+    task === null
+      ? null
+      : nextDueAfter(task.interval_kind, task.interval_value, doneOn)
+  const nextDue = typed ?? proposed ?? ""
+
+  const save = useMutation({
+    mutationFn: () =>
+      updateGaMaintenanceTask(task?.task_id ?? "", {
+        title: null,
+        interval_kind: null,
+        interval_value: null,
+        next_due: nextDue,
+        contract_id: null,
+        supplier_id: null,
+        status: null,
+        notes: null,
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: gaKeys.all })
+      onClose()
+    },
+  })
+
+  return (
+    <Sheet
+      open={task !== null}
+      onOpenChange={(next) => !next && onClose()}
+      title={task === null ? "Record done" : `Record done · ${task.title}`}
+      caption="A task for a whole location: the next due date moves on from the day the work was done."
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            pending={save.isPending}
+            disabled={nextDue === ""}
+            onClick={() => save.mutate()}
+          >
+            {save.isPending ? "Submitting…" : "Submit"}
+          </Button>
+        </div>
+      }
+    >
+      <div className="flex flex-col gap-5">
+        {save.error instanceof Error && (
+          <Banner tone="bad">{save.error.message}</Banner>
+        )}
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Done on">
+            <Input
+              type="date"
+              value={doneOn}
+              max={today}
+              onChange={(event) => setDoneOn(event.target.value)}
+            />
+          </Field>
+          <Field
+            label="Next due"
+            required
+            aside={
+              task === null
+                ? undefined
+                : proposed === null
+                  ? "by distance: enter a date"
+                  : intervalLabel(task.interval_kind, task.interval_value)
+            }
+          >
+            <Input
+              type="date"
+              value={nextDue}
+              min={doneOn}
+              onChange={(event) => setTyped(event.target.value)}
+            />
+          </Field>
+        </div>
       </div>
     </Sheet>
   )

@@ -3,31 +3,30 @@ import { useMutation } from "@tanstack/react-query"
 import { Eye, EyeOff } from "lucide-react"
 import { useState } from "react"
 
-import { Mark } from "@/components/shell/mark"
 import { Button } from "@/components/ui/button"
 import { Field, Input } from "@/components/ui/field"
 import { auth } from "@/lib/api"
 import type { LoginResponse } from "@itulah/contract"
 import { ApiError, type NodeIdentity } from "@itulah/contract/client"
 
-/// Sign-in for the STORE node.
+/// Sign-in for the STORE node: the shop's back office, not the counter.
 ///
 /// Username and password, not email: the node's identities are usernames, and
 /// an `<input type="email">` would refuse a valid cashier's name before the
 /// request was ever made. There is no third-party sign-in and no self-service
 /// sign-up — staff are provisioned by a manager.
+/// The door's fields: 47px, white, 15px text (see `.door-input`).
+const FIELD = "door-input h-[2.9375rem] border-0 text-[0.9375rem]"
+
 export function LoginForm({
   onSignedIn,
   /// A failure belonging to the session rather than to this form — a node that
   /// could not be reached at all.
   problem: sessionProblem = null,
-  /// Which node this till is talking to. Worth showing before anybody types:
-  /// a till pointed at a DC, or at the centre, should say so plainly rather
-  /// than offering a Sell tab that will be refused.
-  node = null,
 }: {
   onSignedIn: (session: LoginResponse) => void
   problem?: string | null
+  /// Still passed by `App`; the door no longer names the server (owner, 2026-09-28).
   node?: NodeIdentity | null
 }) {
   const [revealed, setRevealed] = useState(false)
@@ -53,26 +52,35 @@ export function LoginForm({
         ? signIn.error.message
         : "could not reach this shop's node"
 
+  const problem = signInProblem ?? sessionProblem
+
+  // The door (hub v2, direction E · Quiet, airy spacing): one white card on a
+  // pale drifting backdrop, a big quiet title, two fields and the one action.
+  // The card's parts rise one after another (`door-card > *`, keyed by --i).
   return (
-    <div className="pt-safe pb-safe grid h-full place-items-center px-5">
+    <div className="pt-safe pb-safe relative grid h-full place-items-center overflow-y-auto px-5 py-10">
+      <div aria-hidden="true" className="door" />
+      <div className="door-card-wrap relative w-full max-w-[28.75rem]">
+      <div aria-hidden="true" className="door-aura" />
       <form
         onSubmit={(event) => {
           event.preventDefault()
           form.handleSubmit()
         }}
-        className="w-full max-w-[22rem]"
+        className="door-card relative w-full rounded-[2rem] bg-canvas px-7 pt-9 pb-8 sm:px-10 sm:pt-10 sm:pb-10"
       >
-        <Mark className="mb-5 h-11 w-10 text-ink" />
-        <h1 className="text-hero font-semibold text-ink">Till</h1>
-        <p className="mt-1 mb-7 text-meta text-body">
-          Sign in to this shop's counter.
-        </p>
+        <h1 className="text-[1.75rem] leading-9 font-semibold tracking-[-0.02em] text-ink [--i:0]">
+          Sign in
+        </h1>
 
-        <div className="flex flex-col gap-4">
+        <div className="my-7 h-px bg-hairline [--i:2]" />
+
+        <div className="flex flex-col gap-5 [--i:3]">
           <form.Field name="username">
             {(field) => (
               <Field label="Username">
                 <Input
+                  className={FIELD}
                   autoFocus
                   autoComplete="username"
                   autoCapitalize="none"
@@ -92,7 +100,7 @@ export function LoginForm({
                   <Input
                     type={revealed ? "text" : "password"}
                     autoComplete="current-password"
-                    className="pr-14"
+                    className={`${FIELD} pr-14`}
                     value={field.state.value}
                     onBlur={field.handleBlur}
                     onChange={(event) => field.handleChange(event.target.value)}
@@ -117,32 +125,30 @@ export function LoginForm({
           </form.Field>
         </div>
 
-        {(signInProblem ?? sessionProblem) !== null && (
-          <p className="mt-4 text-meta text-bad">
-            {signInProblem ?? sessionProblem}
+        {problem !== null && (
+          <p
+            role="alert"
+            className="mt-5 text-meta text-bad [--i:0]"
+          >
+            {problem}
           </p>
         )}
 
-        <Button
-          variant="primary"
-          size="lg"
-          block
-          className="mt-6"
-          disabled={signIn.isPending}
-          onClick={() => form.handleSubmit()}
-        >
-          {signIn.isPending ? "Signing in…" : "Sign in"}
-        </Button>
+        <div className="mt-8 [--i:4]">
+          <Button
+            variant="primary"
+            block
+            className="door-action h-[2.9375rem] rounded-[0.75rem] text-[0.9375rem] font-semibold"
+            // A submit button, so Enter in either field signs in.
+            type="submit"
+            disabled={signIn.isPending}
+          >
+            {signIn.isPending ? "Signing in…" : "Sign in"}
+          </Button>
+        </div>
 
-        {/* A courtesy, not a status: failing to name the node is not a sign-in
-            problem and must never be reported as one. */}
-        {node !== null && (
-          <p className="mt-6 text-center font-mono text-[0.6875rem] text-mute">
-            {node.node_role} · {node.site_id ?? node.node_id}
-            {node.auth === "DISABLED" && " · AUTH DISABLED"}
-          </p>
-        )}
       </form>
+      </div>
     </div>
   )
 }

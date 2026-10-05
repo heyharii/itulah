@@ -152,7 +152,6 @@ export function DisciplinePanel({ employeeId }: { employeeId: string }) {
           <Field label="Level" required>
             <PickOne
               label="Level"
-              placeholder="Choose…"
               choices={LEVELS}
               value={level}
               onChange={setLevel}
@@ -178,7 +177,6 @@ export function DisciplinePanel({ employeeId }: { employeeId: string }) {
               rows={3}
               value={violation}
               onChange={(e) => setViolation(e.target.value)}
-              placeholder="Terlambat lima kali dalam bulan September"
             />
           </Field>
         </div>
@@ -227,7 +225,7 @@ export function ActiveLettersCard() {
           rows.length === 0 ? (
             <EmptyState>No warning letter is in force.</EmptyState>
           ) : (
-            <MiniTable head={["Who", "Letter", "In force to", ""]}>
+            <MiniTable head={["Who", "Letter", "In Force to", ""]}>
               {rows.map((letter) => (
                 <MiniRow key={letter.id}>
                   <MiniCell>

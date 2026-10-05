@@ -522,7 +522,7 @@ async fn a_shirt_travels_from_a_purchase_order_to_a_customer(pool: PgPool) {
         )
         .await;
 
-    // --- 03 · A second person accepts it ----------------------------------
+    // --- 03 · The count is accepted --------------------------------------
     fleet
         .dc_post(
             "/api/v1/dc/purchase-verifications",

@@ -21,17 +21,18 @@ import { Banner, LoadingState } from "@/components/ui/states"
 import { Pill } from "@/components/ui/pill"
 import { buildOf } from "@/lib/builds"
 import { day } from "@/lib/format"
-import { financeKeys, listAssets, unitAccounts } from "@/lib/queries/finance"
+import { financeKeys, unitAccounts } from "@/lib/queries/finance"
 import { unitLabel, useUnits } from "@/lib/queries/organisation"
 import {
-  gaAssetHub,
   gaAssetBuilds,
+  gaAssetHub,
   gaKeys,
   gaRepairs,
   recordGaReplacement,
   requestGaDisposal,
   transferGaAsset,
   updateGaAsset,
+  useGaSites,
 } from "@/lib/queries/ga"
 import { procurementKeys, supplierPage } from "@/lib/queries/procurement"
 import { uploadDocument } from "@/lib/queries/workplace"
@@ -207,11 +208,7 @@ function DetailTab({
     (one) => one.build === asset.build
   )?.fields
 
-  const sites = useQuery({
-    queryKey: financeKeys.assets(false, null),
-    queryFn: ({ signal }) => listAssets({ limit: 1 }, signal),
-    staleTime: 5 * 60 * 1000,
-  })
+  const { sites: siteOptions } = useGaSites()
 
   const build = buildOf(asset.build)
   const live = asset.status === "REGISTERED" || asset.status === "IN_SERVICE"
@@ -296,7 +293,7 @@ function DetailTab({
         {action === "move" && (
           <MoveForm
             asset={asset}
-            sites={(sites.data?.facets.sites ?? []).map((one) => one.value)}
+            sites={siteOptions.map((one) => one.value)}
             onDone={done}
             onCancel={() => setAction(null)}
           />
@@ -374,8 +371,8 @@ function CompleteDraft({ asset }: { asset: GaAssetRow }) {
         The bill arrived first
       </h4>
       <p className="mt-1 mb-3 text-meta text-body">
-        This asset was created automatically when Finance posted the bill.
-        Make sure the item is there, then fill in its area and holder.
+        This asset was created automatically when Finance posted the bill. Make
+        sure the item is there, then fill in its area and holder.
       </p>
       {save.error instanceof Error && (
         <Banner tone="bad">{save.error.message}</Banner>
@@ -385,14 +382,12 @@ function CompleteDraft({ asset }: { asset: GaAssetRow }) {
           <Input
             value={form.sub_location ?? ""}
             onChange={(event) => set("sub_location", event.target.value)}
-            placeholder="Floor 1 · cashier area"
           />
         </Field>
         <Field label="Holder" required>
           <Input
             value={form.holder ?? ""}
             onChange={(event) => set("holder", event.target.value)}
-            placeholder={`Store manager ${asset.site_id}`}
           />
         </Field>
         <Field label="Serial / plate">
@@ -429,7 +424,7 @@ function CompleteDraft({ asset }: { asset: GaAssetRow }) {
           disabled={!ready}
           onClick={() => save.mutate()}
         >
-          {save.isPending ? "Saving…" : "Save and register"}
+          {save.isPending ? "Submitting…" : "Submit"}
         </Button>
       </div>
     </section>
@@ -503,14 +498,12 @@ function MoveForm({
           <Input
             value={form.to_sub_location ?? ""}
             onChange={(event) => set("to_sub_location", event.target.value)}
-            placeholder="Warehouse floor 1"
           />
         </Field>
         <Field label="New holder">
           <Input
             value={form.to_holder ?? ""}
             onChange={(event) => set("to_holder", event.target.value)}
-            placeholder={asset.holder ?? ""}
           />
         </Field>
         <Field label="Date moved" required>
@@ -525,7 +518,6 @@ function MoveForm({
         <Input
           value={form.reason ?? ""}
           onChange={(event) => set("reason", event.target.value)}
-          placeholder="e.g. Store C013 opening"
         />
       </Field>
       <div className="flex items-center gap-2">
@@ -622,9 +614,9 @@ function ReplaceForm({
         <Banner tone="bad">{save.error.message}</Banner>
       )}
       <p className="text-meta text-body">
-        The replacement is recorded as an event on this asset; the new asset
-        is created once its stage reaches <b className="text-ink">Installed</b>,
-        in Maintenance › Replacement.
+        The replacement is recorded as an event on this asset; the new asset is
+        created once its stage reaches <b className="text-ink">Installed</b>, in
+        Maintenance › Replacement.
       </p>
       <Field
         label="Reason for replacement"
@@ -634,7 +626,6 @@ function ReplaceForm({
         <Input
           value={form.reason ?? ""}
           onChange={(event) => set("reason", event.target.value)}
-          placeholder="e.g. Badly damaged, not economical to repair"
         />
       </Field>
       <div className="grid grid-cols-2 gap-4">
@@ -736,7 +727,8 @@ function DisposeForm({
 
   const submit = () => {
     const next: Record<string, string> = {}
-    if ((form.reason ?? "").trim() === "") next.reason = "Write the reason first."
+    if ((form.reason ?? "").trim() === "")
+      next.reason = "Write the reason first."
     if (Object.keys(next).length > 0) {
       setProblems(next)
       return
@@ -750,8 +742,8 @@ function DisposeForm({
         <Banner tone="bad">{save.error.message}</Banner>
       )}
       <p className="text-meta text-body">
-        GA files the request; the asset is flagged for disposal until a
-        decision is made, and Finance books the gain or loss.
+        GA files the request; the asset is flagged for disposal until a decision
+        is made, and Finance books the gain or loss.
       </p>
       <Choices
         label="Disposal method"
@@ -793,7 +785,6 @@ function DisposeForm({
           <Money
             value={form.proceeds ?? ""}
             onChange={(next) => set("proceeds", next)}
-            placeholder="3000000"
           />
         </Field>
       )}
@@ -801,7 +792,6 @@ function DisposeForm({
         <Input
           value={form.reason ?? ""}
           onChange={(event) => set("reason", event.target.value)}
-          placeholder="e.g. Badly damaged, replaced with new unit"
         />
       </Field>
       <div className="flex items-center gap-2">
@@ -844,8 +834,7 @@ function DocumentsTab({
       {documents.length === 0 ? (
         <p className="text-meta text-body">
           No documents yet. Paper that's just paper — BPKB, operating
-          certificate, warranty — gets attached here and indexed in the
-          Library.
+          certificate, warranty — gets attached here and indexed in the Library.
         </p>
       ) : (
         <ul className="flex flex-col">
@@ -971,10 +960,7 @@ function AttachForm({
             onChange={(event) => set("issued_on", event.target.value)}
           />
         </Field>
-        <Field
-          label="Valid until"
-          aside="empty = the paper has no expiry"
-        >
+        <Field label="Valid until" aside="empty = the paper has no expiry">
           <Input
             type="date"
             value={form.expires_on ?? ""}
@@ -989,7 +975,7 @@ function AttachForm({
           disabled={file === null}
           onClick={() => save.mutate()}
         >
-          {save.isPending ? "Uploading…" : "Save document"}
+          {save.isPending ? "Submitting…" : "Submit"}
         </Button>
         <Button variant="ghost" onClick={onCancel}>
           Cancel

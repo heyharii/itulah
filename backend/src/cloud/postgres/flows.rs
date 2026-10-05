@@ -261,7 +261,7 @@ async fn load_version_draft(
             .map(|code| stored(FlowRole::parse(code), "role", code))
             .collect::<Result<Vec<_>, _>>()?,
         destination_pool: match pool {
-            Some(code) => Some(stored(PoolRole::parse(&code), "pool", &code)?),
+            Some(code) => Some(stored(PoolRole::from_code(&code), "pool", &code)?),
             None => None,
         },
         stages,

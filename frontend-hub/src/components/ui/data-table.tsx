@@ -12,6 +12,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Select } from "@/components/ui/field"
 import { LoadMore, type Pageable } from "@/components/ui/states"
 import { useCoarsePointer, useLayout } from "@/lib/layout"
+import { columnName } from "@/components/ui/column-name"
 import { cn } from "@/lib/utils"
 import type { TableSetup } from "@/lib/table"
 
@@ -70,6 +71,10 @@ export interface DataTableProps<TRow> {
   readonly onRowClick?: (row: TRow) => void
   /// Which row reads as selected. Selection is a tint — never a left bar.
   readonly isSelected?: (row: TRow) => boolean
+  /// A row that has just landed — an order that was raised a moment ago. It
+  /// glows for a few seconds and settles, so the eye finds the new line in a
+  /// long list; nothing is kept once the glow is over.
+  readonly isFresh?: (row: TRow) => boolean
   /// 44px rows instead of 38, the DESIGN.md touch floor.
   ///
   /// Left unset it follows the POINTER: a finger gets 44, a mouse gets 38. That
@@ -85,6 +90,9 @@ export interface DataTableProps<TRow> {
   /// unless a caller genuinely knows better; 38 is what the prototype's
   /// 10px/14px cell padding measures to, and 44 is the touch floor.
   readonly rowHeight?: number
+  /// More air above and below each row's cells, for a list whose rows carry
+  /// two lines (a name over its number) and read as a stack otherwise.
+  readonly roomy?: boolean
   readonly virtualizeAbove?: number
   readonly empty?: React.ReactNode
   /// The one thing this row is waiting for, drawn IN the status cell.
@@ -102,6 +110,11 @@ export interface DataTableProps<TRow> {
   /// sort in its options sheet (`ListOptionsSheet`) turns this off — two
   /// sort controls on one small screen read as two different orders.
   readonly cardSort?: boolean
+  /// Lay the rows out as cards on a tablet too, not only on a phone. For a list
+  /// whose key columns (status, what has arrived) would otherwise sit off the
+  /// edge of a 768px screen: Apple's rule — show the common path first — beats
+  /// showing every column.
+  readonly cardsOnTablet?: boolean
   /// Called when the last rows scroll into view — infinite scroll. The list
   /// fetches its next page here; the table only says when it is due. Watched
   /// with an IntersectionObserver on a marker after the last row, against the
@@ -119,6 +132,40 @@ export interface DataTableProps<TRow> {
   /// stay in view however far down the list somebody has scrolled. Columns
   /// with no entry are left blank.
   readonly summary?: Readonly<Record<string, React.ReactNode>>
+  /// The page scrolls, not the table (the owner, 2026-09-28): no scroll box
+  /// of its own, so the list is read in the window like the page around it,
+  /// its heading row sticking under the app bar and `summary` floating at
+  /// the window's foot. Every row is drawn — no virtualiser, which needs a
+  /// box of its own to measure — and the columns are held at their `size`
+  /// with the `meta.grow` one taking the rest, so a page arriving never
+  /// reflows them. Nothing above it may clip (`overflow-hidden` makes a
+  /// scroll box and un-sticks the heading; use `overflow-clip`).
+  readonly pageScroll?: boolean
+  /// An optional extra block drawn directly under a row, full width — the
+  /// row's contents opened out in place. Called for a row only when
+  /// `isExpanded` says it is open; return `null` for nothing. In the desk
+  /// table it is a `<tr><td colSpan>` after the row, on a phone a block
+  /// under the card. The screen owns the toggle (usually a chevron cell
+  /// that stops click propagation) and the expanded state. Not drawn while
+  /// the rows are virtualised, which needs every row at one height.
+  readonly renderSub?: (row: TRow) => React.ReactNode
+  /// Whether a row's `renderSub` block is showing.
+  readonly isExpanded?: (row: TRow) => boolean
+  /// An optional full-width block drawn BEFORE a row — a group heading above
+  /// the first row of its group. Called with the row, its index and every row
+  /// in table order (so a screen can compare with the row above); return
+  /// `null` for nothing. In the desk table it is a `<tr><td colSpan>`, on a
+  /// phone an `<li>`; both carry `data-sub`, so arrow-key navigation steps
+  /// over them. Not drawn while the rows are virtualised.
+  readonly renderBefore?: (
+    row: TRow,
+    index: number,
+    rows: readonly TRow[]
+  ) => React.ReactNode
+  /// A row that is not drawn — its `renderBefore` block still is, so a
+  /// collapsed group keeps its heading. The row stays in the table's model
+  /// (sorting, summary), it just takes no space.
+  readonly isHidden?: (row: TRow) => boolean
   readonly className?: string
 }
 
@@ -132,26 +179,52 @@ export function DataTable<TRow>({
   table,
   onRowClick,
   isSelected,
+  isFresh,
   touch,
   rowHeight,
+  roomy = false,
   virtualizeAbove = 150,
   empty,
   rowAction,
   cardSort = true,
+  cardsOnTablet,
   onEndReached,
   more,
   summary,
+  pageScroll = false,
+  renderSub,
+  isExpanded,
+  renderBefore,
+  isHidden,
   className,
 }: DataTableProps<TRow>) {
+  const subOf = (row: { original: unknown }): React.ReactNode =>
+    renderSub !== undefined && isExpanded?.(row.original as TRow)
+      ? renderSub(row.original as TRow)
+      : null
   const rows = (table as AnyTable).getRowModel().rows
+  const beforeOf = (index: number): React.ReactNode => {
+    if (renderBefore === undefined) return null
+    return renderBefore(
+      rows[index].original as TRow,
+      index,
+      rows.map((one) => one.original as TRow)
+    )
+  }
   const scrollRef = useRef<HTMLDivElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const layout = useLayout()
   const coarse = useCoarsePointer()
   const tap = touch ?? coarse
-  const cards = layout === "phone"
+  const cards =
+    layout === "phone" || (cardsOnTablet === true && layout === "tablet")
   const height = rowHeight ?? (tap ? TOUCH_ROW : DENSE_ROW)
-  const virtualise = !cards && rows.length > virtualizeAbove
+  const virtualise =
+    !cards &&
+    !pageScroll &&
+    renderSub === undefined &&
+    renderBefore === undefined &&
+    rows.length > virtualizeAbove
   /// How wide the card actually is, and how many columns have been given up to
   /// fit it. Measured rather than read off the viewport — see below.
   ///
@@ -281,13 +354,14 @@ export function DataTable<TRow>({
         if (entries.some((entry) => entry.isIntersecting)) reachEnd.current?.()
       },
       {
-        root: cards ? null : scrollRef.current,
+        // The window's edge when the page is what scrolls.
+        root: cards || pageScroll ? null : scrollRef.current,
         rootMargin: "0px 0px 240px 0px",
       }
     )
     observer.observe(marker)
     return () => observer.disconnect()
-  }, [wantsEnd, cards, rows.length])
+  }, [wantsEnd, cards, pageScroll, rows.length])
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -298,6 +372,33 @@ export function DataTable<TRow>({
   })
 
   const headers = (table as AnyTable).getHeaderGroups()
+
+  /// The narrowest a page-scrolled table can be: its held columns, and the
+  /// least the growing one may shrink to.
+  const pageMinWidth = pageScroll
+    ? (table as AnyTable).getVisibleLeafColumns().reduce(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (sum: number, column: any) =>
+          sum + (column.columnDef.meta?.grow ?? column.getSize()),
+        0
+      )
+    : 0
+  /// Whether a page-scrolled table is wider than its card, watched rather
+  /// than guessed: set from the observer's callback, so the table and the
+  /// box it sits in are measured as laid out.
+  const tableRef = useRef<HTMLTableElement>(null)
+  const [wide, setWide] = useState(false)
+  useEffect(() => {
+    const box = scrollRef.current
+    const drawn = tableRef.current
+    if (!pageScroll || box === null || drawn === null) return
+    const observer = new ResizeObserver(() =>
+      setWide(drawn.offsetWidth > box.clientWidth + 1)
+    )
+    observer.observe(drawn)
+    observer.observe(box)
+    return () => observer.disconnect()
+  }, [pageScroll, cards])
 
   if (cards) {
     return (
@@ -319,12 +420,16 @@ export function DataTable<TRow>({
           </div>
         ) : (
           <ul className="flex flex-col">
-            {rows.map((row) => (
+            {rows.map((row, index) => (
               <RowCard
                 key={row.id}
                 row={row}
+                before={beforeOf(index)}
+                hidden={isHidden?.(row.original as TRow)}
                 onRowClick={onRowClick}
                 selected={isSelected?.(row.original as TRow) ?? false}
+                fresh={isFresh?.(row.original as TRow) ?? false}
+                sub={subOf(row)}
               />
             ))}
           </ul>
@@ -360,6 +465,7 @@ export function DataTable<TRow>({
               row={row}
               onRowClick={onRowClick}
               selected={isSelected?.(row.original as TRow) ?? false}
+              fresh={isFresh?.(row.original as TRow) ?? false}
               touch={tap}
               rowAction={rowAction}
               style={{
@@ -378,37 +484,104 @@ export function DataTable<TRow>({
       </tbody>
     ) : (
       <tbody>
-        {rows.map((row) => (
+        {rows.map((row, index) => (
           <Row
             key={row.id}
             row={row}
+            before={beforeOf(index)}
+            hidden={isHidden?.(row.original as TRow)}
             onRowClick={onRowClick}
             selected={isSelected?.(row.original as TRow) ?? false}
+            fresh={isFresh?.(row.original as TRow) ?? false}
             touch={tap}
             rowAction={rowAction}
+            tight={pageScroll}
+            roomy={roomy}
+            sub={subOf(row)}
           />
         ))}
       </tbody>
     )
 
   return (
-    <div ref={scrollRef} className={cn("min-h-0 overflow-auto", className)}>
+    <div
+      ref={scrollRef}
+      className={cn(
+        pageScroll
+          ? // Sideways only when the columns cannot fit — a narrow window, or
+            // extra columns switched on. Then the heading no longer sticks
+            // (a box that scrolls sideways is a scroll box), which is the
+            // price of every column staying reachable.
+            cn("min-w-0", wide && "overflow-x-auto")
+          : "min-h-0 overflow-auto",
+        className
+      )}
+    >
       <table
+        ref={tableRef}
         className={cn(
           "w-full border-collapse text-cell",
-          virtualise && "table-fixed"
+          (virtualise || pageScroll) && "table-fixed"
         )}
+        style={pageScroll ? { minWidth: pageMinWidth } : undefined}
       >
+        {pageScroll && (
+          <colgroup>
+            {(table as AnyTable).getVisibleLeafColumns().map((column) => (
+              <col
+                key={column.id}
+                style={
+                  column.columnDef.meta?.grow === undefined
+                    ? { width: column.getSize() }
+                    : undefined
+                }
+              />
+            ))}
+          </colgroup>
+        )}
         <thead className={cn(virtualise && "block")}>
-          {headers.map((group) => (
+          {headers.map((group, level) => (
             <tr key={group.id} className={cn(virtualise && "flex w-full")}>
               {group.headers.map((header) => {
-                const sortable = header.column.getCanSort()
+                // Grouped columns (two heading rows): a column with no group
+                // is drawn once, in the top row, spanning both — TanStack
+                // hands it over as a placeholder up top and the real heading
+                // below, and drawing both left an empty box over every
+                // ungrouped heading.
+                const deep = headers.length > 1
+                if (deep && level > 0 && header.column.parent === undefined)
+                  return null
+                const spansRows = deep && level === 0 && header.isPlaceholder
+                // A real group heading ("Ordered"), not the placeholder TanStack puts
+                // above an ungrouped column — which also has sub-headers.
+                const isGroup =
+                  !header.isPlaceholder && header.subHeaders.length > 0
+                // Where a column under a group heading sits in its group.
+                const groupSiblings =
+                  deep && level > 0 ? (header.column.parent?.columns ?? []) : []
+                const groupAt = groupSiblings.findIndex(
+                  (one) => one.id === header.column.id
+                )
+                const groupEdge =
+                  groupSiblings.length === 0 || groupAt < 0
+                    ? null
+                    : groupSiblings.length === 1
+                      ? "only"
+                      : groupAt === 0
+                        ? "first"
+                        : groupAt === groupSiblings.length - 1
+                          ? "last"
+                          : null
+                const sortable = !isGroup && header.column.getCanSort()
                 const sorted = header.column.getIsSorted()
-                const align = header.column.columnDef.meta?.align
+                const align = isGroup
+                  ? "center"
+                  : header.column.columnDef.meta?.align
                 return (
                   <th
                     key={header.id}
+                    colSpan={header.colSpan > 1 ? header.colSpan : undefined}
+                    rowSpan={spansRows ? headers.length : undefined}
                     aria-sort={
                       !sortable
                         ? undefined
@@ -434,14 +607,36 @@ export function DataTable<TRow>({
                       // Tinted, not white: the heading row is chrome over the
                       // rows, and the tint is what says so now that the
                       // vertical rules are gone.
-                      "sticky top-0 z-10 bg-soft",
-                      "border-b border-hairline",
-                      "h-10 px-3.5 py-0 text-eyebrow font-medium whitespace-nowrap text-body normal-case",
+                      "sticky z-10 bg-soft",
+                      // The second heading row sticks under the first (h-10).
+                      level > 0 ? "top-10" : "top-0",
+                      // A group heading ("Ordered") is underlined by a rule of
+                      // its own, inset a column's padding at both ends, so two
+                      // neighbouring groups read as two spans and not as one
+                      // long line running under both.
+                      // Complete, as a box: the group's heading carries the
+                      // rules at both its sides and under it, and the columns
+                      // beneath continue the two side rules, so each group
+                      // reads as one framed span (owner, 2 Oct 2026).
+                      isGroup
+                        ? "border-x border-b border-hairline-strong text-ink"
+                        : "border-b border-hairline-2",
+                      groupEdge === "first" &&
+                        "border-l border-l-hairline-strong",
+                      groupEdge === "last" &&
+                        "border-r border-r-hairline-strong",
+                      groupEdge === "only" &&
+                        "border-x border-x-hairline-strong",
+                      "h-10 py-0 text-eyebrow font-medium whitespace-nowrap text-body normal-case",
+                      // A page-scrolled table is set 2px tighter a side: it
+                      // is the one that must hold every column without a box
+                      // of its own to scroll sideways in.
+                      roomy ? "px-5" : pageScroll ? "px-3" : "px-3.5",
                       align === "right" ? "text-right" : "text-left",
                       align === "center" && "text-center"
                     )}
                   >
-                    {header.isPlaceholder ? null : sortable ? (
+                    {header.isPlaceholder && !spansRows ? null : sortable ? (
                       <button
                         type="button"
                         onClick={() => header.column.toggleSorting()}
@@ -450,7 +645,8 @@ export function DataTable<TRow>({
                           // the arrow in FRONT, so what stops at the column's
                           // edge is the heading — flush with the figures under
                           // it, rather than pushed an arrow's width off them.
-                          "inline-flex items-center gap-1 transition-colors hover:text-ink",
+                          "inline-flex items-center transition-colors hover:text-ink",
+                          pageScroll ? "gap-0.5" : "gap-1",
                           align === "right" && "flex-row-reverse"
                         )}
                       >
@@ -498,7 +694,8 @@ export function DataTable<TRow>({
                         : undefined
                     }
                     className={cn(
-                      "h-11 px-3.5 text-[0.875rem] font-medium whitespace-nowrap text-ink tabular-nums",
+                      "h-11 text-[0.875rem] font-medium whitespace-nowrap text-ink tabular-nums",
+                      roomy ? "px-5" : pageScroll ? "px-3" : "px-3.5",
                       align === "right" ? "text-right" : "text-left"
                     )}
                   >
@@ -533,10 +730,21 @@ function openable(open: () => void) {
         event.preventDefault()
         open()
       } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        const next =
+        // Past an expanded row's extra block, which is not a tab stop.
+        let next =
           event.key === "ArrowDown"
             ? event.currentTarget.nextElementSibling
             : event.currentTarget.previousElementSibling
+        while (
+          next instanceof HTMLElement &&
+          next.tabIndex !== 0 &&
+          next.hasAttribute("data-sub")
+        ) {
+          next =
+            event.key === "ArrowDown"
+              ? next.nextElementSibling
+              : next.previousElementSibling
+        }
         if (next instanceof HTMLElement && next.tabIndex === 0) {
           event.preventDefault()
           next.focus()
@@ -555,105 +763,146 @@ function Row({
   row,
   onRowClick,
   selected,
+  fresh,
   touch,
   rowAction,
   style,
   virtual,
+  tight,
+  roomy,
+  sub,
+  before,
+  hidden,
 }: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   row: any
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   onRowClick?: (original: any) => void
   selected: boolean
+  fresh?: boolean
   touch: boolean
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   rowAction?: (original: any) => React.ReactNode
   style?: React.CSSProperties
   virtual?: boolean
+  /// The page-scrolled table's tighter cells — see `pageScroll`.
+  tight?: boolean
+  /// More air in every cell — see `roomy` on the table.
+  roomy?: boolean
+  /// The block `renderSub` drew for this row, if it is open.
+  sub?: React.ReactNode
+  /// The block `renderBefore` drew for this row, if any.
+  before?: React.ReactNode
+  /// Draw only `before`, not the row — see `isHidden` on the table.
+  hidden?: boolean
 }) {
   const verb = rowAction?.(row.original) ?? null
   return (
-    <tr
-      style={style}
-      onClick={onRowClick ? () => onRowClick(row.original) : undefined}
-      {...(onRowClick ? openable(() => onRowClick(row.original)) : {})}
-      data-selected={selected || undefined}
-      aria-current={selected || undefined}
-      className={cn(
-        "group/row border-b border-hairline last:border-b-0",
-        onRowClick && "cursor-pointer",
-        onRowClick && FOCUSED,
-        // 48px, from `--spacing-row`. A minimum rather than a height, so a row
-        // holding a wrapped cell grows instead of clipping. Not applied while
-        // virtualising: there the height comes from the measurement the
-        // virtualiser positions against, and a second opinion here would put
-        // the rows and their offsets out of step.
-        !virtual && !touch && "h-row",
-        // `height` on a table row is a MINIMUM, which is what is wanted: a row
-        // with a wrapped cell in it grows rather than clipping. Not applied
-        // when virtualising — there the height is set from the measurement the
-        // virtualiser is positioning rows against, and a second opinion here
-        // would put the rows and their offsets out of step.
-        touch && !virtual && "h-tap",
-        // Selection is a tint. DESIGN.md is explicit that there is no left bar.
-        // The prototype's exact hover, which is a shade cooler than `soft`:
-        // a row under the pointer should read as lit, not as a second surface.
-        selected ? "bg-accent-bg" : "hover:bg-[#f7f9fc]"
+    <>
+      {before !== null && before !== undefined && (
+        <tr data-sub>
+          <td colSpan={row.getVisibleCells().length} className="p-0">
+            {before}
+          </td>
+        </tr>
       )}
-    >
-      {row.getVisibleCells().map(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (cell: any) => {
-          const align = cell.column.columnDef.meta?.align
-          // The cell that hands itself over to the verb while the row is
-          // pointed at. Only when there IS a verb: a closed order keeps its
-          // pill, and nothing blinks under the cursor for no reason.
-          const swaps =
-            cell.column.columnDef.meta?.swap === true && verb !== null
-          const drawn = flexRender(
-            cell.column.columnDef.cell,
-            cell.getContext()
-          )
-          return (
-            <td
-              key={cell.id}
-              style={
-                virtual ? { flex: `0 0 ${cell.column.getSize()}px` } : undefined
-              }
-              className={cn(
-                "px-3.5 whitespace-nowrap text-text",
-                touch ? "py-3" : "py-2.5",
-                virtual && "flex items-center",
-                swaps && "relative",
-                align === "right" && "justify-end text-right",
-                align === "center" && "justify-center text-center"
-              )}
-            >
-              {swaps ? (
-                <>
-                  <span className="inline-block transition-[opacity,transform] duration-[--t-hover] ease-out group-focus-within/row:translate-x-1.5 group-focus-within/row:opacity-0 group-hover/row:translate-x-1.5 group-hover/row:opacity-0 pointer-coarse:opacity-0">
-                    {drawn}
-                  </span>
-                  <span
-                    className={cn(
-                      "absolute top-1/2 left-3.5 origin-left -translate-x-1.5 -translate-y-1/2 scale-[0.96] opacity-0",
-                      "transition-[opacity,transform] duration-[--t-pop] ease-out",
-                      "pointer-events-none group-hover/row:pointer-events-auto group-hover/row:translate-x-0 group-hover/row:scale-100 group-hover/row:opacity-100",
-                      "group-focus-within/row:pointer-events-auto group-focus-within/row:translate-x-0 group-focus-within/row:scale-100 group-focus-within/row:opacity-100",
-                      "pointer-coarse:pointer-events-auto pointer-coarse:translate-x-0 pointer-coarse:scale-100 pointer-coarse:opacity-100"
-                    )}
-                  >
-                    {verb}
-                  </span>
-                </>
-              ) : (
-                drawn
-              )}
-            </td>
-          )
-        }
+      {hidden ? null : (
+        <tr
+          style={style}
+          onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+          {...(onRowClick ? openable(() => onRowClick(row.original)) : {})}
+          data-selected={selected || undefined}
+          data-fresh={fresh || undefined}
+          aria-current={selected || undefined}
+          className={cn(
+            "group/row border-b border-hairline last:border-b-0",
+            fresh && "row-fresh",
+            onRowClick && "cursor-pointer",
+            onRowClick && FOCUSED,
+            // 52px, from `--spacing-row`. A minimum rather than a height, so a row
+            // holding a wrapped cell grows instead of clipping. Not applied while
+            // virtualising: there the height comes from the measurement the
+            // virtualiser positions against, and a second opinion here would put
+            // the rows and their offsets out of step.
+            !virtual && !touch && "h-row",
+            // `height` on a table row is a MINIMUM, which is what is wanted: a row
+            // with a wrapped cell in it grows rather than clipping. Not applied
+            // when virtualising — there the height is set from the measurement the
+            // virtualiser is positioning rows against, and a second opinion here
+            // would put the rows and their offsets out of step.
+            touch && !virtual && "h-tap",
+            // Selection is a tint. DESIGN.md is explicit that there is no left bar.
+            // The hover is the page's own quietest grey since the surfaces went
+            // neutral (2026-09-28): the old blue-white read as a second colour
+            // on a charcoal-and-grey screen, not as a row lit.
+            selected ? "bg-accent-bg" : "hover:bg-soft"
+          )}
+        >
+          {row.getVisibleCells().map(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (cell: any) => {
+              const align = cell.column.columnDef.meta?.align
+              // The cell that hands itself over to the verb while the row is
+              // pointed at. Only when there IS a verb: a closed order keeps its
+              // pill, and nothing blinks under the cursor for no reason.
+              const swaps =
+                cell.column.columnDef.meta?.swap === true && verb !== null
+              const drawn = flexRender(
+                cell.column.columnDef.cell,
+                cell.getContext()
+              )
+              return (
+                <td
+                  key={cell.id}
+                  style={
+                    virtual
+                      ? { flex: `0 0 ${cell.column.getSize()}px` }
+                      : undefined
+                  }
+                  className={cn(
+                    "whitespace-nowrap text-text",
+                    roomy ? "px-5 py-5" : tight ? "px-3" : "px-3.5",
+                    !roomy && (touch ? "py-3" : "py-2.5"),
+                    virtual && "flex items-center",
+                    swaps && "relative",
+                    align === "right" && "justify-end text-right",
+                    align === "center" && "justify-center text-center"
+                  )}
+                >
+                  {swaps ? (
+                    <>
+                      <span className="inline-block transition-[opacity,transform] duration-[--t-hover] ease-out group-focus-within/row:translate-x-1.5 group-focus-within/row:opacity-0 group-hover/row:translate-x-1.5 group-hover/row:opacity-0 pointer-coarse:opacity-0">
+                        {drawn}
+                      </span>
+                      <span
+                        className={cn(
+                          "absolute top-1/2 left-3.5 origin-left -translate-x-1.5 -translate-y-1/2 scale-[0.96] opacity-0",
+                          "transition-[opacity,transform] duration-[--t-pop] ease-out",
+                          "pointer-events-none group-hover/row:pointer-events-auto group-hover/row:translate-x-0 group-hover/row:scale-100 group-hover/row:opacity-100",
+                          "group-focus-within/row:pointer-events-auto group-focus-within/row:translate-x-0 group-focus-within/row:scale-100 group-focus-within/row:opacity-100",
+                          "pointer-coarse:pointer-events-auto pointer-coarse:translate-x-0 pointer-coarse:scale-100 pointer-coarse:opacity-100"
+                        )}
+                      >
+                        {verb}
+                      </span>
+                    </>
+                  ) : (
+                    drawn
+                  )}
+                </td>
+              )
+            }
+          )}
+        </tr>
       )}
-    </tr>
+      {!hidden && sub !== null && sub !== undefined && (
+        <tr data-sub className="border-b border-hairline last:border-b-0">
+          <td colSpan={row.getVisibleCells().length} className="p-0">
+            {sub}
+          </td>
+        </tr>
+      )}
+    </>
   )
 }
 
@@ -740,12 +989,25 @@ function RowCard<TRow>({
   row,
   onRowClick,
   selected,
+  fresh,
+  sub,
+  before,
+  hidden,
 }: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   row: any
   onRowClick?: (original: TRow) => void
   selected: boolean
+  fresh?: boolean
+  sub?: React.ReactNode
+  before?: React.ReactNode
+  hidden?: boolean
 }) {
+  if (hidden) {
+    return before !== null && before !== undefined ? (
+      <li data-sub>{before}</li>
+    ) : null
+  }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const parts: Record<CardRole, any[]> = {
     id: [],
@@ -765,78 +1027,92 @@ function RowCard<TRow>({
   })
 
   return (
-    <li
-      onClick={onRowClick ? () => onRowClick(row.original as TRow) : undefined}
-      {...(onRowClick ? openable(() => onRowClick(row.original as TRow)) : {})}
-      data-selected={selected || undefined}
-      aria-current={selected || undefined}
-      className={cn(
-        "flex flex-col gap-1.5 border-b border-hairline px-3.5 py-3 last:border-b-0",
-        onRowClick && "cursor-pointer",
-        onRowClick && FOCUSED,
-        // Selection is a tint here too. `active:` rather than `hover:`: a
-        // finger has no hover, and a row that stays tinted after a tap because
-        // the browser synthesised one reads as still selected.
-        selected ? "bg-accent-bg" : "active:bg-soft"
-      )}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          {parts.id.map((cell) => (
-            <div key={cell.id} className="truncate">
-              {render(cell)}
-            </div>
-          ))}
-          {parts.title.map((cell) => (
-            <div
-              key={cell.id}
-              className="truncate text-card-title font-semibold text-ink"
-            >
-              {render(cell)}
-            </div>
-          ))}
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {parts.status.map((cell) => (
-            <span key={cell.id}>{render(cell)}</span>
-          ))}
-        </div>
-      </div>
-
-      {parts.meta.length > 0 && (
-        <div className="flex flex-wrap items-center gap-x-1.5 text-meta text-body">
-          {parts.meta.map((cell, index) => (
-            <span
-              key={cell.id}
-              className="flex max-w-full min-w-0 items-center gap-x-1.5 [&>*]:min-w-0"
-            >
-              {index > 0 && <span className="text-faint">·</span>}
-              {render(cell)}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {parts.metric.length > 0 && (
-        // Two columns of label-over-value, so the figures line up down the
-        // card and from one card to the next — they were a wrapping row of
-        // shouting micro-caps, and a card with four metrics broke onto three
-        // ragged lines. Sentence case, one grey lighter than the value: the
-        // label names the number, it does not compete with it.
-        <dl className="mt-1 grid grid-cols-2 gap-x-4 gap-y-2.5">
-          {parts.metric.map((cell) => (
-            <div key={cell.id} className="min-w-0">
-              <dt className="text-[0.875rem] leading-4 text-mute">
-                {headerText(cell.column)}
-              </dt>
-              <dd className="mt-0.5 min-w-0 text-cell text-ink tabular-nums [&>*]:max-w-full [&>*]:items-start [&>*]:justify-start [&>*]:text-left">
+    <>
+      {before !== null && before !== undefined && <li data-sub>{before}</li>}
+      <li
+        onClick={
+          onRowClick ? () => onRowClick(row.original as TRow) : undefined
+        }
+        {...(onRowClick
+          ? openable(() => onRowClick(row.original as TRow))
+          : {})}
+        data-selected={selected || undefined}
+        data-fresh={fresh || undefined}
+        aria-current={selected || undefined}
+        className={cn(
+          "flex flex-col gap-1.5 border-b border-hairline px-3.5 py-3 last:border-b-0",
+          fresh && "row-fresh",
+          onRowClick && "cursor-pointer",
+          onRowClick && FOCUSED,
+          // Selection is a tint here too. `active:` rather than `hover:`: a
+          // finger has no hover, and a row that stays tinted after a tap because
+          // the browser synthesised one reads as still selected.
+          selected ? "bg-accent-bg" : "active:bg-soft"
+        )}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            {parts.id.map((cell) => (
+              <div key={cell.id} className="truncate">
                 {render(cell)}
-              </dd>
-            </div>
-          ))}
-        </dl>
+              </div>
+            ))}
+            {parts.title.map((cell) => (
+              <div
+                key={cell.id}
+                className="truncate text-card-title font-semibold text-ink"
+              >
+                {render(cell)}
+              </div>
+            ))}
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {parts.status.map((cell) => (
+              <span key={cell.id}>{render(cell)}</span>
+            ))}
+          </div>
+        </div>
+
+        {parts.meta.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-1.5 text-meta text-body">
+            {parts.meta.map((cell, index) => (
+              <span
+                key={cell.id}
+                className="flex max-w-full min-w-0 items-center gap-x-1.5 [&>*]:min-w-0"
+              >
+                {index > 0 && <span className="text-faint">·</span>}
+                {render(cell)}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {parts.metric.length > 0 && (
+          // Two columns of label-over-value, so the figures line up down the
+          // card and from one card to the next — they were a wrapping row of
+          // shouting micro-caps, and a card with four metrics broke onto three
+          // ragged lines. Sentence case, one grey lighter than the value: the
+          // label names the number, it does not compete with it.
+          <dl className="mt-1 grid grid-cols-2 gap-x-4 gap-y-2.5">
+            {parts.metric.map((cell) => (
+              <div key={cell.id} className="min-w-0">
+                <dt className="text-[0.875rem] leading-4 text-mute">
+                  {headerText(cell.column)}
+                </dt>
+                <dd className="mt-0.5 min-w-0 text-cell text-ink tabular-nums [&>*]:max-w-full [&>*]:items-start [&>*]:justify-start [&>*]:text-left">
+                  {render(cell)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </li>
+      {sub !== null && sub !== undefined && (
+        <li data-sub className="border-b border-hairline">
+          {sub}
+        </li>
       )}
-    </li>
+    </>
   )
 }
 
@@ -875,8 +1151,7 @@ function headerText(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   column: any
 ): string {
-  const header = column.columnDef.header
-  return typeof header === "string" ? header : column.id
+  return columnName(column)
 }
 
 function blank(value: unknown): boolean {

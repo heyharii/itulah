@@ -202,7 +202,7 @@ export function describeScope(
   if (on === null) return "Everything"
   switch (on.on) {
     case "SKU":
-      return `${on.sku_codes.length} product${on.sku_codes.length === 1 ? "" : "s"}`
+      return `${on.sku_codes.length} SKU${on.sku_codes.length === 1 ? "" : "s"}`
     case "ARTICLE":
       return on.article_codes.length === 1
         ? `Article ${named(on.article_codes[0])}`

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
+import { SHOW_MISSING } from "@/lib/features"
 import type {
   AcknowledgeExceptionRequest,
   ExceptionItem,
@@ -35,11 +36,7 @@ export type {
 /// `backend/src/cloud/domain/store_exception.rs`. `Exception*` are generated.
 
 export type ExceptionState =
-  | "open"
-  | "unacknowledged"
-  | "acknowledged"
-  | "resolved"
-  | "all"
+  "open" | "unacknowledged" | "acknowledged" | "resolved" | "all"
 
 export interface ExceptionQuery {
   readonly unit?: string
@@ -107,7 +104,10 @@ export function exceptionSettings(
 export function updateExceptionSettings(
   settings: ExceptionSettings
 ): Promise<ExceptionSettingsView> {
-  return node.put<ExceptionSettingsView>("/api/v1/exceptions/settings", settings)
+  return node.put<ExceptionSettingsView>(
+    "/api/v1/exceptions/settings",
+    settings
+  )
 }
 
 // ---- Hooks ------------------------------------------------------------------
@@ -116,10 +116,27 @@ export function updateExceptionSettings(
 /// exception is exactly the kind of thing somebody is watching for.
 const EXCEPTIONS_POLL_MS = 30_000
 
+/// The Missing kind, taken out of a list while `SHOW_MISSING` is off. The
+/// server's own totals are left as they are.
+function withoutMissingKind(list: ExceptionList): ExceptionList {
+  if (SHOW_MISSING) return list
+  return {
+    ...list,
+    items: list.items.filter((item) => item.kind !== "MISSING_OPEN"),
+    summary: {
+      ...list.summary,
+      by_kind: list.summary.by_kind.filter(
+        (row) => row.kind !== "MISSING_OPEN"
+      ),
+    },
+  }
+}
+
 export function useExceptions(query: ExceptionQuery) {
   return useQuery({
     queryKey: exceptionsKeys.list(query),
     queryFn: ({ signal }) => listExceptions(query, signal),
+    select: withoutMissingKind,
     refetchInterval: EXCEPTIONS_POLL_MS,
   })
 }
@@ -132,6 +149,7 @@ export function useExceptionsForStore(
   return useQuery({
     queryKey: exceptionsKeys.forStore(unit, query),
     queryFn: ({ signal }) => exceptionsForStore(unit, query, signal),
+    select: withoutMissingKind,
     enabled,
     refetchInterval: EXCEPTIONS_POLL_MS,
   })

@@ -51,7 +51,6 @@ export function HrOvertime() {
   const [ordering, setOrdering] = useState(false)
   return (
     <HrWorkspace
-      sub="The store head orders overtime, the employee agrees in the app, and only then is it authorised. Head office works out what it is worth."
       actions={
         <Button variant="primary" onClick={() => setOrdering(true)}>
           <Plus />
@@ -100,8 +99,8 @@ function Overtime({
 }) {
   const team = useTeam(scope)
   const awaiting = useQuery({
-    queryKey: hrKeys.overtime(scope.id),
-    queryFn: ({ signal }) => awaitingOvertimeAt(scope.id, signal),
+    queryKey: hrKeys.overtime(scope.unit_id),
+    queryFn: ({ signal }) => awaitingOvertimeAt(scope.unit_id, signal),
   })
   const people = (team.data?.rows ?? []).filter(
     (person) => person.status === "ACTIVE",
@@ -125,14 +124,14 @@ function Overtime({
   return (
     <>
       {centreState(awaiting, {
-        loading: "Reading the orders…",
+        loading: "Loading…",
         what: "this shop's overtime orders",
         render: (queue) => {
           const byId = new Map<string, OvertimeOrderView>()
           for (const order of queue.rows) byId.set(order.id, order)
           for (const history of histories) {
             for (const order of history.data ?? []) {
-              if (order.unit_id === scope.id && !byId.has(order.id)) {
+              if (order.unit_id === scope.unit_id && !byId.has(order.id)) {
                 byId.set(order.id, order)
               }
             }
@@ -152,7 +151,7 @@ function Overtime({
 
           return (
             <>
-              <Fenced dropped={queue.elsewhere} place={scope.id} />
+              <Fenced dropped={queue.elsewhere} place={scope.unit_id} />
               <StatStrip>
                 <Stat
                   label="Waiting on the employee"
@@ -181,7 +180,7 @@ function Overtime({
                 rows={rows}
                 rowKey={(order) => order.id}
                 onRowClick={setOpen}
-                empty={`No overtime has been ordered at ${scope.label}.`}
+                empty="No overtime ordered."
                 columns={[
                   {
                     key: "who",
@@ -348,8 +347,7 @@ function OrderSheet({
         open ? (
           <div className="flex flex-col gap-3">
             <Field
-              label="Why take it back"
-              hint="Required. The order and its withdrawal both stay on the record."
+              label="Reason"
             >
               <Input
                 value={reason}
@@ -401,14 +399,10 @@ function OrderSheet({
                 : readMinutes(order.authorized_minutes),
             ],
             ["Payroll", readMonthShort(order.on_date)],
-            ["Value", "worked out at head office from the kind of day"],
+            ["Value", "Set at head office"],
           ]}
         />
       </SheetSection>
-      <p className="text-meta text-mute">
-        Nobody can agree on the employee's behalf — that is the second of the
-        two written acts the law asks for, and it is theirs.
-      </p>
     </PeopleSheet>
   )
 }
@@ -465,7 +459,7 @@ function OrderForm({
       }}
       crumb="Overtime"
       title="Order overtime"
-      sub={`${employeeId === "" ? "The employee" : personName(team, employeeId)} must agree in the app before it counts.`}
+      sub="The employee confirms in the app"
       foot={
         <Submit
           label="Send the order"
@@ -505,7 +499,7 @@ function OrderForm({
             label="Date"
             problem={
               onDate !== "" && onDate < today
-                ? "Overtime is ordered before it is worked."
+                ? "Pick today or later."
                 : undefined
             }
           >
@@ -521,7 +515,7 @@ function OrderForm({
             problem={
               tooLong ? `At most ${cap} hours on a working day.` : undefined
             }
-            hint="1.5 is an hour and a half."
+            hint="e.g. 1.5"
           >
             <Input
               inputMode="decimal"
@@ -533,7 +527,7 @@ function OrderForm({
             />
           </Field>
         </div>
-        <Field label="Why" hint="The reason is the instruction's record.">
+        <Field label="Reason">
           <Input
             value={reason}
             placeholder="Stock count before the sale"

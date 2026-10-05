@@ -146,7 +146,7 @@ export function InventoryOverview() {
         {items.length === 0 ? (
           <EmptyState>Nothing in transit and nothing waiting.</EmptyState>
         ) : (
-          <Table head={["Item", "Why it is here", ">Value", ""]}>
+          <Table head={["Item", "Why It Is Here", ">Value", ""]}>
             {items.map((i) => (
               <Row key={i.id} tone={i.tone}>
                 <Cell>
@@ -585,7 +585,7 @@ export function InTransit() {
             </Facts>
             <div>
               <SubHead>What the dispatch posted</SubHead>
-              <Table head={["Where it shows", "Account", ">Debit", ">Credit"]}>
+              <Table head={["Where It Shows", "Account", ">Debit", ">Credit"]}>
                 <Row>
                   <Cell>Inventory — this screen</Cell>
                   <Cell mono className="text-mute">
@@ -747,7 +747,7 @@ export function InventoryAdjustments() {
               ">Units",
               ">Cost",
               ">Residual",
-              ">Written off",
+              ">Written Off",
               "Status",
             ]}
           >

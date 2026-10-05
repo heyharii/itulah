@@ -1,125 +1,29 @@
-use super::{
-    ExternalPlace, InventoryState, MovementGroupId, OperationalPool, Place, PoolRole, SubjectId,
-    SystemPlace,
+//! The movement model — one for both nodes — and the CENTRE's transition rules.
+//!
+//! The model (the cause, the line, the command, the error, the subject kind) is
+//! the Edge's: `edge::domain::inventory::movement`, which is also where the
+//! browser contract is generated from. This module used to declare a second
+//! copy of every one of them beside the shared pool, and the copies had already
+//! drifted by the four causes only a node writes — `STORE_RECEIVE`,
+//! `IDENTIFICATION`, `TAGGING`, `HANDED_OVER` — so a movement fact naming one
+//! of them could not be read by the centre's own parser while the applier
+//! (which imported the other copy) read it fine. One vocabulary, re-exported.
+//!
+//! What stays here is the one thing that is genuinely the centre's: WHICH
+//! TRANSITIONS it accepts. Both ledgers write movements, and they write
+//! different journeys — a node moves goods within its own site and books an
+//! arrival from another site as its own opening, while the centre holds the
+//! books of every site no node owns and books a cross-site journey as one
+//! movement. The node's rules are
+//! `edge::domain::inventory::movement::validate_transition`, enforced by
+//! `NodeContext::authorize_line`; these are the centre's, enforced by the
+//! writers below.
+
+use super::{ExternalPlace, InventoryState, OperationalPool, Place, PoolRole, SystemPlace};
+
+pub use crate::edge::{
+    MovementCause, MovementCommand, MovementError, MovementLine, SubjectType,
 };
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use std::{fmt, str::FromStr};
-use thiserror::Error;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum SubjectType {
-    Unit,
-    Quantity,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum MovementCause {
-    Opening,
-    NormalMove,
-    /// A shop's goods back to a warehouse (owner, 2026-09-27). Written
-    /// `RETURN_TO_WAREHOUSE`; `RETURN_TO_DC`, its spelling before 0611, still
-    /// reads — on the wire, in a request and in the ledger.
-    #[serde(alias = "RETURN_TO_DC")]
-    ReturnToWarehouse,
-    Sale,
-    CustomerReturn,
-    SupplierReturn,
-    PlacementCorrection,
-    CountShortage,
-    CountGain,
-    Found,
-    ConfirmedLost,
-    Disposal,
-}
-
-impl MovementCause {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Opening => "OPENING",
-            Self::NormalMove => "NORMAL_MOVE",
-            Self::ReturnToWarehouse => "RETURN_TO_WAREHOUSE",
-            Self::Sale => "SALE",
-            Self::CustomerReturn => "CUSTOMER_RETURN",
-            Self::SupplierReturn => "SUPPLIER_RETURN",
-            Self::PlacementCorrection => "PLACEMENT_CORRECTION",
-            Self::CountShortage => "COUNT_SHORTAGE",
-            Self::CountGain => "COUNT_GAIN",
-            Self::Found => "FOUND",
-            Self::ConfirmedLost => "CONFIRMED_LOST",
-            Self::Disposal => "DISPOSAL",
-        }
-    }
-}
-
-impl fmt::Display for MovementCause {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl FromStr for MovementCause {
-    type Err = MovementError;
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "OPENING" => Ok(Self::Opening),
-            "NORMAL_MOVE" => Ok(Self::NormalMove),
-            "RETURN_TO_WAREHOUSE" | "RETURN_TO_DC" => Ok(Self::ReturnToWarehouse),
-            "SALE" => Ok(Self::Sale),
-            "CUSTOMER_RETURN" => Ok(Self::CustomerReturn),
-            "SUPPLIER_RETURN" => Ok(Self::SupplierReturn),
-            "PLACEMENT_CORRECTION" => Ok(Self::PlacementCorrection),
-            "COUNT_SHORTAGE" => Ok(Self::CountShortage),
-            "COUNT_GAIN" => Ok(Self::CountGain),
-            "FOUND" => Ok(Self::Found),
-            "CONFIRMED_LOST" => Ok(Self::ConfirmedLost),
-            "DISPOSAL" => Ok(Self::Disposal),
-            _ => Err(MovementError::UnknownCause(value.to_owned())),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct MovementLine {
-    pub subject_id: SubjectId,
-    pub quantity: i64,
-    pub from: Place,
-    pub to: Place,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct MovementCommand {
-    pub movement_group_id: MovementGroupId,
-    pub lines: Vec<MovementLine>,
-    pub cause: MovementCause,
-    pub reference_type: Option<String>,
-    pub reference_id: Option<String>,
-    pub reason: String,
-    pub actor_id: String,
-    pub occurred_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Error, PartialEq)]
-pub enum MovementError {
-    #[error("movement quantity must be positive")]
-    NonPositiveQuantity,
-    #[error("movement source and destination must differ")]
-    IdenticalEndpoints,
-    #[error("movement group must contain at least one line")]
-    EmptyGroup,
-    #[error("movement reason is required")]
-    MissingReason,
-    #[error("unknown movement cause: {0}")]
-    UnknownCause(String),
-    #[error("invalid {cause} transition: {from} -> {to}")]
-    InvalidTransition {
-        cause: MovementCause,
-        from: String,
-        to: String,
-    },
-}
 
 pub fn validate_command(command: &MovementCommand) -> Result<(), MovementError> {
     if command.lines.is_empty() {
@@ -255,6 +159,20 @@ pub fn validate_transition(cause: MovementCause, line: &MovementLine) -> Result<
                 ) && to.role().is_arrival()
                     && from.site_id() != to.site_id()
             }
+            // A shop's return booked in at the cloud-run Gudang
+            // (`cloud::dc::returns`): the shop is a node and lets go of the
+            // goods in its own ledger, so this one books them in from
+            // opening, as a DC server did — into the shop's return pool, or
+            // the stockroom where the shop has none.
+            (
+                Place::System {
+                    place: SystemPlace::Opening,
+                },
+                Place::Operational {
+                    pool: to,
+                    state: InventoryState::Normal,
+                },
+            ) => to.role().is_arrival(),
             _ => false,
         },
         MovementCause::SupplierReturn => {
@@ -267,6 +185,18 @@ pub fn validate_transition(cause: MovementCause, line: &MovementLine) -> Result<
                 )
         }
         MovementCause::PlacementCorrection => on_hand(&line.from) && on_hand(&line.to),
+        // Four causes only a NODE writes, and the centre's routes never do:
+        // booking a shop's delivery in, telling an anonymous quantity apart,
+        // tagging it, and letting go of goods another site counted in. They
+        // are in this vocabulary because they travel (a fact carries one), and
+        // they are refused here rather than given rules, because a rule the
+        // centre never applies is a second answer to a question only a node
+        // asks — `edge::domain::inventory::movement::validate_transition` is
+        // where those live and where `NodeContext::authorize_line` reads them.
+        MovementCause::StoreReceive
+        | MovementCause::Identification
+        | MovementCause::Tagging
+        | MovementCause::HandedOver => false,
         MovementCause::NormalMove => match (&line.from, &line.to) {
             (
                 Place::Operational {
@@ -356,7 +286,9 @@ fn same_destination(from: &OperationalPool, to: &OperationalPool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cloud::domain::{MovementGroupId, SiteId};
+    // The ids the shared line carries: re-exported here, so the tests name them
+    // the same way a caller does.
+    use crate::cloud::domain::{MovementGroupId, SiteId, SubjectId};
     use chrono::Utc;
 
     fn place(id: &str) -> Place {

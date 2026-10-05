@@ -163,10 +163,7 @@ export function SalesAnalytics() {
   const bars: ChartRow[] = useMemo(
     () =>
       [...rows]
-        .sort(
-          (left, right) =>
-            valueOf(right, ranking) - valueOf(left, ranking)
-        )
+        .sort((left, right) => valueOf(right, ranking) - valueOf(left, ranking))
         .map((row) => ({
           bucket: row.site_name,
           before: before?.siteTotal(row.site_id, ranking) ?? 0,
@@ -250,9 +247,9 @@ export function SalesAnalytics() {
                     Sales by store
                   </span>
                   <span className="text-[0.875rem] text-mute">
-                    {spanText} · {count(trading.length)} of{" "}
-                    {count(rows.length)} stores trading · faint bars are the{" "}
-                    {period.buckets} {period.bucket}
+                    {spanText} · {count(trading.length)} of {count(rows.length)}{" "}
+                    stores trading · faint bars are the {period.buckets}{" "}
+                    {period.bucket}
                     {period.buckets === 1 ? "" : "s"} before
                   </span>
                 </div>
@@ -273,10 +270,7 @@ export function SalesAnalytics() {
                         {option.label}
                       </span>
                       <span className="text-metric leading-none font-semibold text-ink tabular-nums">
-                        {showSales(
-                          option.kind,
-                          matrix.grandTotal(option.kind)
-                        )}
+                        {showSales(option.kind, matrix.grandTotal(option.kind))}
                       </span>
                       {before === undefined ? (
                         <span className="text-[0.875rem] text-faint">
@@ -532,7 +526,7 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
     // Nothing to compare against sorts LAST in ascending order rather than
     // first: a new store is not the worst-performing one.
     accessorFn: (row) => row.growth ?? Number.POSITIVE_INFINITY,
-    header: "vs before",
+    header: "Vs Before",
     size: 110,
     /// **Deliberately not filterable, and the accessor above is why.** A store
     /// with nothing to compare against is `null` — not assessed — and this
@@ -568,7 +562,7 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
   },
   {
     accessorKey: "average_minor",
-    header: "Avg transaction",
+    header: "Avg Transaction",
     size: 140,
     meta: { align: "right", filter: { kind: "number", unit: "Rp" } },
     cell: ({ row }) => money(Math.round(row.original.average_minor)),
@@ -588,4 +582,3 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
     cell: ({ row }) => showSales("items_per_sale", row.original.items_per_sale),
   },
 ]
-

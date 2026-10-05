@@ -63,7 +63,7 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
   },
   {
     accessorKey: "net",
-    header: "Penjualan bersih",
+    header: "Penjualan Bersih",
     size: 150,
     meta: { align: "right" },
     cell: ({ row }) => (
@@ -105,14 +105,14 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
   },
   {
     accessorKey: "basket",
-    header: "Rata-rata struk",
+    header: "Rata-rata Struk",
     size: 130,
     meta: { align: "right", priority: 2 },
     cell: ({ row }) => rupiah(row.original.basket),
   },
   {
     accessorKey: "upt",
-    header: "Unit / struk",
+    header: "Unit / Struk",
     size: 110,
     meta: { align: "right", priority: 3 },
     cell: ({ row }) =>
@@ -127,7 +127,7 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
   },
   {
     accessorKey: "cover",
-    header: "Cakupan stok",
+    header: "Cakupan Stok",
     size: 130,
     meta: { align: "right", priority: 2 },
     cell: ({ row }) =>

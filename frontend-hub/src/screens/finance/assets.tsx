@@ -15,13 +15,13 @@ import { Choices, type Tile } from "@/components/ui/form"
 import { Day } from "@/components/ui/day"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { BarSeries, type ChartSeries } from "@/components/ui/chart"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
 import {
   KeyValue,
   MiniCell,
@@ -66,7 +66,7 @@ import {
   useMeaningLabel,
   useMoneyAccounts,
 } from "@/screens/finance/hooks"
-import { RankedBars, SiteName, SiteSelect } from "@/screens/finance/parts"
+import { SiteName, SiteSelect } from "@/screens/finance/parts"
 import type { AssetRow, SupplierBillLine } from "@itulah/contract"
 
 /// What the business owns, what Finance has decided about it, and how it
@@ -153,14 +153,15 @@ const DISPOSALS = [
 type Disposal = (typeof DISPOSALS)[number]["value"]
 
 function Treatment({ asset }: { asset: AssetRow }) {
-  if (asset.disposed_on !== null) return <Pill tone="neutral">Disposed</Pill>
-  if (asset.decision === null) return <Pill tone="warn">Not assessed</Pill>
-  if (asset.decision === "CAPITALIZE") return <Pill tone="ok">Capitalised</Pill>
+  if (asset.disposed_on !== null) return <Status tone="done">Disposed</Status>
+  if (asset.decision === null) return <Status tone="warn">Not assessed</Status>
+  if (asset.decision === "CAPITALIZE")
+    return <Status tone="ok">Capitalised</Status>
   // In motion, which is what `info` means everywhere in this app: the money is
   // real and on the balance sheet, and what it will become is not decided yet.
   if (asset.decision === "IN_PROGRESS")
-    return <Pill tone="info">Being built</Pill>
-  return <Pill tone="neutral">Expensed</Pill>
+    return <Status tone="info">Being built</Status>
+  return <Status tone="neutral">Expensed</Status>
 }
 
 const columns: ColumnDef<TableSetup, AssetRow>[] = [
@@ -177,9 +178,16 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
   {
     accessorKey: "name",
     header: "Name",
-    size: 200,
+    size: 280,
+    // The asset's number sits under its name: one answer, "which asset",
+    // instead of two columns that both say it.
     cell: ({ row }) => (
-      <span className="font-medium text-ink">{row.original.name}</span>
+      <span className="block py-1">
+        <span className="block font-medium text-ink">{row.original.name}</span>
+        <span className="block font-mono text-[0.875rem] text-mute">
+          {row.original.asset_number}
+        </span>
+      </span>
     ),
   },
   {
@@ -199,7 +207,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
   },
   {
     accessorKey: "site_id",
-    header: "Location",
+    header: "Site",
     size: 110,
     enableSorting: false,
     // The client's own name for it. The id stays in `title`, because that is
@@ -240,7 +248,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
   {
     id: "acquired_via",
     accessorFn: (row) => row.acquired_via ?? "",
-    header: "Bought via",
+    header: "Bought Via",
     size: 150,
     enableSorting: false,
     // Offered for its empty end and not for its values: "Bought via is empty"
@@ -263,14 +271,14 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
         )
       }
       if (asset.decision === "CAPITALIZE") {
-        return <Pill tone="warn">not in the books</Pill>
+        return <span className="text-mute">Not in the books</span>
       }
       return <span className="text-faint">—</span>
     },
   },
   {
     accessorKey: "last_depreciated_month",
-    header: "Charged through",
+    header: "Charged Through",
     size: 145,
     enableSorting: false,
     // A date, and the question is almost always "before": an asset the run has
@@ -321,7 +329,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
   },
   {
     accessorKey: "book_value_minor",
-    header: "Book value",
+    header: "Book Value",
     size: 140,
     // What is left of the cost, which is what a register exists to answer —
     // and the figure the chart above totals. Cost and Accumulated are the two
@@ -419,6 +427,16 @@ export function AssetRegister() {
         state: {
           columnFilters: filters.columnFilters,
           sorting,
+          // Out of sight, still filterable: the number lives under the name,
+          // and the three bookkeeping columns open in the asset's sheet. The
+          // register opens on what an asset is, where it is and what it is
+          // worth (owner, 2026-10-01: "terlalu banyak, harus spacious").
+          columnVisibility: {
+            asset_number: false,
+            acquired_via: false,
+            last_depreciated_month: false,
+            accumulated_minor: false,
+          },
         },
         // The rows arrive in the order the request asked for, and the search
         // box is the server's. Doing either again here would do it to the
@@ -472,16 +490,14 @@ export function AssetRegister() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance"
-        title="Assets"
-        sub="Operations records what we own; Finance decides how it is treated, and how it leaves."
+        crumb="Finance · Assets"
+        title="Asset"
         actions={
           <>
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search"
-              className="h-8 w-48"
+              className="h-control w-48"
             />
             <Button variant="primary" onClick={() => setRegistering(true)}>
               Register asset
@@ -494,7 +510,7 @@ export function AssetRegister() {
         <SiteSelect
           value={site}
           onChange={setSite}
-          className="h-8 w-44"
+          className="h-control w-44"
           aria-label="Site"
         />
         {/* Location is not among the questions inside: the select beside this
@@ -528,26 +544,6 @@ export function AssetRegister() {
         </Banner>
       )}
 
-      {/* Only when something is capitalised. With every asset expensed the
-          chart would be seven empty tracks announcing that the books hold no
-          asset value, which the toolbar above says in one figure. */}
-      {booked > 0 && (
-        <Card className="mb-3">
-          <CardHeader>
-            <CardTitle>Book value by category</CardTitle>
-            <span className="text-[0.875rem] text-mute">
-              Capitalised assets only · cost less what has been depreciated
-            </span>
-          </CardHeader>
-          <div className="px-4 pb-3.5">
-            <RankedBars
-              rows={byCategory}
-              empty="Nothing capitalised in any family."
-            />
-          </div>
-        </Card>
-      )}
-
       <Card className="overflow-hidden">
         {queryState(assets, {
           loading: "Loading the register…",
@@ -570,11 +566,7 @@ export function AssetRegister() {
                 // final once the register has been read to its end.
                 empty={<NoMatch what="assets" onClear={clearNarrowing} />}
                 more={assets}
-                className={
-                  booked > 0
-                    ? "max-h-[calc(100vh-31rem)]"
-                    : "max-h-[calc(100vh-23rem)]"
-                }
+                className="max-h-[calc(100vh-23rem)] [&_tbody_tr]:h-[4.25rem]"
               />
             ),
         })}
@@ -1087,7 +1079,7 @@ function AssetSheet({
                   disabled={!ready}
                   onClick={() => form.handleSubmit()}
                 >
-                  {assess.isPending ? "Saving…" : "Record assessment"}
+                  {assess.isPending ? "Submitting…" : "Submit"}
                 </Button>
               )}
             </form.Subscribe>
@@ -1125,7 +1117,7 @@ function AssetSheet({
               <Facts>
                 <Fact term="Category">{asset.category_name}</Fact>
                 <Fact term="Category code">{asset.category_code}</Fact>
-                <Fact term="Location">
+                <Fact term="Site">
                   <SiteName id={asset.site_id} />
                 </Fact>
                 {/* `ACTIVE`, as the server shouts it, was on the page. The
@@ -1328,7 +1320,6 @@ function AssetSheet({
                                   value={field.state.value}
                                   onBlur={field.handleBlur}
                                   onChange={field.handleChange}
-                                  placeholder="0"
                                 />
                               </Field>
                             )}
@@ -1434,7 +1425,6 @@ function AssetSheet({
                                   value={field.state.value}
                                   onBlur={field.handleBlur}
                                   onChange={field.handleChange}
-                                  placeholder="0"
                                 />
                               </Field>
                             )}
@@ -1729,7 +1719,7 @@ function DisposeForm({ asset }: { asset: AssetRow }) {
                   : undefined
               }
             >
-              <Money value={proceeds} onChange={setProceeds} placeholder="0" />
+              <Money value={proceeds} onChange={setProceeds} />
             </Field>
             <Field
               label="Into"
@@ -2026,7 +2016,7 @@ function RegisterSheet({
         </div>
 
         {/* Optional, because most assets on day one predate this system — and
-            because the bill often arrives after the warehouse has registered
+            because the bill often arrives after the Gudang has registered
             the thing, which is what the assessment form's copy of this field is
             for. */}
         <form.Subscribe selector={(state) => state.values.siteId}>

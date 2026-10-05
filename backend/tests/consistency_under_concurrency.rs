@@ -259,7 +259,7 @@ async fn points_are_never_overspent(pool: PgPool) {
                 RedeemPointsRequest {
                     customer_id: "M-RACE".into(),
                     points: 300,
-                    voucher_value_minor: 30_000,
+                    voucher_value_minor: 300,
                     actor_id: ACTOR.into(),
                     idempotency_key: format!("race-points-{i}"),
                     expires_at: None,
@@ -399,7 +399,7 @@ async fn an_upload_delivered_twice_at_once_lands_once(pool: PgPool) {
 async fn a_stop_budget_holds_against_two_postings_at_once(pool: PgPool) {
     open_september(&pool).await;
     sqlx::query(
-        "INSERT INTO budget (budget_id, site_id, account_code, period_start, period_end,
+        "INSERT INTO budget (budget_id, unit_id, account_code, period_start, period_end,
                              amount_minor, on_exceed, effective_from, set_by)
          VALUES ($1, $2, '6006', '2026-09-01', '2026-09-30', 100000, 'STOP', '2026-09-01', $3)",
     )
@@ -488,12 +488,10 @@ async fn a_member_has_one_live_redeem_request(pool: PgPool) {
 /// Two rebalances of one split promotion limit never hand out more than the
 /// limit between them.
 ///
-/// `cap_allocation::rebalance_allocations` reads its snapshot with no lock and
-/// upserts each grant with GREATEST. Forced here by parking both rebalances at
-/// their first upsert behind a table lock, with a third shop registering in
-/// between, so they compute from different snapshots.
+/// Park the first rebalance at its upsert behind a table lock, register a
+/// third shop, then start another rebalance. The policy lock must make the
+/// second worker read the grants only after the first worker commits them.
 #[sqlx::test(migrations = "./migrations/postgres")]
-#[ignore = "open race: rebalance_allocations takes no lock, two snapshots over-grant (CONSISTENCY-MATRIX R2)"]
 async fn a_split_limit_is_never_over_granted(pool: PgPool) {
     for origin in ["store-07", "store-08"] {
         register(&pool, origin).await;
@@ -534,8 +532,10 @@ async fn a_split_limit_is_never_over_granted(pool: PgPool) {
     gate.commit()
         .await
         .unwrap_or_else(|e| panic!("release: {e}"));
-    let _ = first.await;
-    let _ = second.await;
+    first.await.unwrap_or_else(|error| panic!("first worker: {error}"))
+        .unwrap_or_else(|error| panic!("first rebalance: {error}"));
+    second.await.unwrap_or_else(|error| panic!("second worker: {error}"))
+        .unwrap_or_else(|error| panic!("second rebalance: {error}"));
 
     let granted = scalar(
         &pool,
@@ -547,6 +547,98 @@ async fn a_split_limit_is_never_over_granted(pool: PgPool) {
         granted <= 1_000_000,
         "the limit is 1,000,000 and {granted} was granted"
     );
+}
+
+/// A retired node may still hold an offline grant. Removing its credential
+/// must not put that money back into the pool for another shop.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_retired_shops_grant_is_not_given_to_another_shop(pool: PgPool) {
+    for origin in ["store-07", "store-08"] {
+        register(&pool, origin).await;
+    }
+    publish_budget_campaign(&pool, 1_000_000).await;
+    cloud::set_cap_allocation(
+        &pool, "CAMPAIGN", "LEBARAN",
+        cloud::CapAllocationRequest { enabled: true }, ACTOR,
+    ).await.unwrap_or_else(|error| panic!("split: {error}"));
+    sqlx::query("UPDATE commercial_cap_allocation SET granted = 750000
+                  WHERE origin_id = 'store-07' AND kind = 'CAMPAIGN'
+                    AND key = 'LEBARAN' AND measure = 'BUDGET'")
+        .execute(&pool).await.unwrap_or_else(|error| panic!("grant: {error}"));
+    sqlx::query("DELETE FROM sync_origin_credential WHERE origin_id = 'store-07'")
+        .execute(&pool).await.unwrap_or_else(|error| panic!("retire: {error}"));
+    register(&pool, "store-09").await;
+    cloud::rebalance_allocations(&pool).await
+        .unwrap_or_else(|error| panic!("rebalance: {error}"));
+    let granted = scalar(&pool,
+        "SELECT SUM(granted)::bigint FROM commercial_cap_allocation
+          WHERE kind = 'CAMPAIGN' AND key = 'LEBARAN' AND measure = 'BUDGET'",
+    ).await;
+    assert_eq!(granted, 1_000_000, "a retired allowance stays out of the pool");
+    let new_grant = scalar(&pool,
+        "SELECT granted FROM commercial_cap_allocation WHERE origin_id = 'store-09'
+          AND kind = 'CAMPAIGN' AND key = 'LEBARAN' AND measure = 'BUDGET'",
+    ).await;
+    assert_eq!(new_grant, 0);
+}
+
+/// A shop enrolled between rebalances must receive zero rather than silently
+/// enforcing the less restrictive fleet counter under an enabled hard cap.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn an_ungranted_shop_receives_zero_allowance(pool: PgPool) {
+    register(&pool, "store-07").await;
+    publish_budget_campaign(&pool, 1_000_000).await;
+    cloud::set_cap_allocation(
+        &pool, "CAMPAIGN", "LEBARAN",
+        cloud::CapAllocationRequest { enabled: true }, ACTOR,
+    ).await.unwrap_or_else(|error| panic!("split: {error}"));
+    register(&pool, "store-08").await;
+    let (command_id, _) = cloud::publish_commercial_usage(
+        &pool, ACTOR, &["store-08".into()],
+    ).await.unwrap_or_else(|error| panic!("usage: {error}"));
+    let payload: serde_json::Value = sqlx::query_scalar(
+        "SELECT payload FROM sync_command WHERE command_id = $1",
+    ).bind(command_id).fetch_one(&pool).await
+        .unwrap_or_else(|error| panic!("payload: {error}"));
+    let allowance = payload["allowances"].as_array()
+        .and_then(|rows| rows.iter().find(|row|
+            row["origin_id"] == "store-08" && row["key"] == "LEBARAN"))
+        .unwrap_or_else(|| panic!("new shop has no allowance in {payload}"));
+    assert_eq!(allowance["budget_minor"], json!(0));
+    assert!(allowance["max_uses"].is_null(), "an uncapped measure stays uncapped");
+}
+
+/// Failure to read the split must not send an empty allowance list and erase
+/// the edge's last valid hard cap.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_failed_allowance_read_does_not_publish_a_weaker_usage_snapshot(pool: PgPool) {
+    register(&pool, "store-07").await;
+    publish_budget_campaign(&pool, 1_000_000).await;
+    cloud::set_cap_allocation(
+        &pool, "CAMPAIGN", "LEBARAN",
+        cloud::CapAllocationRequest { enabled: true }, ACTOR,
+    ).await.unwrap_or_else(|error| panic!("split: {error}"));
+    let before = scalar(&pool, "SELECT COUNT(*)::bigint FROM sync_command").await;
+    sqlx::query("ALTER TABLE commercial_cap_allocation RENAME TO unavailable_cap_allocation")
+        .execute(&pool).await.unwrap_or_else(|error| panic!("simulate failed read: {error}"));
+    let result = cloud::publish_commercial_usage(&pool, ACTOR, &["store-07".into()]).await;
+    assert!(result.is_err(), "a failed allowance read published {result:?}");
+    assert_eq!(scalar(&pool, "SELECT COUNT(*)::bigint FROM sync_command").await, before);
+}
+
+/// A promotion's historical spend cannot become a second fresh pool when
+/// somebody enables hard allocation after using the fleet-counter mode.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_split_cannot_ignore_sales_made_before_it_was_enabled(pool: PgPool) {
+    register(&pool, "store-07").await;
+    publish_budget_campaign(&pool, 1_000_000).await;
+    sell_at(&pool, "store-07", 1, 200_000).await;
+    let result = cloud::set_cap_allocation(
+        &pool, "CAMPAIGN", "LEBARAN",
+        cloud::CapAllocationRequest { enabled: true }, ACTOR,
+    ).await;
+    assert!(result.is_err(), "historical spending was granted a new pool: {result:?}");
+    assert_eq!(scalar(&pool, "SELECT COUNT(*)::bigint FROM commercial_cap_allocation").await, 0);
 }
 
 /// A direct redemption cannot spend money a checkout is holding.
@@ -611,14 +703,13 @@ async fn a_redemption_cannot_spend_what_a_checkout_holds(pool: PgPool) {
 /// Head office's piutang account is never written at a shop, and a shop's
 /// hutang account never at head office, even by a hand-keyed journal (I7).
 #[sqlx::test(migrations = "./migrations/postgres")]
-#[ignore = "open gap: nothing refuses an affiliate account named on the wrong side (CONSISTENCY-MATRIX G1)"]
 async fn an_affiliate_account_cannot_be_named_on_the_wrong_side(pool: PgPool) {
     open_september(&pool).await;
     let wrong = try_post(
         &pool,
         "MANUAL",
         vec![
-            PostingLine::debit(account("1057"), STORE, 10_000).with_counter_site("dc"),
+            PostingLine::debit(account("1057"), STORE, 10_000).with_counter_unit("ho"),
             PostingLine::credit("cash", STORE, 10_000),
         ],
     )
@@ -631,7 +722,7 @@ async fn an_affiliate_account_cannot_be_named_on_the_wrong_side(pool: PgPool) {
         &pool,
         "MANUAL",
         vec![
-            PostingLine::debit(account("2028"), STORE, 10_000).with_counter_site("store-02"),
+            PostingLine::debit(account("2028"), STORE, 10_000).with_counter_unit("store-02"),
             PostingLine::credit("cash", STORE, 10_000),
         ],
     )

@@ -7,11 +7,11 @@ import type { ExceptionUnitCount } from "./ExceptionUnitCount";
  * for, never narrowed by `unit`, `kind` or `limit`, so the filters can show
  * what each would hold.
  */
-export type ExceptionSummary = {
+export type ExceptionSummary = { 
 /**
  * Every kind the caller may see, in the vocabulary's order, zeros kept.
  */
-by_kind: Array<ExceptionKindCount>,
+by_kind: Array<ExceptionKindCount>, 
 /**
  * Units with at least one, by code.
  */

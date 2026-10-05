@@ -43,9 +43,16 @@ export const membersNav: AppModule = {
   home: "/members",
   sections: [
     {
+      // Both rows `more` since the owner's menu of 2026-09-28: Sales leads
+      // the Sales domain now, and Members sits under its More fold.
       items: [
-        { path: "/members", label: "Members", icon: Users },
-        { path: "/members/segments", label: "Segments", icon: PieChart },
+        { path: "/members", label: "Members", icon: Users, more: true },
+        {
+          path: "/members/segments",
+          label: "Segments",
+          icon: PieChart,
+          more: true,
+        },
         /// Off the sidebar since 2026-09-13, on request, and hidden rather
         /// than deleted: both are still routed, still in ⌘K, and the points a
         /// member holds now appear on the directory row itself — which is

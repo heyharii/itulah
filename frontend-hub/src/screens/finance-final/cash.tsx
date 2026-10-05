@@ -161,7 +161,10 @@ export function Cash() {
   // findings and must not render as the same Rp 0.
   const everCounted = drawers.some((drawer) => drawer.last !== null)
   const off = everCounted
-    ? disagreed.reduce((sum, drawer) => sum + (drawer.last?.variance_minor ?? 0), 0)
+    ? disagreed.reduce(
+        (sum, drawer) => sum + (drawer.last?.variance_minor ?? 0),
+        0
+      )
     : null
   const unposted = disagreed.filter(
     (drawer) => drawer.last?.entry_id === null
@@ -212,9 +215,7 @@ export function Cash() {
                 <NumberCard
                   label="Off at the last count"
                   value={off}
-                  tone={
-                    off === null ? undefined : off === 0 ? "ok" : "warn"
-                  }
+                  tone={off === null ? undefined : off === 0 ? "ok" : "warn"}
                   note={
                     off === null
                       ? "no drawer in scope has ever been counted"
@@ -249,7 +250,10 @@ export function Cash() {
                       </Td>
                       <Td className="bg-soft" />
                       <Td className="bg-soft" />
-                      <Td align="right" className="bg-soft font-medium text-ink">
+                      <Td
+                        align="right"
+                        className="bg-soft font-medium text-ink"
+                      >
                         {money(unit.held)}
                       </Td>
                       <Td className="bg-soft" />
@@ -277,13 +281,13 @@ export function Cash() {
 
               <Note>
                 <b>Last counted</b> is the column this screen exists to make
-                somebody look at: a drawer whose last count says{" "}
-                <b>never</b> is a drawer nothing has ever contradicted, and the
-                balance beside it is an assertion rather than a fact. A count is
-                an <i>observation</i> — recording one changes no books. Putting
-                its difference in the ledger is a second act, by somebody who
-                has read the reason, and <b>Off by</b> says which counts have
-                had that second act and which are still only a note.
+                somebody look at: a drawer whose last count says <b>never</b> is
+                a drawer nothing has ever contradicted, and the balance beside
+                it is an assertion rather than a fact. A count is an{" "}
+                <i>observation</i> — recording one changes no books. Putting its
+                difference in the ledger is a second act, by somebody who has
+                read the reason, and <b>Off by</b> says which counts have had
+                that second act and which are still only a note.
               </Note>
             </div>
           ),
@@ -322,8 +326,12 @@ function DrawerRow({ drawer }: { drawer: Drawer }) {
           <>
             {day(last.counted_on)}
             <span className="block text-[0.875rem] text-mute">
-              {last.counted_by === "" ? "counted by nobody named" : last.counted_by}
-              {last.witnessed_by === "" ? "" : `, witnessed by ${last.witnessed_by}`}
+              {last.counted_by === ""
+                ? "counted by nobody named"
+                : last.counted_by}
+              {last.witnessed_by === ""
+                ? ""
+                : `, witnessed by ${last.witnessed_by}`}
             </span>
           </>
         )}

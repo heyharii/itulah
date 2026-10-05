@@ -135,6 +135,9 @@ fn order(supplier_article_code: &str) -> NewPurchaseOrder {
             ordered_quantity: 120,
             unit_price_minor: 300_000,
             promised_date: None,
+            unit_code: None,
+            unit_quantity: None,
+            order_unit_price_minor: None,
         }],
     }
 }
@@ -160,7 +163,7 @@ fn stock(edge: &SqliteEdge) -> (i64, i64, i64) {
     )
 }
 
-/// Raise an order, deliver it, count it and have a second person accept it.
+/// Raise an order, deliver it, count it and have the count accepted.
 /// Returns the receipt the centre now holds.
 ///
 /// `run` distinguishes one delivery from the next: idempotency keys are the
@@ -186,6 +189,7 @@ async fn deliver(pool: &PgPool, dc: &SqliteEdge, run: &str, article_code: &str) 
             receipt_id: delivery(dc),
             po_line_id,
             counted_quantity: DELIVERED,
+            wrong_quantity: 0,
             counted_unit_code: None,
             counted_unit_quantity: None,
             actor_id: "checker-1".into(),
@@ -195,7 +199,9 @@ async fn deliver(pool: &PgPool, dc: &SqliteEdge, run: &str, article_code: &str) 
     dc.verify_purchase(PurchaseVerifyRequest {
         count_id: count.count_id,
         decision: PurchaseVerifyDecision::Accept,
-        verifier_actor_id: "verifier-1".into(),
+        // A permitted role accepts: checker-1 counted, buyer-1 decides.
+        // 118 of 120 is short, so the order stays open.
+        verifier_actor_id: "buyer-1".into(),
         note: None,
         invoiced_price_minor: None,
         idempotency_key: format!("verify-{run}"),

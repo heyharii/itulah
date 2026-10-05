@@ -329,6 +329,18 @@ class Api(@Volatile var config: Config) {
     fun health(): JSONObject = request("/api/v1/health", "GET", null, authenticated = false)
 
     /**
+     * What node this tablet is talking to, read from the node itself.
+     *
+     * The site is the node's fact, never the till's inference: a terminal id
+     * that does not spell its shop used to send a floor movement to whichever
+     * shop a fallback named. Unauthenticated by design — a node answers who it
+     * is before anybody signs in, which is also how a till checks it has
+     * reached the right shop.
+     */
+    fun nodeIdentity(): JSONObject =
+        request("/api/v1/node/identity", "GET", null, authenticated = false)
+
+    /**
      * Open the socket before anything needs it.
      *
      * The first call of a sale pays for the connection; every later one rides

@@ -14,6 +14,7 @@ use crate::cloud::{
         UpsertEdcTerminalRequest,
     },
 };
+use crate::cloud::postgres::number_series::{NumberSeries, NumberSeriesList, NumberSeriesPatch};
 use axum::{
     extract::{Path, State},
     routing::{get, post, put},
@@ -145,6 +146,40 @@ pub async fn post_stock_transfers(
     Ok(Json(serde_json::json!({ "booked": booked })))
 }
 
+/// How every kind of document is numbered (0701).
+pub async fn number_series(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+) -> Result<Json<NumberSeriesList>, AppError> {
+    allowed(&principal, "read the number series")?;
+    let today = state.clock.now().date_naive();
+    Ok(Json(
+        infrastructure::number_series::list_number_series(&state.db, today).await?,
+    ))
+}
+
+/// Change how one kind is numbered, from its next document on. Numbers already
+/// issued never change.
+pub async fn set_number_series(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(kind): Path<String>,
+    Json(patch): Json<NumberSeriesPatch>,
+) -> Result<Json<NumberSeries>, AppError> {
+    allowed(&principal, "change how documents are numbered")?;
+    let today = state.clock.now().date_naive();
+    Ok(Json(
+        infrastructure::number_series::put_number_series(
+            &state.db,
+            &kind,
+            patch,
+            &principal.username,
+            today,
+        )
+        .await?,
+    ))
+}
+
 pub fn finance_setup_routes(router: Router<AppState>) -> Router<AppState> {
     router
         .route(
@@ -167,4 +202,6 @@ pub fn finance_setup_routes(router: Router<AppState>) -> Router<AppState> {
             post(accept_mdr_variance),
         )
         .route("/api/v1/finance/stock-transfers/post", post(post_stock_transfers))
+        .route("/api/v1/finance/number-series", get(number_series))
+        .route("/api/v1/finance/number-series/{kind}", put(set_number_series))
 }

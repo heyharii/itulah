@@ -342,8 +342,36 @@ pub async fn set_account_link(
     .bind(request.note.as_deref())
     .bind(&source_type)
     .fetch_one(pool)
-    .await?;
+    .await
+    .map_err(map_link_write_error)?;
     account_link(pool, link_id).await
+}
+
+/// Say which constraint refused, in the words of the person who tripped it.
+///
+/// `assert_link_account_fits_role` (0460) and the category trigger raise P0001
+/// carrying the sentence a person needs — "6045 Biaya Pemakaian Listrik is a
+/// EXPENSE account, and trade_payable takes only PAYABLE accounts".
+/// `AppError::into_response` renders that as a 409, but only for a caller that
+/// came over the wire: the library's own `?` turned it into "database
+/// operation failed", which names neither the account nor the role. Mapped
+/// here so the refusal is the trigger's sentence either way. The trigger stays
+/// the guarantee; this only stops it being reported as a server fault.
+fn map_link_write_error(error: sqlx::Error) -> AppError {
+    if let sqlx::Error::Database(database) = &error {
+        return match database.code().as_deref() {
+            Some("P0001") => AppError::Conflict(database.message().to_owned()),
+            Some("23505") => AppError::Conflict(
+                "another link for that role and scope was set at the same moment".into(),
+            ),
+            Some("23503") => {
+                AppError::Validation("the link names an account the chart does not keep".into())
+            }
+            Some("23514") | Some("23502") => AppError::Validation(database.message().to_owned()),
+            _ => AppError::Database(error),
+        };
+    }
+    AppError::Database(error)
 }
 
 pub async fn account_link(pool: &PgPool, link_id: i64) -> Result<AccountLink, AppError> {

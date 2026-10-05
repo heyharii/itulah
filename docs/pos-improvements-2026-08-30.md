@@ -102,4 +102,4 @@ destination-scoping) dikerjakan paralel oleh sesi lain.
 ## Env baru
 `INVENTORY_JWT_SECRET`, `INVENTORY_BOOTSTRAP_ADMIN_PASSWORD`,
 `INVENTORY_AUTH_TOKEN_TTL_MINUTES` (default 720),
-`INVENTORY_CORS_ALLOWED_ORIGINS` — lihat `.env.example`.
+`INVENTORY_CORS_ALLOWED_ORIGINS` — lihat `cloud.env.example`.

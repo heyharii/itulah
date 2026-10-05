@@ -113,13 +113,29 @@ export function openStore(
   )
 }
 
+/// Set how many till seats the store has — Kasir 1 to Kasir N (1..50, Admin
+/// only). A seat is the store's to have, decided here; a machine at the shop
+/// sits at one and never adds one. Answers the whole updated store, so the
+/// caller can put it straight into the detail cache.
+///
+/// Fewer seats never ends a shift: a drawer still open at a removed seat stays
+/// listed at the shop until it is closed. The server refuses (409) a store
+/// with no premises yet.
+export function setTillSeats(
+  unit: string,
+  count: number
+): Promise<StoreDetail> {
+  return node.put<StoreDetail>(
+    `/api/v1/stores/${encodeURIComponent(unit)}/tills`,
+    { count }
+  )
+}
+
 /// Issue an install code and QR for this store's server. A store that already
 /// has one outstanding gets a new one — the new code cancels the old, same as
 /// `issueEnrolment` on System › Nodes. Answers 201; `response.ok` covers that
 /// the same as 200, so nothing here has to name the status.
-export function installStoreServer(
-  unit: string
-): Promise<StoreServerInstall> {
+export function installStoreServer(unit: string): Promise<StoreServerInstall> {
   return node.post<StoreServerInstall>(
     `/api/v1/stores/${encodeURIComponent(unit)}/server/install`,
     {}
@@ -154,11 +170,7 @@ export function testPrint(deviceId: string): Promise<TestPrintRequested> {
 // there is no site parameter to ask the server for on this endpoint.
 
 export type FlowNoticeStatus =
-  | "REQUESTED"
-  | "CONFIRMED"
-  | "COMPLETED"
-  | "DECLINED"
-  | "CANCELED"
+  "REQUESTED" | "CONFIRMED" | "COMPLETED" | "DECLINED" | "CANCELED"
 
 export interface FlowNoticeEvent {
   readonly event_id: number

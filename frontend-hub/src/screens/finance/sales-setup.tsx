@@ -230,14 +230,12 @@ export function SalesSetup() {
               emptyLabel="Shop"
             />
             <Input
-              placeholder="Terminal id"
               value={terminal.terminal_id}
               onChange={(e) =>
                 setTerminal({ ...terminal, terminal_id: e.target.value })
               }
             />
             <Input
-              placeholder="BCA"
               value={terminal.bank_code}
               onChange={(e) =>
                 setTerminal({
@@ -289,7 +287,6 @@ export function SalesSetup() {
           </table>
           <div className="grid grid-cols-4 gap-2">
             <Input
-              placeholder="BCA"
               value={rate.bank_code}
               onChange={(e) =>
                 setRate({ ...rate, bank_code: e.target.value.toUpperCase() })
@@ -307,7 +304,6 @@ export function SalesSetup() {
               ))}
             </Select>
             <Input
-              placeholder="0.15"
               value={rate.rate_percent}
               onChange={(e) =>
                 setRate({ ...rate, rate_percent: e.target.value })

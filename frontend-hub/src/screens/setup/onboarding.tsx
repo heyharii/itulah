@@ -18,6 +18,7 @@ import {
   type SetupStatus,
 } from "@/lib/queries/setup"
 import { storesKeys } from "@/lib/queries/stores"
+import { useTenancy } from "@/lib/tenancy"
 import { cn } from "@/lib/utils"
 import { BusinessMap, type MapStore } from "@/screens/setup/business-map"
 import { LegalFormPills } from "@/screens/setup/legal-form-pills"
@@ -68,6 +69,7 @@ export function Onboarding({
 }) {
   const client = useQueryClient()
   const company = status.company
+  const tenancy = useTenancy()
 
   const [step, setStep] = useState<1 | 2 | 3 | 4>(() =>
     company === null
@@ -78,7 +80,14 @@ export function Onboarding({
           : 2
         : 4
   )
-  const [name, setName] = useState(company?.name ?? "")
+  // A sandbox business already has a name — the one it was created under —
+  // and asking for it again here would be the third time. Only fills the
+  // blank on a company that has never saved a name of its own; anything typed
+  // and saved since always wins.
+  const [name, setName] = useState(
+    company?.name ??
+      (tenancy.mode === "sandbox" ? (tenancy.business?.name ?? "") : "")
+  )
   const [legalForm, setLegalForm] = useState<LegalForm>(
     legalFormOf(company?.legal_form) ?? "CV"
   )
@@ -233,7 +242,6 @@ export function Onboarding({
                       autoFocus
                       value={name}
                       onChange={(event) => setName(event.target.value)}
-                      placeholder="e.g. Sepatu Sejahtera"
                       className="h-12 text-card-title"
                     />
                   </Field>
@@ -252,17 +260,16 @@ export function Onboarding({
                     <Input
                       value={address}
                       onChange={(event) => setAddress(event.target.value)}
-                      placeholder="Street, number, city"
                     />
                   </Field>
                   <Toggle
                     on={hasWarehouse}
                     onToggle={() => setHasWarehouse((on) => !on)}
-                    label="Central warehouse"
+                    label="Gudang"
                     note={
                       hasWarehouse
-                        ? "Suppliers deliver to the warehouse, and it ships to the stores. Same address as the office for now — you can change it later."
-                        : "Suppliers deliver straight to the stores. A warehouse can be added later."
+                        ? "Suppliers deliver to the Gudang, and it ships to the stores. Same address as the office for now — you can change it later."
+                        : "Suppliers deliver straight to the stores. A Gudang can be added later."
                     }
                   />
                 </div>
@@ -309,7 +316,7 @@ export function Onboarding({
                     <li>Its time zone, from the city</li>
                     <li>Its own cash, sales and profit & loss</li>
                     <li>Floor, back-room and reject stock</li>
-                    <li>A return pool for it at the central warehouse</li>
+                    <li>A return pool for it at the Gudang</li>
                     <li>A code to pair its store server</li>
                   </ul>
                 </details>
@@ -432,7 +439,7 @@ export function Onboarding({
                 </p>
                 <dl className="mt-6 divide-y divide-hairline rounded-card border border-hairline">
                   <Made label="Head office" value="1" />
-                  {hasWarehouse && <Made label="Central warehouse" value="1" />}
+                  {hasWarehouse && <Made label="Gudang" value="1" />}
                   <Made
                     label="Stores"
                     value={

@@ -78,7 +78,8 @@ function inline(
   let key = 0
   for (const match of text.matchAll(tick)) {
     const at = match.index ?? 0
-    if (at > last) out.push(...spans(text.slice(last, at), members, me, `t${key}`))
+    if (at > last)
+      out.push(...spans(text.slice(last, at), members, me, `t${key}`))
     out.push(
       <code
         key={`c${key}`}
@@ -90,7 +91,8 @@ function inline(
     key += 1
     last = at + match[0].length
   }
-  if (last < text.length) out.push(...spans(text.slice(last), members, me, `t${key}`))
+  if (last < text.length)
+    out.push(...spans(text.slice(last), members, me, `t${key}`))
   return out
 }
 
@@ -175,7 +177,11 @@ function mentionNode(
       return [
         <span
           key={key}
-          title={member.username === "all" ? "Everyone in the room" : member.display_name}
+          title={
+            member.username === "all"
+              ? "Everyone in the room"
+              : member.display_name
+          }
           className={cn(
             "rounded px-0.5 font-medium",
             mine ? "bg-warn-bg text-warn-fg" : "text-accent"

@@ -38,7 +38,12 @@ export function SubTabs({
     >
       <Tabs.List
         className={cn(
-          "mb-[1.125rem] flex gap-0.5 overflow-x-auto border-b border-hairline",
+          // The rule under the tabs is an inset shadow, not a border the
+          // tabs are pulled over with `-mb-px`: pulled over, they stood a
+          // pixel outside a box that scrolls sideways, and a browser showing
+          // scrollbars drew a vertical one beside the tabs for that pixel.
+          // The active tab's own 2px border paints over the shadow.
+          "mb-[1.125rem] flex [scrollbar-width:none] gap-0.5 overflow-x-auto shadow-[inset_0_-1px_0_var(--color-hairline)] [&::-webkit-scrollbar]:hidden",
           className
         )}
       >
@@ -47,7 +52,7 @@ export function SubTabs({
             key={tab.value}
             value={tab.value}
             className={cn(
-              "-mb-px border-b-2 px-3 pt-2 pb-2.5 text-[0.875rem] font-medium whitespace-nowrap transition-colors",
+              "border-b-2 px-3 pt-2 pb-2.5 text-[0.875rem] font-medium whitespace-nowrap transition-colors",
               tab.value === value
                 ? "border-ink text-ink"
                 : "border-transparent text-body hover:text-ink"

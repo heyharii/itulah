@@ -1,6 +1,10 @@
 import { node } from "@/lib/api"
 import { arity, type Filter } from "@/lib/filters"
-import type { ArticleConsequences, ProposedArticle } from "@itulah/contract"
+import type {
+  ArticleConsequences,
+  ItemUnit,
+  ProposedArticle,
+} from "@itulah/contract"
 
 /// The master product — article and SKU — read as itself rather than as a
 /// side-effect of pricing it or counting it.
@@ -62,6 +66,14 @@ export interface ArticleRow {
   readonly base_price_min_minor: number | null
   readonly base_price_max_minor: number | null
   readonly currency: string | null
+  /// What this article's stock is counted in (ERPNext `stock_uom`): PCS for
+  /// clothing, GRAM or CM for goods kept by weight or length. Always a
+  /// whole-number unit — the ledger counts in whole numbers.
+  readonly stock_unit_code: string
+  /// What a new order line starts in (ERPNext `purchase_uom`), when set.
+  readonly purchase_unit_code: string | null
+  /// What a sale starts in (ERPNext `sales_uom`), when set.
+  readonly sales_unit_code: string | null
   readonly version: number
   readonly created_at: string
 }
@@ -134,6 +146,9 @@ export interface ArticleDetailWire {
   /// from a product back to the delivery that prompted it.
   readonly created_by_session_id: string | null
   readonly supplier_items: readonly ArticleSupplierItem[]
+  /// The other units this article is dealt in, each with how many of its
+  /// stock unit one is worth (ERPNext's UOM Conversion Detail): CARTON 24.
+  readonly units: readonly ItemUnit[]
 }
 
 /// The same article, flat, which is how every screen wants to read it.
@@ -147,12 +162,21 @@ export interface ArticleDetail extends ArticleRow {
   readonly skus: readonly ArticleSku[]
   readonly created_by_session_id: string | null
   readonly supplier_items: readonly ArticleSupplierItem[]
+  readonly units: readonly ItemUnit[]
 }
 
 /// A colourway as the form submits it: a digit, and the colour it means.
 export interface ArticleColourwayInput {
   readonly colour_digit: string
   readonly colour_code: string
+}
+
+/// One of an article's own units, as the form sends it. A blank or absent
+/// factor takes the global conversion to the stock unit — the server fills
+/// it in, the same way ERPNext prefills a new UOM row.
+export interface ArticleUnitInput {
+  readonly unit_code: string
+  readonly factor?: string | null
 }
 
 /// What may be edited about an article from the Articles screen.
@@ -174,6 +198,16 @@ export interface UpdateArticleRequest {
   /// it, because goods already tagged and on a shelf would be silently
   /// renamed.
   readonly colours?: readonly ArticleColourwayInput[]
+  /// A whole-number unit. The server refuses this once the article has
+  /// stock, as ERPNext refuses a stock UOM change after transactions: every
+  /// quantity already counted would silently change meaning.
+  readonly stock_unit_code?: string
+  /// Present-and-null clears it; absent leaves it alone.
+  readonly purchase_unit_code?: string | null
+  readonly sales_unit_code?: string | null
+  /// Absent leaves the article's own units alone; present REPLACES the list —
+  /// an empty array means "this article has no units beyond its stock unit".
+  readonly units?: readonly ArticleUnitInput[]
 }
 
 /// What an articles screen asks for. Every facet is a set: looking at kids and
@@ -312,6 +346,7 @@ function flatten(wire: ArticleDetailWire): ArticleDetail {
     skus: wire.skus,
     created_by_session_id: wire.created_by_session_id,
     supplier_items: wire.supplier_items,
+    units: wire.units,
   }
 }
 

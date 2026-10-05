@@ -1,8 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { cacheKey, edge, edgeAuth, node, setEdgeToken } from "@/lib/api"
+import {
+  cacheKey,
+  edge,
+  edgeAuth,
+  node,
+  setDcHosting,
+  setEdgeToken,
+  type DcHosting,
+} from "@/lib/api"
 import { useBenchActor } from "@/lib/operations/bench"
-import { ApiError, type Identity, type NodeIdentity } from "@itulah/contract/client"
+import { useIdentity, useNodeIdentity } from "@/lib/session"
+import {
+  ApiError,
+  type Identity,
+  type NodeIdentity,
+} from "@itulah/contract/client"
 import type { LoginResponse } from "@itulah/contract"
 
 /// The **warehouse** session, which is separate from `lib/session.tsx`.
@@ -17,6 +30,39 @@ import type { LoginResponse } from "@itulah/contract"
 /// mistake is invisible: it looks like it works, and shows one warehouse's
 /// operator name over another node's queues.
 
+/// Where the Gudang is hosted: `"cloud"` when the cloud runs it itself,
+/// `"edge"` for a DC server in the building, `undefined` until the cloud has
+/// answered.
+///
+/// Asked once (`/api/v1/health`, `dc_hosting`) and believed for the page's
+/// life — it is a property of the deployment, not of a session. The answer is
+/// recorded in `lib/api.ts` inside the query function, so by the time any
+/// component can read it, every `dc.…` call already goes to the right node.
+/// A cloud that cannot be asked reads as `edge`: nothing else works then
+/// either, and `edge` is the behaviour every deployment had before.
+///
+/// In `cloud` mode the hooks below answer from the ordinary cloud session and
+/// the cloud's own `/health`, under the cloud's own cache keys — the `edge`
+/// keys and the DC token are never touched, so the two hostings cannot mix
+/// their answers in one cache.
+export function useDcHosting(): DcHosting | undefined {
+  const query = useQuery({
+    queryKey: cacheKey.dcHosting(),
+    queryFn: async ({ signal }): Promise<DcHosting> => {
+      const hosting = await node
+        .get<{ dc_hosting?: string }>("/api/v1/health", { signal })
+        .then((body): DcHosting => (body.dc_hosting === "cloud" ? "cloud" : "edge"))
+        .catch((): DcHosting => "edge")
+      setDcHosting(hosting)
+      return hosting
+    },
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+  })
+  return query.data
+}
+
 /// The segment every warehouse cache key begins with.
 ///
 /// It is what makes "forget the warehouse" expressible without touching the
@@ -29,7 +75,7 @@ export const EDGE_KEY_PREFIX = "edge"
 /// the Cloud cookies shared by the same-origin `/edge` proxy.
 export function edgeLocalLogin(
   username: string,
-  password: string,
+  password: string
 ): Promise<LoginResponse> {
   return edge.postWithoutCredentials<LoginResponse>("/api/v1/auth/login", {
     username,
@@ -41,8 +87,15 @@ export function edgeLocalLogin(
 /// the presence of a token. A token this browser kept can have expired on a
 /// machine that was rebooted over the weekend.
 export function useEdgeIdentity() {
-  return useQuery({
+  const hosting = useDcHosting()
+  // Cloud-hosted: the person is whoever is signed in to the hub, and there is
+  // no second session to ask about.
+  const cloud = useIdentity()
+  const edgeSession = useQuery({
     queryKey: cacheKey.edgeMe(),
+    // Off until the cloud has said the Gudang is on a DC server — asking
+    // `/edge` of a cloud-hosted deployment is a request to nothing.
+    enabled: hosting === "edge",
     queryFn: async ({ signal }): Promise<Identity | null> => {
       // No token means "not signed in here", and asking would be a round trip
       // whose answer is already known — plus a 401 in the console on every
@@ -63,6 +116,7 @@ export function useEdgeIdentity() {
     retry: false,
     staleTime: Infinity,
   })
+  return hosting === "cloud" ? cloud : edgeSession
 }
 
 /// Which node the Operations screens are actually reading.
@@ -73,14 +127,19 @@ export function useEdgeIdentity() {
 /// than throwing — an unreachable DC is a fact about the warehouse, not a
 /// failure of the hub.
 export function useEdgeNodeIdentity() {
-  return useQuery({
+  const hosting = useDcHosting()
+  // Cloud-hosted: the cloud is the node, and says so in its own `/health`.
+  const cloud = useNodeIdentity()
+  const edgeNode = useQuery({
     queryKey: cacheKey.edgeIdentity(),
+    enabled: hosting === "edge",
     queryFn: ({ signal }) =>
       edge
         .getWithoutCredentials<NodeIdentity>("/api/v1/health", { signal })
         .catch(() => null),
     staleTime: Infinity,
   })
+  return hosting === "cloud" ? cloud : edgeNode
 }
 
 /// Signing in to the warehouse.
@@ -171,8 +230,8 @@ export function useEdgeSignOut() {
 /// the centre — where the node writes what it is given.
 ///
 /// The hub's own identity is not a fallback here, and that is the point: the
-/// person at the centre is not the person at the bay, and stamping receipts
-/// with a head-office username would put the wrong name on a two-person check.
+/// person at the centre is not the person at the bay, and the receipt should
+/// carry the name of whoever actually stood at it.
 export function useEdgeActor(): string {
   const identity = useEdgeIdentity()
   const where = useEdgeNodeIdentity()

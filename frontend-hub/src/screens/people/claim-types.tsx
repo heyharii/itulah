@@ -179,14 +179,12 @@ function NewTypeSheet({ onClose }: { onClose: () => void }) {
           <Input
             value={code}
             onChange={(event) => setCode(event.target.value)}
-            placeholder="SUPPLIES"
           />
         </Field>
         <Field label="Name" required>
           <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="Alat tulis kantor"
           />
         </Field>
         <Field
@@ -272,7 +270,6 @@ function TypeSheet({
             <Input
               value={why}
               onChange={(event) => setWhy(event.target.value)}
-              placeholder="digabung ke SUPPLIES"
             />
           </Field>
           <div>

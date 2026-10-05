@@ -313,12 +313,24 @@ pub async fn record_cycle_success(pool: &PgPool) -> Result<(), AppError> {
     Ok(())
 }
 
-/// An idle cycle (nothing pending) stamps liveness without touching the breaker.
+/// An idle cycle (nothing pending) stamps liveness and clears the failure
+/// streak, and does not touch the breaker beyond that.
+///
+/// The same reading the Edge's sender takes (`edge::sync`): a cycle that found
+/// nothing to send did not FAIL, so a streak of failures must not survive it,
+/// and `last_success_at` — what the fleet screen reads as "when did this node
+/// last reach the centre" — is true when there was nothing behind. Two
+/// implementations of one trait method that disagreed about this made the same
+/// screen say different things about a shop and about the centre.
 pub async fn record_cycle_idle(pool: &PgPool) -> Result<(), AppError> {
     sqlx::query(
-        "INSERT INTO sync_sender_state (singleton, last_cycle_at, updated_at)
-         VALUES (true, now(), now())
-         ON CONFLICT (singleton) DO UPDATE SET last_cycle_at = now(), updated_at = now()",
+        "INSERT INTO sync_sender_state
+             (singleton, consecutive_failures, breaker_open_until, last_success_at,
+              last_cycle_at, updated_at)
+         VALUES (true, 0, NULL, now(), now(), now())
+         ON CONFLICT (singleton) DO UPDATE SET
+             consecutive_failures = 0, breaker_open_until = NULL,
+             last_success_at = now(), last_cycle_at = now(), updated_at = now()",
     )
     .execute(pool)
     .await?;
@@ -475,7 +487,7 @@ pub async fn ingest_batch(pool: &PgPool, batch: &IngestBatch) -> Result<IngestRe
     let sequences: Vec<i64> = facts.iter().map(|fact| fact.seq).collect();
     let held_rows = sqlx::query(
         "SELECT origin_id,generation,seq,event_id,status,reason FROM sync_ingest_fact
-         WHERE event_id = ANY($1)
+         WHERE origin_id=$2 AND event_id = ANY($1)
          UNION ALL
          SELECT origin_id,generation,seq,event_id,status,reason FROM sync_ingest_fact
          WHERE origin_id=$2 AND generation=$3 AND seq = ANY($4)",
@@ -1725,14 +1737,25 @@ fn validate_official_count_owner_binding(
         .site_id
         .as_deref()
         .ok_or_else(|| "inventory origin has no registered site_id".to_string())?;
-    if binding.node_role.as_deref() != Some("DC") || site_id != expected_site {
+    // A count is walked by whichever node owns the site: the Gudang's DC, or a
+    // shop's own node for its own pools (owner, 2 Oct 2026).
+    let role = match binding.node_role.as_deref() {
+        Some("DC") => EdgeRole::Dc,
+        Some("STORE") => EdgeRole::Store,
+        _ => {
+            return Err(format!(
+                "{fact_label} must come from its exact registered DC or store site"
+            ))
+        }
+    };
+    if site_id != expected_site {
         return Err(format!(
-            "{fact_label} must come from its exact registered DC site"
+            "{fact_label} must come from its exact registered DC or store site"
         ));
     }
     let site = SiteId::new(expected_site).map_err(|error| error.to_string())?;
     let node =
-        NodeContext::new(batch_origin_id, EdgeRole::Dc, site).map_err(|error| error.to_string())?;
+        NodeContext::new(batch_origin_id, role, site).map_err(|error| error.to_string())?;
     let pool = OperationalPool::from_str(pool_id).map_err(|error| error.to_string())?;
     if pool.id() != pool_id || !node.owns_pool(&pool) {
         return Err(format!(
@@ -2500,6 +2523,40 @@ async fn apply_one(
                     });
                 }
                 false
+            } else if event_type == INVENTORY_OFFICIAL_COUNT_RESULT_V1 {
+                let event_id: Uuid = row.get("event_id");
+                let result = match parse_official_count_result(&payload) {
+                    Ok(result) => result,
+                    Err(reason) => return Ok(ApplyStep::Blocked { seq: next, reason }),
+                };
+                if let Err(error) = apply_official_count_result(
+                    &mut tx, origin_id, generation, next, event_id, &result,
+                )
+                .await
+                {
+                    return Ok(ApplyStep::Blocked {
+                        seq: next,
+                        reason: block_diagnostic(&error),
+                    });
+                }
+                false
+            } else if event_type == INVENTORY_OFFICIAL_COUNT_ADJUSTMENT_RESULT_V1 {
+                let event_id: Uuid = row.get("event_id");
+                let result = match parse_official_count_adjustment_result(&payload) {
+                    Ok(result) => result,
+                    Err(reason) => return Ok(ApplyStep::Blocked { seq: next, reason }),
+                };
+                if let Err(error) = apply_official_count_adjustment_result(
+                    &mut tx, origin_id, generation, next, event_id, &result,
+                )
+                .await
+                {
+                    return Ok(ApplyStep::Blocked {
+                        seq: next,
+                        reason: block_diagnostic(&error),
+                    });
+                }
+                false
             } else if event_type == INVENTORY_PICK_V1 || event_type == INVENTORY_ALLOTMENT_PICK_V1 {
                 let event_id: Uuid = row.get("event_id");
                 let pick = match parse_pick(&payload) {
@@ -2885,7 +2942,10 @@ async fn apply_rfid_observation_batch(
 
 /// Persist one immutable owner claim without touching either inventory ledger.
 /// A generation retired after receipt is consumed but cannot add stale evidence.
-async fn reconcile_transfer_allotment_attribution(
+///
+/// `pub(crate)`: the cloud-run Gudang files its own RECEIVED claims for a
+/// shop's return and pairs them here (`cloud::dc::returns`).
+pub(crate) async fn reconcile_transfer_allotment_attribution(
     tx: &mut Transaction<'_, Postgres>,
     source_dc_id: &str,
     destination_store_id: &str,
@@ -2941,6 +3001,23 @@ async fn reconcile_transfer_allotment_attribution(
         .collect::<Vec<_>>();
     let unique_same_sku =
         in_transit.len() == 1 && received.len() == 1 && in_transit[0].2 == received[0].2;
+    // Sent by the cloud-run Gudang (DC-CLOUD-NATIVE.md, `cloud::dc::packing`):
+    // its allotment lines keep their own rungs (no progress row) and it lets
+    // go of the piece in its own ledger, so the pair is settled there.
+    if in_transit
+        .iter()
+        .any(|claim| claim.3 == crate::cloud::dc::common::CLOUD_DC_ORIGIN)
+    {
+        return crate::cloud::dc::packing::reconcile_counted_in_tx(
+            tx,
+            source_dc_id,
+            destination_store_id,
+            shipment_reference,
+            epc,
+            unique_same_sku.then(|| (in_transit[0].0, received[0].0)),
+        )
+        .await;
+    }
     let mut touched_lines = BTreeSet::<Uuid>::new();
     let mut touched_allotments = BTreeSet::<Uuid>::new();
 
@@ -3199,13 +3276,13 @@ async fn issue_in_transit_release_tx(
     if !origin_takes_goods_routes_tx(tx, &origin_id).await? {
         return Ok(());
     }
-    let Some(source_site_id) = row.get::<Option<String>, _>("source_dc_id") else {
+    let Some(source_dc_id) = row.get::<Option<String>, _>("source_dc_id") else {
         return Ok(());
     };
     let payload = crate::sync::transfer::InTransitReleasePayload {
         release_id: receipt_event_id,
-        source_site_id,
-        destination_site_id: row.get("destination_store_id"),
+        source_dc_id,
+        destination_store_id: row.get("destination_store_id"),
         shipment_reference: row.get("shipment_reference"),
         koli_id: row.get("koli_id"),
         epc: row.get("epc"),
@@ -3255,6 +3332,88 @@ pub(super) async fn issue_waiting_in_transit_releases_tx(
         issue_in_transit_release_tx(tx, *receipt_event_id).await?;
     }
     Ok(waiting.len())
+}
+
+/// How many pieces one heartbeat tells an origin it lost at a door.
+const TRANSIT_SHORTS_PER_HEARTBEAT: i64 = 500;
+
+/// Tell an origin which of the pieces it sent a destination did not find when
+/// it counted the koli in — each is Missing now (owner, 1 Oct 2026). A piece
+/// counts as not found only when its own koli was received (a receipt is per
+/// koli), nothing has paired with it, and the receipt is ten minutes old, so a
+/// tag that is merely late through sync is not called missing. If the
+/// destination finds it after all, the release takes it out of Missing.
+pub(super) async fn issue_waiting_transit_shorts_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    origin_id: &str,
+) -> Result<usize, AppError> {
+    let rows = sqlx::query(
+        "SELECT DISTINCT ON (it.event_id)
+                it.event_id, it.source_dc_id, it.destination_store_id, it.shipment_reference,
+                it.epc, it.sku_code, g.event_id AS receipt_id, g.occurred_at AS received_at
+         FROM edge_transfer_claim it
+         JOIN edge_koli_unit unit ON unit.epc = it.epc
+         JOIN edge_goods_step g
+           ON g.kind = 'RECEIVED'
+          AND g.shipment_reference = it.shipment_reference
+          AND jsonb_typeof(g.payload->'koli_ids') = 'array'
+          AND g.payload->'koli_ids' ? unit.koli_id::text
+         WHERE it.claim_kind = 'IN_TRANSIT'
+           AND it.origin_id = $1
+           AND it.source_dc_id IS NOT NULL
+           AND g.recorded_at < now() - interval '10 minutes'
+           AND NOT EXISTS (SELECT 1 FROM edge_transfer_allotment_attribution a
+                           WHERE a.in_transit_event_id = it.event_id)
+           AND NOT EXISTS (SELECT 1 FROM edge_transit_short s
+                           WHERE s.in_transit_event_id = it.event_id)
+         ORDER BY it.event_id, g.recorded_at
+         LIMIT $2",
+    )
+    .bind(origin_id)
+    .bind(TRANSIT_SHORTS_PER_HEARTBEAT)
+    .fetch_all(&mut **tx)
+    .await?;
+    for row in &rows {
+        let in_transit_event_id: Uuid = row.get("event_id");
+        let receipt_id: Uuid = row.get("receipt_id");
+        let epc: String = row.get("epc");
+        let payload = crate::sync::transfer::InTransitShortPayload {
+            short_id: in_transit_event_id,
+            source_dc_id: row.get("source_dc_id"),
+            destination_store_id: row.get("destination_store_id"),
+            shipment_reference: row.get("shipment_reference"),
+            epc: epc.clone(),
+            sku_code: row.get("sku_code"),
+            receipt_id,
+            received_at: row.get("received_at"),
+        };
+        if payload.validate().is_err() {
+            continue;
+        }
+        let command_id = issue_command_tx(
+            tx,
+            crate::sync::transfer::INVENTORY_IN_TRANSIT_SHORT_V1,
+            &serde_json::to_value(&payload)?,
+            "system:in-transit-short",
+            None,
+            std::slice::from_ref(&origin_id.to_owned()),
+        )
+        .await?;
+        sqlx::query(
+            "INSERT INTO edge_transit_short
+                 (in_transit_event_id, origin_id, receipt_event_id, epc, command_id)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (in_transit_event_id) DO NOTHING",
+        )
+        .bind(in_transit_event_id)
+        .bind(origin_id)
+        .bind(receipt_id)
+        .bind(&epc)
+        .bind(command_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(rows.len())
 }
 
 async fn apply_transfer_claim(
@@ -3396,6 +3555,220 @@ async fn apply_transfer_claim(
 /// Materialize one whole-Allotment DC decision without touching either
 /// inventory ledger. Accepted quantity becomes the fact-derived reservation;
 /// a rejection writes zero accepted quantity for every authored line.
+/// A node's finished Official Count, filed at the centre for review.
+///
+/// The Gudang's DC and a shop both walk their own pool and send the same
+/// immutable result. The count is the centre's record of it: it moves ACTIVE →
+/// REVIEW, and approving it later asks that same node for the adjustment.
+async fn apply_official_count_result(
+    tx: &mut Transaction<'_, Postgres>,
+    origin_id: &str,
+    generation: i64,
+    seq: i64,
+    event_id: Uuid,
+    result: &OfficialCountResultPayload,
+) -> Result<bool, AppError> {
+    if event_id != result.result_id {
+        return Err(AppError::Validation(
+            "official count result_id must equal event_id".into(),
+        ));
+    }
+    let binding_row = sqlx::query(
+        "SELECT origin_id,site_id,node_role,active_generation,inventory_enabled
+         FROM sync_origin_credential WHERE origin_id=$1 FOR KEY SHARE",
+    )
+    .bind(origin_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let binding = binding_row.as_ref().map(inventory_binding_from_row);
+    if binding
+        .as_ref()
+        .is_some_and(|binding| generation < binding.active_generation)
+    {
+        return Ok(false);
+    }
+    validate_official_count_result_binding(result, origin_id, generation, binding.as_ref())
+        .map_err(AppError::Validation)?;
+
+    let header = sqlx::query(
+        "SELECT status,activation_target_origin_id,edge_result_id
+         FROM official_count WHERE id=$1 FOR UPDATE",
+    )
+    .bind(result.count_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| AppError::NotFound("official count".into()))?;
+    if header
+        .get::<Option<String>, _>("activation_target_origin_id")
+        .as_deref()
+        != Some(origin_id)
+    {
+        return Err(AppError::Validation(
+            "count result does not come from the node the count was sent to".into(),
+        ));
+    }
+    if header.get::<Option<Uuid>, _>("edge_result_id") == Some(result.result_id) {
+        return Ok(false);
+    }
+    if header.get::<String, _>("status") != "ACTIVE" {
+        return Err(AppError::Conflict(
+            "official count is no longer waiting for a result".into(),
+        ));
+    }
+    let inserted = sqlx::query(
+        "INSERT INTO edge_official_count_result
+             (event_id,origin_id,generation,seq,result_id,count_id,site_id,pool_id,
+              actor_id,submitted_at,lines)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         ON CONFLICT (event_id) DO NOTHING",
+    )
+    .bind(event_id)
+    .bind(origin_id)
+    .bind(generation)
+    .bind(seq)
+    .bind(result.result_id)
+    .bind(result.count_id)
+    .bind(&result.site_id)
+    .bind(&result.pool_id)
+    .bind(&result.actor_id)
+    .bind(result.submitted_at)
+    .bind(serde_json::to_value(&result.lines)?)
+    .execute(&mut **tx)
+    .await?
+    .rows_affected()
+        == 1;
+    if !inserted {
+        return Ok(false);
+    }
+    sqlx::query(
+        "UPDATE official_count
+         SET status='REVIEW',submitted_at=$2,edge_result_id=$3,edge_result_received_at=now()
+         WHERE id=$1 AND status='ACTIVE'",
+    )
+    .bind(result.count_id)
+    .bind(result.submitted_at)
+    .bind(result.result_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(true)
+}
+
+/// The node's answer to an approved count's adjustment: applied, and the count
+/// is closed, or refused, and the count stays in review with the reason.
+async fn apply_official_count_adjustment_result(
+    tx: &mut Transaction<'_, Postgres>,
+    origin_id: &str,
+    generation: i64,
+    seq: i64,
+    event_id: Uuid,
+    result: &OfficialCountAdjustmentResultPayload,
+) -> Result<bool, AppError> {
+    if event_id != result.completion_id {
+        return Err(AppError::Validation(
+            "official count completion_id must equal event_id".into(),
+        ));
+    }
+    let binding_row = sqlx::query(
+        "SELECT origin_id,site_id,node_role,active_generation,inventory_enabled
+         FROM sync_origin_credential WHERE origin_id=$1 FOR KEY SHARE",
+    )
+    .bind(origin_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let binding = binding_row.as_ref().map(inventory_binding_from_row);
+    if binding
+        .as_ref()
+        .is_some_and(|binding| generation < binding.active_generation)
+    {
+        return Ok(false);
+    }
+    validate_official_count_adjustment_result_binding(
+        result,
+        origin_id,
+        generation,
+        binding.as_ref(),
+    )
+    .map_err(AppError::Validation)?;
+
+    let header = sqlx::query(
+        "SELECT adjustment_id,adjustment_command_id,adjustment_target_origin_id,
+                edge_adjustment_status
+         FROM official_count WHERE id=$1 FOR UPDATE",
+    )
+    .bind(result.count_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| AppError::NotFound("official count".into()))?;
+    if header.get::<Option<Uuid>, _>("adjustment_id") != Some(result.adjustment_id)
+        || header.get::<Option<Uuid>, _>("adjustment_command_id")
+            != Some(result.adjustment_command_id)
+        || header
+            .get::<Option<String>, _>("adjustment_target_origin_id")
+            .as_deref()
+            != Some(origin_id)
+    {
+        return Err(AppError::Validation(
+            "adjustment result does not match the command that was sent".into(),
+        ));
+    }
+    if header
+        .get::<Option<String>, _>("edge_adjustment_status")
+        .as_deref()
+        != Some("PENDING")
+    {
+        return Ok(false);
+    }
+    let status = match result.status {
+        crate::sync::workflow::AdjustmentResultStatus::Applied => "APPLIED",
+        crate::sync::workflow::AdjustmentResultStatus::Rejected => "REJECTED",
+    };
+    let inserted = sqlx::query(
+        "INSERT INTO edge_official_count_adjustment_result
+             (event_id,origin_id,generation,seq,completion_id,adjustment_id,
+              adjustment_command_id,count_id,site_id,pool_id,status,movement_group_id,
+              actor_id,reason,applied_at,lines)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+         ON CONFLICT (event_id) DO NOTHING",
+    )
+    .bind(event_id)
+    .bind(origin_id)
+    .bind(generation)
+    .bind(seq)
+    .bind(result.completion_id)
+    .bind(result.adjustment_id)
+    .bind(result.adjustment_command_id)
+    .bind(result.count_id)
+    .bind(&result.site_id)
+    .bind(&result.pool_id)
+    .bind(status)
+    .bind(result.movement_group_ids.first().copied())
+    .bind(&result.actor_id)
+    .bind(result.reason.as_deref())
+    .bind(result.applied_at)
+    .bind(serde_json::to_value(&result.lines)?)
+    .execute(&mut **tx)
+    .await?
+    .rows_affected()
+        == 1;
+    if !inserted {
+        return Ok(false);
+    }
+    sqlx::query(
+        "UPDATE official_count
+         SET edge_adjustment_status=$2,edge_adjustment_completion_id=$3,
+             edge_adjustment_received_at=now(),
+             status=CASE WHEN $2='APPLIED' THEN 'CLOSED' ELSE status END,
+             closed_at=CASE WHEN $2='APPLIED' THEN now() ELSE closed_at END
+         WHERE id=$1",
+    )
+    .bind(result.count_id)
+    .bind(status)
+    .bind(result.completion_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(true)
+}
+
 async fn apply_allotment_application_result(
     tx: &mut Transaction<'_, Postgres>,
     origin_id: &str,
@@ -3739,11 +4112,13 @@ async fn apply_allotment_cancellation_result(
             .and_then(|quantity| quantity.checked_sub(already_cancelled))
             .filter(|quantity| *quantity >= 0)
             .ok_or_else(|| AppError::Conflict(format!("invalid progress for line {line_id}")))?;
-        let expected_blocked = accepted
-            .checked_sub(expected_cancelled)
-            .ok_or_else(|| AppError::Conflict("cancellation partition underflow".into()))?;
-        if result_line.cancelled_quantity != expected_cancelled
-            || result_line.blocked_picked_quantity != expected_blocked
+        // The node may release less than the counters allow: pieces it has
+        // already picked for the shop and not yet packed stay allotted (the
+        // centre cannot see a pick's shop). It may never release more, and
+        // what it holds back is reported as blocked.
+        if result_line.cancelled_quantity < 0
+            || result_line.cancelled_quantity > expected_cancelled
+            || result_line.cancelled_quantity + result_line.blocked_picked_quantity != accepted
         {
             return Err(AppError::Validation(format!(
                 "cancellation result does not match authoritative progress for line {line_id}"
@@ -3797,7 +4172,7 @@ async fn apply_allotment_cancellation_result(
              SET cancelled_quantity=cancelled_quantity+$4,last_generation=$5,
                  last_seq=$6,updated_at=now()
              WHERE allotment_line_id=$1 AND allotment_id=$2 AND origin_id=$3
-               AND accepted_quantity-picked_quantity-cancelled_quantity=$4",
+               AND accepted_quantity-picked_quantity-cancelled_quantity>=$4",
         )
         .bind(line_id)
         .bind(result.allotment_id)
@@ -4201,7 +4576,7 @@ async fn apply_fulfillment_progress(
                  JOIN allotment header ON header.id=line.allotment_id
                  WHERE line.origin_id=$1 AND line.source_site_id=$2
                    AND line.sku_code=$3
-                   AND line.destination_type<>'SUPPLIER' AND line.destination_id=$4
+                   AND line.destination_id=$4
                    AND line.accepted_quantity-line.packed_quantity-line.cancelled_quantity>0
                    AND header.activation_target_origin_id=$1
                    AND header.edge_application_status='ACCEPTED'
@@ -4260,8 +4635,8 @@ async fn apply_fulfillment_progress(
         sqlx::query(
             "INSERT INTO edge_koli
                  (koli_id,origin_id,source_site_id,destination_store_id,status,
-                  shipment_reference,created_at,updated_at,last_generation,last_seq)
-             VALUES($1,$2,$3,$4,'PACKED',NULL,$5,$5,$6,$7)",
+                  shipment_reference,created_at,updated_at,last_generation,last_seq,koli_number)
+             VALUES($1,$2,$3,$4,'PACKED',NULL,$5,$5,$6,$7,$8)",
         )
         .bind(progress.koli_id)
         .bind(origin_id)
@@ -4270,9 +4645,25 @@ async fn apply_fulfillment_progress(
         .bind(progress.occurred_at)
         .bind(generation)
         .bind(seq)
+        .bind(&progress.koli_number)
         .execute(&mut **tx)
         .await?;
         for unit in &progress.units {
+            // A garment packed again is out of whatever package carried it
+            // before: the DC's box it arrived in, or the shop's own box on a
+            // return. Nothing released that package when its goods were
+            // received, so the unique "one active package per tag" index
+            // refused the second packing and stopped this node's whole fact
+            // stream behind it (found by the PO → shop → return test run).
+            sqlx::query(
+                "UPDATE edge_koli_unit SET released_at=$2,updated_at=$2
+                 WHERE epc=$1 AND released_at IS NULL AND koli_id<>$3",
+            )
+            .bind(&unit.epc)
+            .bind(progress.occurred_at)
+            .bind(progress.koli_id)
+            .execute(&mut **tx)
+            .await?;
             sqlx::query(
                 "INSERT INTO edge_koli_unit
                      (koli_id,epc,sku_code,allotment_id,allotment_line_id,current_stage,
@@ -4435,7 +4826,8 @@ async fn apply_fulfillment_progress(
         let updated = sqlx::query(
             "UPDATE edge_koli
              SET status=$2,shipment_reference=$3,updated_at=$4,
-                 last_generation=$5,last_seq=$6
+                 last_generation=$5,last_seq=$6,
+                 koli_number=COALESCE($8, koli_number)
              WHERE koli_id=$1 AND status=$7",
         )
         .bind(progress.koli_id)
@@ -4445,6 +4837,7 @@ async fn apply_fulfillment_progress(
         .bind(generation)
         .bind(seq)
         .bind(expected_previous.as_str())
+        .bind(&progress.koli_number)
         .execute(&mut **tx)
         .await?;
         if updated.rows_affected() != 1 {
@@ -4621,7 +5014,10 @@ pub fn store_inbound_commands_override() -> Option<bool> {
 /// heartbeat says it takes the goods routes: an older build would block on
 /// the command. An operator's override ([`STORE_INBOUND_COMMANDS_ENV`]) can
 /// switch that off, or force it for every shop.
-async fn announce_store_inbound_tx(
+///
+/// `pub(crate)`: the cloud-run Gudang announces its own koli through it
+/// (`cloud::dc::packing`).
+pub(crate) async fn announce_store_inbound_tx(
     tx: &mut Transaction<'_, Postgres>,
     progress: &FulfillmentProgressPayload,
 ) -> Result<(), AppError> {
@@ -5061,6 +5457,20 @@ async fn apply_movement(
         )
         .await?;
     }
+    // A DC handing a purchase return to the supplier: the movement is the
+    // evidence, so it is what closes the return (0710).
+    if fact.reference_type.as_deref() == Some(crate::cloud::domain::PURCHASE_RETURN_REFERENCE) {
+        if let Some(reference) = fact.reference_id.as_deref() {
+            super::purchase_return_handed_over(
+                tx,
+                reference,
+                &fact.actor_id,
+                fact.occurred_at,
+                fact.movement_group_id,
+            )
+            .await?;
+        }
+    }
     Ok(true)
 }
 
@@ -5296,6 +5706,13 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
             crate::cloud::domain::parse_purchase_order_cancellation(payload)
                 .map_err(AppError::Validation)?;
         }
+        crate::cloud::domain::COMMAND_PURCHASE_ORDER_LINE_CLOSE => {
+            crate::cloud::domain::parse_purchase_order_line_closure(payload)
+                .map_err(AppError::Validation)?;
+        }
+        crate::cloud::domain::COMMAND_PURCHASE_RETURN_RAISE => {
+            crate::cloud::domain::parse_purchase_return(payload).map_err(AppError::Validation)?;
+        }
         COMMAND_AUTH_POLICY_REPLACE => {
             crate::cloud::domain::parse_auth_policy(payload).map_err(AppError::Validation)?;
         }
@@ -5312,8 +5729,25 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
         INVENTORY_ALLOTMENT_CANCEL_V1 => {
             parse_allotment_cancellation(payload).map_err(AppError::Validation)?;
         }
+        crate::sync::workflow::INVENTORY_ALLOTMENT_CLOSE_SHORT_V1 => {
+            crate::sync::workflow::parse_allotment_close_short(payload)
+                .map_err(AppError::Validation)?;
+        }
         INVENTORY_OFFICIAL_COUNT_ACTIVATE_V1 => {
             parse_official_count_activation(payload).map_err(AppError::Validation)?;
+        }
+        crate::sync::workflow::INVENTORY_OFFICIAL_COUNT_ADJUST_V1 => {
+            // Same reason as the activation above: a Gudang that cannot read an
+            // adjustment blocks its whole command stream, and the count that
+            // produced it is the one thing the person who approved it can fix.
+            crate::sync::workflow::parse_official_count_adjustment(payload)
+                .map_err(AppError::Validation)?;
+        }
+        crate::cloud::domain::COMMAND_COMMERCIAL_ELIGIBILITY => {
+            // A shop that cannot read the frozen eligibility charges the wrong
+            // price or refuses the promotion outright, so it is refused here.
+            crate::cloud::domain::parse_rule_eligibility(payload)
+                .map_err(AppError::Validation)?;
         }
         INVENTORY_STORE_INBOUND_ANNOUNCE_V1 => {
             // A shop that cannot read it blocks its command stream.
@@ -5325,6 +5759,10 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
         crate::sync::transfer::INVENTORY_IN_TRANSIT_RELEASE_V1 => {
             // Same reason: an origin that cannot read it stops there.
             crate::sync::transfer::parse_in_transit_release(payload)
+                .map_err(AppError::Validation)?;
+        }
+        crate::sync::transfer::INVENTORY_IN_TRANSIT_SHORT_V1 => {
+            crate::sync::transfer::parse_in_transit_short(payload)
                 .map_err(AppError::Validation)?;
         }
         crate::sync::flow::INVENTORY_FLOW_EVENTS_V1 => {
@@ -5352,7 +5790,17 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
             crate::sync::device::parse_device_test_print_command(payload)
                 .map_err(AppError::Validation)?;
         }
-        _ => {}
+        // Every command type this build issues has an arm above, so a type that
+        // reaches here is one nobody taught the issuing desk to read: a typo, or
+        // a constant added without its validation. Refused by name rather than
+        // stored and sent — a node that cannot parse a command stops its whole
+        // stream on it, including the price book behind it.
+        other => {
+            return Err(AppError::Validation(format!(
+                "command_type {other:?} is not one this build knows how to validate; \
+                 add its arm to validate_issued_command"
+            )))
+        }
     }
     Ok(())
 }
@@ -5468,7 +5916,8 @@ pub(super) async fn inventory_owner_tx(
 /// holds a row for is itself; the site the node that owns head office's
 /// ledger runs as is head office's; anything else is returned unchanged for
 /// the reader downstream to refuse with its own message.
-pub(super) async fn canonical_site_id_tx(
+// pub(crate): the cloud-run Gudang (cloud::dc::packing) names shops through it.
+pub(crate) async fn canonical_site_id_tx(
     tx: &mut Transaction<'_, Postgres>,
     spelled: &str,
 ) -> Result<String, AppError> {
@@ -5492,7 +5941,9 @@ pub(super) async fn canonical_site_id_tx(
 /// How the node that owns a site's ledger spells that site — what has to go
 /// on the wire for it to recognise its own name. The site itself when no
 /// node owns it.
-pub(super) async fn node_site_id_tx(
+// pub(crate): the cloud-run Gudang (cloud::dc::packing) spells a shop for its
+// node through it.
+pub(crate) async fn node_site_id_tx(
     tx: &mut Transaction<'_, Postgres>,
     site_id: &str,
 ) -> Result<String, AppError> {
@@ -5562,6 +6013,35 @@ pub(super) async fn inventory_dc_owner_tx(
         )));
     }
     Ok(Some(row.get("origin_id")))
+}
+
+/// Who walks an Official Count for `site_id`: the Gudang's DC, or the shop's
+/// own node for a shop's pools. Same answer as [`inventory_dc_owner_tx`] for a
+/// DC; a store origin that is enabled for inventory is an owner here instead
+/// of a conflict, because a shop counts its own stock.
+pub(super) async fn inventory_count_owner_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    site_id: &str,
+) -> Result<Option<String>, AppError> {
+    let row = sqlx::query(
+        "SELECT origin_id, node_role FROM sync_origin_credential
+         WHERE inventory_enabled AND site_id = $1 FOR SHARE",
+    )
+    .bind(site_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    match row {
+        Some(row) => {
+            let role: String = row.get("node_role");
+            if role != "DC" && role != "STORE" {
+                return Err(AppError::Conflict(format!(
+                    "count owner for site {site_id} is {role}, not DC or STORE"
+                )));
+            }
+            Ok(Some(row.get("origin_id")))
+        }
+        None => inventory_dc_owner_tx(tx, site_id).await,
+    }
 }
 
 /// Insert one command and its dense per-target deliveries in the caller's
@@ -6565,13 +7045,30 @@ async fn apply_sale(
     seq: i64,
     sale: &crate::cloud::domain::SalesCompletedPayload,
 ) -> Result<(), AppError> {
+    let origin = sqlx::query(
+        "SELECT site_id, node_role FROM sync_origin_credential
+          WHERE origin_id = $1 FOR KEY SHARE",
+    )
+    .bind(origin_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| AppError::Forbidden("sale came from an unregistered origin".into()))?;
+    let registered_site: Option<String> = origin.try_get("site_id")?;
+    let node_role: String = origin.try_get("node_role")?;
+    if node_role != "STORE" || registered_site.as_deref() != Some(sale.site_id.trim()) {
+        return Err(AppError::Forbidden(format!(
+            "sale site {:?} does not match the registered Store origin", sale.site_id
+        )));
+    }
+
     let inserted = sqlx::query(
         "INSERT INTO edge_sale
              (sale_id, origin_id, generation, seq, movement_group_id, site_id, actor_id,
               occurred_at, currency, total_minor, paid_minor, change_minor,
               discount_total_minor, points_earned, pricing_trace_id, customer_id,
-              net_ex_tax_minor, tax_total_minor)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+              net_ex_tax_minor, tax_total_minor, shift_id, business_date)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
+                 COALESCE($20, site_local_date($8, $6)))
          ON CONFLICT (sale_id) DO NOTHING",
     )
     .bind(sale.sale_id)
@@ -6602,6 +7099,10 @@ async fn apply_sale(
     // one running a build that predates this — not recorded, never nought.
     .bind(sale.net_ex_tax_minor)
     .bind(sale.tax_total_minor)
+    // Which drawer, and the day it trades for: the shift's (0714). An older
+    // build sends neither, and the day is then the store's date of the sale.
+    .bind(sale.shift_id)
+    .bind(sale.business_date)
     .execute(&mut **tx)
     .await?
     .rows_affected()
@@ -6677,26 +7178,39 @@ async fn apply_sale(
     // does. Only a VOUCHER tender can carry one (`validate_tenders` refuses it
     // anywhere else), so this loop can only ever do something for that method.
     for tender in &sale.tenders {
-        if let Some(hold_id) = tender
+        if <crate::tender::PaymentMethod as std::str::FromStr>::from_str(&tender.method)
+            .map_err(|error| AppError::Validation(error.to_string()))?
+            != crate::tender::PaymentMethod::Voucher
+        {
+            continue;
+        }
+        let hold_id = tender
             .voucher_authorization_id
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-        {
-            let authorization_id = Uuid::parse_str(hold_id).map_err(|_| {
+            .ok_or_else(|| {
                 AppError::Validation(format!(
-                    "sale {} carries a malformed voucher hold id {hold_id:?}",
+                    "sale {} carries a VOUCHER tender without a hold id",
                     sale.sale_id
                 ))
             })?;
-            super::vouchers::commit_voucher_hold_for_fact(
-                tx,
-                authorization_id,
-                sale.sale_id,
-                &sale.actor_id,
-            )
-            .await?;
-        }
+        let authorization_id = Uuid::parse_str(hold_id).map_err(|_| {
+            AppError::Validation(format!(
+                "sale {} carries a malformed voucher hold id {hold_id:?}",
+                sale.sale_id
+            ))
+        })?;
+        super::vouchers::commit_voucher_hold_for_fact(
+            tx,
+            authorization_id,
+            sale.sale_id,
+            tender.amount_minor,
+            &sale.site_id,
+            tender.voucher_code.as_deref(),
+            &sale.actor_id,
+        )
+        .await?;
     }
     for promotion in &sale.promotions {
         // The detail, kept beside the count. Both are written from this one
@@ -7311,6 +7825,18 @@ pub struct NewPurchaseLine {
     pub unit_price_minor: i64,
     #[serde(default)]
     pub promised_date: Option<chrono::NaiveDate>,
+    /// The unit the supplier's paper ordered it in ("LUSIN") and how many,
+    /// when that was not pieces. `ordered_quantity` must be the same order
+    /// said in pieces; the line keeps both, with the factor, as a snapshot.
+    #[serde(default)]
+    pub unit_code: Option<String>,
+    #[serde(default)]
+    pub unit_quantity: Option<String>,
+    /// The price agreed for one `unit_code`, as the supplier's paper prints
+    /// it (0656). When present the line totals unit quantity × this and
+    /// `unit_price_minor` is derived from it.
+    #[serde(default)]
+    pub order_unit_price_minor: Option<i64>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize)]
@@ -7365,14 +7891,23 @@ pub async fn create_purchase_order_as(
     }
 
     let mut tx = pool.begin().await?;
-    // Exactly one node owns a site's inventory; that is who receives against
-    // this order. Resolve it inside the same transaction as the PO and command.
-    let target = inventory_dc_owner_tx(&mut tx, &request.destination_site_id).await?;
-    let Some(target) = target else {
-        return Err(AppError::Validation(format!(
-            "no registered DC owns site '{}'; register it before ordering to it",
-            request.destination_site_id
-        )));
+    // When the cloud runs the Gudang (DC-CLOUD-NATIVE.md) no node is sent the
+    // order: the cloud-run Gudang reads `purchase_order` itself.
+    let hosted = crate::cloud::dc::common::hosted();
+    let target = if hosted {
+        crate::cloud::dc::receiving::hosted_order_target(&mut tx, &request.destination_site_id)
+            .await?
+    } else {
+        // Exactly one node owns a site's inventory; that is who receives against
+        // this order. Resolve it inside the same transaction as the PO and command.
+        let target = inventory_dc_owner_tx(&mut tx, &request.destination_site_id).await?;
+        let Some(target) = target else {
+            return Err(AppError::Validation(format!(
+                "no registered DC owns site '{}'; register it before ordering to it",
+                request.destination_site_id
+            )));
+        };
+        target
     };
 
     let purchase_order_id = Uuid::new_v4();
@@ -7403,16 +7938,39 @@ pub async fn create_purchase_order_as(
         let line_number = (index + 1) as i32;
         let po_line_id = Uuid::new_v4();
         flow_lines.push((po_line_id, line.ordered_quantity));
-        let line_amount = line
-            .unit_price_minor
-            .checked_mul(line.ordered_quantity)
-            .ok_or_else(|| AppError::Validation(format!("line {line_number} overflows")))?;
+        let order_unit = super::units::resolve_order_unit(
+            &mut tx,
+            Some(line.article_code.as_str()),
+            line.unit_code.as_deref(),
+            line.unit_quantity.as_deref(),
+            line.ordered_quantity,
+        )
+        .await
+        .map_err(|error| match error {
+            AppError::Validation(message) => {
+                AppError::Validation(format!("line {line_number}: {message}"))
+            }
+            other => other,
+        })?;
+        let (unit_price, line_amount, order_unit_price) = super::units::price_purchase_line(
+            line.ordered_quantity,
+            line.unit_price_minor,
+            &order_unit,
+            line.order_unit_price_minor,
+        )
+        .map_err(|error| match error {
+            AppError::Validation(message) => {
+                AppError::Validation(format!("line {line_number}: {message}"))
+            }
+            other => other,
+        })?;
         sqlx::query(
             "INSERT INTO purchase_order_line
                  (po_line_id, purchase_order_id, line_number, article_code, article_name,
                   image_url, division_code, ordered_quantity,
-                  unit_price_minor, line_amount_minor, promised_date)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+                  unit_price_minor, line_amount_minor, promised_date,
+                  order_unit_code, order_unit_quantity, unit_factor, order_unit_price_minor)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
         )
         .bind(po_line_id)
         .bind(purchase_order_id)
@@ -7422,11 +7980,18 @@ pub async fn create_purchase_order_as(
         .bind(&line.image_url)
         .bind(&line.division_code)
         .bind(line.ordered_quantity)
-        .bind(line.unit_price_minor)
+        .bind(unit_price)
         .bind(line_amount)
         .bind(line.promised_date)
+        .bind(order_unit.as_ref().map(|(code, _, _)| code.clone()))
+        .bind(order_unit.as_ref().map(|(_, quantity, _)| *quantity))
+        .bind(order_unit.as_ref().map(|(_, _, factor)| *factor))
+        .bind(order_unit_price)
         .execute(&mut *tx)
         .await?;
+        let units =
+            super::units::purchase_line_units(&mut tx, Some(line.article_code.as_str()), &order_unit)
+                .await?;
         // Tags come from the vocabulary, so an unknown one is refused here
         // rather than quietly filed under a word that does not exist.
         for tag in &line.tags {
@@ -7454,9 +8019,9 @@ pub async fn create_purchase_order_as(
             division_code: line.division_code.clone(),
             tags: line.tags.clone(),
             ordered_quantity: line.ordered_quantity,
-            unit_price_minor: line.unit_price_minor,
+            unit_price_minor: unit_price,
             promised_date: line.promised_date.map(|d| d.to_string()),
-            units: None,
+            units: Some(units),
         });
     }
     // The agreed price goes with the order. The verifier is asked to check it
@@ -7473,22 +8038,29 @@ pub async fn create_purchase_order_as(
         "lines": wire_lines,
     });
     parse_purchase_order(&payload).map_err(AppError::Validation)?;
-    let command_id = issue_command_tx(
-        &mut tx,
-        COMMAND_PURCHASE_ORDER_ACTIVATE,
-        &payload,
-        &request.created_by,
-        None,
-        std::slice::from_ref(&target),
-    )
-    .await?;
-    sqlx::query(
-        "UPDATE purchase_order SET activation_command_id = $2 WHERE purchase_order_id = $1",
-    )
-    .bind(purchase_order_id)
-    .bind(command_id)
-    .execute(&mut *tx)
-    .await?;
+    // Hosted: no command, `activation_command_id` stays NULL, and the nil id
+    // answers the caller (DC-CLOUD-NATIVE.md).
+    let command_id = if hosted {
+        Uuid::nil()
+    } else {
+        let command_id = issue_command_tx(
+            &mut tx,
+            COMMAND_PURCHASE_ORDER_ACTIVATE,
+            &payload,
+            &request.created_by,
+            None,
+            std::slice::from_ref(&target),
+        )
+        .await?;
+        sqlx::query(
+            "UPDATE purchase_order SET activation_command_id = $2 WHERE purchase_order_id = $1",
+        )
+        .bind(purchase_order_id)
+        .bind(command_id)
+        .execute(&mut *tx)
+        .await?;
+        command_id
+    };
     if let Some(actor) = actor {
         super::flows::start_flow_for_purchase_order_tx(
             &mut tx,
@@ -7512,7 +8084,9 @@ pub async fn create_purchase_order_as(
 /// deliberately thin: the units themselves arrive on the movement facts that
 /// accompany it, so all this has to do is record that the work happened and
 /// let the session rest.
-async fn apply_tagging_completed(
+// pub(crate): the cloud-run Gudang confirms its own tagging through this
+// applier (cloud/dc/tagging.rs, DC-CLOUD-NATIVE.md).
+pub(crate) async fn apply_tagging_completed(
     tx: &mut Transaction<'_, Postgres>,
     done: &crate::cloud::domain::TaggingCompletedPayload,
 ) -> Result<(), AppError> {
@@ -7562,7 +8136,8 @@ async fn apply_tagging_completed(
     Ok(())
 }
 
-async fn apply_goods_receipt_line(
+// pub(crate): the cloud-run Gudang (cloud::dc::receiving) writes through it.
+pub(crate) async fn apply_goods_receipt_line(
     tx: &mut Transaction<'_, Postgres>,
     origin_id: &str,
     generation: i64,
@@ -7580,7 +8155,7 @@ async fn apply_goods_receipt_line(
     // company.
     let ordered: Option<(Uuid, i64, i64, String, String, i64)> = sqlx::query_as(
         "SELECT o.purchase_order_id, l.ordered_quantity, l.unit_price_minor,
-                o.destination_site_id, o.supplier_id, o.discount_minor
+                o.destination_site_id, o.supplier_id, l.discount_minor
            FROM purchase_order_line l
            JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
           WHERE l.po_line_id = $1
@@ -7595,7 +8170,7 @@ async fn apply_goods_receipt_line(
         ordered_unit_price,
         destination_site_id,
         ordered_from,
-        order_discount,
+        line_discount,
     )) = ordered
     else {
         return Err(AppError::Validation(format!(
@@ -7644,8 +8219,31 @@ async fn apply_goods_receipt_line(
     .bind(line.po_line_id)
     .fetch_one(&mut **tx)
     .await?;
-    let outstanding = (ordered_quantity - already_matched).max(0);
-    let matched_quantity = line.quantity.min(outstanding);
+    // An order head office cancelled, or a line it closed short, is owed
+    // nothing more: goods a DC accepted against it before it heard (the
+    // cancel travels as a command) are on the floor and recorded, but all of
+    // them are excess — they go back to the supplier on a purchase return
+    // and never become value the order is billed for.
+    let settled: (bool, bool) = sqlx::query_as(
+        "SELECT o.order_status = 'CANCELLED', l.closed_short_at IS NOT NULL
+           FROM purchase_order_line l
+           JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
+          WHERE l.po_line_id = $1",
+    )
+    .bind(line.po_line_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    let outstanding = if settled.0 || settled.1 {
+        0
+    } else {
+        (ordered_quantity - already_matched).max(0)
+    };
+    // The pieces the checker counted as not matching the order were on the
+    // lorry but were never this article, so the order matches against the
+    // rest; everything beyond that — mismatched or over-delivered — is
+    // excess, and the return that takes it back names the wrong part (0829).
+    let correct_quantity = (line.quantity - line.wrong_quantity).max(0);
+    let matched_quantity = correct_quantity.min(outstanding);
     let excess_quantity = line.quantity - matched_quantity;
 
     // The price as it was when the goods were accepted. The DC writes it down
@@ -7658,45 +8256,30 @@ async fn apply_goods_receipt_line(
 
     // ---- this receipt's share of the order discount -----------------------
     //
-    // Allocated by running cumulative value, so the shares add up to the
-    // discount exactly and no receipt's share changes once written. A partial
-    // order allocates only the part it has earned: a discount on goods that
-    // never arrived was never earned.
-    let allocated_discount = if order_discount > 0 {
-        let expected_gross: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(sum(ordered_quantity * unit_price_minor), 0)::bigint
-               FROM purchase_order_line WHERE purchase_order_id = $1",
+    // The order's discount is already shared over its lines (0823, largest
+    // remainder, so the line shares add up to it exactly). A receipt takes
+    // its line's share in proportion to the pieces it matched, by running
+    // cumulative quantity, so the receipts of a line add up to the line's
+    // share exactly once it has all arrived and no receipt's share changes
+    // once written. A discount on goods that never arrived was never earned.
+    let allocated_discount = if line_discount > 0 && ordered_quantity > 0 && matched_quantity > 0
+    {
+        let allocated_so_far: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(sum(allocated_discount_minor), 0)::bigint
+               FROM goods_receipt_line WHERE po_line_id = $1",
         )
-        .bind(purchase_order_id)
+        .bind(line.po_line_id)
         .fetch_one(&mut **tx)
         .await?;
-        let (matched_value_so_far, allocated_so_far): (i64, i64) = sqlx::query_as(
-            "SELECT COALESCE(sum(r.matched_quantity
-                                 * COALESCE(r.agreed_unit_price_minor, l.unit_price_minor)), 0)::bigint,
-                    COALESCE(sum(r.allocated_discount_minor), 0)::bigint
-               FROM goods_receipt_line r
-               JOIN purchase_order_line l ON l.po_line_id = r.po_line_id
-              WHERE l.purchase_order_id = $1",
-        )
-        .bind(purchase_order_id)
-        .fetch_one(&mut **tx)
-        .await?;
-        if expected_gross <= 0 {
-            0
-        } else {
-            let cumulative = matched_value_so_far
-                .saturating_add(matched_quantity.saturating_mul(agreed_unit_price));
-            // Rounded half up, on integers, and capped at the whole discount:
-            // the last receipt of a completed order takes whatever rounding
-            // left behind, which is what makes the shares reconcile.
-            let target = ((cumulative as i128 * order_discount as i128 * 2
-                + expected_gross as i128)
-                / (expected_gross as i128 * 2)) as i64;
-            target
-                .min(order_discount)
-                .saturating_sub(allocated_so_far)
-                .max(0)
-        }
+        let cumulative = i128::from(already_matched.saturating_add(matched_quantity));
+        // Rounded half up, on integers, and capped at the line's share: the
+        // last receipt of the line takes whatever rounding left behind.
+        let target = ((cumulative * i128::from(line_discount) * 2 + i128::from(ordered_quantity))
+            / (i128::from(ordered_quantity) * 2)) as i64;
+        target
+            .min(line_discount)
+            .saturating_sub(allocated_so_far)
+            .max(0)
     } else {
         0
     };
@@ -7727,10 +8310,10 @@ async fn apply_goods_receipt_line(
     let inserted = sqlx::query(
         "INSERT INTO goods_receipt_line
              (receipt_line_id, receipt_id, count_id, po_line_id, quantity, matched_quantity,
-              excess_quantity, agreed_unit_price_minor, allocated_discount_minor,
+              excess_quantity, wrong_quantity, agreed_unit_price_minor, allocated_discount_minor,
               counted_by, verified_by, counted_at, verified_at, movement_group_id,
               generation, seq)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
          ON CONFLICT (receipt_line_id) DO NOTHING",
     )
     .bind(line.receipt_line_id)
@@ -7740,6 +8323,7 @@ async fn apply_goods_receipt_line(
     .bind(line.quantity)
     .bind(matched_quantity)
     .bind(excess_quantity)
+    .bind(line.wrong_quantity)
     .bind(agreed_unit_price)
     .bind(allocated_discount)
     .bind(&line.counted_by)
@@ -7753,24 +8337,10 @@ async fn apply_goods_receipt_line(
     .await?;
 
     // What came beyond the order goes back to the supplier (owner,
-    // 2026-09-26): the person who raised the order saw the excess when they
-    // verified the count, so the decision is theirs and is recorded as made.
-    // A buyer who wants to keep the extra pieces raises them on an order.
-    if inserted.rows_affected() > 0 && excess_quantity > 0 {
-        sqlx::query(
-            "INSERT INTO purchase_excess_decision
-                 (receipt_line_id, outcome, agreed_unit_price_minor, reason, decided_by)
-             VALUES ($1, 'RETURNED', NULL, $2, $3)
-             ON CONFLICT (receipt_line_id) DO NOTHING",
-        )
-        .bind(line.receipt_line_id)
-        .bind(format!(
-            "{excess_quantity} counted beyond the order — returned to supplier"
-        ))
-        .bind(&line.verified_by)
-        .execute(&mut **tx)
-        .await?;
-    }
+    // 2026-09-26), but no decision is written here. It used to be — 'RETURNED'
+    // in the verifier's name — and nothing ever sent the goods anywhere. The
+    // buyer puts the excess on a purchase return from the order (0710,
+    // `raise_purchase_return`), and the decision is written then.
 
     // Accepted goods with no identity yet are head office's move, and nobody
     // at the warehouse can make it: the article, its SKUs and their EPCs are
@@ -7787,8 +8357,14 @@ async fn apply_goods_receipt_line(
         .fetch_optional(&mut **tx)
         .await?;
         if let Some((po_number, article_name)) = ordered {
-            let recipients =
-                super::notifications::recipients_with_role(tx, &["ADMIN", "SUPERVISOR"]).await?;
+            // Those who may act at the warehouse it happened at, not every
+            // supervisor in the company: a shop head has no part in a receipt.
+            let recipients = super::notifications::recipients_with_role_at(
+                tx,
+                &["ADMIN", "SUPERVISOR"],
+                origin_id,
+            )
+            .await?;
             super::notifications::raise_notification(
                 tx,
                 super::notifications::NewNotification {
@@ -7831,25 +8407,47 @@ async fn apply_goods_receipt_line(
         // the moment it arrives rather than found weeks later by whoever
         // reconciles the invoice.
         if excess_quantity > 0 {
-            let recipients =
-                super::notifications::recipients_with_role(tx, &["ADMIN", "SUPERVISOR"]).await?;
+            // Those who may act at the warehouse it happened at, not every
+            // supervisor in the company: a shop head has no part in a receipt.
+            let recipients = super::notifications::recipients_with_role_at(
+                tx,
+                &["ADMIN", "SUPERVISOR"],
+                origin_id,
+            )
+            .await?;
             super::notifications::raise_notification(
                 tx,
                 super::notifications::NewNotification {
                     kind: "receipt.excess_awaiting_decision",
-                    title: "More arrived than was ordered".into(),
-                    body: format!(
-                        "{excess_quantity} pieces on {} at {origin_id} are beyond what the order \
-                         had outstanding. They are in the warehouse and are not yet ours to sell: \
-                         keep them or send them back.",
-                        line.receipt_number
-                    ),
+                    title: if line.wrong_quantity > 0 {
+                        "The delivery was not what the order said".into()
+                    } else {
+                        "More arrived than was ordered".into()
+                    },
+                    body: if line.wrong_quantity > 0 {
+                        format!(
+                            "{excess_quantity} pieces on {} at {origin_id} are beyond what the \
+                             order had outstanding, {wrong} of them not the article the order \
+                             names. They are in the warehouse and are not yet ours to sell: \
+                             keep them or send them back.",
+                            line.receipt_number,
+                            wrong = line.wrong_quantity
+                        )
+                    } else {
+                        format!(
+                            "{excess_quantity} pieces on {} at {origin_id} are beyond what the \
+                             order had outstanding. They are in the warehouse and are not yet \
+                             ours to sell: keep them or send them back.",
+                            line.receipt_number
+                        )
+                    },
                     subject: Some(("receipt", line.receipt_id.to_string())),
                     origin_id: Some(origin_id),
                     payload: serde_json::json!({
                         "receipt_line_id": line.receipt_line_id,
                         "po_line_id": line.po_line_id,
                         "excess_quantity": excess_quantity,
+                        "wrong_quantity": line.wrong_quantity,
                     }),
                 },
                 &recipients,
@@ -7866,7 +8464,8 @@ async fn apply_goods_receipt_line(
 /// as its own fact. The header used to arrive only on the back of an accepted
 /// line, so a refused lorry left no trace at the centre at all, and "this
 /// supplier sent damaged goods three times" was unanswerable.
-async fn apply_goods_receipt_rejected(
+// pub(crate): the cloud-run Gudang (cloud::dc::receiving) writes through it.
+pub(crate) async fn apply_goods_receipt_rejected(
     tx: &mut Transaction<'_, Postgres>,
     origin_id: &str,
     generation: i64,
@@ -7933,13 +8532,14 @@ fn parse_invoice_date(value: &str) -> Result<chrono::NaiveDate, AppError> {
 
 /// The supplier's invoice, recorded against a delivery that already arrived.
 /// Whether the invoice found the delivery it belongs to.
-enum InvoiceApplication {
+pub(crate) enum InvoiceApplication {
     Applied,
     /// The centre has no such delivery yet. Not an error: see the body.
     NoSuchReceipt,
 }
 
-async fn apply_goods_receipt_invoice(
+// pub(crate): the cloud-run Gudang (cloud::dc::receiving) writes through it.
+pub(crate) async fn apply_goods_receipt_invoice(
     tx: &mut Transaction<'_, Postgres>,
     invoice: &crate::cloud::domain::GoodsReceiptInvoicePayload,
 ) -> Result<InvoiceApplication, AppError> {
@@ -7990,10 +8590,15 @@ async fn apply_goods_receipt_invoice(
 /// which one lied.
 pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, AppError> {
     let header = sqlx::query(
-        "SELECT po_number, supplier_id, supplier_name, destination_site_id, origin_kind,
-                order_status, currency, created_by, created_at, issued_at, activation_command_id,
-                discount_minor, notes, supplier_ref_id
-         FROM purchase_order WHERE purchase_order_id = $1",
+        "SELECT po.po_number, po.supplier_id, po.supplier_name, po.destination_site_id,
+                po.origin_kind, po.order_status, po.currency, po.created_by, po.created_at,
+                po.issued_at, po.activation_command_id, po.discount_minor, po.notes,
+                po.supplier_ref_id, po.payment_terms_code, po.payment_method, po.discount_bps,
+                po.terms_and_conditions,
+                t.label AS payment_terms_name
+         FROM purchase_order po
+         LEFT JOIN payment_terms_template t ON t.code = po.payment_terms_code
+         WHERE po.purchase_order_id = $1",
     )
     .bind(id)
     .fetch_optional(pool)
@@ -8014,21 +8619,37 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
                           WHERE r.po_line_id = l.po_line_id), 0)::bigint AS received_quantity,
                 COALESCE((SELECT sum(r.excess_quantity) FROM goods_receipt_line r
                           WHERE r.po_line_id = l.po_line_id), 0)::bigint AS excess_quantity,
+                -- The part of it nobody has put on a return yet (0710).
+                COALESCE((SELECT sum(r.excess_quantity) FROM goods_receipt_line r
+                          WHERE r.po_line_id = l.po_line_id
+                            AND r.excess_quantity > 0
+                            AND NOT EXISTS (SELECT 1 FROM purchase_excess_decision d
+                                             WHERE d.receipt_line_id = r.receipt_line_id)),
+                         0)::bigint AS excess_pending_quantity,
+                -- How much of what arrived the checker counted as not the
+                -- article the order names (0829). Inside the excess above.
+                COALESCE((SELECT sum(r.wrong_quantity) FROM goods_receipt_line r
+                          WHERE r.po_line_id = l.po_line_id), 0)::bigint AS wrong_quantity,
                 -- What the acceptances are expected to be worth, at the prices
                 -- that applied when each was accepted and net of the discount
                 -- allocated to it. An estimate for Finance to match against —
                 -- nothing here is owed, and nothing here is posted.
-                COALESCE((SELECT sum(r.matched_quantity
-                                     * COALESCE(r.agreed_unit_price_minor, l.unit_price_minor))
+                -- Valued by the one rule (`purchase_receipt_value`, 0823).
+                COALESCE((SELECT sum(purchase_receipt_value(
+                                         r.matched_quantity, r.agreed_unit_price_minor,
+                                         l.unit_price_minor, l.order_unit_price_minor,
+                                         l.unit_factor))
                                  - sum(r.allocated_discount_minor)
                           FROM goods_receipt_line r
                           WHERE r.po_line_id = l.po_line_id), 0)::bigint AS expected_value_minor,
+                l.discount_minor,
                 COALESCE((SELECT array_agg(t.tag_code ORDER BY t.tag_code)
                           FROM purchase_order_line_tag t
                           WHERE t.po_line_id = l.po_line_id), '{}')::text[] AS tags,
                 l.base_price_minor, l.markup_bps,
                 l.order_unit_code, trim_scale(l.order_unit_quantity)::text AS order_unit_quantity,
                 trim_scale(l.unit_factor)::text AS unit_factor,
+                l.order_unit_price_minor,
                 COALESCE((SELECT jsonb_agg(jsonb_build_object(
                                      'colour_code', v.colour_code,
                                      'size_code', v.size_code,
@@ -8036,7 +8657,21 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
                                      'base_price_minor', v.base_price_minor)
                                  ORDER BY v.colour_code NULLS FIRST, v.size_code NULLS FIRST)
                           FROM purchase_order_line_variant v
-                          WHERE v.po_line_id = l.po_line_id), '[]'::jsonb) AS variants
+                          WHERE v.po_line_id = l.po_line_id), '[]'::jsonb) AS variants,
+                -- Each receiving against the line, oldest first: one entry per
+                -- accepted count. `received_at` is when the count was accepted
+                -- at the DC (the line's `verified_at`).
+                COALESCE((SELECT jsonb_agg(jsonb_build_object(
+                                     'receipt_number', g.receipt_number,
+                                     'quantity', r.quantity,
+                                     'matched_quantity', r.matched_quantity,
+                                     'excess_quantity', r.excess_quantity,
+                                     'wrong_quantity', r.wrong_quantity,
+                                     'received_at', r.verified_at)
+                                 ORDER BY r.verified_at, r.receipt_line_id)
+                          FROM goods_receipt_line r
+                          JOIN goods_receipt g ON g.receipt_id = r.receipt_id
+                          WHERE r.po_line_id = l.po_line_id), '[]'::jsonb) AS receipts
          FROM purchase_order_line l
          WHERE l.purchase_order_id = $1
          ORDER BY l.line_number",
@@ -8066,7 +8701,12 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
             if received > 0 {
                 any_received = true;
             }
-            if r.get::<String, _>("line_status") == "OPEN" {
+            // A line has stopped waiting when it was closed short or
+            // cancelled, or when everything expected has arrived — a line
+            // received in full is never closed, so its status stays OPEN.
+            if r.get::<String, _>("line_status") == "OPEN"
+                && received < expected_stock_units
+            {
                 all_lines_settled = false;
             }
             // A line closed short has stopped waiting: nothing is outstanding
@@ -8107,6 +8747,8 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
                 "supplier_item_id": r.get::<Option<Uuid>, _>("supplier_item_id"),
                 "unit_price_minor": unit_price,
                 "ordered_value_minor": r.get::<i64, _>("line_amount_minor"),
+                // This line's share of the order discount (0823).
+                "discount_minor": r.get::<i64, _>("discount_minor"),
                 // What the acceptances against this line are expected to be
                 // worth. NOT a payable: nothing has validated it and nothing
                 // is posted until Finance matches a supplier bill.
@@ -8131,6 +8773,12 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
                 "expected_stock_units": expected_stock_units,
                 "received_quantity": received,
                 "excess_quantity": r.get::<i64, _>("excess_quantity"),
+                // Beyond the order and not on a return yet: what the buyer
+                // still has to send back (0710).
+                "excess_pending_quantity": r.get::<i64, _>("excess_pending_quantity"),
+                // The part of it the checker counted as not the article the
+                // order names (0829).
+                "wrong_quantity": r.get::<i64, _>("wrong_quantity"),
                 "outstanding_stock_units": outstanding,
                 "closed_short_units": short_units,
                 "closed_short_by": r.get::<Option<String>, _>("closed_short_by"),
@@ -8143,7 +8791,12 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
                 "order_unit_code": r.get::<Option<String>, _>("order_unit_code"),
                 "order_unit_quantity": r.get::<Option<String>, _>("order_unit_quantity"),
                 "unit_factor": r.get::<Option<String>, _>("unit_factor"),
+                // The price as quoted per order unit (0656); null when the
+                // line was priced per piece.
+                "order_unit_price_minor": r.get::<Option<i64>, _>("order_unit_price_minor"),
                 "variants": r.get::<Value, _>("variants"),
+                // One entry per receiving (see the query).
+                "receipts": r.get::<Value, _>("receipts"),
             })
         })
         .collect();
@@ -8152,6 +8805,8 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
     let edit_blocked_reason = super::purchase_order_edit_blocker(pool, id).await?;
     let revisions = super::purchase_order_revisions(pool, id).await?;
     let cancel_blocked_reason = super::purchase_order_cancel_blocker(pool, id).await?;
+    // The excess already sent back, or on its way (0710).
+    let returns = super::purchase_returns_of_order(pool, id).await?;
     let order_status = header.get::<String, _>("order_status");
     // The same reading as the order book's — see `ORDER_BOOK_ROWS`.
     let lifecycle = if order_status == "CANCELLED" {
@@ -8170,6 +8825,13 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
         "po_number": header.get::<String, _>("po_number"),
         "supplier_ref_id": header.get::<Option<Uuid>, _>("supplier_ref_id"),
         "notes": header.get::<Option<String>, _>("notes"),
+        // The payment terms template the order was raised on (0817), and its
+        // label for display. Both null when the order carries none.
+        "payment_terms_code": header.get::<Option<String>, _>("payment_terms_code"),
+        "payment_terms_name": header.get::<Option<String>, _>("payment_terms_name"),
+        "payment_method": header.get::<String, _>("payment_method"),
+        // Free-text terms and conditions written on the order (0824).
+        "terms_and_conditions": header.get::<Option<String>, _>("terms_and_conditions"),
         "editable": edit_blocked_reason.is_none(),
         // Whether the order can still be called off, and if not, why.
         "cancellable": cancel_blocked_reason.is_none(),
@@ -8201,10 +8863,14 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
         // the discount agreed on the whole order, and what will be invoiced.
         "gross_minor": gross_total,
         "discount_minor": header.get::<i64, _>("discount_minor"),
+        // The discount as agreed, in hundredths of a percent; null when it
+        // was given as an amount (0823).
+        "discount_bps": header.get::<Option<i32>, _>("discount_bps"),
         "net_minor": (gross_total - header.get::<i64, _>("discount_minor")).max(0),
         "expected_arrival": promised.map(|date| date.to_string()),
         "created_at": header.get::<DateTime<Utc>, _>("created_at"),
         "lines": items,
+        "returns": returns,
     }))
 }
 
@@ -8226,6 +8892,10 @@ pub struct PurchaseOrderFilter {
     pub suppliers: Vec<String>,
     pub issued_from: Option<chrono::NaiveDate>,
     pub issued_to: Option<chrono::NaiveDate>,
+    /// Promised for delivery on or after this day, and on or before that one
+    /// (the owner, 2026-09-28: "filter tanggal delivery date").
+    pub delivery_from: Option<chrono::NaiveDate>,
+    pub delivery_to: Option<chrono::NaiveDate>,
     /// `issued` (the default), `po_number`, `supplier`, `value` or `expected`.
     ///
     /// Anything unrecognised falls back to `issued` rather than refusing: a
@@ -8299,15 +8969,20 @@ pub struct PurchaseOrderRow {
     /// order are one calculation.
     pub net_minor: i64,
     pub expected_stock_units: i64,
+    /// The quantity as the order says it, in the units it was bought in —
+    /// "5 kodi", "10 kodi + 2 pcs". Absent only for an order with no lines.
+    pub ordered_label: Option<String>,
     /// Quantity that answered the order. Excess is not in here.
     pub received_stock_units: i64,
     pub outstanding_stock_units: i64,
     /// Quantity covered by active supplier bills linked to the order lines.
     /// Draft, matched, and posted bills count; rejected and void bills do not.
     pub invoiced_stock_units: i64,
-    /// Quantity that arrived beyond the order and is waiting for a buyer to
-    /// say whether the company is keeping it.
+    /// Quantity that arrived beyond the order, all of it.
     pub excess_stock_units: i64,
+    /// The part of it nobody has put on a purchase return yet (0710): what
+    /// the order's buyer still has to send back.
+    pub excess_pending_stock_units: i64,
     pub fully_received: bool,
     /// What the pieces received so far are worth, at the prices that applied
     /// when each was accepted and net of the discount allocated to them —
@@ -8321,6 +8996,9 @@ pub struct PurchaseOrderRow {
     /// The delivery date has passed and pieces are still owed. The list pins
     /// these to the top and marks them red.
     pub overdue: bool,
+    /// Free-text terms and conditions written on the order (0824).
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub terms_and_conditions: Option<String>,
 }
 
 /// One value a filter can take, and how many orders would still be there.
@@ -8410,33 +9088,16 @@ struct PurchaseOrderCursor {
 /// first ascending, which is honest about what an unissued order is.
 const ORDER_BOOK_ROWS: &str = "
     SELECT b.*,
-           -- Where the order stands, derived rather than stored.
-           --
-           -- `order_status` only ever reads ISSUED or CLOSED, and nothing sets
-           -- CLOSED except closing every line short — so an order that arrived
-           -- in full stayed ISSUED for ever and the list said it was still
-           -- waiting. A stored lifecycle would be a second copy of what the
-           -- receipts already say, and the two would drift the first time a
-           -- fact was replayed.
-           --
-           -- SHORT_RECEIVED is an order that stopped waiting with pieces
-           -- missing: every line closed short. PARTIALLY_RECEIVED is still
-           -- waiting for the rest (owner, 2026-09-26).
-           CASE
-               WHEN b.order_status = 'CANCELLED' THEN 'CANCELLED'
-               WHEN b.expected_stock_units > 0
-                    AND b.received_stock_units >= b.expected_stock_units
-                    THEN 'FULLY_RECEIVED'
-               WHEN b.all_lines_settled OR b.order_status = 'CLOSED' THEN 'SHORT_RECEIVED'
-               WHEN b.received_stock_units > 0 THEN 'PARTIALLY_RECEIVED'
-               ELSE 'ACTIVE'
-           END AS lifecycle,
+           -- Where the order stands is `lifecycle`, which comes with `b.*`: it is
+           -- kept in the order's summary (migration 0826) and refreshed by the
+           -- database whenever a line, a receipt or an invoice moves.
            -- Late: promised for a day that has passed, and still owed. An
-           -- order nobody promised a date for cannot be late.
-           (b.order_status = 'ISSUED'
+           -- order nobody promised a date for cannot be late. Decided here,
+           -- when the list is read, because it depends on today.
+           COALESCE(b.order_status = 'ISSUED'
             AND NOT b.all_lines_settled
             AND b.received_stock_units < b.expected_stock_units
-            AND b.expected_arrival < site_local_date(now(), b.destination_site_id)) AS overdue,
+            AND b.expected_arrival < st.today, false) AS overdue,
            -- The house order as one number, so a keyset can seek on it: late
            -- orders first, the longest-late at the top; then everything else,
            -- the newest issued first.
@@ -8444,12 +9105,17 @@ const ORDER_BOOK_ROWS: &str = "
                WHEN b.order_status = 'ISSUED'
                     AND NOT b.all_lines_settled
                     AND b.received_stock_units < b.expected_stock_units
-                    AND b.expected_arrival < site_local_date(now(), b.destination_site_id)
+                    AND b.expected_arrival < st.today
                     THEN extract(epoch FROM b.expected_arrival::timestamp)::bigint
                ELSE 1000000000000
                     - extract(epoch FROM COALESCE(b.issued_at, TIMESTAMPTZ 'epoch'))::bigint
            END AS attention_key,
+           -- When the order stopped being waited on: received in full, closed
+           -- short, or — for a cancelled order — the moment it was cancelled,
+           -- read off its revision log (the owner, 2026-09-28: a cancelled
+           -- order's date is the day it was cancelled).
            CASE
+               WHEN b.order_status = 'CANCELLED' THEN b.cancelled_at
                WHEN b.expected_stock_units > 0
                     AND b.received_stock_units >= b.expected_stock_units
                     THEN b.last_received_at
@@ -8459,58 +9125,34 @@ const ORDER_BOOK_ROWS: &str = "
     FROM (
         SELECT o.purchase_order_id, o.po_number, o.supplier_id, o.supplier_name,
                o.destination_site_id, o.order_status, o.currency, o.issued_at,
-               o.discount_minor,
+               o.discount_minor, o.terms_and_conditions,
                COALESCE(o.issued_at, TIMESTAMPTZ '-infinity') AS issued_key,
                COALESCE(o.supplier_name, o.supplier_id)       AS supplier_key,
-               count(l.po_line_id)::bigint AS line_count,
-               min(l.promised_date) AS expected_arrival,
+               s.line_count, s.expected_arrival,
                -- A promise nobody made sorts after every promise somebody did,
                -- which is the useful answer when the question is what is due
                -- next.
-               COALESCE(min(l.promised_date), DATE '9999-12-31') AS expected_key,
-               COALESCE(sum(l.line_amount_minor), 0)::bigint AS gross_minor,
-               (COALESCE(sum(l.line_amount_minor), 0) - o.discount_minor)::bigint AS net_key,
-               COALESCE(sum(l.ordered_quantity - l.cancelled_quantity), 0)::bigint
-                   AS expected_stock_units,
-               -- MATCHED, not everything accepted. Quantity that arrived
-               -- beyond the order was never what the order was waiting for,
-               -- and counting it here is how a second delivery of 300 against
-               -- a filled order of 300 read as an order twice over.
-               COALESCE(sum((SELECT COALESCE(sum(r.matched_quantity), 0)
-                             FROM goods_receipt_line r
-                             WHERE r.po_line_id = l.po_line_id)), 0)::bigint
-                   AS received_stock_units,
-               COALESCE(sum((SELECT COALESCE(sum(il.quantity), 0)
-                             FROM supplier_invoice_line il
-                             JOIN supplier_invoice si ON si.invoice_id = il.invoice_id
-                             WHERE il.po_line_id = l.po_line_id
-                               AND si.status IN ('DRAFT', 'MATCHED', 'POSTED'))), 0)::bigint
-                   AS invoiced_stock_units,
-               COALESCE(sum((SELECT COALESCE(sum(r.excess_quantity), 0)
-                             FROM goods_receipt_line r
-                             WHERE r.po_line_id = l.po_line_id)), 0)::bigint
-                   AS excess_stock_units,
-               -- What the matched pieces are worth, the same reading the
-               -- order's own detail gives as `expected_value_minor`.
-               COALESCE(sum((SELECT COALESCE(sum(r.matched_quantity
-                                     * COALESCE(r.agreed_unit_price_minor, l.unit_price_minor))
-                                     - sum(r.allocated_discount_minor), 0)
-                             FROM goods_receipt_line r
-                             WHERE r.po_line_id = l.po_line_id)), 0)::bigint
-                   AS received_value_minor,
-               max((SELECT max(r.received_at) FROM goods_receipt_line r
-                     WHERE r.po_line_id = l.po_line_id)) AS last_received_at,
-               max(l.closed_short_at) AS last_closed_at,
-               (count(l.po_line_id) > 0 AND bool_and(l.line_status <> 'OPEN'))
-                   AS all_lines_settled
+               COALESCE(s.expected_arrival, DATE '9999-12-31') AS expected_key,
+               s.gross_minor,
+               (s.gross_minor - o.discount_minor)::bigint AS net_key,
+               s.expected_stock_units, s.ordered_label, s.received_stock_units,
+               s.invoiced_stock_units, s.excess_stock_units, s.excess_pending_stock_units,
+               s.received_value_minor, s.last_received_at, s.last_closed_at, s.cancelled_at,
+               s.all_lines_settled, s.lifecycle
         FROM purchase_order o
-        LEFT JOIN purchase_order_line l ON l.purchase_order_id = o.purchase_order_id
+        JOIN purchase_order_summary s ON s.purchase_order_id = o.purchase_order_id
         WHERE ($1::text IS NULL
                OR o.po_number ILIKE $1
                OR o.supplier_name ILIKE $1
                OR o.supplier_id ILIKE $1)
-        GROUP BY o.purchase_order_id
     ) b
+    -- Today at the receiving site, worked out once per site and not once per
+    -- order: there are a handful of sites and a quarter of a million orders.
+    LEFT JOIN (
+        SELECT d.destination_site_id AS site_id,
+               site_local_date(now(), d.destination_site_id) AS today
+          FROM (SELECT DISTINCT destination_site_id FROM purchase_order) d
+    ) st ON st.site_id = b.destination_site_id
 ";
 
 /// The status, supplier and date filters, written once for both queries.
@@ -8519,6 +9161,8 @@ const ORDER_BOOK_FILTERS: &str = "
     AND ($3::text[] IS NULL OR supplier_id = ANY($3))
     AND ($4::date IS NULL OR issued_at >= $4::date)
     AND ($5::date IS NULL OR issued_at < $5::date + 1)
+    AND ($6::date IS NULL OR expected_arrival >= $6::date)
+    AND ($7::date IS NULL OR expected_arrival <= $7::date)
 ";
 
 /// The order book, narrowed HERE and not in the browser.
@@ -8597,10 +9241,10 @@ pub async fn list_purchase_orders(
              SELECT * FROM searched WHERE {ORDER_BOOK_FILTERS}
          )
          SELECT * FROM kept
-          WHERE $6::uuid IS NULL
-             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE purchase_order_id = $6)
+          WHERE $8::uuid IS NULL
+             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE purchase_order_id = $8)
           ORDER BY {order}
-          LIMIT $7"
+          LIMIT $9"
     );
     let rows = sqlx::query(&sql)
         .bind(&needle)
@@ -8608,6 +9252,8 @@ pub async fn list_purchase_orders(
         .bind(&suppliers)
         .bind(filter.issued_from)
         .bind(filter.issued_to)
+        .bind(filter.delivery_from)
+        .bind(filter.delivery_to)
         .bind(cursor.as_ref().map(|c| c.purchase_order_id))
         .bind(limit)
         .fetch_all(pool)
@@ -8647,14 +9293,17 @@ pub async fn list_purchase_orders(
             discount_minor: discount,
             net_minor: (gross - discount).max(0),
             expected_stock_units: expected,
+            ordered_label: r.try_get("ordered_label")?,
             received_stock_units: received,
             outstanding_stock_units: (expected - received).max(0),
             invoiced_stock_units: r.try_get("invoiced_stock_units")?,
             excess_stock_units: r.try_get("excess_stock_units")?,
+            excess_pending_stock_units: r.try_get("excess_pending_stock_units")?,
             fully_received: received >= expected,
             received_value_minor: r.try_get("received_value_minor")?,
             fulfilled_at: r.try_get("fulfilled_at")?,
             overdue: r.try_get("overdue")?,
+            terms_and_conditions: r.try_get("terms_and_conditions")?,
         });
     }
 
@@ -8698,8 +9347,10 @@ async fn order_book_facets(
                 count(*)::bigint AS n
            FROM searched GROUP BY lifecycle
           UNION ALL
-         SELECT 'supplier', supplier_id, max(supplier_name), count(*)::bigint
-           FROM searched GROUP BY supplier_id
+         (SELECT 'supplier', supplier_id, max(supplier_name), count(*)::bigint AS n
+            FROM searched GROUP BY supplier_id
+           ORDER BY n DESC, supplier_id
+           LIMIT 50)
           UNION ALL
          SELECT 'all', '', NULL::text, count(*)::bigint FROM kept"
     );
@@ -8709,6 +9360,8 @@ async fn order_book_facets(
         .bind(&suppliers)
         .bind(filter.issued_from)
         .bind(filter.issued_to)
+        .bind(filter.delivery_from)
+        .bind(filter.delivery_to)
         .fetch_all(pool)
         .await?;
 
@@ -8756,7 +9409,8 @@ use crate::cloud::domain::{
 /// the warehouse was never told what the order costs, so it could not have
 /// quoted it. Storing both sides at the moment of arrival lets a later reader
 /// see the gap without reconstructing what the order said at the time.
-async fn apply_price_amendment_request(
+// pub(crate): the cloud-run Gudang (cloud::dc::receiving) writes through it.
+pub(crate) async fn apply_price_amendment_request(
     tx: &mut Transaction<'_, Postgres>,
     origin_id: &str,
     generation: i64,
@@ -8800,8 +9454,14 @@ async fn apply_price_amendment_request(
     // transaction, rather than by a sweep that looks for undecided rows: a
     // query is only pending because somebody at a warehouse is waiting, and
     // "we noticed a few minutes later" is not a property worth building in.
-    let recipients =
-        super::notifications::recipients_with_role(tx, &["ADMIN", "SUPERVISOR"]).await?;
+    // Those who may act at the warehouse it happened at, not every
+    // supervisor in the company: a shop head has no part in a receipt.
+    let recipients = super::notifications::recipients_with_role_at(
+        tx,
+        &["ADMIN", "SUPERVISOR"],
+        origin_id,
+    )
+    .await?;
     let difference = request.invoiced_price_minor - ordered_price;
     super::notifications::raise_notification(
         tx,
@@ -9205,9 +9865,14 @@ pub async fn decide_price_amendment(
             // is exactly the defect this replaced.
             if reach == AmendmentReach::Remaining {
                 sqlx::query(
+                    // The approved price is per piece, so the line is priced
+                    // per piece from here on: the old price per order unit
+                    // stops being the agreement (0823).
                     "UPDATE purchase_order_line
                      SET unit_price_minor = $2,
-                         line_amount_minor = $2 * (ordered_quantity - cancelled_quantity)
+                         order_unit_price_minor = NULL,
+                         line_amount_minor = purchase_value(
+                             ordered_quantity - cancelled_quantity, $2, NULL, NULL)
                      WHERE po_line_id = $1",
                 )
                 .bind(po_line_id)
@@ -9301,7 +9966,7 @@ pub async fn close_purchase_line_short(
     let row = sqlx::query(
         "SELECT l.ordered_quantity, l.cancelled_quantity,
                 l.closed_short_at, l.purchase_order_id,
-                COALESCE((SELECT sum(r.quantity) FROM goods_receipt_line r
+                COALESCE((SELECT sum(r.matched_quantity) FROM goods_receipt_line r
                           WHERE r.po_line_id = l.po_line_id), 0)::bigint AS received
          FROM purchase_order_line l
          WHERE l.po_line_id = $1
@@ -9345,8 +10010,11 @@ pub async fn close_purchase_line_short(
     .await?;
     // An order whose every line has stopped waiting is itself finished.
     let still_open: i64 = sqlx::query_scalar(
-        "SELECT count(*)::bigint FROM purchase_order_line
-         WHERE purchase_order_id = $1 AND line_status = 'OPEN'",
+        "SELECT count(*)::bigint FROM purchase_order_line l
+         WHERE l.purchase_order_id = $1 AND l.line_status = 'OPEN'
+           AND COALESCE((SELECT sum(r.matched_quantity) FROM goods_receipt_line r
+                          WHERE r.po_line_id = l.po_line_id), 0)
+               < l.ordered_quantity - l.cancelled_quantity",
     )
     .bind(purchase_order_id)
     .fetch_one(&mut *tx)
@@ -9358,6 +10026,39 @@ pub async fn close_purchase_line_short(
         )
         .bind(purchase_order_id)
         .execute(&mut *tx)
+        .await?;
+    }
+    // The DC holding the order is told, or its bay keeps offering the line
+    // for counting (E2E 2026-10-02: a closed-short order stayed on Receiving
+    // as "Count receive"). An order whose warehouse has no registered node
+    // has nobody to tell.
+    let destination_site_id: String = sqlx::query_scalar(
+        "SELECT destination_site_id FROM purchase_order WHERE purchase_order_id = $1",
+    )
+    .bind(purchase_order_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    // When the cloud runs the Gudang there is no node to tell: its bay reads
+    // `closed_short_at` itself (DC-CLOUD-NATIVE.md).
+    let owner = if crate::cloud::dc::common::hosted() {
+        None
+    } else {
+        inventory_dc_owner_tx(&mut tx, &destination_site_id).await?
+    };
+    if let Some(target) = owner {
+        issue_command_tx(
+            &mut tx,
+            crate::cloud::domain::COMMAND_PURCHASE_ORDER_LINE_CLOSE,
+            &json!({
+                "purchase_order_id": purchase_order_id,
+                "po_line_id": po_line_id,
+                "closed_short_units": shortfall,
+                "reason": reason,
+            }),
+            closed_by,
+            None,
+            std::slice::from_ref(&target),
+        )
         .await?;
     }
     tx.commit().await?;

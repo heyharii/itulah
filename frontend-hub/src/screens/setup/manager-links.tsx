@@ -5,7 +5,10 @@ import { Banner } from "@/components/ui/states"
 import { moment } from "@/lib/format"
 import type { CreatedStore } from "@/lib/queries/setup"
 import { listStores, storesKeys } from "@/lib/queries/stores"
-import { CopyLinkButton } from "@/screens/people/invite-sheet"
+import {
+  CopyLinkButton,
+  WhatsAppLinkButton,
+} from "@/screens/people/invite-sheet"
 
 /// "Send these links to your store managers" — shown right after stores are
 /// opened, wherever that happens: the wizard's last screen and the "Open a
@@ -17,11 +20,7 @@ import { CopyLinkButton } from "@/screens/people/invite-sheet"
 /// `manager_invitation` rather than assuming it, because a store opened
 /// before that date — read back from the register elsewhere — has none, and
 /// this component is written to be safe wherever `CreatedStore` travels.
-export function ManagerLinks({
-  stores,
-}: {
-  stores: readonly CreatedStore[]
-}) {
+export function ManagerLinks({ stores }: { stores: readonly CreatedStore[] }) {
   // Read unconditionally — a hook cannot sit after the early return below,
   // and this list is cheap: it is the same `/api/v1/stores` the Stores page
   // already keeps warm, not a call made for this component alone.
@@ -72,6 +71,10 @@ export function ManagerLinks({
                   {invitation.link}
                 </code>
                 <CopyLinkButton link={invitation.link} />
+                <WhatsAppLinkButton
+                  link={invitation.link}
+                  name={invitation.name}
+                />
               </div>
               <p className="text-meta text-mute">
                 Expires in 72 h — {moment(invitation.expires_at)}.

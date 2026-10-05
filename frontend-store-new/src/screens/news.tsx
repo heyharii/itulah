@@ -1,8 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Check, CheckCheck } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 
-import { CentralGate } from "@/components/central-gate"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Screen } from "@/components/ui/screen"
@@ -24,7 +23,7 @@ import type { Notification, NotificationPage } from "@itulah/contract"
 /// that is right for somebody sitting at a desk. This app spends its day beside
 /// a counter with a customer in front of it, and a badge that lights up during
 /// a queue is an interruption rather than news. So the count lives on the
-/// Kabar row, where somebody goes when they have a moment, and nothing ever
+/// Discuss row, where somebody goes when they have a moment, and nothing ever
 /// appears over the screen they are working in.
 ///
 /// # Only two kinds of thing reach a shop
@@ -42,12 +41,11 @@ import type { Notification, NotificationPage } from "@itulah/contract"
 /// a 48px cell would truncate the only part that matters. What this adds is
 /// the day each one arrived as a band over its rows, because a shop reads this
 /// once a day or less and "what came in since yesterday" is the question.
-export function News() {
-  return (
-    <CentralGate what="What head office has told you">
-      <ShopNews />
-    </CentralGate>
-  )
+///
+/// Now the Notices tab of Discuss (`screens/discuss.tsx`), which supplies the
+/// gate and the tab switch as `lead`.
+export function Notices({ lead }: { lead: ReactNode }) {
+  return <ShopNews lead={lead} />
 }
 
 const FEED_KEY = [CENTRAL_KEY_PREFIX, "notifications"] as const
@@ -61,7 +59,7 @@ function markRead(id: string) {
 
 type Slice = "all" | "unread"
 
-function ShopNews() {
+function ShopNews({ lead }: { lead: ReactNode }) {
   const client = useQueryClient()
   const [slice, setSlice] = useState<Slice>("all")
 
@@ -145,21 +143,18 @@ function ShopNews() {
 
   return (
     <Screen
-      sub={
-        unread === 0
-          ? "What head office has told this shop. You are up to date."
-          : `What head office has told this shop · ${count(unread)} unread`
-      }
       actions={
         <>
+          {lead}
           {filter}
           {clearAll}
         </>
       }
     >
-      {/* The phone has no page header — the bar says "Kabar" — so the filter
+      {/* The phone has no page header — the bar says "Discuss" — so the filter
           and the one action stand at the top of the page instead. */}
       <div className="mb-4 flex flex-col gap-2 md:hidden">
+        {lead}
         {filter}
         {clearAll}
       </div>

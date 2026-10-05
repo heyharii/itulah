@@ -212,12 +212,6 @@ pub async fn recipients_with_role(
     )
 }
 
-/// Raise one, in the caller's transaction.
-///
-/// Silently does nothing when nobody would be told. That is not a swallowed
-/// error: a notification with no recipients is a row that can never be read
-/// or cleared, and writing it would make the unread count of a system with no
-/// users grow forever.
 /// Who holds one of these rungs **and** may act where this happened.
 ///
 /// The place half of the same pair `Reach` decides for a caller — Admin
@@ -240,23 +234,16 @@ pub async fn recipients_with_role_at(
     // something is and they were written years apart: a site is `dc`, a unit
     // is `ho`, and a node calls itself `dc-01`. The owner settled what they
     // mean — head office IS the cloud, `dc` and `dc-01` are one warehouse
-    // (2026-09-13), and every site belongs to one unit (2026-09-27) — so the
-    // spellings are reconciled here rather than guessed at each call site.
+    // (2026-09-13), and every site belongs to one unit (2026-09-27).
     //
-    // The node suffix is trimmed (`dc-01` is site `dc`'s node), and a posting
-    // matches either spelling, directly as a unit or through the unit that
-    // owns the site (`site.unit_id`). Both spellings, because the trim cannot
-    // tell a node suffix from a store number: `store-07` trims to `store`, and
-    // matching only the trimmed form sent a store's notices to nobody but the
-    // admins.
-    let site = place.rsplit_once('-').map_or(place, |(head, tail)| {
-        if tail.chars().all(|c| c.is_ascii_digit()) {
-            head
-        } else {
-            place
-        }
-    });
-
+    // Resolved from data, in that order: a node's spelling of a site through
+    // the same bridge the rest of the cloud uses (`canonical_site_id_tx`),
+    // then the site to the unit that owns it (`site.unit_id`, 0600). This used
+    // to trim a trailing numeric segment off the id — `dc-01` → `dc` — which
+    // is deriving meaning from how a string is spelled, and it could not tell a
+    // node suffix from a store number: `store-07` trimmed to `store`, which
+    // matched no unit at all.
+    let canonical = super::sync::canonical_site_id_tx(tx, place).await?;
     Ok(sqlx::query_scalar(
         "SELECT u.username FROM app_user u
           WHERE u.active AND u.role = ANY($1)
@@ -264,18 +251,23 @@ pub async fn recipients_with_role_at(
                  OR EXISTS (SELECT 1 FROM employee_assignment a
                              WHERE a.employee_id = u.employee_id
                                AND a.valid_to IS NULL
-                               AND (a.unit_id IN ($2, $3)
-                                    OR a.unit_id IN (SELECT s.unit_id FROM site s
-                                                      WHERE s.id IN ($2, $3)))))
+                               AND a.unit_id = COALESCE(
+                                     (SELECT s.unit_id FROM site s WHERE s.id = $2),
+                                     $2)))
           ORDER BY u.username",
     )
     .bind(&roles)
-    .bind(place)
-    .bind(site)
+    .bind(&canonical)
     .fetch_all(&mut **tx)
     .await?)
 }
 
+/// Raise one, in the caller's transaction.
+///
+/// Silently does nothing when nobody would be told. That is not a swallowed
+/// error: a notification with no recipients is a row that can never be read
+/// or cleared, and writing it would make the unread count of a system with no
+/// users grow forever.
 pub async fn raise_notification(
     tx: &mut Transaction<'_, Postgres>,
     notification: NewNotification<'_>,

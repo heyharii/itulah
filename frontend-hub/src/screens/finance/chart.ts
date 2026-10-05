@@ -118,9 +118,10 @@ export function todayIso(): string {
   return isoDay(new Date())
 }
 
-/// "September 2026", in the client's locale.
+/// "September 2026" — in English, like the rest of the hub's copy; printed
+/// documents keep Indonesian through their own formatters.
 export function monthLabel(year: number, month: number): string {
-  return new Date(year, month - 1, 1).toLocaleDateString("id-ID", {
+  return new Date(year, month - 1, 1).toLocaleDateString("en-US", {
     month: "long",
     year: "numeric",
   })

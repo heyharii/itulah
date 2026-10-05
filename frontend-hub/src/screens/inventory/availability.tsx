@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { SHOW_MISSING, withoutMissing } from "@/lib/features"
 import { count } from "@/lib/format"
 import {
   availability,
@@ -23,6 +24,11 @@ import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
 import { Choice, Metric, MetricRow } from "@/screens/inventory/parts"
 import { placements } from "@/screens/inventory/shared"
+import {
+  DisplayUnitPicker,
+  useDisplayUnit,
+  type DisplayUnit,
+} from "@/screens/inventory/unit-display"
 
 /// What one pool can still promise, per SKU.
 ///
@@ -56,111 +62,120 @@ import { placements } from "@/screens/inventory/shared"
 /// becomes a `useFilterState(fields)` one with `counted` options from the
 /// response — no table facets — exactly like Sourcing and Articles.
 
-const columns: ColumnDef<TableSetup, AvailabilityItem>[] = [
-  {
-    id: "article",
-    accessorFn: (row) => `${row.article_name} ${row.article_code}`,
-    header: "Article",
-    size: 260,
-    cell: ({ row }) => (
-      <div className="min-w-0">
-        <span className="block truncate text-ink">
-          {row.original.article_name}
-        </span>
-        <span className="font-mono text-id text-mute">
-          {row.original.article_code}
-        </span>
-      </div>
-    ),
-  },
-  {
-    accessorKey: "sku_code",
-    header: "SKU",
-    size: 140,
-    cell: ({ row }) => (
-      <span className="font-mono text-id text-body">
-        {row.original.sku_code}
-      </span>
-    ),
-  },
-  {
-    id: "variant",
-    accessorFn: (row) => `${row.colour ?? ""} ${row.size ?? ""}`,
-    header: "Variant",
-    size: 150,
-    cell: ({ row }) => (
-      <span className="text-body">
-        {[row.original.colour, row.original.size].filter(Boolean).join(" · ") ||
-          "—"}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "division_code",
-    header: "Division",
-    size: 110,
-    cell: ({ row }) =>
-      row.original.division_code ? (
-        <Tag>{row.original.division_code}</Tag>
-      ) : (
-        <span className="text-mute">—</span>
+function availabilityColumns(
+  display: DisplayUnit
+): ColumnDef<TableSetup, AvailabilityItem>[] {
+  return [
+    {
+      id: "article",
+      accessorFn: (row) => `${row.article_name} ${row.article_code}`,
+      header: "Article",
+      size: 260,
+      cell: ({ row }) => (
+        <div className="min-w-0">
+          <span className="block truncate text-ink">
+            {row.original.article_name}
+          </span>
+          <span className="font-mono text-id text-mute">
+            {row.original.article_code}
+          </span>
+        </div>
       ),
-  },
-  {
-    accessorKey: "stock_qty",
-    header: "Stock",
-    size: 100,
-    meta: { align: "right" },
-    cell: ({ row }) => count(row.original.stock_qty),
-  },
-  {
-    accessorKey: "allotted_qty",
-    header: "Allotted",
-    size: 100,
-    meta: { align: "right" },
-    cell: ({ row }) => (
-      <span
-        className={row.original.allotted_qty > 0 ? "text-info-fg" : "text-mute"}
-      >
-        {count(row.original.allotted_qty)}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "on_hand_qty",
-    header: "On hand",
-    size: 110,
-    meta: { align: "right" },
-    // The decision metric, and the reason the list opens sorted by it: a
-    // negative on hand is stock promised twice.
-    cell: ({ row }) => (
-      <span
-        className={
-          row.original.on_hand_qty < 0
-            ? "font-medium text-bad-fg"
-            : row.original.on_hand_qty === 0
-              ? "text-mute"
-              : "text-ink"
-        }
-      >
-        {count(row.original.on_hand_qty)}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "missing_qty",
-    header: "Missing",
-    size: 100,
-    meta: { align: "right" },
-    cell: ({ row }) => (
-      <span
-        className={row.original.missing_qty > 0 ? "text-warn-fg" : "text-mute"}
-      >
-        {count(row.original.missing_qty)}
-      </span>
-    ),
-  },
-]
+    },
+    {
+      accessorKey: "sku_code",
+      header: "SKU",
+      size: 140,
+      cell: ({ row }) => (
+        <span className="font-mono text-id text-body">
+          {row.original.sku_code}
+        </span>
+      ),
+    },
+    {
+      id: "variant",
+      accessorFn: (row) => `${row.colour ?? ""} ${row.size ?? ""}`,
+      header: "Variant",
+      size: 150,
+      cell: ({ row }) => (
+        <span className="text-body">
+          {[row.original.colour, row.original.size]
+            .filter(Boolean)
+            .join(" · ") || "—"}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "division_code",
+      header: "Division",
+      size: 110,
+      cell: ({ row }) =>
+        row.original.division_code ? (
+          <Tag>{row.original.division_code}</Tag>
+        ) : (
+          <span className="text-mute">—</span>
+        ),
+    },
+    {
+      accessorKey: "stock_qty",
+      header: "Stock",
+      size: 100,
+      meta: { align: "right" },
+      cell: ({ row }) => display.format(row.original.stock_qty),
+    },
+    {
+      accessorKey: "allotted_qty",
+      header: "Allotted",
+      size: 100,
+      meta: { align: "right" },
+      cell: ({ row }) => (
+        <span
+          className={
+            row.original.allotted_qty > 0 ? "text-info-fg" : "text-mute"
+          }
+        >
+          {display.format(row.original.allotted_qty)}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "on_hand_qty",
+      header: "On Hand",
+      size: 110,
+      meta: { align: "right" },
+      // The decision metric, and the reason the list opens sorted by it: a
+      // negative on hand is stock promised twice.
+      cell: ({ row }) => (
+        <span
+          className={
+            row.original.on_hand_qty < 0
+              ? "font-medium text-bad-fg"
+              : row.original.on_hand_qty === 0
+                ? "text-mute"
+                : "text-ink"
+          }
+        >
+          {display.format(row.original.on_hand_qty)}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "missing_qty",
+      header: "Missing",
+      size: 100,
+      meta: { align: "right" },
+      cell: ({ row }) => (
+        <span
+          className={
+            row.original.missing_qty > 0 ? "text-warn-fg" : "text-mute"
+          }
+        >
+          {display.format(row.original.missing_qty)}
+        </span>
+      ),
+    },
+  ]
+}
 
 export function Availability() {
   const [pool, setPool] = useState("dc.warehouse")
@@ -195,6 +210,12 @@ export function Availability() {
     [page.data]
   )
 
+  const display = useDisplayUnit()
+  const columns = useMemo(
+    () => withoutMissing(availabilityColumns(display)),
+    [display]
+  )
+
   const table = useTable(
     useMemo(
       () => ({
@@ -205,7 +226,7 @@ export function Availability() {
         // The server orders by SKU code and nothing else; see above.
         enableSorting: false,
       }),
-      [rows]
+      [rows, columns]
     )
   )
 
@@ -222,7 +243,7 @@ export function Availability() {
     <PageContent>
       <PageHeader
         crumb="Inventory"
-        title="Availability"
+        title="On Hand & Shortfall"
         sub="What one pool can still promise, SKU by SKU."
       />
 
@@ -236,10 +257,10 @@ export function Availability() {
         <Input
           value={text}
           onChange={(event) => setText(event.target.value)}
-          placeholder="SKU, article code or name"
           className="h-8 w-64"
         />
         <Toolbar.Spacer />
+        <DisplayUnitPicker display={display} />
         <Segmented
           options={[
             { value: "all", label: "Every SKU" },
@@ -273,18 +294,26 @@ export function Availability() {
 
                 <div className="border-b border-hairline px-4 py-3.5">
                   <MetricRow>
-                    <Metric label="Stock" value={count(data.stock_qty)} />
-                    <Metric label="Allotted" value={count(data.allotted_qty)} />
+                    <Metric
+                      label="Stock"
+                      value={display.format(data.stock_qty)}
+                    />
+                    <Metric
+                      label="Allotted"
+                      value={display.format(data.allotted_qty)}
+                    />
                     <Metric
                       label="On hand"
-                      value={count(data.on_hand_qty)}
+                      value={display.format(data.on_hand_qty)}
                       tone={data.on_hand_qty < 0 ? "bad" : "ink"}
                     />
-                    <Metric
-                      label="Missing"
-                      value={count(data.missing_qty)}
-                      tone={data.missing_qty > 0 ? "warn" : "ink"}
-                    />
+                    {SHOW_MISSING && (
+                      <Metric
+                        label="Missing"
+                        value={display.format(data.missing_qty)}
+                        tone={data.missing_qty > 0 ? "warn" : "ink"}
+                      />
+                    )}
                   </MetricRow>
                 </div>
 

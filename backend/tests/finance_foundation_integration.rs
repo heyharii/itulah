@@ -5,16 +5,16 @@
 //!
 //!   1  a new shop posts on day one: every link that holds for all shops holds
 //!      for it, and nobody writes a row
-//!   2  one site's link overrides its kind's, and the kind's overrides
+//!   2  one unit's link overrides its kind's, and the kind's overrides
 //!      everybody's; removing the exception brings the rule back
 //!   3  a link to the wrong kind of account is refused when it is SAVED
-//!   4  removing the last link a site resolves through is refused, unless forced
+//!   4  removing the last link a unit resolves through is refused, unless forced
 //!   5  every change to a link is remembered, with who made it
 //!   6  Finance adds an account from the screen, it applies at once, is
 //!      remembered with who and why, and can be linked the moment it exists
 //!   7  a chart change that cannot apply is refused and changes nothing
 //!   8  an account that still answers to a role cannot be retired
-//!   9  the affiliate links follow the kind of site, not the counterparty (I7)
+//!   9  the affiliate links follow the kind of unit, not the counterparty (I7)
 
 use chrono::NaiveDate;
 use inventory_backend::cloud::postgres::{self as cloud, PostingIntent, PostingLine};
@@ -55,19 +55,19 @@ async fn try_post(pool: &PgPool, kind: &str, lines: Vec<PostingLine>) -> Result<
 
 async fn accounts_of(pool: &PgPool, entry: Uuid) -> Vec<(String, String)> {
     sqlx::query(
-        "SELECT site_id, account_code FROM journal_line WHERE entry_id = $1 ORDER BY line_number",
+        "SELECT unit_id, account_code FROM journal_line WHERE entry_id = $1 ORDER BY line_number",
     )
     .bind(entry)
     .fetch_all(pool)
     .await
     .unwrap_or_else(|error| panic!("lines: {error}"))
     .into_iter()
-    .map(|row| (row.get("site_id"), row.get("account_code")))
+    .map(|row| (row.get("unit_id"), row.get("account_code")))
     .collect()
 }
 
-async fn resolves(pool: &PgPool, role: &str, site: &str, source: &str) -> Result<String, String> {
-    cloud::resolve_account_code(pool, role, site, source)
+async fn resolves(pool: &PgPool, role: &str, unit: &str, source: &str) -> Result<String, String> {
+    cloud::resolve_account_code(pool, role, unit, source)
         .await
         .map_err(|error| error.to_string())
 }
@@ -161,7 +161,7 @@ async fn a_new_shop_posts_on_day_one(pool: PgPool) {
     let cell = cash
         .cells
         .iter()
-        .find(|cell| cell.site_id == "store-14")
+        .find(|cell| cell.unit_id == "store-14")
         .unwrap_or_else(|| panic!("store-14 is a column"));
     assert_eq!(cell.account_code.as_deref(), Some("1002"));
 }
@@ -172,10 +172,10 @@ async fn a_new_shop_posts_on_day_one(pool: PgPool) {
 async fn the_most_specific_link_wins(pool: PgPool) {
     assert_eq!(resolves(&pool, "cash", "store-03", "").await, Ok("1002".into()));
 
-    let exception = cloud::set_account_link(&pool, &link("cash", "", "SITE", "store-03", "1003"), ALICE)
+    let exception = cloud::set_account_link(&pool, &link("cash", "", "UNIT", "store-03", "1003"), ALICE)
         .await
         .unwrap_or_else(|error| panic!("a one-shop exception: {error}"));
-    assert_eq!(exception.decides_sites, 1);
+    assert_eq!(exception.decides_units, 1);
     assert_eq!(resolves(&pool, "cash", "store-03", "").await, Ok("1003".into()));
     assert_eq!(
         resolves(&pool, "cash", "store-04", "").await,
@@ -200,7 +200,7 @@ async fn a_link_to_the_wrong_kind_of_account_is_refused_when_saved(pool: PgPool)
         .to_string();
     assert!(refused.contains("PAYABLE"), "the refusal names the kind it wanted: {refused}");
     assert_eq!(
-        resolves(&pool, "trade_payable", "dc", "").await,
+        resolves(&pool, "trade_payable", "ho", "").await,
         Ok("2002".into()),
         "a refused link changes nothing"
     );
@@ -209,7 +209,7 @@ async fn a_link_to_the_wrong_kind_of_account_is_refused_when_saved(pool: PgPool)
 // 4 -------------------------------------------------------------------------
 
 #[sqlx::test(migrations = "./migrations/postgres")]
-async fn removing_the_last_link_a_site_uses_is_refused_unless_forced(pool: PgPool) {
+async fn removing_the_last_link_a_unit_uses_is_refused_unless_forced(pool: PgPool) {
     let cash_links: Vec<i64> = sqlx::query_scalar(
         "SELECT link_id FROM account_link WHERE role = 'cash' AND source_id = ''",
     )
@@ -224,7 +224,10 @@ async fn removing_the_last_link_a_site_uses_is_refused_unless_forced(pool: PgPoo
         .err()
         .unwrap_or_else(|| panic!("removing cash leaves shops with nowhere to post"))
         .to_string();
-    assert!(refused.contains("no account at"), "{refused}");
+    assert!(
+        refused.contains("no account in the books of") && refused.contains("store-01"),
+        "the refusal names the units it would strand, and where: {refused}"
+    );
     assert!(resolves(&pool, "cash", "store-01", "").await.is_ok(), "nothing was removed");
 
     cloud::remove_account_link(&pool, first, true, ALICE)
@@ -236,10 +239,10 @@ async fn removing_the_last_link_a_site_uses_is_refused_unless_forced(pool: PgPoo
 
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn every_change_to_a_link_is_remembered(pool: PgPool) {
-    let set = cloud::set_account_link(&pool, &link("cash", "", "SITE", "store-05", "1003"), ALICE)
+    let set = cloud::set_account_link(&pool, &link("cash", "", "UNIT", "store-05", "1003"), ALICE)
         .await
         .unwrap_or_else(|error| panic!("set: {error}"));
-    cloud::set_account_link(&pool, &link("cash", "", "SITE", "store-05", "1004"), BOB)
+    cloud::set_account_link(&pool, &link("cash", "", "UNIT", "store-05", "1004"), BOB)
         .await
         .unwrap_or_else(|error| panic!("move: {error}"));
     cloud::remove_account_link(&pool, set.link_id, false, ALICE)
@@ -378,7 +381,7 @@ async fn an_account_that_still_answers_to_a_role_cannot_be_retired(pool: PgPool)
 // 9 -------------------------------------------------------------------------
 
 #[sqlx::test(migrations = "./migrations/postgres")]
-async fn the_affiliate_links_follow_the_kind_of_site(pool: PgPool) {
+async fn the_affiliate_links_follow_the_kind_of_unit(pool: PgPool) {
     for (family, unit, head_office) in [
         ("PEMBIAYAAN", "2028", "1057"),
         ("BARANG", "2029", "1058"),
@@ -386,7 +389,7 @@ async fn the_affiliate_links_follow_the_kind_of_site(pool: PgPool) {
     ] {
         for role in ["affiliate_payable", "affiliate_receivable"] {
             assert_eq!(resolves(&pool, role, "store-07", family).await, Ok(unit.into()));
-            assert_eq!(resolves(&pool, role, "dc", family).await, Ok(head_office.into()));
+            assert_eq!(resolves(&pool, role, "ho", family).await, Ok(head_office.into()));
         }
     }
     let links: i64 = sqlx::query_scalar(
@@ -395,5 +398,5 @@ async fn the_affiliate_links_follow_the_kind_of_site(pool: PgPool) {
     .fetch_one(&pool)
     .await
     .unwrap_or_else(|error| panic!("count: {error}"));
-    assert_eq!(links, 12, "two roles x three families x two kinds of site");
+    assert_eq!(links, 12, "two roles x three families x two kinds of unit");
 }

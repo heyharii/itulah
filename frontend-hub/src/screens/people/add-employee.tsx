@@ -187,7 +187,6 @@ export function AddEmployeeSheet({
             <Input
               value={draft.code}
               onChange={(e) => set("code", e.target.value)}
-              placeholder="K0101"
             />
           </Field>
           <Field label="Full name" required>
@@ -267,7 +266,6 @@ export function AddEmployeeSheet({
             <Input
               value={draft.position}
               onChange={(e) => set("position", e.target.value)}
-              placeholder="Kasir"
             />
           </Field>
           <Field label="Grade">

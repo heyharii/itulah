@@ -823,6 +823,83 @@ async fn candidates_for(
         .collect()
 }
 
+/// A posting on the bank account that no statement line has claimed yet —
+/// ERPNext's "Amounts not reflected in bank": a giro written but not cleared,
+/// a transfer booked on the 30th that the bank shows on the 2nd.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct BookOnlyLine {
+    pub journal_line_id: Uuid,
+    pub entry_id: Uuid,
+    pub entry_number: String,
+    pub posting_date: NaiveDate,
+    pub source_kind: String,
+    pub memo: String,
+    /// Money into the account (a debit in our books).
+    pub deposit_minor: i64,
+    /// Money out of it (a credit in our books).
+    pub withdrawal_minor: i64,
+    /// Days between the posting and the statement's last day.
+    pub days_outstanding: i64,
+}
+
+/// Everything on the statement's account, up to its last day, that no bank
+/// line has claimed. Reaches back to the first statement ever imported for the
+/// account, so a cheque from last month that has still not cleared is listed
+/// here too — that is the item a reconciliation has to explain. Narrowed to
+/// the statement's unit when the statement names one.
+pub async fn book_only_lines(
+    pool: &PgPool,
+    statement_id: Uuid,
+) -> Result<Vec<BookOnlyLine>, AppError> {
+    let row = sqlx::query(
+        "SELECT account_code, unit_id, period_end FROM bank_statement WHERE statement_id = $1",
+    )
+    .bind(statement_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("statement".into()))?;
+    let account: String = row.try_get("account_code")?;
+    let unit: Option<String> = row.try_get("unit_id")?;
+    let end: NaiveDate = row.try_get("period_end")?;
+
+    let rows = sqlx::query(
+        "SELECT l.line_id, e.entry_id, e.entry_number, e.posting_date, e.source_kind,
+                COALESCE(l.memo, e.memo, '') AS memo, l.debit_minor, l.credit_minor
+           FROM journal_line l JOIN journal_entry e USING (entry_id)
+          WHERE l.account_code = $1
+            AND ($2::text IS NULL OR l.unit_id = $2)
+            AND e.posting_date <= $3
+            AND e.posting_date >= (SELECT MIN(period_start) FROM bank_statement
+                                    WHERE account_code = $1
+                                      AND ($2::text IS NULL OR unit_id = $2))
+            AND NOT EXISTS (SELECT 1 FROM bank_line_match m WHERE m.journal_line_id = l.line_id)
+          ORDER BY e.posting_date, e.entry_number",
+    )
+    .bind(&account)
+    .bind(unit.as_deref())
+    .bind(end)
+    .fetch_all(pool)
+    .await?;
+
+    rows.iter()
+        .map(|row| {
+            let date: NaiveDate = row.try_get("posting_date")?;
+            Ok(BookOnlyLine {
+                journal_line_id: row.try_get("line_id")?,
+                entry_id: row.try_get("entry_id")?,
+                entry_number: row.try_get("entry_number")?,
+                posting_date: date,
+                source_kind: row.try_get("source_kind")?,
+                memo: row.try_get("memo")?,
+                deposit_minor: row.try_get("debit_minor")?,
+                withdrawal_minor: row.try_get("credit_minor")?,
+                days_outstanding: (end - date).num_days(),
+            })
+        })
+        .collect()
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct LineSuggestions {

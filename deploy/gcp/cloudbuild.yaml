@@ -1,0 +1,15 @@
+# Builds the one API image (Dockerfile at the repo root) and pushes it to
+# Artifact Registry. Run by deploy/gcp/deploy.sh, which passes _IMAGE.
+#
+# e2-highcpu-32 (32 GB): the release build of the one big `inventory-backend`
+# crate needs more than the 8 GB of e2-highcpu-8 — that machine died with
+# INTERNAL_ERROR after 58 minutes (2 Oct 2026). Cents a build either way.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
+    args: ["build", "--tag", "${_IMAGE}", "--file", "Dockerfile", "."]
+images: ["${_IMAGE}"]
+options:
+  machineType: E2_HIGHCPU_32
+  logging: CLOUD_LOGGING_ONLY
+timeout: 7200s

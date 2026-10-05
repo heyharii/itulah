@@ -25,11 +25,7 @@ import {
   Th,
   TotalRow,
 } from "@/screens/finance-final/parts"
-import {
-  UnitName,
-  UnitSelect,
-  WindowControl,
-} from "@/screens/finance/parts"
+import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
 import { useWindow } from "@/screens/finance/hooks"
 import type {
   GeneralLedgerRow,

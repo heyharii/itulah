@@ -287,6 +287,9 @@ pub struct SupplierListQuery {
     limit: Option<i64>,
     #[serde(default)]
     category: Option<String>,
+    /// `true`: only suppliers with an order still open.
+    #[serde(default)]
+    active_orders: bool,
 }
 
 pub async fn list_suppliers(
@@ -314,6 +317,7 @@ pub async fn list_suppliers(
                 cursor: query.cursor.clone(),
                 // Clamped where it is enforced, not here.
                 limit: query.limit,
+                active_orders: query.active_orders,
             },
         )
         .await?,
@@ -555,6 +559,7 @@ async fn set_supplier_item_status(
 pub async fn create_catalog_purchase_order(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    Extension(acted_on): Extension<super::audit::DeclaredSubject>,
     headers: HeaderMap,
     Json(mut request): Json<CatalogPurchaseOrderRequest>,
 ) -> Result<
@@ -591,6 +596,11 @@ pub async fn create_catalog_purchase_order(
         &request_digest,
     )
     .await?;
+    // The order's id exists only in the answer, so the path cannot name it.
+    acted_on.set(
+        crate::cloud::domain::RecordKind::PurchaseOrder,
+        receipt.purchase_order_id.to_string(),
+    );
     Ok((StatusCode::CREATED, Json(receipt)))
 }
 
@@ -662,4 +672,51 @@ pub async fn list_purchase_destinations(
     Ok(Json(
         infrastructure::purchase_destinations(&state.db).await?,
     ))
+}
+
+/// Send an order's excess back to its supplier (0710): every receipt line's
+/// excess nobody has decided on, or the lines named. Answers with the return.
+pub async fn raise_purchase_return(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(purchase_order_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<infrastructure::RaisePurchaseReturnRequest>,
+) -> Result<(StatusCode, Json<infrastructure::PurchaseReturnView>), AppError> {
+    let key = idempotency_key(&headers)?;
+    let request_digest = digest(&json!({
+        "actor": &principal.username,
+        "purchase_order_id": purchase_order_id,
+        "request": &request,
+    }))?;
+    Ok((
+        StatusCode::CREATED,
+        Json(
+            infrastructure::raise_purchase_return(
+                &state.db,
+                purchase_order_id,
+                request,
+                &principal.username,
+                &key,
+                &request_digest,
+            )
+            .await?,
+        ),
+    ))
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct PurchaseReturnQuery {
+    #[serde(default)]
+    pub status: Option<String>,
+}
+
+/// The purchase returns, newest first — the Return to supplier book's
+/// quantity returns beside its allotments.
+pub async fn list_purchase_returns(
+    State(state): State<AppState>,
+    Query(query): Query<PurchaseReturnQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let items = infrastructure::list_purchase_returns(&state.db, query.status.as_deref()).await?;
+    Ok(Json(json!({ "items": items })))
 }

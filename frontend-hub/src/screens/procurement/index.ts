@@ -1,12 +1,12 @@
 import type { ScreenMap } from "@/screens/registry"
 
 import { Catalogue } from "@/screens/procurement/catalogue"
-import { Destinations } from "@/screens/procurement/destinations"
 import { PoImport } from "@/screens/procurement/import"
 import { Outstanding } from "@/screens/procurement/outstanding"
 import { PriceAmendments } from "@/screens/procurement/amendments"
 import { PurchaseOrders } from "@/screens/procurement/purchase-orders"
 import { Sourcing } from "@/screens/procurement/sourcing"
+import { SupplierReturns } from "@/screens/procurement/supplier-returns"
 import { Suppliers } from "@/screens/procurement/suppliers"
 
 /// Screens this module has written. Keys must be paths declared in
@@ -18,6 +18,6 @@ export const screens: ScreenMap = {
   "/procurement/outstanding": Outstanding,
   "/procurement/amendments": PriceAmendments,
   "/procurement/catalogue": Catalogue,
-  "/procurement/destinations": Destinations,
+  "/procurement/returns": SupplierReturns,
   "/procurement/suppliers": Suppliers,
 }

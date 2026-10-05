@@ -262,7 +262,7 @@ function StructureSheet({
         <SheetFooter
           onCancel={onClose}
           onSave={canWrite ? () => save.mutate() : undefined}
-          saveLabel={row ? "Restate" : "Save structure"}
+          saveLabel={row ? "Restate" : "Submit"}
           pending={save.isPending}
           disabled={
             code.trim() === "" || name.trim() === "" || reason.trim() === ""
@@ -295,14 +295,12 @@ function StructureSheet({
               value={code}
               disabled={row !== null}
               onChange={(event) => setCode(event.target.value)}
-              placeholder="KASIR"
             />
           </Field>
           <Field label="Name" required>
             <Input
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="Kasir toko"
             />
           </Field>
         </div>
@@ -459,14 +457,12 @@ function NewComponentSheet({
           <Input
             value={code}
             onChange={(event) => setCode(event.target.value)}
-            placeholder="UANG_MAKAN"
           />
         </Field>
         <Field label="Label" required>
           <Input
             value={label}
             onChange={(event) => setLabel(event.target.value)}
-            placeholder="Uang makan"
           />
         </Field>
         <Field label="Kind" required>

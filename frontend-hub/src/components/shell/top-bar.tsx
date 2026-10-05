@@ -1,5 +1,11 @@
 import { Link, useRouterState } from "@tanstack/react-router"
-import { ChevronDown, ChevronLeft, Menu, Sparkles } from "lucide-react"
+import {
+  ChevronDown,
+  ChevronLeft,
+  Menu,
+  PanelLeft,
+  Sparkles,
+} from "lucide-react"
 import { useState } from "react"
 
 import {
@@ -11,9 +17,10 @@ import {
   topBarAsides,
   type AppModule,
 } from "@/lib/navigation"
+import { BrandMark } from "@/components/brand-mark"
 import { AppSheet } from "@/components/shell/app-sheet"
 import type { AppTile } from "@/lib/apps"
-import { ClockChip } from "@/components/shell/clock-chip"
+import { TimeTravel } from "@/components/shell/time-travel"
 import { NotificationBell } from "@/components/shell/notification-bell"
 import { cn } from "@/lib/utils"
 import { useAssistant } from "@/components/assistant/state"
@@ -24,14 +31,25 @@ import { useAssistant } from "@/components/assistant/state"
 ///
 /// It held them, as a row of chips, from 2026-09-13 — and ran out of width,
 /// because the list is the shape of the company and only ever grows. They are
-/// the dark rail at the window's edge now (`rail.tsx`), and this bar is left
-/// with the two things a bar is good at: a breadcrumb read left to right, and
-/// a short row of tools at the far end.
+/// rows of the charcoal column at the window's edge now (`nav-column.tsx`),
+/// and this bar is left with the two things a bar is good at: a breadcrumb
+/// read left to right, and a short row of tools at the far end.
 ///
-/// It spans the PAGE, not the window. The rail and the sidebar run the full
-/// height beside it, which is what makes them read as two columns rather than
-/// as a frame drawn around the content.
-export function TopBar({ onOpenNav }: { onOpenNav?: () => void }) {
+/// It spans the PAGE, not the window. The column runs the full height beside
+/// it, which is what makes it read as a column rather than as a frame drawn
+/// around the content.
+export function TopBar({
+  onOpenNav,
+  onToggleNav,
+  navOpen = true,
+}: {
+  onOpenNav?: () => void
+  /// Folds and unfolds the docked column. Here rather than on the column so
+  /// the switch is in the same place whether the column is open or folded —
+  /// a control that moves with the thing it moves is hard to find twice.
+  onToggleNav?: () => void
+  navOpen?: boolean
+}) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const domain = domainForPath(pathname)
   const module = moduleForPath(pathname)
@@ -40,7 +58,22 @@ export function TopBar({ onOpenNav }: { onOpenNav?: () => void }) {
   const parent = domain?.label ?? module.label
 
   return (
-    <header className="flex h-13 shrink-0 items-center gap-3 border-b border-hairline bg-canvas px-5 max-md:px-3">
+    // On the page's own grey rather than white (2026-09-28, airy charcoal):
+    // the bar is part of the page it names, separated by a hairline, not a
+    // second strip of chrome across the top of it.
+    <header className="flex h-13 shrink-0 items-center gap-3 border-b border-hairline bg-soft-3 px-5 max-md:bg-canvas max-md:px-3">
+      {onToggleNav && (
+        <button
+          type="button"
+          onClick={onToggleNav}
+          aria-label={navOpen ? "Fold the menu" : "Unfold the menu"}
+          aria-pressed={!navOpen}
+          title={`${navOpen ? "Fold" : "Unfold"} the menu  ⌘B`}
+          className="-ml-1.5 grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-text"
+        >
+          <PanelLeft className="size-[1.0625rem] stroke-[1.6]" />
+        </button>
+      )}
       {onOpenNav && (
         <button
           type="button"
@@ -88,9 +121,13 @@ export function TopBar({ onOpenNav }: { onOpenNav?: () => void }) {
       </nav>
 
       <div className="flex shrink-0 items-center gap-2">
-        <ClockChip />
+        <TimeTravel place="bar" />
         {topBarAsides.map((aside) => (
-          <AsideLink key={aside.id} aside={aside} here={module.id === aside.id} />
+          <AsideLink
+            key={aside.id}
+            aside={aside}
+            here={module.id === aside.id}
+          />
         ))}
         {/* On a phone the bell is the bottom bar's Notifications tab. */}
         <span className="contents max-md:hidden">
@@ -98,8 +135,7 @@ export function TopBar({ onOpenNav }: { onOpenNav?: () => void }) {
         </span>
         {/* The assistant, as a control with its word on it. It was a bare
             sparkle glyph that did nothing when pressed; ⌘J was the only way
-            in. The bell that stood beside it is on the rail now — see
-            `notification-bell.tsx`. */}
+            in. */}
         <button
           type="button"
           onClick={() => assistant.setOpen(!assistant.open)}
@@ -111,6 +147,23 @@ export function TopBar({ onOpenNav }: { onOpenNav?: () => void }) {
           <span className="max-md:hidden">Ask</span>
         </button>
       </div>
+    </header>
+  )
+}
+
+/// The desk's header: a slim strip with the business time at its right end.
+///
+/// The "Find anything" bar it once held went on 2 Oct 2026 (search stays on
+/// ⌘K and in the column), and for a day the desk had no bar at all. The owner
+/// wanted the current time on show, so the strip came back with only that:
+/// nothing on the left, no title, no search. The time is a button for whoever
+/// may move the clock (it opens Time travel) and plain text for everyone else.
+export function DeskBar() {
+  return (
+    // h-13: the rail brand's and the screens panel's head height, so the
+    // three columns' lower edges are one line across the window.
+    <header className="flex h-13 shrink-0 items-center justify-end border-b border-hairline bg-soft-3 px-5">
+      <TimeTravel place="header" />
     </header>
   )
 }
@@ -165,9 +218,7 @@ function PhoneTitle({ pathname }: { pathname: string }) {
   if (within(pathname, "/apps")) {
     return (
       <span className="flex min-w-0 flex-1 items-center gap-2.5 md:hidden">
-        <span className="grid size-7 shrink-0 place-items-center rounded-[0.4375rem] bg-dark text-[0.875rem] font-semibold tracking-[0.02em] text-on-dark">
-          C
-        </span>
+        <BrandMark className="size-7" />
         <b className="truncate text-[0.9375rem] font-semibold tracking-[-0.01em] text-ink">
           Central
         </b>

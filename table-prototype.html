@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>List table (prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   The list table: the WINDOW scrolls, the totals never leave.
+
+   · One scroll — the page's. The toolbar (a big search, Filter, Columns)
+     sticks under the app bar, the column heads stick under the toolbar, and
+     the totals row floats at the foot of the window until the table's real
+     end arrives, where it settles into place.
+   · No. comes first, before PO: the row's place in THIS order (after search,
+     filter and sort), so "row 48" means the same thing to two people looking
+     at the same list. Hover it and it becomes a checkbox; ticked rows get
+     their own totals line over the grand total.
+   · Totals are for EVERY matching row, not the ones loaded so far — 40 rows
+     arrive at a time as you scroll, the totals don't move.
+   · Too many columns for the window: the table does NOT become a scroll box
+     (that is what un-sticks the heads today). It slides under a clip, driven
+     by a scrollbar pinned at the window's foot, and No. + PO stay frozen.
+
+   Hub tokens, 16px root, nothing under 14px, English copy.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f8f9; --soft-2:#f0f0f2; --soft-3:#f6f6f7;
+  --hairline:#e6e6e9; --hairline-2:#dadade; --hairline-strong:#c6c6cc;
+  --rail:#242526; --rail-3:#393b3d; --rail-text:#c3c4c7;
+  --accent:#2563eb; --accent-bg:#eff5ff; --cta:#2563eb; --cta-hover:#1d4ed8;
+  --ok:#36b827; --warn:#c9892e; --bad:#d05151; --info:#2f86d8; --bad-fg:#be123c;
+  --r-card:.75rem; --r-inner:.4375rem;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --shadow-soft:0 1px 3px rgb(24 39 60/4%);
+  --shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);
+  --shadow-float:0 2px 6px rgb(24 39 60/5%),0 18px 48px rgb(24 39 60/12%);
+  --tools-h:76px;
+}
+*{box-sizing:border-box}
+html{font-size:16px}
+html,body{height:100%;margin:0}
+body{font-family:Inter,system-ui,sans-serif;font-size:15px;color:var(--text);background:var(--soft-3);-webkit-font-smoothing:antialiased;font-feature-settings:"cv11","ss01"}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+input{font:inherit;color:var(--ink)}
+svg.lucide{width:17px;height:17px;stroke-width:1.7;flex-shrink:0}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px}
+
+.shell{display:flex;height:100vh}
+.col{width:68px;background:var(--rail);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:6px;flex-shrink:0}
+.mark{width:30px;height:30px;border-radius:8px;background:#0b0b0b;box-shadow:inset 0 0 0 1px rgb(255 255 255/.12);color:#fff;display:grid;place-items:center;font-weight:600;position:relative;margin-bottom:10px}
+.mark::after{content:"";position:absolute;right:5px;bottom:5px;width:5px;height:5px;border-radius:50%;background:#3b82f6}
+.ci{width:40px;height:40px;border-radius:9px;display:grid;place-items:center;color:var(--rail-text)}
+.ci.on{background:var(--rail-3);color:#fff}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.bar{height:52px;display:flex;align-items:center;gap:8px;padding:0 32px;border-bottom:1px solid var(--hairline);color:var(--body);flex-shrink:0;background:var(--soft-3)}
+.bar b{color:var(--ink);font-weight:500}
+.bar svg{width:15px;height:15px;color:var(--faint)}
+/* THE scroll — the only one. */
+.page{flex:1;overflow-y:auto;overflow-x:hidden}
+.content{max-width:100rem;margin:0 auto;padding:28px 32px 0}
+.ph{display:flex;align-items:flex-end;gap:16px;margin-bottom:8px}
+.ph h1{margin:0;font-size:28px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+.ph p{margin:6px 0 0;color:var(--body)}
+.ph .act{margin-left:auto;display:flex;gap:8px}
+.btn{height:40px;padding:0 14px;border-radius:var(--r-inner);box-shadow:inset 0 0 0 1px var(--hairline-2);background:var(--canvas);color:var(--ink);display:inline-flex;align-items:center;gap:8px;font-weight:500;white-space:nowrap}
+.btn:hover{background:var(--soft)}
+.btn.pri{background:var(--cta);color:#fff;box-shadow:none}
+.btn.pri:hover{background:var(--cta-hover)}
+.btn.ghost{box-shadow:none;background:none;color:var(--body)}
+.btn.ghost:hover{background:var(--soft-2);color:var(--ink)}
+.btn.tall{height:52px;padding:0 18px}
+
+/* toolbar: sticks under the app bar; the search is the biggest thing on it */
+.tools{position:sticky;top:0;z-index:20;background:var(--soft-3);display:flex;gap:10px;align-items:center;height:var(--tools-h);padding:12px 0}
+.search{flex:1;max-width:46rem;height:52px;border-radius:10px;background:var(--canvas);box-shadow:inset 0 0 0 1px var(--hairline-2);display:flex;align-items:center;gap:12px;padding:0 16px;color:var(--mute);transition:box-shadow 120ms}
+.search:focus-within{box-shadow:inset 0 0 0 1.5px var(--accent),0 0 0 4px rgb(37 99 235/.12)}
+.search svg{width:20px;height:20px}
+.search input{flex:1;border:0;outline:none;background:none;height:100%;font-size:17px;min-width:0}
+.search input::placeholder{color:var(--mute)}
+.search kbd{font-family:inherit;font-size:14px;color:var(--mute);box-shadow:inset 0 0 0 1px var(--hairline-2);border-radius:6px;padding:1px 8px}
+.search .clear{width:28px;height:28px;border-radius:6px;display:grid;place-items:center}
+.search .clear:hover{background:var(--soft-2);color:var(--ink)}
+.tools .count{margin-left:auto;color:var(--body);white-space:nowrap}
+.tools .count b{color:var(--ink);font-weight:500}
+
+/* the card clips sideways without becoming a scroll box: heads keep sticking */
+.card{background:var(--canvas);border-radius:var(--r-card);box-shadow:0 0 0 1px var(--hairline);overflow-x:clip;position:relative}
+table{border-collapse:separate;border-spacing:0;table-layout:fixed;width:100%}
+th,td{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 14px;text-align:left}
+thead th{position:sticky;top:var(--tools-h);z-index:5;height:44px;background:var(--soft);color:var(--body);font-weight:500;font-size:14px;border-bottom:1px solid var(--hairline);user-select:none;cursor:pointer}
+thead th:first-child{border-top-left-radius:var(--r-card)}
+thead th:last-child{border-top-right-radius:var(--r-card)}
+thead th:hover{color:var(--ink)}
+thead th .ar{display:inline-flex;vertical-align:-3px;margin-left:4px;color:var(--ink)}
+thead th .ar svg{width:15px;height:15px}
+tbody td{height:52px;border-bottom:1px solid var(--hairline);background:var(--canvas)}
+tbody tr{cursor:pointer}
+tbody tr:hover td{background:var(--soft)}
+tbody tr.on td{background:var(--accent-bg)}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+td.strong{color:var(--ink);font-weight:500}
+td.neg{color:var(--bad-fg)}
+.st{display:inline-flex;align-items:center;gap:7px}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0}
+/* No.: the row's place in this order; a checkbox under the hover */
+/* The number never leaves; the checkbox sits to its left — on hover, and on
+   every row once anything is ticked. */
+td.n,th.n{text-align:right;padding-left:14px;padding-right:12px}
+td.n{color:var(--mute);font-variant-numeric:tabular-nums}
+.n .cb{float:left;margin-top:2px;visibility:hidden}
+tr:hover .n .cb,tr.on .n .cb,.picking .n .cb,th.n:hover .cb{visibility:visible}
+.box{width:18px;height:18px;border-radius:5px;box-shadow:inset 0 0 0 1.5px var(--hairline-strong);background:var(--canvas);display:grid;place-items:center;color:#fff}
+.box svg{width:13px;height:13px;stroke-width:2.6;display:none}
+tr.on .box,.box.on{background:var(--accent);box-shadow:none}
+tr.on .box svg,.box.on svg{display:block}
+.box.some{background:var(--accent);box-shadow:none}
+.box.some::after{content:"";width:9px;height:2px;background:#fff;border-radius:1px}
+/* frozen columns (No. + PO) when the table slides sideways */
+tbody .frz{position:relative;z-index:2}
+thead .frz{z-index:7}
+tfoot .frz{z-index:7}
+/* labels sit in the frozen columns and may run past them over the blank cells */
+td.lab{overflow:visible;font-weight:500}
+tfoot td.lab{z-index:8}
+.grp td.lab{z-index:6}
+.slid .frz.edge{box-shadow:6px 0 8px -6px rgb(24 39 60/18%)}
+
+/* totals: float at the window's foot, settle at the table's end */
+tfoot td{position:sticky;bottom:var(--foot-off,0px);z-index:6;height:52px;background:var(--soft);border-top:1px solid var(--hairline);color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+tfoot tr.sel td{bottom:calc(var(--foot-off,0px) + 52px);background:var(--accent-bg);color:#1e40af;font-weight:500;border-top:1px solid var(--hairline)}
+tfoot tr:last-child td:first-child{border-bottom-left-radius:var(--r-card)}
+tfoot tr:last-child td:last-child{border-bottom-right-radius:var(--r-card)}
+
+tfoot .lbl{font-weight:500;color:var(--body)}
+tfoot .lbl b{color:var(--ink);font-weight:600}
+tfoot .x{color:#1e40af;font-weight:500;margin-left:10px;text-decoration:underline;text-underline-offset:3px}
+.grp td{position:sticky;top:calc(var(--tools-h) + 44px);z-index:4;height:52px;background:var(--canvas);border-bottom:1px solid var(--hairline);color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums;cursor:pointer}
+.grp:hover td{background:var(--soft)}
+.grp.on td{background:var(--accent-bg)}
+.grp td.n{font-weight:600;color:var(--ink)}
+.grp .gl{display:inline-flex;align-items:center;gap:8px;font-weight:600}
+.grp .gl svg{width:16px;height:16px;color:var(--mute);transition:transform 160ms var(--ease-out)}
+.grp.open .gl svg{transform:rotate(90deg)}
+.grp .gl small{font-size:14px;font-weight:400;color:var(--mute)}
+.grp td.r{font-weight:600}
+.menu{position:absolute;z-index:30;top:64px;background:var(--canvas);border-radius:10px;box-shadow:0 0 0 1px var(--hairline),var(--shadow-pop);padding:4px;min-width:14rem}
+.menu button{width:100%;height:40px;padding:0 10px;border-radius:7px;display:flex;align-items:center;gap:10px;text-align:left}
+.menu button:hover{background:var(--soft-2)}
+.menu button.on{font-weight:500;color:var(--ink)}
+.menu button .ck{margin-left:auto;color:var(--accent)}
+.btn.set{box-shadow:inset 0 0 0 1px #b9cdf5;background:var(--accent-bg);color:#1e40af}
+.pg{display:flex;align-items:center;gap:8px;padding:12px 16px;background:var(--soft);border-bottom:1px solid var(--hairline);font-weight:600;color:var(--ink);cursor:pointer}
+.pg small{font-weight:400;color:var(--mute)}
+.pg span:last-child{margin-left:auto;font-variant-numeric:tabular-nums}
+.more td{height:56px;color:var(--mute);text-align:center;background:var(--canvas)}
+.more td svg{vertical-align:-3px;margin-right:6px}
+.spin{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty td{height:140px;text-align:center;color:var(--mute)}
+/* the sideways scrollbar, pinned at the very foot of the window */
+.hbar{position:sticky;bottom:0;z-index:8;height:14px;overflow-x:auto;overflow-y:hidden;background:var(--soft);border-top:1px solid var(--hairline);border-radius:0 0 var(--r-card) var(--r-card)}
+.hbar div{height:1px}
+.hbar[hidden]{display:none}
+.tail{height:120px}
+
+/* phone: cards, and the totals as one bar */
+.cards .pc{display:grid;grid-template-columns:auto 1fr auto;gap:2px 12px;padding:12px 16px;border-bottom:1px solid var(--hairline);cursor:pointer}
+.cards .pc .n{grid-row:span 3;color:var(--mute);font-variant-numeric:tabular-nums;min-width:22px;text-align:right;padding-top:1px}
+.cards .meta{color:var(--body);font-size:14px}
+.ptot{position:sticky;bottom:0;z-index:8;background:var(--canvas);border-top:1px solid var(--hairline-2);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 -10px 24px -14px rgb(24 39 60/28%)}
+.ptot b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.phone .col{display:none}
+.phone .bar{padding:0 16px}
+.phone .content{padding:16px 16px 0}
+.phone .ph p,.phone .ph .act{display:none}
+.phone .ph h1{font-size:24px}
+.phone{--tools-h:72px}
+.phone .tools .count,.phone .tools .btn span{display:none}
+.phone .search{height:48px}
+
+/* ── the prototype's own switch ────────────────────────────────────────── */
+.dev{position:fixed;inset:0;z-index:85;background:#e7e7ea;display:flex;justify-content:center;align-items:flex-start;padding-top:18px}
+.dev[hidden]{display:none}
+.frame{flex-shrink:0;border:10px solid #191b20;border-radius:46px;overflow:hidden;background:#fff;transform-origin:top center;box-shadow:0 30px 60px rgb(24 39 60/18%);width:390px;height:844px}
+.frame iframe{width:100%;height:100%;border:0;display:block}
+.proto{position:fixed;right:16px;top:5px;z-index:90;background:#191b20;color:#d6d7da;border-radius:12px;padding:4px;display:flex;gap:6px;align-items:center;box-shadow:var(--shadow-float);font-size:14px}
+.proto .note{display:none}
+.embed .proto{display:none}
+.seg{display:flex;background:#2a2c31;border-radius:10px;padding:3px}
+.seg button{flex:1;height:30px;padding:0 10px;border-radius:7px;color:#a9abb1;white-space:nowrap}
+.seg button.on{background:#fff;color:#191b20;font-weight:500}
+.proto .note{color:#a9abb1;padding:2px 8px 4px;line-height:1.4}
+.proto .hide{align-self:flex-end;color:#8b8e95;padding:0 6px}
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="col"><span class="mark">C</span><span class="ci"><i data-lucide="house"></i></span><span class="ci on"><i data-lucide="shopping-cart"></i></span><span class="ci"><i data-lucide="shirt"></i></span><span class="ci"><i data-lucide="boxes"></i></span><span class="ci"><i data-lucide="landmark"></i></span></nav>
+  <div class="main">
+    <header class="bar">Buying<i data-lucide="chevron-right"></i><b>Purchase orders</b></header>
+    <div class="page" id="page"><div class="content" id="content"></div></div>
+  </div>
+</div>
+<div class="dev" id="dev" hidden><div class="frame" id="frame"><iframe id="ifr" title="Phone preview"></iframe></div></div>
+<div class="proto" id="proto">
+  <div class="seg" id="devseg"></div>
+  <div class="seg" id="colseg"></div>
+  <div class="note" id="note"></div>
+</div>
+
+<script>
+/* ── data: 214 purchase orders, seeded ──────────────────────────────────── */
+let seed=11;const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
+const any=a=>a[Math.floor(rnd()*a.length)];
+const SUPS=['PT Sinar Garmen','CV Benang Mas','PT Tekstil Jaya','Konveksi Anugerah','UD Rajut Bandung','CV Kain Nusantara','PT Mega Jahit','CV Bordir Indah','PT Denim Raya','Konveksi Sejahtera','PT Kancing Mas','UD Batik Solo'];
+const DESTS=['Cikarang DC','Cikarang DC','Cikarang DC','Store Kemang','Store PIK','Store Senayan','Store Bintaro','Store BSD'];
+const BY=['Rina','Dimas','Sari','Budi','Wulan'],DIVS=['Men','Women','Kids','Accessories'],TERMS=['Cash','14 days','30 days','45 days'];
+const STW=['Draft','Awaiting approval','Sent','Sent','Partly received','Partly received','Received','Received','Received','Cancelled'];
+const ST={'Draft':'var(--faint)','Awaiting approval':'var(--warn)','Sent':'var(--info)','Partly received':'var(--info)','Received':'var(--ok)','Cancelled':'var(--bad)'};
+const MON=['Jul','Aug','Sep','Oct','Nov'];
+const ALL=[];
+for(let n=626;n>412;n--){
+  const st=any(STW),qty=Math.round(80+rnd()*2400),price=40000+Math.round(rnd()*180)*1000;
+  const rcv=st==='Received'?qty:st==='Partly received'?Math.round(qty*(.3+rnd()*.5)):0;
+  const val=qty*price, paid=st==='Received'?(rnd()<.6?val:Math.round(val*.5)):st==='Partly received'?Math.round(val*.3):0;
+  const od=new Date(2026,6,1+Math.round((626-n)/214*90)), eta=new Date(od.getTime()+864e5*(10+Math.round(rnd()*30)));
+  ALL.push({po:'PO-2026-0'+n,sup:any(SUPS),dest:any(DESTS),div:any(DIVS),by:any(BY),terms:any(TERMS),st,qty,rcv,out:st==='Cancelled'?0:qty-rcv,val,paid,od,eta});
+}
+const d=x=>x.getDate()+' '+MON[x.getMonth()-6];
+const id=n=>n.toLocaleString('id-ID');
+const COLS=[
+  {k:'n',l:'No.',w:84,cls:'n',frz:1},
+  {k:'po',l:'PO',w:150,frz:1,edge:1,v:p=>p.po,cell:p=>'<span class="mono" style="color:var(--ink)">'+p.po+'</span>'},
+  {k:'sup',l:'Supplier',w:210,grow:1,v:p=>p.sup},
+  {k:'dest',l:'Destination',w:150,v:p=>p.dest},
+  {k:'div',l:'Division',w:120,many:1,v:p=>p.div},
+  {k:'by',l:'Raised by',w:120,many:1,v:p=>p.by},
+  {k:'od',l:'Ordered on',w:120,many:1,v:p=>p.od,cell:p=>d(p.od)},
+  {k:'eta',l:'ETA',w:100,v:p=>p.eta,cell:p=>d(p.eta)},
+  {k:'terms',l:'Terms',w:110,many:1,v:p=>p.terms},
+  {k:'qty',l:'Ordered',w:110,r:1,sum:1,v:p=>p.qty,cell:p=>id(p.qty)},
+  {k:'rcv',l:'Received',w:110,r:1,sum:1,v:p=>p.rcv,cell:p=>id(p.rcv)},
+  {k:'out',l:'Outstanding',w:120,r:1,sum:1,many:1,v:p=>p.out,cell:p=>id(p.out)},
+  {k:'val',l:'Value (Rp)',w:170,r:1,sum:1,v:p=>p.val,cell:p=>id(p.val)},
+  {k:'paid',l:'Paid (Rp)',w:170,r:1,sum:1,many:1,v:p=>p.paid,cell:p=>id(p.paid)},
+  {k:'st',l:'Status',w:180,v:p=>p.st,cell:p=>'<span class="st"><span class="dot" style="background:'+ST[p.st]+'"></span>'+p.st+'</span>'},
+];
+
+/* ── state ──────────────────────────────────────────────────────────────── */
+const QS=new URLSearchParams(location.search), EMBED=QS.get('embed');
+if(EMBED)document.documentElement.classList.add('embed','phone');
+else if(innerWidth<768)document.documentElement.classList.add('phone');
+const isPhone=()=>document.documentElement.classList.contains('phone');
+const PAGE=40;
+const GROUPS={sup:'Supplier',st:'Status',dest:'Destination'};
+const S={group:QS.get('group')||null,gopen:new Set(),menu:false,q:'',sort:{k:'n',dir:1},loaded:PAGE,sel:new Set(),cols:QS.get('cols')||'fit',x:0,loading:false};
+const $=id=>document.getElementById(id);
+const icons=()=>lucide.createIcons({attrs:{'stroke-width':1.7}});
+const cols=()=>COLS.filter(c=>(S.cols==='many'||!c.many)&&c.k!==S.group);
+
+/* Everything that matches, in order. The server's job in the hub: it
+   answers the page of rows AND the totals for all of them. */
+function matching(){
+  const q=S.q.trim().toLowerCase();
+  let r=ALL.filter(p=>!q||(p.po+' '+p.sup+' '+p.dest).toLowerCase().includes(q));
+  if(S.sort.k!=='n'){const c=COLS.find(x=>x.k===S.sort.k);r=r.slice().sort((a,b)=>{const x=c.v(a),y=c.v(b);return (x>y?1:x<y?-1:0)*S.sort.dir})}
+  return r;
+}
+const sums=rows=>Object.fromEntries(COLS.filter(c=>c.sum).map(c=>[c.k,rows.reduce((s,p)=>s+c.v(p),0)]));
+
+/* ── render ─────────────────────────────────────────────────────────────── */
+function render(){
+  const all=matching(), shown=all.slice(0,S.loaded), C=cols();
+  let h='<div class="ph"><div><h1>Purchase orders</h1><p>Q3–Q4 2026 · every PO raised from HO</p></div><div class="act"><button class="btn"><i data-lucide="download"></i>Export</button><button class="btn pri"><i data-lucide="plus"></i>New PO</button></div></div>';
+  h+='<div class="tools"><label class="search"><i data-lucide="search"></i><input id="q" placeholder="Search PO number, supplier or destination" value="'+S.q.replace(/"/g,'&quot;')+'" autocomplete="off">'+(S.q?'<button class="clear" onclick="setQ(\'\')" aria-label="Clear search"><i data-lucide="x"></i></button>':'<kbd>/</kbd>')+'</label>'
+    +'<button class="btn tall"><i data-lucide="list-filter"></i><span>Filter</span></button>'
+    +'<span style="position:relative"><button class="btn tall'+(S.group?' set':'')+'" onclick="S.menu=!S.menu;render()"><i data-lucide="rows-3"></i><span>'+(S.group?'Group: '+GROUPS[S.group]:'Group')+'</span><i data-lucide="chevron-down"></i></button>'
+    +(S.menu?'<div class="menu">'+[[null,'No grouping'],...Object.entries(GROUPS)].map(([k,l])=>'<button class="'+(S.group===k?'on':'')+'" onclick="setGroup('+(k?'\''+k+'\'':'null')+')">'+l+(S.group===k?'<i data-lucide="check" class="ck"></i>':'')+'</button>').join('')+(S.group?'<div style="border-top:1px solid var(--hairline);margin:4px 0"></div><button onclick="expandAll(true)">Expand all</button><button onclick="expandAll(false)">Collapse all</button>':'')+'</div>':'')+'</span>'
+    +'<button class="btn tall" onclick="setCols(S.cols===\'fit\'?\'many\':\'fit\')"><i data-lucide="columns-3"></i><span>Columns</span></button>'
+    +'</div>';
+  h+=isPhone()?cards(all,shown):table(all,shown,C);
+  h+='<div class="tail"></div>';
+  $('content').innerHTML=h;
+  const q=$('q');q.oninput=()=>{S.q=q.value;S.loaded=PAGE;S.sel.clear();render();const q2=$('q');q2.focus();q2.setSelectionRange(q2.value.length,q2.value.length)};
+  icons();wire();
+}
+function table(all,shown,C){
+  shown=shown.slice();
+  const minW=C.reduce((s,c)=>s+c.w,0);
+  let h='<div class="card'+(S.sel.size?' picking':'')+'" id="card"><table id="tbl" style="min-width:'+minW+'px"><colgroup>'+C.map(c=>'<col style="'+(c.grow?'':'width:'+c.w+'px')+'">').join('')+'</colgroup>';
+  const all3=S.sel.size&&S.sel.size===all.length, some=S.sel.size&&!all3;
+  h+='<thead><tr>'+C.map(c=>{
+    if(c.k==='n')return '<th class="n frz" onclick="pickAll()" title="Select all"><span class="i">No.</span><span class="cb"><span class="box '+(all3?'on':some?'some':'')+'"><i data-lucide="check"></i></span></span></th>';
+    const s=S.sort.k===c.k;
+    return '<th class="'+(c.r?'r ':'')+(c.frz?'frz ':'')+(c.edge?'edge':'')+'" onclick="sortBy(\''+c.k+'\')">'+c.l+(s?'<span class="ar"><i data-lucide="'+(S.sort.dir>0?'arrow-up':'arrow-down')+'"></i></span>':'')+'</th>';
+  }).join('')+'</tr></thead><tbody>';
+  if(S.group&&all.length){h+=groupedBody(all,C);shown=[]}
+  else if(!shown.length)h+='<tr class="empty"><td colspan="'+C.length+'">Nothing matches "'+S.q+'".</td></tr>';
+  shown.forEach((p,i)=>{
+    const on=S.sel.has(p.po);
+    h+='<tr class="'+(on?'on':'')+'" data-po="'+p.po+'">'+C.map(c=>{
+      if(c.k==='n')return '<td class="n frz" onclick="event.stopPropagation();pick(\''+p.po+'\')"><span class="i">'+(i+1)+'</span><span class="cb"><span class="box"><i data-lucide="check"></i></span></span></td>';
+      return '<td class="'+(c.r?'r ':'')+(c.frz?'frz ':'')+(c.edge?'edge ':'')+(c.k==='sup'?'strong':'')+'">'+(c.cell?c.cell(p):c.v(p))+'</td>';
+    }).join('')+'</tr>';
+  });
+  if(!S.group&&shown.length<all.length)h+='<tr class="more" id="more"><td colspan="'+C.length+'"><i data-lucide="loader-circle" class="spin"></i>Loading the next '+Math.min(PAGE,all.length-shown.length)+' of '+id(all.length-shown.length)+' more</td></tr>';
+  h+='</tbody>';
+  if(all.length){
+    h+='<tfoot>';
+    if(S.sel.size){const sp=all.filter(p=>S.sel.has(p.po)),t=sums(sp);h+='<tr class="sel">'+footRow(C,t,'<span><b>'+S.sel.size+'</b> selected</span><button class="x" onclick="clearSel()">Clear</button>')+'</tr>'}
+    const t=sums(all);
+    h+='<tr>'+footRow(C,t,'<span class="lbl">Total · <b>'+id(all.length)+'</b> POs</span>')+'</tr></tfoot>';
+  }
+  h+='</table><div class="hbar" id="hbar" hidden><div id="hbarIn"></div></div><div id="end" style="height:1px"></div></div>';
+  return h;
+}
+/* The label spans the text columns up to the first figure, so it never
+   sits under a supplier name it has nothing to do with. */
+/* Grouped: each group's header row carries its own subtotals in the figure
+   columns, so a fully collapsed table IS the per-supplier summary. The
+   header sticks under the column heads while its rows scroll past. No.
+   counts within the group. The server answers the groups and their
+   subtotals first, and a group's rows only when it's opened. */
+function groupsOf(all){
+  const m=new Map();all.forEach(p=>{const k=p[S.group];if(!m.has(k))m.set(k,[]);m.get(k).push(p)});
+  return [...m.entries()].map(([k,rows])=>({k,rows,t:sums(rows)})).sort((a,b)=>S.group==='st'?Object.keys(ST).indexOf(a.k)-Object.keys(ST).indexOf(b.k):b.t.val-a.t.val);
+}
+function groupedBody(all,C){
+  let h='';const first=C.findIndex(c=>c.sum);
+  groupsOf(all).forEach((g,gi)=>{
+    const open=S.gopen.has(g.k), ids=g.rows.map(p=>p.po), n=ids.filter(x=>S.sel.has(x)).length, full=n&&n===ids.length;
+    h+='<tr class="grp'+(open?' open':'')+(full?' on':'')+'" onclick="toggleGroup(\''+g.k+'\')"><td class="n frz" onclick="event.stopPropagation();pickGroup(\''+g.k+'\')"><span class="i">'+(gi+1)+'</span><span class="cb"><span class="box '+(full?'on':n?'some':'')+'"><i data-lucide="check"></i></span></span></td><td class="frz edge lab"><span class="gl"><i data-lucide="chevron-right"></i>'+(S.group==='st'?'<span class="dot" style="background:'+ST[g.k]+'"></span>':'')+g.k+' <small>'+g.rows.length+' POs</small></span></td>'
+      +C.slice(2).map(c=>'<td class="'+(c.r?'r':'')+'">'+(c.sum?id(g.t[c.k]):'')+'</td>').join('')+'</tr>';
+    if(open)g.rows.forEach((p,i)=>{
+      const on=S.sel.has(p.po);
+      h+='<tr class="'+(on?'on':'')+'">'+C.map(c=>c.k==='n'?'<td class="n frz" onclick="event.stopPropagation();pick(\''+p.po+'\')"><span class="i">'+(i+1)+'</span><span class="cb"><span class="box"><i data-lucide="check"></i></span></span></td>':'<td class="'+(c.r?'r ':'')+(c.frz?'frz ':'')+(c.edge?'edge ':'')+(c.k==='sup'?'strong':'')+'">'+(c.cell?c.cell(p):c.v(p))+'</td>').join('')+'</tr>';
+    });
+  });
+  return h;
+}
+function toggleGroup(k){S.gopen.has(k)?S.gopen.delete(k):S.gopen.add(k);const y=$('page').scrollTop;render();$('page').scrollTop=y}
+function pickGroup(k){const ids=matching().filter(p=>p[S.group]===k).map(p=>p.po);const all=ids.every(x=>S.sel.has(x));ids.forEach(x=>all?S.sel.delete(x):S.sel.add(x));const y=$('page').scrollTop;render();$('page').scrollTop=y}
+function setGroup(k){S.group=k;S.menu=false;S.gopen.clear();if(k){const g=groupsOf(matching());if(g[0])S.gopen.add(g[0].k)}render()}
+function expandAll(o){S.menu=false;S.gopen=new Set(o?groupsOf(matching()).map(g=>g.k):[]);render()}
+function footRow(C,t,label){
+  let h='<td class="frz edge lab" colspan="2">'+label+'</td>';
+  C.slice(2).forEach(c=>h+='<td class="'+(c.r?'r':'')+'">'+(c.sum?id(t[c.k]):'')+'</td>');
+  return h;
+}
+function cards(all,shown){
+  const t=sums(all);
+  if(S.group)return '<div class="card cards">'+groupsOf(all).map(g=>'<div class="pg" onclick="toggleGroup(\''+g.k+'\')"><i data-lucide="'+(S.gopen.has(g.k)?'chevron-down':'chevron-right')+'"></i>'+g.k+' <small>'+g.rows.length+'</small><span>Rp '+id(Math.round(g.t.val/1e6))+' jt</span></div>'+(S.gopen.has(g.k)?g.rows.map((p,i)=>'<div class="pc"><span class="n">'+(i+1)+'</span><span class="mono" style="color:var(--ink)">'+p.po+'</span><span class="st"><span class="dot" style="background:'+ST[p.st]+'"></span>'+p.st+'</span><span class="meta" style="grid-column:2">'+id(p.qty)+' pcs · ETA '+d(p.eta)+'</span><span class="meta" style="text-align:right">Rp '+id(Math.round(p.val/1e6))+' jt</span></div>').join(''):'')).join('')
+    +'<div class="ptot"><span>'+id(all.length)+' POs · '+id(t.qty)+' pcs</span><b>Rp '+id(Math.round(t.val/1e9*10)/10)+' M</b></div></div><div id="end"></div>';
+  return '<div class="card cards">'+shown.map((p,i)=>'<div class="pc"><span class="n">'+(i+1)+'</span><span class="mono" style="color:var(--ink)">'+p.po+'</span><span class="st"><span class="dot" style="background:'+ST[p.st]+'"></span>'+p.st+'</span><span style="color:var(--ink);font-weight:500">'+p.sup+'</span><span class="meta" style="text-align:right">Rp '+id(Math.round(p.val/1e6))+' jt</span><span class="meta">'+id(p.qty)+' pcs · ETA '+d(p.eta)+'</span></div>').join('')
+    +(shown.length<all.length?'<div class="pc" id="more" style="display:block;text-align:center;color:var(--mute)">Loading more…</div>':'')
+    +'<div class="ptot"><span>'+id(all.length)+' POs · '+id(t.qty)+' pcs</span><b>Rp '+id(Math.round(t.val/1e9*10)/10)+' M</b></div></div><div id="end"></div>';
+}
+
+/* ── behaviour ──────────────────────────────────────────────────────────── */
+let io,ioEnd;
+function wire(){
+  const page=$('page');
+  /* the next 40 arrive as the last rows come into view */
+  io?.disconnect();io=new IntersectionObserver(es=>{if(es[0].isIntersecting&&!S.loading){S.loading=true;setTimeout(()=>{S.loaded+=PAGE;S.loading=false;const y=page.scrollTop;render();page.scrollTop=y},450)}},{root:page,rootMargin:'0px 0px 300px 0px'});
+  if($('more'))io.observe($('more'));
+  /* totals look lifted while floating, flat once the table's end arrives */
+  ioEnd?.disconnect();ioEnd=new IntersectionObserver(es=>$('card')?.classList.toggle('floating',!es[0].isIntersecting),{root:page});
+  if($('end'))ioEnd.observe($('end'));
+  sideways();
+}
+/* Sideways without a scroll box: the table slides under the card's clip,
+   driven by a proxy scrollbar stuck to the window's foot. The frozen cells
+   slide back by the same amount, so No. and PO stay put. */
+function sideways(){
+  const card=$('card'),tbl=$('tbl'),hb=$('hbar');if(!card||!tbl||!hb)return;
+  const over=tbl.scrollWidth-card.clientWidth;
+  hb.hidden=over<=1;
+  card.style.setProperty('--foot-off',over>1?'14px':'0px');
+  $('hbarIn').style.width=tbl.scrollWidth+'px';
+  S.x=Math.min(S.x,Math.max(0,over));hb.scrollLeft=S.x;apply();
+  hb.onscroll=()=>{S.x=hb.scrollLeft;apply()};
+  card.onwheel=e=>{if(over>1&&Math.abs(e.deltaX)>Math.abs(e.deltaY)){e.preventDefault();hb.scrollLeft+=e.deltaX}};
+}
+function apply(){
+  const tbl=$('tbl');if(!tbl)return;
+  tbl.style.transform=S.x?'translateX('+(-S.x)+'px)':'';
+  tbl.querySelectorAll('.frz').forEach(c=>c.style.transform=S.x?'translateX('+S.x+'px)':'');
+  $('card').classList.toggle('slid',S.x>0);
+}
+function sortBy(k){S.sort=S.sort.k===k?{k,dir:-S.sort.dir}:{k,dir:1};render()}
+function pick(po){S.sel.has(po)?S.sel.delete(po):S.sel.add(po);render()}
+function pickAll(){const all=matching();if(S.sel.size===all.length)S.sel.clear();else all.forEach(p=>S.sel.add(p.po));render()}
+function clearSel(){S.sel.clear();render()}
+function setQ(v){S.q=v;S.loaded=PAGE;render();$('q').focus()}
+function setCols(c){S.cols=c;S.x=0;if(!EMBED&&DEV!=='desktop')$('ifr').contentWindow?.postMessage({cols:c},'*');paint();render()}
+addEventListener('keydown',e=>{if(e.key==='/'&&document.activeElement.tagName!=='INPUT'){e.preventDefault();$('q').focus()}if(e.key==='Escape'&&document.activeElement.id==='q'){if(S.q)setQ('');else $('q').blur()}});
+addEventListener('resize',()=>{sideways();fitDev()});
+document.addEventListener('mousedown',e=>{if(S.menu&&!e.target.closest('.menu')&&!e.target.closest('.tools .btn')){S.menu=false;render()}});
+addEventListener('message',e=>{if(EMBED&&e.data&&e.data.cols)setCols(e.data.cols)});
+
+/* ── prototype switch ───────────────────────────────────────────────────── */
+let DEV='desktop';
+function setDev(v){
+  DEV=v;paint();
+  if(v==='desktop'){$('dev').hidden=true;$('ifr').src='about:blank';return}
+  $('dev').hidden=false;$('ifr').src=location.pathname+'?embed=phone&cols='+S.cols;fitDev();
+}
+function fitDev(){if(DEV==='desktop')return;$('frame').style.transform='scale('+Math.min(1,(innerHeight-40)/844)+')'}
+function paint(){
+  if(EMBED)return;
+  $('devseg').innerHTML=[['desktop','Desktop'],['phone','Phone']].map(x=>'<button class="'+(DEV===x[0]?'on':'')+'" onclick="setDev(\''+x[0]+'\')">'+x[1]+'</button>').join('');
+  $('colseg').innerHTML=[['fit','9 columns'],['many','15 columns']].map(x=>'<button class="'+(S.cols===x[0]?'on':'')+'" onclick="setCols(\''+x[0]+'\')">'+x[1]+'</button>').join('');
+  $('proto').title=S.cols==='many'
+    ?'Wider than the window: drag the bar at the foot, or swipe sideways on the table. No. and PO stay frozen; heads and totals keep sticking.'
+    :'Scroll the page: the search sticks, the heads stick under it, the totals float at the foot. 40 rows load at a time; the totals are for all 214. Hover a number to tick a row.';
+}
+paint();render();
+</script>
+</body>
+</html>

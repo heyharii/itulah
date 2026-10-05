@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Store cash options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f6f6f4;--surface:#fff;--line:#e7e6e3;--ink:#17181a;--body:#3a3c40;--mute:#7b7e85;
+  --blue:#2f5bea;--blue-bg:#eef2fe;--ok:#1f7a4d;--ok-bg:#eaf6ef;--warn:#9a6200;--warn-bg:#fdf4e3;--bad:#b42318;--bad-bg:#fdeceb;
+  --shadow:0 1px 2px rgba(0,0,0,.04);
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:Inter,system-ui,sans-serif;font-size:15px;color:var(--body);background:var(--bg);overflow-x:hidden;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer}
+.shell{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:100vh}
+.side{background:#fff;border-right:1px solid var(--line);padding:22px 14px;position:sticky;top:0;height:100vh}
+.side .brand{font-weight:600;color:var(--ink);font-size:16px;padding:0 10px 22px}
+.side .grp{color:var(--mute);font-size:14px;padding:0 10px 8px}
+.side a{display:flex;align-items:center;height:36px;padding:0 10px;border-radius:8px;color:var(--body);text-decoration:none;margin-bottom:2px}
+.side a.on{background:var(--blue-bg);color:var(--blue);font-weight:500}
+.main{padding:26px 32px 60px;min-width:0}
+.crumb{color:var(--mute);font-size:14px}
+h1{margin:4px 0 0;font-size:24px;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+.opts{display:flex;align-items:center;gap:16px;margin:18px 0 22px;flex-wrap:wrap}
+.seg{display:inline-flex;background:#ecebe8;border-radius:10px;padding:3px}
+.seg button{height:36px;padding:0 18px;border:0;background:transparent;border-radius:8px;color:var(--body)}
+.seg button.on{background:#fff;box-shadow:var(--shadow);color:var(--ink);font-weight:500}
+.opts p{margin:0;color:var(--mute);flex:1;min-width:300px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow)}
+.mute{color:var(--mute)}.ink{color:var(--ink)}
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.big{font-size:28px;font-weight:600;color:var(--ink);letter-spacing:-.02em}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--mute);margin-right:8px}
+.dot.warn{background:var(--warn)}.dot.bad{background:var(--bad)}.dot.ok{background:var(--ok)}
+select{height:36px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:0 12px;font:inherit;color:var(--ink)}
+table{width:100%;border-collapse:collapse}
+th{font-weight:400;color:var(--mute);text-align:left;height:40px;padding:0 18px;border-bottom:1px solid var(--line)}
+td{height:52px;padding:0 18px;border-bottom:1px solid var(--line)}
+tr:last-child td{border-bottom:0}
+th.r,td.r{text-align:right}
+tr.flag td{background:var(--warn-bg)}
+.sec{font-weight:600;color:var(--ink);font-size:16px}
+
+/* A */
+.A{display:grid;grid-template-columns:210px minmax(0,1fr);gap:22px}
+.rail{display:flex;flex-direction:column;gap:2px}
+.rail button{text-align:left;border:0;background:transparent;border-radius:8px;padding:9px 12px;line-height:1.35}
+.rail button.on{background:#fff;box-shadow:0 0 0 1px var(--line),var(--shadow)}
+.rail small{display:block;color:var(--mute);font-size:14px}
+.cards3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:14px 0 18px}
+.cashcard{padding:18px 20px;text-align:left;cursor:pointer;display:block;width:100%}
+.cashcard.on{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue)}
+.cashcard .lab{color:var(--mute);display:flex;justify-content:space-between}
+.cashcard .big{margin:10px 0 8px}
+.cashcard .st{font-size:14px}
+
+/* B */
+.sum3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:16px 0}
+.sum3 .card{padding:16px 20px}
+.legend{display:flex;gap:20px;color:var(--mute);margin:0 0 10px;flex-wrap:wrap}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px}
+.trail{display:flex;flex-direction:column;gap:8px}
+.tr{display:grid;grid-template-columns:96px 130px minmax(0,1fr) 130px 160px;gap:20px;align-items:center;min-height:52px;padding:0 20px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow)}
+.tr.head{background:transparent;border:0;box-shadow:none;min-height:28px;color:var(--mute)}
+.tr.flag{background:var(--warn-bg);border-color:#f0dcb2}
+.tr.today{border-style:dashed;color:var(--mute)}
+.bar{height:8px;border-radius:99px;background:#efeeeb;display:flex;overflow:hidden}
+.bar b{display:block;height:100%}
+.g{background:#3aa070}.a{background:#e0a232}.rd{background:#d0473b}
+
+/* C */
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.shopcard{padding:18px 20px;text-align:left;cursor:pointer;width:100%;display:block}
+.shopcard.on{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue)}
+.shopcard h3{margin:0 0 12px;font-size:16px;font-weight:600;color:var(--ink);display:flex;justify-content:space-between}
+.bal{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;border-top:1px solid var(--line)}
+.bal:first-of-type{border-top:0}
+.flags{margin-top:10px;display:flex;flex-direction:column;gap:3px;font-size:14px;min-height:42px}
+.detail{margin-top:18px;padding:22px 24px;display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:28px}
+.detail h4{margin:0 0 10px;font-size:16px;font-weight:600;color:var(--ink)}
+.mini{width:100%}
+.mini td,.mini th{height:40px;padding:0 8px}
+.mini th{height:34px}
+.kv{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--line)}
+.kv:last-child{border:0}
+
+/* D */
+.weeks{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+.chip{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 16px;text-align:left;box-shadow:var(--shadow)}
+.chip.on{border-color:var(--blue);background:var(--blue-bg);box-shadow:0 0 0 1px var(--blue)}
+.chip .w{color:var(--ink);font-weight:500}
+.chip .cl{margin-top:2px;font-size:14px}
+.dlay{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:18px;align-items:start}
+.stmt{padding:26px 30px}
+.srow{display:flex;justify-content:space-between;align-items:baseline;padding:13px 0;border-bottom:1px solid var(--line)}
+.srow.total{border-bottom:0;border-top:2px solid var(--ink);margin-top:6px;padding-top:18px}
+.srow.total .big{font-size:34px}
+.strip{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-top:26px;align-items:end}
+.sd{text-align:center;font-size:14px;color:var(--mute)}
+.sd .col{height:70px;display:flex;align-items:flex-end;justify-content:center;margin-bottom:6px}
+.sd .col i{display:block;width:100%;max-width:44px;border-radius:6px 6px 2px 2px;background:#cfe6da}
+.sd.l .col i{background:#f1cf8c}
+.sd.f .col i{background:#efeeeb;height:6px!important}
+.side-cards{display:flex;flex-direction:column;gap:14px}
+.side-cards .card{padding:18px 20px}
+.side-cards .big{font-size:24px;margin:8px 0 4px}
+.prog{height:6px;background:#efeeeb;border-radius:9px;overflow:hidden;margin:10px 0 8px}
+.prog i{display:block;height:100%;background:var(--blue)}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="side">
+    <div class="brand">Central</div>
+    <div class="grp">Finance › Stores</div>
+    <a>Overview</a><a>Sales by day</a><a class="on">Cash on hand</a><a>Petty cash</a><a>Cashier float</a><a>Cash counts</a>
+  </aside>
+  <main class="main">
+    <div class="crumb">Finance › Stores</div>
+    <h1>Cash on hand</h1>
+    <div class="opts">
+      <div class="seg" id="seg"></div>
+      <p id="desc"></p>
+    </div>
+    <div id="view"></div>
+  </main>
+</div>
+<script>
+const TODAY=31; // 1 Oct = day 31 when counting from 1 Sep
+const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct'];
+const R=n=>(n<0?'−':'')+'Rp '+Math.abs(Math.round(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+const dl=d=>d>=31?(d-30)+' Oct':d+' Sep';
+const dow=d=>['Tue','Wed','Thu','Fri','Sat','Sun','Mon'][(d-1)%7]; // 1 Sep 2026 is Tuesday
+const rng=s=>()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
+
+const cfg=[
+ {id:'C001',name:'Cikupa',seed:11,base:1350000,unb:[28],short:{27:15000},fixed:{21:1560000,22:1023150,23:684000,24:1312400,25:1875900,26:2240750,27:1441300,28:2000600,29:912500,30:1186200},
+  petty:[[16,'Top-up from HO',1000000],[21,'Bensin',-185000],[23,'Galon',-96000],[26,'Plastik',-214000],[30,'Parkir',-100000]],float:500000,fcount:27},
+ {id:'C002',name:'Serpong',seed:23,base:1700000,unb:[29,30],short:{},petty:[[15,'Top-up from HO',1000000],[19,'Galon',-48000],[22,'Plastik',-132000],[27,'Bensin',-100000]],float:500000,fcount:28},
+ {id:'C003',name:'Bekasi',seed:37,base:1100000,unb:[],short:{25:42000},petty:[[12,'Top-up from HO',1000000],[15,'AC repair',-750000],[19,'Bensin',-260000],[22,'Plastik',-345000],[26,'Staff meal, stock audit',-300000]],float:500000,fcount:25},
+ {id:'C004',name:'Bandung',seed:41,base:950000,unb:[],short:{},petty:[[14,'Top-up from HO',1000000],[20,'Galon',-56000],[24,'Parkir',-94000],[28,'Plastik',-700000]],float:300000,fcount:29},
+ {id:'C005',name:'Tangerang',seed:53,base:1500000,unb:[26,29],short:{},petty:[[13,'Top-up from HO',1000000],[18,'Bensin',-240000],[25,'Galon',-200000]],float:500000,fcount:24},
+ {id:'C006',name:'Depok',seed:67,base:1250000,unb:[],short:{18:8000},petty:[[17,'Top-up from HO',1000000],[28,'Parkir',-70000]],float:400000,fcount:30},
+];
+cfg.forEach(s=>{
+  const r=rng(s.seed);s.days=[];
+  for(let d=7;d<=30;d++){
+    const we=[5,6].includes((d-1)%7); // Sat, Sun
+    let sales=s.fixed&&s.fixed[d]!=null?s.fixed[d]:Math.round(s.base*(.55+r()*.9)*(we?1.25:1)/50)*50;
+    const short=s.short[d]||0, left=s.unb.includes(d)?sales-short:0;
+    s.days.push({d,sales,short,left,banked:sales-short-left});
+  }
+  s.cash=s.days.reduce((a,x)=>a+x.left,0);
+  const old=s.days.find(x=>x.left>0);s.age=old?TODAY-old.d:0;
+  let run=0;s.pl=s.petty.map(([d,t,a])=>({d,t,a,bal:(run+=a)}));s.pb=run;
+  s.lastShort=Object.keys(s.short).map(Number).sort((a,b)=>b-a)[0];
+});
+const st={opt:'A',shop:'C001',sel:'cash',week:3,open:'C001'};
+const shop=()=>cfg.find(s=>s.id===st.shop);
+const FUND=1000000;
+const cashStatus=s=>s.cash>0?`<span class="${s.age>=2?'warn':'mute'}">${R(s.cash)} not banked for ${s.age} day${s.age>1?'s':''}</span>`:`<span class="ok">All cash banked</span>`;
+const pettyStatus=s=>s.pb<0?`<span class="bad">Overspent by ${R(-s.pb)} · ask HO to top up</span>`:s.pb<200000?`<span class="warn">Running low · fund ${R(FUND)}</span>`:`<span class="mute">of ${R(FUND)} fund</span>`;
+const floatStatus=s=>`<span class="mute">Fixed float · counted ${dl(s.fcount)}</span>`;
+
+const OPTS={
+ A:['Three cash cards per shop','Each shop shows its three cash boxes as cards. Pick one and read it day by day, in plain words rather than ledger columns.'],
+ B:['Cash trail','One row per day: cash taken, how much got banked, what is still in the shop. Days left unbanked stand out.'],
+ C:['All shops board','No rail. Every shop is one card with its three balances and quiet flags. Click a card to open its detail below.'],
+ D:['Weekly statement','Pick a week, read it like a bank statement: opening, cash in, deposits, shortages, closing. Petty cash and float sit beside it.'],
+};
+function seg(){
+  document.getElementById('seg').innerHTML=Object.keys(OPTS).map(k=>`<button class="${st.opt===k?'on':''}" data-o="${k}">Option ${k}</button>`).join('');
+  document.getElementById('desc').innerHTML=`<b class="ink" style="font-weight:500">${OPTS[st.opt][0]}.</b> ${OPTS[st.opt][1]}`;
+}
+function shopSelect(){
+  return `<select data-shop>${cfg.map(s=>`<option value="${s.id}" ${s.id===st.shop?'selected':''}>${s.name} · ${s.id}</option>`).join('')}</select>`;
+}
+
+function viewA(){
+  const s=shop();
+  const rail=cfg.map(x=>`<button data-shop="${x.id}" class="${x.id===st.shop?'on':''}">
+    <span class="ink">${x.name}</span> <span class="mute">· ${x.id}</span>
+    <small>${(x.age>=2||x.pb<0)?`<span class="dot ${x.pb<0?'bad':'warn'}"></span>`:''}${R(x.cash)} in shop</small></button>`).join('');
+  const card=(k,lab,val,status)=>`<button class="card cashcard ${st.sel===k?'on':''}" data-sel="${k}"><div class="lab"><span>${lab}</span></div><div class="big num ${val<0?'bad':''}">${R(val)}</div><div class="st">${status}</div></button>`;
+  let list='';
+  if(st.sel==='cash'){
+    const rows=[...s.days].reverse().slice(0,14).map(x=>`<tr class="${x.left?'flag':''}"><td>${dow(x.d)} ${dl(x.d)}</td><td class="r num">${R(x.sales)}</td><td class="r num">${x.banked?R(x.banked):'—'}${x.short?`<div class="bad" style="font-size:14px">count short ${R(x.short)}</div>`:''}</td><td class="r num ${x.left?'warn':'mute'}">${x.left?R(x.left):'—'}</td></tr>`).join('');
+    list=`<div class="sec" style="padding:18px 18px 4px">Cash on hand, day by day</div><table><tr><th>Day</th><th class="r">Taken in cash</th><th class="r">Banked</th><th class="r">Left in shop</th></tr>${rows}</table>`;
+  }else if(st.sel==='petty'){
+    const rows=[...s.pl].reverse().map(x=>`<tr><td>${dl(x.d)}</td><td>${x.t}</td><td class="r num">${x.a<0?R(-x.a):'—'}</td><td class="r num ok">${x.a>0?R(x.a):'—'}</td><td class="r num ${x.bal<0?'bad':''}">${R(x.bal)}</td></tr>`).join('');
+    list=`<div class="sec" style="padding:18px 18px 4px">Petty cash, day by day</div><table><tr><th>Day</th><th>What for</th><th class="r">Spent</th><th class="r">Topped up</th><th class="r">Left</th></tr>${rows}</table>`;
+  }else{
+    const ds=[29,22,15].map((d,i)=>({d:Math.min(d,s.fcount>=d?s.fcount:d)}));
+    const rows=[s.fcount,s.fcount-7,s.fcount-14].map(d=>`<tr><td>${dow(d)} ${dl(d)}</td><td class="r num">${R(s.float)}</td><td class="r num">${R(s.float)}</td><td class="r num ok">Matched</td></tr>`).join('');
+    list=`<div class="sec" style="padding:18px 18px 4px">Cashier float, weekly checks</div><table><tr><th>Day</th><th class="r">Should be</th><th class="r">Counted</th><th class="r">Difference</th></tr>${rows}</table>`;
+  }
+  return `<div class="A"><div class="rail">${rail}</div><div>
+    <div class="sec" style="font-size:18px">${s.name} · ${s.id}</div>
+    <div class="cards3">${card('cash','Cash on hand',s.cash,cashStatus(s))}${card('petty','Petty cash',s.pb,pettyStatus(s))}${card('float','Cashier float',s.float,floatStatus(s))}</div>
+    <div class="card">${list}</div></div></div>`;
+}
+
+function viewB(){
+  const s=shop();
+  const tot=s.days.reduce((a,x)=>({s:a.s+x.sales,b:a.b+x.banked,l:a.l+x.left,sh:a.sh+x.short}),{s:0,b:0,l:0,sh:0});
+  const rows=[...s.days].reverse().map(x=>{
+    const w=v=>(v/x.sales*100).toFixed(1)+'%';
+    return `<div class="tr ${x.left?'flag':''}"><div class="ink">${dow(x.d)} ${dl(x.d)}</div><div class="num ink">${R(x.sales)}</div>
+      <div><div class="bar"><b class="g" style="width:${w(x.banked)}"></b>${x.short?`<b class="rd" style="width:${w(x.short)}"></b>`:''}<b class="a" style="width:${w(x.left)}"></b></div>${x.short?`<div class="bad" style="font-size:14px;margin-top:4px">${R(x.short)} short at count</div>`:''}</div>
+      <div class="num">${x.banked?R(x.banked):'—'}</div>
+      <div class="num ${x.left?'warn':'mute'}">${x.left?`${R(x.left)} <span style="font-size:14px">· ${TODAY-x.d} days</span>`:'Nothing left'}</div></div>`;
+  }).join('');
+  return `<div style="display:flex;align-items:center;gap:14px">${shopSelect()}<span class="mute">September 2026 · 7–30 Sep</span></div>
+   <div class="sum3">
+    <div class="card"><div class="mute">Taken in cash</div><div class="big num">${R(tot.s)}</div></div>
+    <div class="card"><div class="mute">Deposited to BCA</div><div class="big num">${R(tot.b)}</div></div>
+    <div class="card"><div class="mute">Still in shop</div><div class="big num ${tot.l?'warn':''}">${R(tot.l)}</div></div></div>
+   <div class="legend"><span><i class="g"></i>Deposited</span><span><i class="rd"></i>Short at count</span><span><i class="a"></i>Still in shop</span></div>
+   <div class="trail"><div class="tr head"><div>Day</div><div>Cash sales</div><div>Where it went</div><div>Deposited</div><div>Still in shop</div></div>
+   <div class="tr today"><div>1 Oct</div><div>—</div><div>Today · no cash sales yet</div><div>—</div><div>${R(s.cash)} carried in</div></div>${rows}</div>`;
+}
+
+function viewC(){
+  const cards=cfg.map(s=>{
+    const fl=[];
+    if(s.cash>0&&s.age>=2)fl.push(`<span class="warn"><span class="dot warn"></span>Not banked for ${s.age} days</span>`);
+    if(s.pb<0)fl.push(`<span class="bad"><span class="dot bad"></span>Petty cash overspent</span>`);
+    else if(s.pb<200000)fl.push(`<span class="warn"><span class="dot warn"></span>Petty cash low</span>`);
+    if(s.lastShort&&TODAY-s.lastShort<=14)fl.push(`<span class="bad"><span class="dot bad"></span>Count short ${R(s.short[s.lastShort])} on ${dl(s.lastShort)}</span>`);
+    if(!fl.length)fl.push(`<span class="ok"><span class="dot ok"></span>All in order</span>`);
+    return `<button class="card shopcard ${st.open===s.id?'on':''}" data-open="${s.id}"><h3><span>${s.name}</span><span class="mute" style="font-weight:400">${s.id}</span></h3>
+      <div class="bal"><span>Cash on hand</span><span class="num ink" style="font-weight:600">${R(s.cash)}</span></div>
+      <div class="bal"><span>Petty cash</span><span class="num ${s.pb<0?'bad':'ink'}" style="font-weight:600">${R(s.pb)}</span></div>
+      <div class="bal"><span>Cashier float</span><span class="num ink" style="font-weight:600">${R(s.float)}</span></div>
+      <div class="flags">${fl.join('')}</div></button>`;
+  }).join('');
+  let det='';
+  const s=cfg.find(x=>x.id===st.open);
+  if(s){
+    const rows=[...s.days].reverse().slice(0,7).map(x=>`<tr><td>${dow(x.d)} ${dl(x.d)}</td><td class="r num">${R(x.sales)}</td><td class="r num">${x.banked?R(x.banked):'—'}</td><td class="r num ${x.left?'warn':'mute'}">${x.left?R(x.left):'—'}</td></tr>`).join('');
+    const pr=[...s.pl].reverse().slice(0,5).map(x=>`<div class="kv"><span>${x.t} <span class="mute">· ${dl(x.d)}</span></span><span class="num ${x.a>0?'ok':''}">${x.a>0?'+':'−'}${R(Math.abs(x.a))}</span></div>`).join('');
+    det=`<div class="card detail"><div><h4>${s.name} · last 7 days</h4><table class="mini"><tr><th>Day</th><th class="r">Taken</th><th class="r">Banked</th><th class="r">Left</th></tr>${rows}</table></div>
+     <div><h4>Petty cash</h4>${pr}</div>
+     <div><h4>Float and counts</h4><div class="kv"><span>Cashier float</span><span class="num">${R(s.float)}</span></div><div class="kv"><span>Last cash count</span><span>${dl(s.lastShort&&s.lastShort>s.fcount?s.lastShort:s.fcount)}</span></div><div class="kv"><span>Variance</span><span class="num ${s.lastShort?'bad':'ok'}">${s.lastShort?'−'+R(s.short[s.lastShort]).replace('Rp ','Rp '):'Matched'}</span></div></div></div>`;
+  }
+  return `<div class="grid">${cards}</div>${det}`;
+}
+
+function weekData(s,wi){
+  const start=7+wi*7,end=start+6;
+  const ds=s.days.filter(x=>x.d>=start&&x.d<=end);
+  const opening=s.days.filter(x=>x.d<start).reduce((a,x)=>a+x.left,0);
+  const sales=ds.reduce((a,x)=>a+x.sales,0),short=ds.reduce((a,x)=>a+x.short,0),dep=ds.reduce((a,x)=>a+x.banked,0);
+  return {start,end,ds,opening,sales,short,dep,closing:opening+sales-dep-short};
+}
+function viewD(){
+  const s=shop();
+  const chips=[0,1,2,3].map(i=>{const w=weekData(s,i);
+    const lab=`${w.start>30?(w.start-30):w.start} ${w.start>30?'Oct':'Sep'} – ${w.end>30?(w.end-30)+' Oct':w.end+' Sep'}`;
+    return `<button class="chip ${st.week===i?'on':''}" data-week="${i}"><div class="w">${lab}</div><div class="cl num ${w.closing?'warn':'mute'}">${w.closing?'Closing '+R(w.closing):'Fully banked'}</div></button>`}).join('');
+  const w=weekData(s,st.week);
+  const mx=Math.max(...s.days.map(x=>x.sales));
+  const strip=[0,1,2,3,4,5,6].map(i=>{const d=w.start+i,x=w.ds.find(y=>y.d===d);
+    if(!x)return `<div class="sd f"><div class="col"><i></i></div>${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][i]}<br>${d>30?d-30:d}</div>`;
+    return `<div class="sd ${x.left?'l':''}"><div class="col"><i style="height:${(x.sales/mx*100).toFixed(0)}%"></i></div>${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][i]}<br>${d}</div>`}).join('');
+  const pct=Math.max(0,Math.min(100,s.pb/FUND*100));
+  return `<div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">${shopSelect()}<span class="mute">Pick a week</span></div>
+   <div class="weeks">${chips}</div>
+   <div class="dlay"><div class="card stmt"><div class="mute">${s.name} · ${s.id} · cash on hand</div>
+     <div class="srow" style="margin-top:8px"><span>Opening</span><span class="num ink">${R(w.opening)}</span></div>
+     <div class="srow"><span>+ Cash sales</span><span class="num ink">${R(w.sales)}</span></div>
+     <div class="srow"><span>− Deposits to bank</span><span class="num ink">${R(w.dep)}</span></div>
+     <div class="srow"><span>− Shortages at count</span><span class="num ${w.short?'bad':'mute'}">${w.short?R(w.short):'—'}</span></div>
+     <div class="srow total"><span class="ink" style="font-weight:600">= Closing</span><span class="big num ${w.closing?'warn':''}">${R(w.closing)}</span></div>
+     ${w.closing?`<div class="warn" style="margin-top:8px;text-align:right">Still in the shop, oldest takings ${TODAY-(w.ds.find(x=>x.left)||{d:30}).d} days old</div>`:''}
+     <div class="strip">${strip}</div></div>
+    <div class="side-cards">
+     <div class="card"><div class="mute">Petty cash</div><div class="big num ${s.pb<0?'bad':''}">${R(s.pb)}</div><div class="prog"><i style="width:${pct}%;${s.pb<0?'background:var(--bad)':''}"></i></div><div class="st">${pettyStatus(s)}</div></div>
+     <div class="card"><div class="mute">Cashier float</div><div class="big num">${R(s.float)}</div><div class="st">${floatStatus(s)}</div></div>
+    </div></div>`;
+}
+
+function render(){
+  seg();
+  document.getElementById('view').innerHTML={A:viewA,B:viewB,C:viewC,D:viewD}[st.opt]();
+}
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-o],[data-shop],[data-sel],[data-open],[data-week]');
+  if(!t||t.tagName==='SELECT')return;
+  if(t.dataset.o)st.opt=t.dataset.o;
+  if(t.dataset.shop)st.shop=t.dataset.shop;
+  if(t.dataset.sel)st.sel=t.dataset.sel;
+  if(t.dataset.open)st.open=st.open===t.dataset.open?null:t.dataset.open;
+  if(t.dataset.week!=null)st.week=+t.dataset.week;
+  render();
+});
+document.addEventListener('change',e=>{if(e.target.matches('select[data-shop]')){st.shop=e.target.value;render()}});
+render();
+</script>
+</body>
+</html>

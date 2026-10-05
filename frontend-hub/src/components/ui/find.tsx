@@ -46,7 +46,6 @@ export function FindMany({
   onChange,
   queryKey,
   search,
-  placeholder,
   label,
   offline,
   className,
@@ -57,7 +56,6 @@ export function FindMany({
   /// first segment is its own module's namespace.
   queryKey: (needle: string) => readonly unknown[]
   search: (needle: string, signal?: AbortSignal) => Promise<readonly Found[]>
-  placeholder: string
   label: string
   /// What to say when the route answers 404 rather than an empty list. Not a
   /// generic error: a picker whose endpoint is newer than the node it is
@@ -152,7 +150,6 @@ export function FindMany({
         ))}
         <Combobox.Input
           aria-label={label}
-          placeholder={chosen.length === 0 ? placeholder : "Add another"}
           className="min-w-[6rem] flex-1 bg-transparent text-ink outline-none placeholder:text-mute"
         />
         <Combobox.Trigger

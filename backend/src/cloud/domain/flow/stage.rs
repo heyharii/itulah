@@ -28,7 +28,9 @@
 //!   the stage demands whatever the template asks.
 //! * **Fixed rules** ([`FixedRule`]): receive's one confirm, no refusal,
 //!   differences to Missing and damaged goods to reject; the blind count that
-//!   never sees the ordered quantity; the verifier who is never the checker.
+//!   never sees the ordered quantity. Who may count and who may verify is the
+//!   stage's performer role and the caller's permission, not a name
+//!   comparison (owner, 2026-10-04).
 //!
 //! # The outbound stages, and the numbers they print
 //!
@@ -405,8 +407,6 @@ pub enum FixedRule {
     NotMoreThanUpstream,
     /// The checker never sees the ordered quantity or the price.
     BlindToOrderedQuantity,
-    /// The verifier is never the checker.
-    CheckerIsNotVerifier,
     /// An arrival is filed under a delivery number.
     NeedsDeliveryNumber,
     /// The person who approves is not the person who asked.
@@ -437,7 +437,6 @@ impl FixedRule {
             Self::BlindToOrderedQuantity => {
                 "The checker sees neither the ordered quantity nor the price."
             }
-            Self::CheckerIsNotVerifier => "The verifier is never the checker.",
             Self::NeedsDeliveryNumber => "An arrival is filed under a delivery number.",
             Self::ApproverIsNotInitiator => "The approver is never the person who asked.",
             Self::ProofOfHandover => "Goods leave our hands only against proof of handover.",
@@ -813,8 +812,8 @@ static BLIND_COUNT: StageSpec = StageSpec {
 
 static VERIFICATION: StageSpec = StageSpec {
     kind: StageKind::Verification,
-    label: "PO creator approves",
-    meaning: "The person who raised the PO approves the blind count: recount, accept part, or accept and close short; an excess goes back to the supplier. From then on the goods are operational stock (an accepted receipt).",
+    label: "Verification",
+    meaning: "Whoever holds the stage's role decides on the blind count: recount, accept part, or accept and close short; an excess goes back to the supplier. From then on the goods are operational stock (an accepted receipt).",
     side: StageSide::Destination,
     executed_at: ExecutedAt::Node,
     custody: Custody::Accepts,
@@ -826,7 +825,7 @@ static VERIFICATION: StageSpec = StageSpec {
     blind: false,
     allowed_proof: &[ProofKind::Photo, ProofKind::Signature],
     required_proof: RequiredProof::None,
-    fixed_rules: &[FixedRule::CheckerIsNotVerifier],
+    fixed_rules: &[],
     may_skip: false,
     parks: None,
 };

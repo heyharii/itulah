@@ -748,6 +748,27 @@ fn a_spent_coupon_cannot_be_spent_again() {
 }
 
 #[test]
+fn a_limited_legacy_coupon_is_refused_until_it_can_be_reserved_online() {
+    let mut snap = snapshot_with_coupon();
+    snap.coupons[0].max_uses = Some(2);
+
+    let result = resolved(
+        &snap,
+        &context().with_coupon("LEBARAN"),
+        &[CartLine::new("SKU1", 1)],
+    );
+    assert_eq!(result.total, Money::new(100_000));
+    assert_eq!(
+        why(&result, "R1"),
+        RejectionReason::CouponNeedsOnlineAuthorization
+    );
+    assert_eq!(
+        check_coupon(&snap, &context(), "LEBARAN"),
+        Err(RejectionReason::CouponNeedsOnlineAuthorization)
+    );
+}
+
+#[test]
 fn a_coupon_issued_to_someone_is_not_bearer_paper() {
     let mut snap = snapshot_with_coupon();
     snap.coupons[0].customer_id = Some("member-1".into());
@@ -2013,6 +2034,76 @@ fn offers_in_one_campaign_spend_one_budget_between_them() {
 }
 
 #[test]
+fn stackable_rules_share_the_campaigns_remaining_budget_inside_one_basket() {
+    let mut snap = snapshot(vec![entry("SKU1", Level::Company, None, 100_000)], vec![]);
+    let mut envelope = campaign("C1");
+    envelope.caps.budget = Some(Money::new(50_000));
+    envelope.caps.spent = Money::new(40_000);
+    snap.campaigns.push(envelope);
+    snap.rules.push(under_campaign("R1", "C1", 5_000));
+    snap.rules.push(under_campaign("R2", "C1", 5_000));
+
+    let result = resolved(&snap, &context(), &[CartLine::new("SKU1", 1)]);
+    assert_eq!(result.discount_total, Money::new(10_000));
+    assert_eq!(applied_ids(&result), vec!["R1"]);
+    assert_eq!(why(&result, "R2"), RejectionReason::BudgetSpent);
+}
+
+#[test]
+fn stackable_rules_share_campaign_uses_inside_one_basket() {
+    let mut snap = snapshot(vec![entry("SKU1", Level::Company, None, 100_000)], vec![]);
+    let mut envelope = campaign("C1");
+    envelope.caps.max_uses = Some(1);
+    snap.campaigns.push(envelope);
+    snap.rules.push(under_campaign("R1", "C1", 1_000));
+    snap.rules.push(under_campaign("R2", "C1", 1_000));
+
+    let result = resolved(&snap, &context(), &[CartLine::new("SKU1", 1)]);
+    assert_eq!(result.discount_total, Money::new(10_000));
+    assert_eq!(applied_ids(&result), vec!["R1"]);
+    assert_eq!(why(&result, "R2"), RejectionReason::UsageExhausted);
+}
+
+#[test]
+fn a_free_item_cannot_bypass_a_campaign_budget_spent_by_another_rule() {
+    let mut snap = snapshot(
+        vec![
+            entry("SKU1", Level::Company, None, 100_000),
+            entry("SKU2", Level::Company, None, 80_000),
+        ],
+        vec![],
+    );
+    let mut envelope = campaign("C1");
+    envelope.caps.budget = Some(Money::new(10_000));
+    snap.campaigns.push(envelope);
+    snap.rules.push(under_campaign("R1", "C1", 1_000));
+    snap.rules.push(under_campaign(
+        "R2",
+        "C1",
+        0,
+    ));
+    snap.rules[1].effect = Effect::FreeItem {
+        sku_code: Some("SKU2".into()),
+        quantity: 1,
+        every_matched_quantity: None,
+        after_matched_quantity: 0,
+        unit_price: Money::ZERO,
+    };
+    snap.rules[1].scope.applicability = Some(Applicability::Sku {
+        sku_codes: skus(&["SKU2"]),
+    });
+
+    let result = resolved(
+        &snap,
+        &context(),
+        &[CartLine::new("SKU1", 1), CartLine::new("SKU2", 1)],
+    );
+    assert_eq!(result.discount_total, Money::new(10_000));
+    assert!(result.free_lines.is_empty());
+    assert_eq!(why(&result, "R2"), RejectionReason::BudgetSpent);
+}
+
+#[test]
 fn a_campaign_that_has_not_started_holds_its_offers_back() {
     let mut snap = snapshot(vec![entry("SKU1", Level::Company, None, 100_000)], vec![]);
     let mut envelope = campaign("C1");
@@ -2612,7 +2703,11 @@ fn golden_g01() -> (PricingSnapshot, Vec<CartLine>) {
         customer_id: None,
         valid_from: None,
         valid_to: None,
-        max_uses: Some(1),
+        // Golden fixtures test the promotion arithmetic from the acceptance
+        // plan. A finite legacy use count is refused at a till until it has
+        // atomic online authorization; that policy has its own regression
+        // above, and is not part of G01/G03's pricing arithmetic.
+        max_uses: None,
         used: 0,
     });
 

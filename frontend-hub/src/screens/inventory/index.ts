@@ -4,23 +4,28 @@ import { AsOf } from "@/screens/inventory/as-of"
 import { Availability } from "@/screens/inventory/availability"
 import { Control } from "@/screens/inventory/control"
 import { Counts } from "@/screens/inventory/counts"
+import { Exceptions } from "@/screens/inventory/exceptions"
 import { Flows } from "@/screens/inventory/flows"
 import { Missing } from "@/screens/inventory/missing"
 import { Movements } from "@/screens/inventory/movements"
 import { Observations } from "@/screens/inventory/observations"
-import { InventoryOverview } from "@/screens/inventory/overview"
 import { Pools } from "@/screens/inventory/pools"
 import { Reconciliations } from "@/screens/inventory/reconciliations"
+import { StockCards } from "@/screens/inventory/stock-cards"
 import { TimeMachine } from "@/screens/inventory/time-machine"
-import { Units } from "@/screens/inventory/units"
 
 /// Screens this module has written. Keys must be paths declared in
 /// `lib/navigation.ts`; anything not listed here renders `Placeholder`.
 ///
 /// Each module owns this file alone, so two modules being built at once never
 /// touch the same registry.
+///
+/// `/inventory` is the owner's Store-cards Stock (4 Oct 2026), which took the
+/// Overview's seat: the fleet tree it replaced still renders at
+/// `/inventory/pools`, one click under the fold.
 export const screens: ScreenMap = {
-  "/inventory": InventoryOverview,
+  "/inventory": StockCards,
+  "/inventory/exceptions": Exceptions,
   "/inventory/availability": Availability,
   "/inventory/pools": Pools,
   "/inventory/counts": Counts,
@@ -31,6 +36,5 @@ export const screens: ScreenMap = {
   "/inventory/as-of": AsOf,
   "/inventory/control": Control,
   "/inventory/time-machine": TimeMachine,
-  "/inventory/units": Units,
   "/inventory/flows": Flows,
 }

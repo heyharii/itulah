@@ -3,7 +3,7 @@
 # One API image contains all three server binaries. APP_BIN selects the role at
 # runtime, so the same build artifact can be promoted across environments.
 # Browser assets are deployed separately as a static site.
-FROM rust:1.88-bookworm AS builder
+FROM rust:1.98-bookworm AS builder
 
 WORKDIR /app
 
@@ -16,7 +16,11 @@ RUN cargo fetch --locked --manifest-path backend/Cargo.toml
 COPY backend/src ./backend/src
 COPY backend/migrations ./backend/migrations
 COPY backend/.sqlx ./backend/.sqlx
-RUN SQLX_OFFLINE=true cargo build --locked --manifest-path backend/Cargo.toml --release --workspace --bins
+# Build-arg knobs (defaults = cargo release defaults); the GCP demo lowers them for speed.
+ARG CARGO_PROFILE_RELEASE_OPT_LEVEL=3
+ARG CARGO_PROFILE_RELEASE_DEBUG=false
+ARG CARGO_BUILD_BINS="--workspace --bins"
+RUN SQLX_OFFLINE=true cargo build --locked --manifest-path backend/Cargo.toml --release ${CARGO_BUILD_BINS}
 
 FROM debian:bookworm-slim AS runtime
 
@@ -28,7 +32,7 @@ WORKDIR /app
 COPY --from=builder /app/backend/target/release/cloud /usr/local/bin/cloud
 COPY --from=builder /app/backend/target/release/dc /usr/local/bin/dc
 COPY --from=builder /app/backend/target/release/store /usr/local/bin/store
-COPY deploy/render/entrypoint.sh /usr/local/bin/itulah-entrypoint
+COPY deploy/entrypoint.sh /usr/local/bin/itulah-entrypoint
 
 RUN chmod 0755 /usr/local/bin/itulah-entrypoint \
     && useradd --system --uid 10001 --create-home --home-dir /nonexistent --shell /usr/sbin/nologin itulah
@@ -39,7 +43,7 @@ ENV APP_BIN=cloud \
     INVENTORY_AUTH_COOKIE_SECURE=true \
     RUST_LOG=inventory_backend=info,tower_http=info
 
-# Render supplies PORT. The binaries translate it to 0.0.0.0:$PORT unless an
+# The host platform supplies PORT. The binaries translate it to 0.0.0.0:$PORT unless an
 # explicit BIND_ADDR is supplied for a private edge installation.
 EXPOSE 10000
 USER 10001

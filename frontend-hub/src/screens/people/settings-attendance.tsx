@@ -120,10 +120,10 @@ export function AttendanceRuleSettings() {
                   "From",
                   "Until",
                   "State",
-                  { label: "Late grace", align: "right" },
-                  { label: "Early leave", align: "right" },
+                  { label: "Late Grace", align: "right" },
+                  { label: "Early Leave", align: "right" },
                   { label: "Overtime from", align: "right" },
-                  { label: "Duplicate punch", align: "right" },
+                  { label: "Duplicate Punch", align: "right" },
                 ]}
               >
                 {rows.map((row) => (
@@ -323,7 +323,6 @@ function NewVersionSheet({
             rows={2}
             value={draft.reason}
             onChange={(event) => set({ reason: event.target.value })}
-            placeholder="Why the tolerance is changing"
           />
         </Field>
       </div>

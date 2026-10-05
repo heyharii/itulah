@@ -35,7 +35,7 @@ import type { EmployeeList, PerformanceScoreView } from "@itulah/contract"
 /// score. Templates and weights are head office's.
 export function HrPerformance() {
   return (
-    <HrWorkspace sub="Monthly KPI from the till and attendance, plus the store head's score. The month's KPI sets the bonus tier in payroll. Templates and weights are head office's.">
+    <HrWorkspace>
       {(scope) => <Performance scope={scope} />}
     </HrWorkspace>
   )
@@ -84,7 +84,7 @@ function Performance({ scope }: { scope: StoreScope }) {
       </div>
       <Heading>{readMonth(period)}</Heading>
       {centreState(scores, {
-        loading: "Reading the month's scores…",
+        loading: "Loading…",
         what: "this month's performance scores",
         render: () => (
           <PeopleTable
@@ -149,7 +149,7 @@ function Performance({ scope }: { scope: StoreScope }) {
 
       <Heading>Templates, by position</Heading>
       {centreState(templates, {
-        loading: "Reading the templates…",
+        loading: "Loading…",
         what: "the performance templates",
         render: (rows) => {
           const byPosition = new Map<string, typeof rows>()
@@ -161,7 +161,7 @@ function Performance({ scope }: { scope: StoreScope }) {
           }
           return byPosition.size === 0 ? (
             <p className="text-meta text-body">
-              Head office has set no templates yet.
+              No templates yet.
             </p>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -293,7 +293,6 @@ function ScoreSheet({
         <div className="flex flex-col gap-3">
           <Field
             label="KPI %"
-            hint="Sales against target for the month, as the till reports it."
           >
             <Input
               inputMode="decimal"
@@ -314,17 +313,13 @@ function ScoreSheet({
               onChange={setScore}
             />
           </Field>
-          <Field label="Why" hint="Head office refuses a score with no reason.">
+          <Field label="Reason">
             <Input
               value={reason}
               placeholder="Handled the stock count alone"
               onChange={(event) => setReason(event.target.value)}
             />
           </Field>
-          <p className="text-meta text-mute">
-            The bonus tier is worked out at head office from the KPI and the
-            rule numbers; it is not typed here.
-          </p>
         </div>
       </SheetSection>
     </PeopleSheet>

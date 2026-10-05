@@ -5,14 +5,14 @@ import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
-import { Select } from "@/components/ui/field"
+import { Select, Textarea } from "@/components/ui/field"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { MiniTable } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import { Status } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
@@ -27,7 +27,9 @@ import {
   listPeriods,
   openPeriod,
   periodChecklist,
+  periodEvents,
   previewDepreciation,
+  reopenPeriod,
   runDepreciation,
   trialBalance,
 } from "@/lib/queries/finance"
@@ -54,11 +56,14 @@ import type { DepreciationRun, FiscalPeriod } from "@itulah/contract"
 /// posting serialise. There is no window in which a month closes and a late
 /// entry slips in behind it.
 ///
-/// # Why there is no reopen
+/// # Why a sealed month can be reopened
 ///
-/// Because there is no endpoint for one, and that is the right shape: a sealed
-/// month is answered by a correcting entry in an open one, the same way a wrong
-/// journal entry is answered by its mirror.
+/// Sometimes the entry has to go into the month it belongs to, and a correcting
+/// entry in an open one is not the same thing. So "Undo closing" exists, with
+/// the rules that keep it honest: newest month first, one at a time, and a
+/// reason that is kept with who asked and when. The server refuses it while a
+/// later month is still sealed or a year-end voucher covers the month; this
+/// screen shows that refusal as it is worded rather than keeping its own copy.
 
 /// `2026-09` — the value the URL carries, and the key a period is addressed by.
 function periodId(period: { year: number; month: number }): string {
@@ -86,9 +91,9 @@ const columns: ColumnDef<TableSetup, FiscalPeriod>[] = [
     size: 130,
     meta: { filter: { kind: "option", format: label } },
     cell: ({ row }) => (
-      <Pill tone={toneFor(row.original.status)}>
+      <Status tone={toneFor(row.original.status)}>
         {label(row.original.status)}
-      </Pill>
+      </Status>
     ),
   },
   {
@@ -187,9 +192,8 @@ export function Periods() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance"
-        title="Period close"
-        sub="Nothing can be posted into a month that has not been opened, and nothing can be posted into one that has been sealed."
+        crumb="Finance · Accounting Masters"
+        title="Accounting Period"
         actions={
           <Button
             variant="primary"
@@ -314,6 +318,9 @@ function PeriodSheet({
   const client = useQueryClient()
   const [confirming, setConfirming] = useState(false)
   const [sealed, setSealed] = useState<number | null>(null)
+  const [undoing, setUndoing] = useState(false)
+  const [reason, setReason] = useState("")
+  const [reopened, setReopened] = useState<string | null>(null)
 
   const periods = useQuery({
     queryKey: financeKeys.periods(),
@@ -328,10 +335,32 @@ function PeriodSheet({
     enabled: id !== null,
   })
 
+  const events = useQuery({
+    queryKey: financeKeys.periodEvents(id),
+    queryFn: ({ signal }) => periodEvents(id!, signal),
+    enabled: id !== null,
+  })
+
+  const reopen = useMutation({
+    mutationFn: () => reopenPeriod(period!.year, period!.month, reason.trim()),
+    onSuccess: () => {
+      const name = monthLabel(period!.year, period!.month)
+      setUndoing(false)
+      setReason("")
+      setSealed(null)
+      setReopened(
+        `${name} is open again. Close it again when the correction is posted.`
+      )
+      client.invalidateQueries({ queryKey: financeKeys.periods() })
+      client.invalidateQueries({ queryKey: financeKeys.closeChecklist(id) })
+    },
+  })
+
   const close = useMutation({
     mutationFn: () => closePeriod(period!.year, period!.month),
     onSuccess: (receipt) => {
       setConfirming(false)
+      setReopened(null)
       setSealed(receipt.entries_sealed)
       // Sealing does not move a single figure — it only stops new ones being
       // written into the month — so the calendar is the only stale read.
@@ -342,6 +371,13 @@ function PeriodSheet({
 
   const isOpen = period?.status?.toUpperCase() === "OPEN"
   const mayClose = isOpen && closeChecks.data?.may_close === true
+  const mayUndo = !isOpen && reason.trim() !== ""
+
+  function leaveUndo() {
+    setUndoing(false)
+    setReason("")
+    reopen.reset()
+  }
 
   return (
     <Sheet
@@ -350,6 +386,8 @@ function PeriodSheet({
         if (!next) {
           setConfirming(false)
           setSealed(null)
+          setReopened(null)
+          leaveUndo()
           onClose()
         }
       }}
@@ -387,6 +425,35 @@ function PeriodSheet({
               Close this month
             </Button>
           )
+        ) : period ? (
+          undoing ? (
+            <div className="flex flex-col gap-3">
+              <Textarea
+                rows={2}
+                autoFocus
+                aria-label="Reason for undoing the closing"
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+              />
+              <div className="flex justify-end gap-1.5">
+                <Button variant="quiet" onClick={leaveUndo}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="danger"
+                  pending={reopen.isPending}
+                  disabled={!mayUndo}
+                  onClick={() => reopen.mutate()}
+                >
+                  {reopen.isPending ? "Reopening…" : "Undo closing"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button variant="danger" onClick={() => setUndoing(true)}>
+              Undo closing
+            </Button>
+          )
         ) : undefined
       }
     >
@@ -404,6 +471,18 @@ function PeriodSheet({
                 <Banner tone="ok" onDismiss={() => setSealed(null)}>
                   Sealed {count(sealed)} {sealed === 1 ? "entry" : "entries"}.
                   Corrections now go into an open month.
+                </Banner>
+              )}
+              {reopened !== null && (
+                <Banner tone="ok" onDismiss={() => setReopened(null)}>
+                  {reopened}
+                </Banner>
+              )}
+              {reopen.isError && (
+                <Banner tone="bad">
+                  {reopen.error instanceof Error
+                    ? reopen.error.message
+                    : "The closing could not be undone."}
                 </Banner>
               )}
               {close.isError && (
@@ -428,6 +507,23 @@ function PeriodSheet({
                 <Fact term="Closed at">{moment(period.closed_at)}</Fact>
               </Facts>
 
+              {events.data !== undefined && events.data.length > 0 && (
+                <div>
+                  <h4 className="mb-2 text-card-title font-semibold text-ink">
+                    History
+                  </h4>
+                  <ul className="flex flex-col gap-1.5 text-[0.875rem] text-body">
+                    {events.data.map((event) => (
+                      <li key={event.event_id}>
+                        {event.event === "REOPEN" ? "Reopened" : "Closed"} by{" "}
+                        {event.actor} · {moment(event.at)}
+                        {event.reason ? ` — ${event.reason}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {isOpen &&
                 closeChecks.data !== undefined &&
                 !closeChecks.data.may_close && (
@@ -442,7 +538,7 @@ function PeriodSheet({
               <p className="text-[0.875rem] text-body">
                 {isOpen
                   ? "Closing seals every entry already posted into this month. A close and a posting cannot interleave — the database serialises them — so the number above is the number that will be sealed."
-                  : "This month is sealed. There is no reopen: a correction is posted into an open month, the way a wrong entry is answered by its mirror rather than edited away."}
+                  : "This month is sealed. If a transaction has to be entered into it after all, Undo closing opens it again — newest month first, one at a time, with a reason that is kept. Otherwise a correction is posted into an open month, the way a wrong entry is answered by its mirror."}
               </p>
             </div>
           ),
@@ -567,8 +663,8 @@ function Checklist({ period }: { period: FiscalPeriod }) {
             gaps === null
               ? "Reading the account links…"
               : gaps === 0
-                ? "Every role the posting rules ask for resolves to an account, at every location."
-                : `${count(gaps)} role-and-location combinations have no account. Every posting that needs one is refused.`
+                ? "Every role the posting rules ask for resolves to an account, at every unit."
+                : `${count(gaps)} role-and-unit combinations have no account. Every posting that needs one is refused.`
           }
           action={
             <AppLink
@@ -758,10 +854,10 @@ function Checklist({ period }: { period: FiscalPeriod }) {
           <MiniTable
             head={[
               "Asset",
-              { label: reportKind === "preview" ? "Would post" : "Charge" },
+              { label: reportKind === "preview" ? "Would Post" : "Charge" },
               {
                 label:
-                  reportKind === "preview" ? "Not posted" : "Skipped because",
+                  reportKind === "preview" ? "Not Posted" : "Skipped Because",
               },
             ]}
           >
@@ -812,7 +908,7 @@ function Row({
   note: React.ReactNode
   action: React.ReactNode
 }) {
-  const pill = {
+  const status = {
     ok: { tone: "ok" as const, text: "Clear" },
     todo: { tone: "warn" as const, text: "Open" },
     bad: { tone: "bad" as const, text: "Out of balance" },
@@ -826,7 +922,7 @@ function Row({
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
           <span className="text-[0.875rem] font-medium text-ink">{title}</span>
-          <Pill tone={pill.tone}>{pill.text}</Pill>
+          <Status tone={status.tone}>{status.text}</Status>
         </span>
         <span className="mt-0.5 block text-[0.875rem] text-body">{note}</span>
       </span>

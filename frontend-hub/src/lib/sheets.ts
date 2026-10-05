@@ -72,6 +72,19 @@ function cellRef(value: unknown): string | undefined {
     : undefined
 }
 
+/// Suppliers and their ticked articles, as `supplier:id,id;supplier:id`.
+/// What a New allotment walks through after the supplier on screen (`queue`)
+/// and before it (`before`). Read back by `screens/allotment/walk.ts`.
+function supplierWalk(value: unknown): string | undefined {
+  return typeof value === "string" &&
+    value.length <= 20000 &&
+    /^[A-Za-z0-9_.-]{1,64}:[A-Za-z0-9_.:-]{1,64}(,[A-Za-z0-9_.:-]{1,64})*(;[A-Za-z0-9_.-]{1,64}:[A-Za-z0-9_.:-]{1,64}(,[A-Za-z0-9_.:-]{1,64})*)*$/.test(
+      value
+    )
+    ? value
+    : undefined
+}
+
 /// One of a fixed set. Anything else is dropped rather than passed on: the
 /// value reaches the server as a grouping, and `?bucket=fortnight` is a 400
 /// dressed up as a link.
@@ -159,13 +172,9 @@ export const SHEET_PARAMS = {
   /// than an id: there is one basket, and it is not a record you navigate to —
   /// which is why it is no longer a screen in the menu.
   cart: flag,
-  /// The queue of deliveries that arrived without an identity, over whatever
-  /// somebody was doing in Articles. A flag and not an id, for the reason
-  /// `cart` is: there is one queue, it is not a record you navigate to, and it
-  /// is no longer a screen in the menu. A setup happens *per delivery*, so the
-  /// queue is where you pick which one — the two sheets below are the two
-  /// steps after that.
-  setups: flag,
+  /// Which PO (by its number) the New articles page is narrowed to. Not
+  /// `order`, which opens that PO's record sheet.
+  setupFor: id,
   /// One article-setup session: the receipt that arrived without an article,
   /// and the variants being declared against it.
   setup: id,
@@ -214,6 +223,31 @@ export const SHEET_PARAMS = {
   /// The ledger movements in and out of one pool.
   "pool-movements": id,
   allotment: id,
+  /// A new allotment started from an old one, as `topup~<id>` or
+  /// `reallot~<id>`. Not a sheet: it narrows New allotment to the same items
+  /// and stores (Top up) or to what was just cancelled (Cancel and re-allot).
+  /// In the URL so the page survives a reload and the note keeps its number.
+  allotFrom: (value: unknown): string | undefined =>
+    typeof value === "string" &&
+    /^(topup|reallot)~[A-Za-z0-9-]{1,64}$/.test(value)
+      ? value
+      : undefined,
+  /// The articles a New allotment is made of, as comma-joined article ids,
+  /// with `supplier` saying whose they are. With them the page is the grid;
+  /// without them it is the list they are picked from.
+  articles: (value: unknown): string | undefined =>
+    typeof value === "string" &&
+    value.length <= 20000 &&
+    /^[A-Za-z0-9_.:-]{1,64}(,[A-Za-z0-9_.:-]{1,64})*$/.test(value)
+      ? value
+      : undefined,
+  /// The suppliers whose ticked articles New allotment walks through AFTER
+  /// the one on screen, in the list's order. One key with the print queue
+  /// below: that one is the flag `true`, this one is always a walk.
+  queue: (value: unknown): true | string | undefined =>
+    flag(value) ?? supplierWalk(value),
+  /// The suppliers already walked past, so Previous and Back still have them.
+  before: supplierWalk,
   count: id,
   /// Which reading of the count book is on screen. A fixed set, because it
   /// reaches the node as `?status=` and the lifecycle has exactly four states
@@ -600,8 +634,9 @@ export const SHEET_PARAMS = {
   /// is left on this bench" — every article still waiting and how far its run
   /// has got. In the URL like every other overlay, so the bench somebody
   /// walked away from is a link rather than a state their tab happened to be
-  /// in.
-  queue: flag,
+  /// in. Declared with `articles` above, where it doubles as New allotment's
+  /// walk of suppliers.
+
   /// **The label.** Which job's tag is on screen: the drawing, the ZPL under
   /// it, the stock it is drawn on, and the button that sends it. A different
   /// question from `queue` — somebody who pressed Print on a row has already
@@ -621,10 +656,19 @@ export const SHEET_PARAMS = {
   /// now, so there is no such thing as a round in progress, and the key names
   /// the record instead of the session.
   pick: id,
+  /// One picklist NOT yet accepted — an allotment × shop pairing with no id
+  /// of its own until accepting it mints a session, so the key is
+  /// `"<allotment_id>~<destination_id>"` rather than a record id.
+  accept: id,
   /// The rack stock is being taken off. A choice, not a record — but it is
   /// what every pick on the screen is written against, so it survives a reload
   /// with the round it belongs to.
   rack: id,
+  /// Packing's pack sheet for one shop, keyed by the shop's own id — a shop
+  /// gathers several picklists (one per allotment) into its cartons, so the
+  /// sheet is not any one picklist's. Picking's own "Pack" button opens it
+  /// directly for the shop a picklist it just read belongs to.
+  pack: id,
   /// One carton, and its manifest.
   koli: id,
   /// The consignment note.
@@ -829,6 +873,24 @@ export function useSheet<K extends SheetKey>(key: K) {
         to: ".",
         replace: true,
         search: (prev: SheetSearch) => ({ ...prev, [key]: undefined }),
+        viewTransition: false,
+      }),
+    /// Close the sheet under `from` and open this one, in ONE navigation — a
+    /// composer giving way to the record it just made. As two calls, `close`
+    /// and then `open`, the second started from a URL the first had not
+    /// finished writing, and the composer came back.
+    swap: (
+      from: SheetKey,
+      next: SheetSearch[K] extends true | undefined ? true : string
+    ) =>
+      navigate({
+        to: ".",
+        replace: true,
+        search: (prev: SheetSearch) => ({
+          ...prev,
+          [from]: undefined,
+          [key]: next,
+        }),
         viewTransition: false,
       }),
   }

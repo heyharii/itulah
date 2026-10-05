@@ -15,7 +15,7 @@ export type JournalFacet = { value: string,
  *
  * Absent for a source kind, whose words belong to the screen —
  * "Hand-written" is the hub's phrasing of `MANUAL`, not the server's.
- * Present for a location, because `store-01` is an id this system files
- * it under and the panel beside the column shows `Store 01`.
+ * Present for a unit, because `store-01` is an id this system files it
+ * under and the panel beside the column shows the unit's name.
  */
 label: string | null, count: number, };

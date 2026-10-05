@@ -1,16 +1,20 @@
-import { Megaphone, Sparkles, TrendingDown } from "lucide-react"
+import { ChevronDown, Sparkles, TrendingDown } from "lucide-react"
+import { useState } from "react"
 
 import { Card } from "@/components/ui/card"
 import { Pill } from "@/components/ui/pill"
-import { Screen, Section } from "@/components/ui/screen"
+import { Screen } from "@/components/ui/screen"
 import { EmptyState } from "@/components/ui/states"
 import { count } from "@/lib/format"
 import { queryState } from "@/lib/query-state"
+import { cn } from "@/lib/utils"
 import {
   CampaignBanner,
   Countdown,
+  TimeBar,
   DropPill,
   NoPriceBook,
+  OfferDetail,
   OfferPill,
 } from "@/screens/promotions/parts"
 import {
@@ -23,7 +27,6 @@ import {
   provenance,
   useOffers,
   type CampaignGroup,
-  type Loose,
 } from "@/screens/promotions/shared"
 import type { PriceDropWindow, StoreOffer, StoreOffers } from "@itulah/contract"
 
@@ -32,7 +35,7 @@ import type { PriceDropWindow, StoreOffer, StoreOffers } from "@itulah/contract"
 ///
 /// A campaign is the thing a shopper was shown a poster about: "Lebaran
 /// Sale", with a banner, a headline and small print, holding a handful of
-/// promotions and a run of price drops. On the Promotions and Price drops
+/// promotions and a run of price drops. On the Promotions and Price changes
 /// screens those members are rows among other rows; here they are put back
 /// together, so "what is in the Lebaran sale?" has one place to be answered.
 ///
@@ -57,41 +60,27 @@ export function Campaigns() {
 }
 
 function CampaignBoard({ offers }: { offers: StoreOffers }) {
-  const { campaigns, loose } = groupCampaigns(offers)
-  const looseCount = loose.offers.length + loose.drops.length
+  const { campaigns } = groupCampaigns(offers)
 
-  if (campaigns.length === 0 && looseCount === 0) {
+  if (campaigns.length === 0) {
     return (
       <Card>
         <EmptyState>
-          Head office has nothing on offer at this shop — no campaign, no
-          promotion and no price drop is running or due to start.
+          No campaign is running or due to start at this shop. Single
+          promotions and price changes are on their own screens.
         </EmptyState>
       </Card>
     )
   }
 
+  // Two abreast from a tablet up: a campaign is a poster first, and a poster
+  // stretched across 72rem is a strip nobody can make out.
   return (
-    <>
-      {campaigns.length === 0 ? (
-        <Card className="mb-5">
-          <EmptyState>
-            None of what this shop is offering belongs to a campaign — they are
-            listed below as they are.
-          </EmptyState>
-        </Card>
-      ) : (
-        // Two abreast from a tablet up: a campaign is a poster first, and a
-        // poster stretched across 72rem is a strip nobody can make out.
-        <div className="mb-6 grid items-start gap-3 md:grid-cols-2">
-          {campaigns.map((campaign) => (
-            <CampaignCard key={campaign.id} campaign={campaign} />
-          ))}
-        </div>
-      )}
-
-      {looseCount > 0 && <LooseSection loose={loose} />}
-    </>
+    <div className="grid gap-4 md:grid-cols-2">
+      {campaigns.map((campaign) => (
+        <CampaignCard key={campaign.id} campaign={campaign} />
+      ))}
+    </div>
   )
 }
 
@@ -100,14 +89,19 @@ function CampaignCard({ campaign }: { campaign: CampaignGroup }) {
   const promotions = campaign.offers.length
   const drops = campaign.drops.length
   return (
-    <Card>
+    <Card className="flex h-full flex-col">
       {campaign.hasImage && (
         <CampaignBanner campaign={campaign.id} alt={campaign.title} />
       )}
-      <div className="px-4 pt-3.5 pb-3">
+      <TimeBar
+        state={campaign.state}
+        startsAt={campaign.startsAt}
+        endsAt={campaign.endsAt}
+      />
+      <div className="px-4 pt-4 pb-4">
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h3 className="text-card-title font-semibold text-ink">
+          <div className="min-h-[2.75rem] min-w-0">
+            <h3 className="line-clamp-2 text-card-title font-semibold text-ink">
               {campaign.title}
             </h3>
             {campaign.name !== null && (
@@ -121,11 +115,13 @@ function CampaignCard({ campaign }: { campaign: CampaignGroup }) {
           )}
         </div>
 
-        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-meta">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 border-t border-hairline pt-3 text-meta">
           <Countdown
             state={campaign.state}
             startsAt={campaign.startsAt}
             endsAt={campaign.endsAt}
+            urgentHours={48}
+            className="text-[0.9375rem] font-semibold"
           />
           <span className="text-mute tabular-nums">
             {span(campaign.startsAt, campaign.endsAt)}
@@ -149,13 +145,15 @@ function CampaignCard({ campaign }: { campaign: CampaignGroup }) {
           </span>
           <span className="inline-flex items-center gap-1">
             <TrendingDown className="size-3.5 text-line-ico" />
-            {count(drops)} {drops === 1 ? "price drop" : "price drops"}
+            {count(drops)} {drops === 1 ? "price change" : "price changes"}
           </span>
         </p>
       </div>
 
       {promotions + drops > 0 && (
-        <Members offers={campaign.offers} drops={campaign.drops} />
+        <div className="mt-auto">
+          <Members offers={campaign.offers} drops={campaign.drops} />
+        </div>
       )}
     </Card>
   )
@@ -173,29 +171,16 @@ function Members({
   return (
     <ul className="border-t border-hairline">
       {offers.map((offer) => (
-        <li
-          key={offer.rule_id}
-          className="flex min-h-11 items-center gap-3 border-b border-hairline px-4 py-2 last:border-b-0"
-        >
-          <Sparkles className="size-3.5 shrink-0 text-accent" />
-          <span className="min-w-0 flex-1 text-cell">
-            <span className="block truncate text-ink">{offer.name}</span>
-            <span className="block truncate text-meta text-body">
-              {describeEffect(offer.effect)}
-              {offer.coupon_code !== null && ` · code ${offer.coupon_code}`}
-            </span>
-          </span>
-          <OfferPill offer={offer} />
-        </li>
+        <OfferMember key={offer.rule_id} offer={offer} />
       ))}
       {drops.map((window) => (
         <li
           key={dropKey(window)}
-          className="flex min-h-11 items-center gap-3 border-b border-hairline px-4 py-2 last:border-b-0"
+          className="flex min-h-14 items-center gap-3 border-b border-hairline px-4 py-3 last:border-b-0"
         >
           <TrendingDown className="size-3.5 shrink-0 text-bad-fg" />
           <span className="min-w-0 flex-1 text-cell">
-            <span className="block truncate text-ink">Price drop</span>
+            <span className="block truncate text-ink">Price change</span>
             <span className="block truncate text-meta text-body tabular-nums">
               {dropReach(window)}
             </span>
@@ -207,39 +192,40 @@ function Members({
   )
 }
 
-/// The offers that belong to no campaign, listed as they are.
-///
-/// Not grouped into an invented campaign: a heading like "Other offers" over
-/// a card with a banner would put a campaign on the screen that nobody at
-/// head office ever authored.
-function LooseSection({ loose }: { loose: Loose }) {
-  const promotions = loose.offers.length
-  const drops = loose.drops.length
+/// One promotion in a campaign. Opens in place to its terms, so what the
+/// campaign holds can be read without leaving the poster.
+function OfferMember({ offer }: { offer: StoreOffer }) {
+  const [open, setOpen] = useState(false)
   return (
-    <Section
-      title="Not part of a campaign"
-      action={
-        <span className="text-meta text-mute tabular-nums">
-          {[
-            promotions > 0
-              ? `${count(promotions)} ${promotions === 1 ? "promotion" : "promotions"}`
-              : null,
-            drops > 0
-              ? `${count(drops)} ${drops === 1 ? "price drop" : "price drops"}`
-              : null,
-          ]
-            .filter((part) => part !== null)
-            .join(" · ")}
+    <li className="border-b border-hairline last:border-b-0">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((was) => !was)}
+        className="flex min-h-14 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-soft/60"
+      >
+        <Sparkles className="size-3.5 shrink-0 text-accent" />
+        <span className="min-w-0 flex-1 text-cell">
+          <span className="block truncate text-ink">{offer.name}</span>
+          <span className="block truncate text-meta text-body">
+            {describeEffect(offer.effect)}
+            {offer.coupon_code !== null && ` · code ${offer.coupon_code}`}
+          </span>
         </span>
-      }
-    >
-      <Card>
-        <div className="flex items-center gap-2.5 bg-soft px-4 py-2.5 text-meta text-body">
-          <Megaphone className="size-3.5 shrink-0 text-line-ico" />
-          On their own, with no poster or small print from head office.
+        <OfferPill offer={offer} />
+        <ChevronDown
+          aria-hidden
+          className={cn(
+            "size-4 shrink-0 text-line-ico transition-transform duration-200",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+      {open && (
+        <div className="bg-soft px-4 pt-1 pb-4">
+          <OfferDetail offer={offer} />
         </div>
-        <Members offers={loose.offers} drops={loose.drops} />
-      </Card>
-    </Section>
+      )}
+    </li>
   )
 }

@@ -272,8 +272,8 @@ pub async fn run_apply_agent(state: AppState) {
     loop {
         tokio::time::sleep(interval).await;
         let applied = infrastructure::apply_pending(&state.db, APPLY_PER_STREAM).await;
-        // The fleet page's "sync apply": this pass ran (`fleet_job_beat`).
-        infrastructure::fleet_job_beat(
+        // The fleet page's "sync apply": this pass ran (`job_beat`, 0703).
+        infrastructure::job_beat(
             &state.db,
             infrastructure::JOB_SYNC_APPLY,
             applied.as_ref().err().map(ToString::to_string).as_deref(),

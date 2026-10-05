@@ -6,7 +6,14 @@ import {
 } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { X } from "lucide-react"
+import {
+  ChartNoAxesColumn,
+  ListChecks,
+  Percent,
+  Store,
+  X,
+  type LucideIcon,
+} from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 import type { RuleStatus } from "@itulah/contract"
 
@@ -15,21 +22,20 @@ import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { ConfirmButton, Dialog } from "@/components/ui/dialog"
+import { ConfirmButton, Dialog, SavedDialog } from "@/components/ui/dialog"
+import { RecordPanel } from "@/components/ui/record-panel"
 import { Input } from "@/components/ui/field"
 import { Meter } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
-import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
+import { Status } from "@/components/ui/pill"
+import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { DockedFilters } from "@/components/ui/list-chrome"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, ErrorState } from "@/components/ui/states"
-import { Tag } from "@/components/ui/tag"
 import { useFilters, type Filter, type Operator } from "@/lib/filters"
 import { useDebounced } from "@/lib/use-debounced"
 import { count, moment, money } from "@/lib/format"
-import { toast } from "@/lib/toast"
 import { listTerms, vocabularyKeys } from "@/lib/queries/vocabulary"
 import {
   changeKeys,
@@ -61,23 +67,21 @@ import {
 } from "@/lib/queries/commercial"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import { ROOMY } from "@/screens/operations/roomy"
 import { PerformanceHeader } from "@/screens/commercial/performance-header"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { Switch } from "@/components/ui/form"
 import { HardCap } from "@/screens/commercial/allocation"
 import { RuleForm, type RuleSeed } from "@/screens/commercial/rule-form"
-import { Terms } from "@/screens/commercial/controls"
 import {
   authorable,
   capsOf,
   conditionsOf,
-  consumed,
   describeCustomers,
   describeEffect,
   describePeriod,
   describeScope,
   percent,
-  termsOf,
   useActor,
 } from "@/screens/commercial/shared"
 
@@ -189,12 +193,12 @@ function Reached({
   return (
     <span className="inline-flex items-center justify-end gap-1.5 whitespace-nowrap tabular-nums">
       {shops === 0 ? (
-        <Pill tone="warn">0{total ?? " shops"}</Pill>
+        <span className="text-warn-fg">0{total ?? " stores"}</span>
       ) : (
         <span className="text-text">
           {count(shops)}
           {total === null ? (
-            " shops"
+            " stores"
           ) : (
             <span className="text-mute">{total}</span>
           )}
@@ -230,10 +234,7 @@ const BAND_OPERATORS: readonly Operator[] = [
 /// Rounded INWARD, because the counts are whole: "at least 2.5" is at least
 /// 3, and "is 2.5" is a band nothing fits (min 3, max 2), which is the honest
 /// answer rather than a 400 for a decimal point.
-function bandOf(
-  filters: readonly Filter[],
-  column: string
-): Band | undefined {
+function bandOf(filters: readonly Filter[], column: string): Band | undefined {
   const clause = filters.find((one) => one.column === column)
   if (clause === undefined) return undefined
   const [first, second] = clause.values.map(Number)
@@ -274,11 +275,11 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     id: "promotion",
     accessorFn: (row) => row.row.name,
     header: "Promotion",
-    size: 220,
+    size: 260,
     // No text clause: the search box above the table asks the server for the
     // name, the id and the coupon code, and a clause here could only narrow
     // the pages already loaded.
-    meta: { card: "title", priority: 1 },
+    meta: { card: "title", priority: 1, grow: 280 },
     cell: ({ row }) => (
       <span className="font-medium text-ink">{row.original.row.name}</span>
     ),
@@ -287,7 +288,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     id: "live",
     accessorFn: (row) => row.row.status,
     header: "Status",
-    size: 130,
+    size: 170,
     enableSorting: false,
     // The PHASE, the same word the tabs use — not the stored status, which
     // says "on" for a promotion whose end date has passed. The switch is
@@ -300,7 +301,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
       const meta = actionsOf<PromotionLine>(table)
       const phase = phaseOf(row.original, meta?.at ?? 0)
       return (
-        <span className="inline-flex items-center gap-2">
+        <span className="inline-flex items-center gap-3">
           {(phase === "ACTIVE" || phase === "PAUSED") && (
             <Switch
               on={phase === "ACTIVE"}
@@ -309,7 +310,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
               onToggle={() => meta?.onToggle?.(row.original)}
             />
           )}
-          <Pill tone={PHASE_TONE[phase]}>{PHASE_WORD[phase]}</Pill>
+          <Status tone={PHASE_TONE[phase]}>{PHASE_WORD[phase]}</Status>
         </span>
       )
     },
@@ -318,7 +319,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     id: "scope",
     accessorFn: (row) => describeScope(row.row.definition),
     header: "Applies to",
-    size: 160,
+    size: 190,
     enableSorting: false,
     // **Not a facet.** The accessor is a sentence `describeScope` composes —
     // "3 products", "Division PRIA", "The whole basket" — so a picker over
@@ -334,7 +335,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
           actionsOf<PromotionLine>(table)?.named
         )}
         {describeCustomers(row.original.row.definition) === "Members" && (
-          <Tag className="ml-1.5">members</Tag>
+          <span className="text-mute"> · members only</span>
         )}
       </span>
     ),
@@ -346,7 +347,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     // also says what it does, and this is the one that says what the shopper
     // gets.
     header: "Benefit",
-    size: 150,
+    size: 180,
     enableSorting: false,
     meta: { card: "meta", priority: 1 },
     cell: ({ row }) => (
@@ -359,7 +360,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     id: "reached",
     accessorFn: (row) => row.reached,
     header: "Stores",
-    size: 190,
+    size: 220,
     // Sorted and filtered by the SERVER (`stores`, `stores_min`/`stores_max`),
     // which counts the same `activated_by` this cell counts.
     //
@@ -372,7 +373,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
       filter: {
         kind: "number",
         label: "Stores",
-        unit: "shops",
+        unit: "stores",
         operators: BAND_OPERATORS,
         single: true,
       },
@@ -391,7 +392,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     id: "usage",
     accessorFn: (row) => row.usage?.uses ?? 0,
     header: "Usage",
-    size: 170,
+    size: 200,
     // Sorted and filtered by the SERVER (`usage`, `used_min`/`used_max`),
     // which joins the same usage counter this cell reads. The overspend
     // banner, which reads the counter whole, is what finds the row that has
@@ -432,7 +433,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
       return Number.isNaN(at) ? Number.POSITIVE_INFINITY : at
     },
     header: "Period",
-    size: 150,
+    size: 180,
     // Sorted by the server's `ends` — the rule's own end date, with no end
     // sorting as infinity, which is this accessor's rule too.
     // The first column to go when the table is in a narrow card. Every other
@@ -571,6 +572,10 @@ export function Promotions() {
   const [seed, setSeed] = useState<RuleSeed | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<PublishReceipt | null>(null)
+  /// A switch or publish that went through, held in the receipt dialog until
+  /// it is read. One state for the three writes — pause, end, publish —
+  /// because only one of them can land at a time.
+  const [switched, setSwitched] = useState<string | null>(null)
   /// The live promotion somebody asked to pause, waiting on a yes.
   const [pausing, setPausing] = useState<PromotionLine | null>(null)
   /// Usage, highest first, ordered by the server — which joins the usage
@@ -580,7 +585,10 @@ export function Promotions() {
 
   const filters = useFilters(promotionColumns)
   /// The Stores and Usage clauses, as the bands the server takes.
-  const used = useMemo(() => bandOf(filters.filters, "usage"), [filters.filters])
+  const used = useMemo(
+    () => bandOf(filters.filters, "usage"),
+    [filters.filters]
+  )
   const stores = useMemo(
     () => bandOf(filters.filters, "reached"),
     [filters.filters]
@@ -657,7 +665,9 @@ export function Promotions() {
     const extra = namedCampaign.data
     return extra === null ||
       extra === undefined ||
-      menu.some((one) => one.campaign.campaign_id === extra.campaign.campaign_id)
+      menu.some(
+        (one) => one.campaign.campaign_id === extra.campaign.campaign_id
+      )
       ? menu
       : [...menu, extra]
   }, [campaignList.data, namedCampaign.data])
@@ -667,8 +677,7 @@ export function Promotions() {
     queryKey: commercialKeys.books(),
     queryFn: ({ signal }) => listPriceBooks(signal),
   })
-  const nextVersion =
-    books.data === undefined ? 1 : nextBookVersion(books.data)
+  const nextVersion = books.data === undefined ? 1 : nextBookVersion(books.data)
 
   const usage = useQuery({
     queryKey: commercialKeys.usage(),
@@ -726,8 +735,7 @@ export function Promotions() {
 
   /// The pages loaded so far — never "every promotion".
   const promotions: PromotionLine[] = useMemo(
-    () =>
-      (list.data?.pages ?? []).flatMap((page) => page.rows.map(lineOf)),
+    () => (list.data?.pages ?? []).flatMap((page) => page.rows.map(lineOf)),
     [list.data, lineOf]
   )
 
@@ -767,8 +775,8 @@ export function Promotions() {
     onSuccess: (published, line) => {
       setReceipt(published)
       if (published.delivered_to.length > 0)
-        toast.success(
-          `${line.row.status === "ACTIVE" ? "Paused" : "Resumed"} — sent to ${shopsWord(published.delivered_to.length)}`
+        setSwitched(
+          `${line.row.status === "ACTIVE" ? "Paused" : "Resumed"} — sent to ${storesWord(published.delivered_to.length)}`
         )
     },
     onSettled: () => {
@@ -793,12 +801,11 @@ export function Promotions() {
     onSuccess: (published) => {
       setReceipt(published)
       if (published.delivered_to.length > 0)
-        toast.success(
-          `Ended — sent to ${shopsWord(published.delivered_to.length)}`
+        setSwitched(
+          `Ended — sent to ${storesWord(published.delivered_to.length)}`
         )
     },
-    onSettled: () =>
-      client.invalidateQueries({ queryKey: commercialKeys.all }),
+    onSettled: () => client.invalidateQueries({ queryKey: commercialKeys.all }),
   })
 
   /// Division and tag names, so a scope reads "Pria" rather than `PRIA`. The
@@ -875,7 +882,9 @@ export function Promotions() {
   /// their sum. `null` until the first page lands.
   const phaseCounts = useMemo(() => {
     if (first === undefined) return null
-    const held = new Map(first.facets.phases.map((one) => [one.value, one.count]))
+    const held = new Map(
+      first.facets.phases.map((one) => [one.value, one.count])
+    )
     let all = 0
     for (const one of first.facets.phases) all += one.count
     held.set("ALL", all)
@@ -994,20 +1003,24 @@ export function Promotions() {
       <PageHeader
         crumb="Marketing"
         title="Promotions"
-        sub="Which offers are running, what each gives the shopper, and how many shops are actually charging it."
         // Search and New promotion sit on the table\'s own toolbar now: they
         // act on the list, and the list is no longer the first thing under this
         // header. What stays is the one action that is about all shops rather
         // than about the rows — sending the counts the shops enforce from.
         actions={
-          <Button
-            variant="soft"
-            pending={send.isPending}
-            disabled={actor === ""}
-            onClick={() => send.mutate()}
-          >
-            {send.isPending ? "Syncing…" : "Sync usage counts to shops"}
-          </Button>
+          <div className="flex flex-col items-end gap-2">
+            <Button
+              variant="soft"
+              pending={send.isPending}
+              disabled={actor === ""}
+              onClick={() => send.mutate()}
+            >
+              {send.isPending ? "Syncing…" : "Sync usage to stores"}
+            </Button>
+            <span className="text-[0.875rem] text-mute">
+              Sent automatically every 5 minutes
+            </span>
+          </div>
         }
       />
 
@@ -1016,31 +1029,28 @@ export function Promotions() {
       {SHOW_PERFORMANCE && <PerformanceHeader of="rules" />}
 
       {toggle.isError && (
-        <div className="mb-4">
+        <div className="mb-5">
           <ErrorState error={toggle.error} />
         </div>
       )}
 
       {send.isError && (
-        <div className="mb-4">
+        <div className="mb-5">
           <ErrorState error={send.error} />
         </div>
       )}
 
       {receipt && receipt.delivered_to.length === 0 && (
-        <Banner tone="warn" className="mb-4" onDismiss={() => setReceipt(null)}>
-          Published, but no shop received it: no shop is registered yet, so
-          this change will not apply anywhere.
+        <Banner tone="warn" className="mb-5" onDismiss={() => setReceipt(null)}>
+          Published, but no store is registered to receive it.
         </Banner>
       )}
 
       {overspent.length > 0 && (
-        <Banner tone="bad" className="mb-4">
+        <Banner tone="bad" className="mb-5">
           {count(overspent.length)} promotion
-          {overspent.length === 1 ? " has" : "s have"} reached or passed the
-          budget declared for {overspent.length === 1 ? "it" : "them"}. Shops
-          stop applying an offer only once they have been told, so sync the
-          usage counts before doing anything else.
+          {overspent.length === 1 ? " has" : "s have"} reached the budget. Sync
+          usage to stores.
         </Banner>
       )}
 
@@ -1050,31 +1060,30 @@ export function Promotions() {
           rail is where the fields live. */}
       <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="flex min-w-0 flex-col">
-          <Toolbar className="mb-3">
+          <Toolbar className="mb-5">
             <Segmented options={tabs} value={phase} onChange={setPhase} />
             {/* The campaign the Campaign screen narrowed this to, said and
                 removable — a filter nobody can see is a list that lies. */}
             {campaignName !== null && (
-              <span className="inline-flex h-8 items-center gap-1 rounded-full border border-accent/30 bg-accent-bg pr-1 pl-3 text-[0.875rem] text-accent">
+              <span className="inline-flex items-center gap-2 text-[0.875rem] text-body">
                 <span className="max-w-[14rem] truncate">
-                  Campaign: {campaignName}
+                  Campaign: <span className="text-ink">{campaignName}</span>
                 </span>
                 <button
                   type="button"
                   aria-label="Show every campaign"
                   onClick={campaignFilter.close}
-                  className="grid size-6 place-items-center rounded-full hover:bg-soft-2"
+                  className="grid size-6 place-items-center rounded-inner text-mute hover:bg-soft-2 hover:text-ink"
                 >
                   <X className="size-3.5" />
                 </button>
               </span>
             )}
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex items-center gap-3">
               <Input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search promotions…"
-                className="h-8 w-56"
+                className="h-9 w-64"
               />
               <Button variant="primary" onClick={() => newRule.open(true)}>
                 New promotion
@@ -1097,15 +1106,12 @@ export function Promotions() {
                       </Button>
                     }
                   >
-                    No promotion belongs to {campaignName} yet.
+                    No promotions in {campaignName}.
                   </EmptyState>
                 ) : campaignName === null &&
                   needle === "" &&
                   everyCount === 0 ? (
-                  <EmptyState>
-                    No promotion has been published yet. A promotion is listed
-                    here once it has been sent to the shops.
-                  </EmptyState>
+                  <EmptyState>No promotions.</EmptyState>
                 ) : promotions.length === 0 &&
                   phase !== "ALL" &&
                   needle === "" &&
@@ -1114,19 +1120,11 @@ export function Promotions() {
                   // an empty tab. Not when a clause is set: then the clause is
                   // the reason, and the table's own empty line says so.
                   <EmptyState>
-                    No promotion is{" "}
+                    No{" "}
                     {PHASES.find(
                       (one) => one.value === phase
-                    )?.label.toLowerCase()}
-                    .
-                    {phase === "ENDED" || phase === "SCHEDULED" ? (
-                      <>
-                        {" "}
-                        Both are read off the promotion\'s own dates, and one
-                        with no dates at all never ends and never waits to
-                        start.
-                      </>
-                    ) : null}
+                    )?.label.toLowerCase()}{" "}
+                    promotions.
                   </EmptyState>
                 ) : (
                   <DataTable<PromotionLine>
@@ -1135,11 +1133,9 @@ export function Promotions() {
                     isSelected={(row) => row.row.rule_id === sheet.value}
                     more={list}
                     empty={
-                      filters.filters.length > 0
-                        ? "No promotion matches those filters."
-                        : "No promotion matches that search."
+                      filters.filters.length > 0 ? "No matches." : "No matches."
                     }
-                    className="max-h-[calc(100dvh-19rem)]"
+                    className={`${ROOMY} max-h-[calc(100dvh-19rem)]`}
                   />
                 ),
             })}
@@ -1151,8 +1147,8 @@ export function Promotions() {
 
       <PromotionSheet
         line={sheetLine}
-        fleet={fleet.data?.items ?? []}
         subject={sheet.subject}
+        fleet={fleet.data?.items ?? []}
         at={at}
         named={named}
         campaigns={campaigns}
@@ -1188,8 +1184,8 @@ export function Promotions() {
         onPublished={(published) => {
           setReceipt(published)
           if (published.delivered_to.length > 0)
-            toast.success(
-              `Published — sent to ${shopsWord(published.delivered_to.length)}`
+            setSwitched(
+              `Published — sent to ${storesWord(published.delivered_to.length)}`
             )
           setSeed(null)
           if (newRule.isOpen) newRule.close()
@@ -1211,16 +1207,23 @@ export function Promotions() {
           setPausing(null)
         }}
       >
-        Every shop stops giving this discount as soon as it receives the
-        change. You can resume it with the same switch.
+        Stores stop giving this discount. You can resume it any time.
       </Dialog>
+
+      <SavedDialog
+        open={switched !== null}
+        onOpenChange={(next) => {
+          if (!next) setSwitched(null)
+        }}
+        title={switched ?? ""}
+      />
     </PageContent>
   )
 }
 
-/// A count of shops, in words.
-function shopsWord(n: number): string {
-  return `${count(n)} shop${n === 1 ? "" : "s"}`
+/// A count of stores, in words.
+function storesWord(n: number): string {
+  return `${count(n)} store${n === 1 ? "" : "s"}`
 }
 
 /// The campaign a rule belongs to, restated so it can travel with it.
@@ -1289,33 +1292,14 @@ function campaignFor(
 /// The engine's own document is the source for all of it. Nothing here derives
 /// a second opinion about what a rule does; it reads `definition`, which is the
 /// same JSON the till applies.
-/// One promotion, read back.
+/// One promotion, read back as three tabs: Details (Offer, Rules,
+/// Performance), Stores and Activity. End now sits in the head. No comments.
 ///
-/// ## Why this is sections and not one scroll
-///
-/// It was one scroll: status, facts, budget meter, terms, shops. Honest, and
-/// the wrong shape for the questions actually asked of it — "why did this not
-/// fire" (terms), "is it working" (spend and uses) and "has it reached the
-/// shops" (activation) are three different people on three different days, and
-/// a single column made each of them read the other two's answer on the way
-/// past.
-///
-/// The sections are the owner's, ruled 2026-09-13: **Overview · Rules ·
-/// Coupons · Performance · Activity**. Nothing here is new data — every block
-/// below already existed on that scroll. What changed is which question each
-/// one is filed under.
-///
-/// They are `Sheet`'s own `tabs` rather than a `<SubTabs>` inside the body, so
-/// the strip sits outside the scroll: the sections do not scroll away from each
-/// other, and switching does not leave somebody halfway down a different one.
-///
-/// **Coupons appears only when there is a coupon**, which is the rule as given.
-/// A section that is present and empty on nine promotions out of ten teaches
-/// the reader to stop looking at it, and then it is missed on the tenth.
+/// **Coupon facts appear only when there is a coupon.**
 function PromotionSheet({
   line,
-  fleet,
   subject,
+  fleet,
   at,
   named,
   campaigns,
@@ -1328,11 +1312,12 @@ function PromotionSheet({
   canWrite,
 }: {
   line: PromotionLine | null
+  /// The record's `{kind,id}`, for the Activity tab. Not passed to the Sheet,
+  /// which would add a Comments tab.
+  subject: { kind: string; id: string } | undefined
   /// Every registered shop, so the Activity tab can name the ones that have
   /// said nothing at all — the row a list of reports can never contain.
   fleet: readonly ShopActivation[]
-  /// The record, for its comments and trail.
-  subject: { kind: string; id: string } | undefined
   at: number
   named: (code: string) => string
   campaigns: readonly CampaignRow[]
@@ -1347,11 +1332,10 @@ function PromotionSheet({
   canWrite: boolean
 }) {
   const spent = line?.usage?.spent_minor ?? 0
-  const share = consumed(spent, line?.usage?.budget_minor ?? null)
+  const uses = line?.usage?.uses ?? 0
   const rule = line?.row.definition
   // Division and tag names from the vocabulary; articles and SKUs stay codes,
   // which is also what a shop's own log says.
-  const reading = rule === undefined ? null : termsOf(rule, named)
   const phase = line === null ? null : phaseOf(line, at)
   const campaignId = rule?.campaign_id ?? null
   const campaign =
@@ -1378,181 +1362,146 @@ function PromotionSheet({
       ? null
       : (line.usage?.budget_minor ?? caps?.budget?.minor ?? null)
 
-  const sections =
-    line === null || rule === undefined || reading === null
-      ? undefined
-      : [
-          {
-            value: "overview",
-            label: "Overview",
-            content: (
-              <div className="flex flex-col gap-5">
-              <Facts>
-                <Fact term="Benefit">{describeEffect(rule.effect)}</Fact>
-                <Fact term="Applies to">{describeScope(rule, named)}</Fact>
-                {/* A date here and a sentence under Rules, which is the same
-                    split as Budget: the facts are scanned, the terms are read.
-                    `null` is BOTH ends open, not just the far one — a rule
-                    with no window starts when it is published and stops when
-                    somebody stops it. */}
-                <Fact term="Period">{describePeriod(rule) ?? "Always on"}</Fact>
-                <Fact term="Campaign">
-                  {campaignId === null ? (
-                    "On its own"
-                  ) : (
-                    <AppLink
-                      to="/commercial/campaigns"
-                      sheet={{ key: "campaign", value: campaignId }}
-                      className="text-accent hover:underline"
-                    >
-                      {campaign}
-                    </AppLink>
-                  )}
-                </Fact>
-                <Fact term="Shoppers">{describeCustomers(rule)}</Fact>
-                <Fact term="Gate">
-                  {coupon === null ? "Open to every basket" : `Code ${coupon}`}
-                </Fact>
-                <Fact term="Last changed">
-                  {moment(line.row.book.effective_from)}
-                </Fact>
-              </Facts>
+  const rollout = useRollout(line, fleet)
 
-              {/* Ending is not a pause: it is for good, and the only way back
-                  is Change with new dates. Offered while it still runs or
-                  waits to — an ended offer has nothing left to end. */}
-              {(phase === "ACTIVE" ||
-                phase === "PAUSED" ||
-                phase === "SCHEDULED") && (
-                <div className="flex flex-col gap-2">
-                  {endError !== null && <ErrorState error={endError} />}
-                  <ConfirmButton
-                    label={ending ? "Ending…" : "End now"}
-                    title={`End ${line.row.name} now?`}
-                    description="Every shop stops giving this discount as soon as it receives the change, and it moves to Ended. To run it again, use Change and give it new dates."
-                    confirmLabel="End now"
-                    tone="danger"
-                    variant="danger"
-                    pending={ending}
-                    disabled={!canWrite}
-                    onConfirm={() => onEnd(line)}
-                    className="self-start"
-                  />
-                </div>
+  const details =
+    line === null || rule === undefined ? undefined : (
+      <div className="flex flex-col gap-8 pb-6">
+        {endError !== null && <ErrorState error={endError} />}
+        <Block icon={Percent} title="Offer">
+          <Facts className="gap-y-5">
+            <Fact term="Benefit">{describeEffect(rule.effect)}</Fact>
+            <Fact term="Applies to">{describeScope(rule, named)}</Fact>
+            {/* `null` is BOTH ends open: a rule with no window starts when it
+                is published and stops when somebody stops it. */}
+            <Fact term="Period">{describePeriod(rule) ?? "Always on"}</Fact>
+            <Fact term="Campaign">
+              {campaignId === null ? (
+                "On its own"
+              ) : (
+                <AppLink
+                  to="/commercial/campaigns"
+                  sheet={{ key: "campaign", value: campaignId }}
+                  className="text-accent hover:underline"
+                >
+                  {campaign}
+                </AppLink>
               )}
-              </div>
-            ),
-          },
-          {
-            value: "rules",
-            label: "Rules",
-            content: (
-              /* What has to be true before it fires, in the same words the
-                 composer showed while it was being written — one `termsOf`,
-                 read here and previewed there, so "what did I publish" and
-                 "what does this do" cannot answer differently.
+            </Fact>
+            <Fact term="Last changed">
+              {moment(line.row.book.effective_from)}
+            </Fact>
+          </Facts>
+        </Block>
 
-                 It replaces a four-row table of the same conditions. The table
-                 was honest and unreadable: a promotion that never fired is
-                 explained by the COMBINATION — a minimum, a window and a
-                 coupon, each unremarkable on its own — and four rows of
-                 figures is the one shape that hides a combination. */
-              <div>
-                <SubHead aside="as it reads">Its terms</SubHead>
-                <Terms
-                  headline={describeEffect(rule.effect)}
-                  name={line.row.name}
-                  clauses={reading.clauses}
-                  hidden={reading.hidden}
-                  empty="This rule names nothing it applies to."
-                />
-              </div>
-            ),
-          },
-          ...(coupon === null
-            ? []
-            : [
-                {
-                  value: "coupons",
-                  label: "Coupons",
-                  content: (
-                    <div className="flex flex-col gap-5">
-                      <Facts>
-                        <Fact term="Code">
-                          <Tag tone="warn">{coupon}</Tag>
-                        </Fact>
-                        <Fact term="Times presented">
-                          {count(line.usage?.uses ?? 0)}
-                        </Fact>
-                        <Fact term="Shoppers who used it">
-                          {count(line.usage?.customer_count ?? 0)}
-                        </Fact>
-                        <Fact term="Uses allowed">
-                          {caps?.max_uses === undefined ||
-                          caps?.max_uses === null
-                            ? "Unlimited"
-                            : count(caps.max_uses)}
-                        </Fact>
-                      </Facts>
-                    </div>
-                  ),
-                },
-              ]),
-          {
-            value: "performance",
-            label: "Performance",
-            content: (
-              <div className="flex flex-col gap-5">
-                <Facts>
-                  <Fact term="Budget">
-                    {budget === null ? "Unlimited" : money(budget)}
-                  </Fact>
-                  <Fact term="Spent">{money(spent)}</Fact>
-                  <Fact term="Used">{count(line.usage?.uses ?? 0)}</Fact>
-                  <Fact term="Customers">
-                    {count(line.usage?.customer_count ?? 0)}
-                  </Fact>
-                </Facts>
+        <Block icon={ListChecks} title="Rules">
+          <Facts className="gap-y-5">
+            <Fact term="Shoppers">{describeCustomers(rule)}</Fact>
+            <Fact term="Items already on sale">
+              {(rule.markdown_policy ?? "EXCLUDE") === "ALLOW"
+                ? "Sale items too"
+                : "Not on sale items"}
+            </Fact>
+            <Fact term="Other offers">
+              {(rule.exclusive_scope ?? "BASKET") === "LINE"
+                ? "Blocks offers on its items"
+                : "Blocks every other offer"}
+            </Fact>
+            {conditionsOf(rule).min_quantity > 0 && (
+              <Fact term="Minimum items">
+                {count(conditionsOf(rule).min_quantity)}
+              </Fact>
+            )}
+            {conditionsOf(rule).min_amount.minor > 0 && (
+              <Fact term="Minimum basket">
+                {money(conditionsOf(rule).min_amount.minor)}
+              </Fact>
+            )}
+            {coupon !== null && (
+              <Fact term="Code">
+                <span className="font-mono">{coupon}</span>
+              </Fact>
+            )}
+            {caps?.budget != null && (
+              <Fact term="Budget">{money(caps.budget.minor)}</Fact>
+            )}
+            {caps?.max_uses != null && (
+              <Fact term="Transactions limit">{count(caps.max_uses)}</Fact>
+            )}
+            {rule.max_uses_per_customer != null && (
+              <Fact term="Per shopper">
+                {count(rule.max_uses_per_customer)}
+              </Fact>
+            )}
+            {rule.priority > 0 && (
+              <Fact term="Priority">{count(rule.priority)}</Fact>
+            )}
+          </Facts>
+        </Block>
+        <Block icon={ChartNoAxesColumn} title="Performance">
+          {budget === null ? (
+            <Row label="Spent">
+              {money(spent)}{" "}
+              <span className="font-normal text-mute">· No budget</span>
+            </Row>
+          ) : (
+            <Gauge
+              label="Budget used"
+              figures={`${money(spent)} / ${money(budget)}`}
+              ratio={budget > 0 ? spent / budget : 1}
+            />
+          )}
+          {caps?.max_uses != null ? (
+            <Gauge
+              label="Transactions"
+              figures={`${count(uses)} / ${count(caps.max_uses)}`}
+              ratio={caps.max_uses > 0 ? uses / caps.max_uses : 1}
+            />
+          ) : (
+            <Row label="Transactions">{count(uses)}</Row>
+          )}
 
-                {share !== null && (
-                  <div>
-                    <SubHead aside={percent(Math.round(share * 10_000))}>
-                      Budget
-                    </SubHead>
-                    <Meter
-                      value={share}
-                      tone={
-                        share >= 0.9 ? "bad" : share >= 0.7 ? "warn" : "accent"
-                      }
-                    />
-                  </div>
-                )}
+          {/* Only where the rule declares a limit: there is nothing else to
+              split. */}
+          {(caps?.budget != null || caps?.max_uses != null) && (
+            <HardCap kind="RULE" subject={line.row.rule_id} />
+          )}
+        </Block>
+      </div>
+    )
 
-                {/* Only where the rule declares a limit: there is nothing
-                    else to split. */}
-                {(caps?.budget != null || caps?.max_uses != null) && (
-                  <HardCap kind="RULE" subject={line.row.rule_id} />
-                )}
-              </div>
-            ),
-          },
-          {
-            value: "activity",
-            label: `Activity (${count(line.reached)}${
-              fleet.length > 0 ? `/${count(fleet.length)}` : ""
-            })`,
-            content: <Rollout line={line} fleet={fleet} />,
-          },
-        ]
+  const stores = (
+    <div className="pb-6">
+      <Rollout {...rollout} />
+    </div>
+  )
 
   return (
     <Sheet
       open={line !== null}
       onOpenChange={(next) => !next && onClose()}
       id={line?.row.rule_id}
+      tabs={
+        details === undefined
+          ? undefined
+          : [
+              { value: "details", label: "Details", content: details },
+              {
+                value: "stores",
+                label: `Stores (${count(rollout.standings.length)})`,
+                content: stores,
+              },
+              {
+                value: "activity",
+                label: "Activity",
+                content:
+                  subject === undefined ? undefined : (
+                    <RecordPanel subject={subject} />
+                  ),
+              },
+            ]
+      }
       title={line?.row.name ?? "Promotion"}
-      tabs={sections}
-      subject={subject}
       // Nothing published is edited: Change publishes the next version under
       // the same id, Duplicate a new promotion. Both open the form filled in.
       actions={
@@ -1574,26 +1523,124 @@ function PromotionSheet({
             >
               Duplicate
             </Button>
+            {/* Ending is not a pause: it is for good, and the only way back is
+                Change with new dates. Offered while it still runs or waits
+                to. */}
+            {(phase === "ACTIVE" ||
+              phase === "PAUSED" ||
+              phase === "SCHEDULED") && (
+              <ConfirmButton
+                label={ending ? "Ending…" : "End now"}
+                title={`End ${line.row.name} now?`}
+                description="Stores stop giving this discount for good."
+                confirmLabel="End now"
+                tone="danger"
+                variant="danger"
+                size="sm"
+                pending={ending}
+                disabled={!canWrite}
+                onConfirm={() => onEnd(line)}
+              />
+            )}
           </>
         )
       }
       // In the head, not repeated in every section. What a promotion IS — its
-      // phase, the word the tabs use, and whether it is gated — is the
-      // reader's bearing on every section.
+      // phase, and whether it is gated — is the reader's bearing throughout.
       badge={
         line === null || phase === null ? undefined : (
-          <span className="flex flex-wrap items-center gap-1.5">
-            <Pill tone={PHASE_TONE[phase]}>{PHASE_WORD[phase]}</Pill>
+          <span className="flex flex-wrap items-center gap-4">
+            <Status tone={PHASE_TONE[phase]}>{PHASE_WORD[phase]}</Status>
             {/* Only the gate, never its absence. "Open to all" is not a
-                property a promotion has — it is the ordinary case wearing a
-                badge, and a row of them taught nobody anything. */}
-            {coupon !== null && <Tag tone="warn">Needs code {coupon}</Tag>}
+                property a promotion has — it is the ordinary case. */}
+            {coupon !== null && (
+              <span className="text-[0.875rem] text-body">
+                Needs code <span className="font-mono text-ink">{coupon}</span>
+              </span>
+            )}
           </span>
         )
       }
     >
       {null}
     </Sheet>
+  )
+}
+
+/// One part of the page: a small line icon, the heading, a hairline, then the
+/// content. The same shape as the sections of the New promotion form.
+function Block({
+  icon: Icon,
+  title,
+  aside,
+  children,
+}: {
+  icon: LucideIcon
+  title: string
+  aside?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <section className="flex flex-col gap-5">
+      <div className="flex items-center gap-3 border-b border-hairline pb-3">
+        <Icon className="size-5 shrink-0 text-line-ico" strokeWidth={1.7} />
+        <h4 className="flex-1 text-[0.9375rem] font-semibold text-ink">
+          {title}
+        </h4>
+        {aside !== undefined && aside !== "" && (
+          <span className="text-[0.875rem] text-mute">{aside}</span>
+        )}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+/// A plain label / value row.
+function Row({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-4">
+      <span className="text-[0.9375rem] text-body">{label}</span>
+      <span className="text-[0.9375rem] font-semibold text-ink tabular-nums">
+        {children}
+      </span>
+    </div>
+  )
+}
+
+/// A labelled bar: what it measures, the figures, the share. Warn from 80%,
+/// bad at 100%.
+function Gauge({
+  label,
+  figures,
+  ratio,
+}: {
+  label: string
+  figures: string
+  ratio: number
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-baseline gap-4 text-[0.875rem] text-body tabular-nums">
+        <span className="flex-1">{label}</span>
+        <span>{figures}</span>
+        <span className="w-12 text-right text-ink">
+          {percent(Math.round(ratio * 10_000))}
+        </span>
+      </div>
+      <Meter
+        value={ratio}
+        label={label}
+        tone={ratio >= 1 ? "bad" : ratio >= 0.8 ? "warn" : "accent"}
+        className="h-2"
+      />
+    </div>
   )
 }
 
@@ -1628,21 +1675,20 @@ const STATE_ORDER: Record<ShopState, number> = {
 /// activations carried on the catalogue are folded in too: they are the same
 /// fact, and a log read with a limit must never be what makes a shop that is
 /// charging these prices look as if it is not.
-function Rollout({
-  line,
-  fleet,
-}: {
-  line: PromotionLine
+function useRollout(
+  line: PromotionLine | null,
   fleet: readonly ShopActivation[]
-}) {
-  const book = line.row.book
+) {
+  const book = line?.row.book ?? null
   const events = useQuery({
-    queryKey: eventKeys.list(book.version, null),
-    queryFn: ({ signal }) => listPriceEvents(book.version, null, 200, signal),
+    queryKey: eventKeys.list(book?.version ?? 0, null),
+    queryFn: ({ signal }) => listPriceEvents(book!.version, null, 200, signal),
     staleTime: 30_000,
+    enabled: book !== null,
   })
 
   const standings = useMemo(() => {
+    if (book === null) return []
     const names = new Map(
       fleet.map((shop) => [
         shop.origin_id,
@@ -1705,7 +1751,13 @@ function Rollout({
           left.name.localeCompare(right.name)
       )
   }, [events.data, fleet, book])
+  return { events, standings }
+}
 
+type Standings = ReturnType<typeof useRollout>
+
+/// The Stores tab: every store against the book, worst first.
+function Rollout({ events, standings }: Standings) {
   const tally = (state: ShopState) =>
     standings.filter((one) => one.state === state).length
   const waiting = tally("PENDING") + tally("SILENT")
@@ -1718,40 +1770,34 @@ function Rollout({
     .join(" · ")
 
   return (
-    <div>
-      <SubHead aside={summary}>Shops</SubHead>
-      {events.isError && (
-        <Banner tone="warn" className="mb-3">
-          The rollout log is not answering, so only the shops in service are
-          shown.
-        </Banner>
-      )}
+    <Block icon={Store} title="Stores" aside={summary}>
+      {events.isError && <Banner tone="warn">Rollout log unavailable.</Banner>}
       {standings.length === 0 ? (
-        <p className="py-3 text-meta text-mute">No shop is registered.</p>
+        <p className="text-meta text-mute">No stores.</p>
       ) : (
         <MiniTable
           head={[
-            "Shop",
+            "Store",
             { label: "Status", align: "left" },
             { label: "When", align: "left" },
           ]}
         >
           {standings.map((shop) => (
             <MiniRow key={shop.origin_id}>
-              <MiniCell>
+              <MiniCell className="py-4">
                 <span className="block truncate text-ink">{shop.name}</span>
                 {shop.error !== null && (
-                  <span className="mt-0.5 block text-[0.875rem] leading-relaxed whitespace-normal text-bad-fg">
+                  <span className="mt-1 block text-[0.875rem] leading-relaxed whitespace-normal text-bad-fg">
                     {shop.error}
                   </span>
                 )}
               </MiniCell>
-              <MiniCell>
-                <Pill tone={STATE_TONE[shop.state]}>
+              <MiniCell className="py-4">
+                <Status tone={STATE_TONE[shop.state]}>
                   {STATE_WORD[shop.state]}
-                </Pill>
+                </Status>
               </MiniCell>
-              <MiniCell>
+              <MiniCell className="py-4">
                 <span className="text-[0.875rem] text-body tabular-nums">
                   {shop.at === null ? "—" : moment(shop.at)}
                 </span>
@@ -1760,7 +1806,7 @@ function Rollout({
           ))}
         </MiniTable>
       )}
-    </div>
+    </Block>
   )
 }
 

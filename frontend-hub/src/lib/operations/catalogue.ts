@@ -15,6 +15,8 @@ import { sourcePoolsFor } from "@/screens/inventory/shared"
 /// recognises: "11110340102" is not a garment, and a composer that lists forty
 /// of them is a screen nobody can work from without the rack in front of them.
 export interface Identity {
+  /// The cloud's id for the SKU — what a count's scope is written in.
+  readonly sku_id: string
   readonly article_id: string
   readonly article_code: string
   readonly article_name: string
@@ -47,6 +49,19 @@ export interface Identity {
 /// two no longer share a cache key, and why this one is no longer warmed by
 /// that screen.
 export function useCatalogueIdentity(): ReadonlyMap<string, Identity> {
+  return useCatalogue().identities
+}
+
+/// The same catalogue, and whether it is still on its way.
+///
+/// For the one reader that says something about its absence: "the
+/// photographs have not arrived" is true of a centre that never answered and
+/// false of one that is merely slow, and a banner that cannot tell the two
+/// apart announced a missing catalogue on every cold open.
+export function useCatalogue(): {
+  identities: ReadonlyMap<string, Identity>
+  pending: boolean
+} {
   const fleet = useQuery({
     queryKey: inventoryKeys.fleet(),
     queryFn: ({ signal }) => fleetPools(signal),
@@ -70,10 +85,11 @@ export function useCatalogueIdentity(): ReadonlyMap<string, Identity> {
     staleTime: 5 * 60 * 1000,
   })
 
-  return useMemo(() => {
+  const identities = useMemo(() => {
     const byCode = new Map<string, Identity>()
     for (const item of stock.data?.items ?? [])
       byCode.set(item.sku_code, {
+        sku_id: item.sku_id,
         article_id: item.article_id,
         article_code: item.article_code,
         article_name: item.article_name,
@@ -85,4 +101,11 @@ export function useCatalogueIdentity(): ReadonlyMap<string, Identity> {
       })
     return byCode
   }, [stock.data])
+
+  // A query that never ran (no pool to ask) stays "pending" for ever in
+  // TanStack Query, so it only counts while it is allowed to run.
+  return {
+    identities,
+    pending: fleet.isPending || (pool !== "" && stock.isPending),
+  }
 }

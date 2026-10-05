@@ -14,14 +14,14 @@ import { flexRender, useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 /// What one family of the client's chart holds, at each of the fourteen
-/// locations.
+/// units.
 ///
 /// # Why one screen and not fifteen
 ///
 /// Cash position, bank position, card receivables, inter-unit balances,
 /// inventory value, goods in transit, accrued expenses, loans — every one of
 /// them is the same question asked of a different subtree: *what is this worth,
-/// per location*. The client's codes already carry the tree, so the only thing
+/// per unit*. The client's codes already carry the tree, so the only thing
 /// that differs between those screens is which code they start from.
 ///
 /// Writing fifteen components would mean fifteen places for the money to be
@@ -30,19 +30,19 @@ import { useMemo, useState } from "react"
 ///
 /// # Why the table is dense
 ///
-/// Fourteen locations plus a total is fifteen columns of money. That only fits
-/// if the numbers are compact and the chrome is thin — so the location headers
+/// Fourteen units plus a total is fifteen columns of money. That only fits
+/// if the numbers are compact and the chrome is thin — so the unit headers
 /// are the site ids rather than names, right-aligned tabular figures throughout,
 /// and a zero renders as a dash. A grid full of "Rp 0" is a grid nobody can
 /// find the real numbers in.
 ///
 /// # Why the columns are built rather than written
 ///
-/// The locations are data — they come back with the balances, and a screen that
+/// The units are data — they come back with the balances, and a screen that
 /// hard-coded fourteen of them would be wrong the day the client opens a
-/// fifteenth. Building the column list from `locations` also buys the thing
+/// fifteenth. Building the column list from `units` also buys the thing
 /// this screen most wanted and a hand-written table could not give it: every
-/// location sorts. "Which shop is holding the cash" was previously answered by
+/// unit sorts. "Which shop is holding the cash" was previously answered by
 /// reading fourteen numbers across a row, once per row.
 export function PositionScreen({
   family,
@@ -63,9 +63,9 @@ export function PositionScreen({
     queryFn: ({ signal }) => balanceMatrix(family, undefined, signal),
   })
 
-  const locations = useMemo(() => matrix.data?.locations ?? [], [matrix.data])
+  const units = useMemo(() => matrix.data?.units ?? [], [matrix.data])
   const rows = useMemo(() => [...(matrix.data?.rows ?? [])], [matrix.data])
-  const columns = useMemo(() => positionColumns(locations), [locations])
+  const columns = useMemo(() => positionColumns(units), [units])
 
   const [sorting, setSorting] = useState<SortingState>([])
   const table = useTable(
@@ -111,7 +111,7 @@ export function PositionScreen({
       )}
       {!moved ? (
         <ScreenState>
-          Nothing has been posted to {family_name} yet, at any location. These accounts
+          Nothing has been posted to {family_name} yet, at any unit. These accounts
           exist in the client's chart and are waiting for their first entry.
         </ScreenState>
       ) : (
@@ -166,7 +166,7 @@ export function PositionScreen({
                 <td className="bg-card sticky left-0 z-10 border-t px-3 py-1.5">Total</td>
                 {column_totals.map((total, index) => (
                   <td
-                    key={locations[index]}
+                    key={units[index]}
                     className="border-t px-2 py-1.5 text-right font-mono tabular-nums"
                   >
                     {total === 0 ? "–" : money(total)}
@@ -188,15 +188,15 @@ export function PositionScreen({
   )
 }
 
-/// The account, one column per location, and the row's own total.
+/// The account, one column per unit, and the row's own total.
 ///
-/// The location cells read out of `cells` by index rather than by key, because
-/// that is how the server sends them: aligned with `locations`, so a location
+/// The unit cells read out of `cells` by index rather than by key, because
+/// that is how the server sends them: aligned with `units`, so a unit
 /// with nothing posted is a zero and not a gap. "No cash at store 07" and "we
 /// never asked about store 07" look the same in a sparse map and are very
 /// different things to an accountant.
 function positionColumns(
-  locations: readonly string[],
+  units: readonly string[],
 ): ColumnDef<DataTableFeatures, BalanceRow>[] {
   return [
     {
@@ -216,16 +216,22 @@ function positionColumns(
         </Link>
       ),
     },
-    ...locations.map(
-      (site, index): ColumnDef<DataTableFeatures, BalanceRow> => ({
-        id: site,
-        // The site id, not its name. Fourteen names do not fit and the ids are
+    ...units.map(
+      (unit, index): ColumnDef<DataTableFeatures, BalanceRow> => ({
+        id: unit,
+        // The unit id, not its name. Fourteen names do not fit and the ids are
         // what the codes themselves carry.
+        //
+        // TODO(0603): this used to read `site === "dc" ? "HO" : …`, naming
+        // head office by a literal id, which 0603 forbids — head office is the
+        // unit of kind `HO`. This read carries unit ids only, so head office
+        // currently renders as its raw id; it needs the unit's `code` (HO,
+        // C001…) from a read that carries it, or a `kind` to test against.
         accessorFn: (row: BalanceRow) => row.cells[index] ?? 0,
         header: ({ column }) => (
           <DataTableColumnHeader
             column={column}
-            title={site === "dc" ? "HO" : site.replace("store-", "C0")}
+            title={unit.replace(/^store-/, "C0")}
             align="end"
             className="font-mono"
           />
@@ -249,7 +255,7 @@ function positionColumns(
 
 /// A zero is a dash.
 ///
-/// Most cells in most of these tables are zero — fourteen locations, and a
+/// Most cells in most of these tables are zero — fourteen units, and a
 /// given account is usually live at three of them. Printing "Rp 0" fourteen
 /// times a row makes the numbers that matter impossible to find.
 function Cell({ value }: { value: number }) {

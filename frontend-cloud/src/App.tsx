@@ -3,7 +3,7 @@ import { router } from "@/router"
 import { RouterProvider } from "@tanstack/react-router"
 import { cacheKey } from "@/lib/api"
 import { useIdentity, useNodeIdentity } from "@/lib/session"
-import { ApiError, type Identity } from "@itulah/contract/client"
+import { ApiError } from "@itulah/contract/client"
 import { useQueryClient } from "@tanstack/react-query"
 
 export function App() {
@@ -50,14 +50,13 @@ export function App() {
         <LoginForm
           problem={problem}
           node={here}
-          onSignedIn={(signedIn) => {
-            // Writing the answer rather than refetching it: the login
-            // response already carries the person the server just
-            // authenticated, and it clears the failure with it.
-            queryClient.setQueryData<Identity | null>(
-              cacheKey.me(),
-              signedIn.user
-            )
+          onSignedIn={() => {
+            // Asked again rather than written from the answer: a login
+            // response carries `SessionUser`, which is not what `/auth/me`
+            // answers (the Edge's `me` also names the site, the Cloud's also
+            // names the job role and the sections). One round trip, once, on
+            // the way in.
+            void queryClient.invalidateQueries({ queryKey: cacheKey.me() })
           }}
         />
       </main>

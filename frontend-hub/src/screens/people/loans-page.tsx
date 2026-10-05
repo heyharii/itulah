@@ -77,8 +77,8 @@ export function Loans() {
                   "Employee",
                   { label: "For", align: "left" },
                   { label: "Lent", align: "right" },
-                  { label: "Each month", align: "right" },
-                  { label: "Still owed", align: "right" },
+                  { label: "Each Month", align: "right" },
+                  { label: "Still Owed", align: "right" },
                   { label: "State", align: "left" },
                 ]}
               >
@@ -154,7 +154,6 @@ function GrantSheet({ onClose }: { onClose: () => void }) {
         <Field label="Employee" required>
           <PickOne
             label="Employee"
-            placeholder="Choose a person…"
             choices={(team.data ?? []).map((one) => ({
               value: one.employee_id,
               label:

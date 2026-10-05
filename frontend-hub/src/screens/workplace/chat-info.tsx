@@ -5,7 +5,7 @@ import { useMemo, useState } from "react"
 
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
-import { ConfirmButton } from "@/components/ui/dialog"
+import { ConfirmButton, SavedDialog } from "@/components/ui/dialog"
 import { Checkbox, Field, Input } from "@/components/ui/field"
 import { PickMany, type Choice } from "@/components/ui/pick"
 import { Pill } from "@/components/ui/pill"
@@ -80,6 +80,7 @@ export function ChatInfoSheet({
   me,
   onJump,
   onLeft,
+  onLeftNote,
 }: {
   open: boolean
   onClose: () => void
@@ -91,6 +92,9 @@ export function ChatInfoSheet({
   onJump: (seq: number) => void
   /// The reader is no longer in the room.
   onLeft: () => void
+  /// Said when the leave was the reader's own doing — the receipt outlives
+  /// this sheet.
+  onLeftNote: (said: string) => void
 }) {
   return (
     <Sheet
@@ -109,8 +113,17 @@ export function ChatInfoSheet({
         onChange={(next) => onTab(next as InfoTab)}
       />
       <div className="pt-4">
-        {tab === "about" && <About room={room} me={me} onLeft={onLeft} />}
-        {tab === "members" && <Members room={room} me={me} onLeft={onLeft} />}
+        {tab === "about" && (
+          <About room={room} me={me} onLeft={onLeft} onLeftNote={onLeftNote} />
+        )}
+        {tab === "members" && (
+          <Members
+            room={room}
+            me={me}
+            onLeft={onLeft}
+            onLeftNote={onLeftNote}
+          />
+        )}
         {tab === "pinned" && (
           <Pinned
             conversationId={room.conversation_id}
@@ -130,13 +143,17 @@ function About({
   room,
   me,
   onLeft,
+  onLeftNote,
 }: {
   room: ChatConversation
   me: string | undefined
   onLeft: () => void
+  onLeftNote: (said: string) => void
 }) {
   const write = useRoomWriter(room.conversation_id)
   const [title, setTitle] = useState(room.title)
+  /// A write that went through, held in the receipt dialog until it is read.
+  const [note, setNote] = useState<string | null>(null)
   // Renamed by somebody else while this was open: the field follows, the way
   // every other fact on the sheet does.
   const [shown, setShown] = useState(room.title)
@@ -151,7 +168,7 @@ function About({
     onSuccess: (updated) => {
       write(updated)
       setTitle(updated.title)
-      toast.success("Group renamed")
+      setNote("Group renamed")
     },
   })
 
@@ -240,10 +257,18 @@ function About({
               conversationId={room.conversation_id}
               me={me}
               onLeft={onLeft}
+              onLeftNote={onLeftNote}
             />
           </div>
         </div>
       )}
+      <SavedDialog
+        open={note !== null}
+        onOpenChange={(next) => {
+          if (!next) setNote(null)
+        }}
+        title={note ?? ""}
+      />
     </div>
   )
 }
@@ -254,10 +279,13 @@ function LeaveButton({
   conversationId,
   me,
   onLeft,
+  onLeftNote,
 }: {
   conversationId: string
   me: string | undefined
   onLeft: () => void
+  /// Said before `onLeft` walks away — the receipt outlives this sheet.
+  onLeftNote: (said: string) => void
 }) {
   const client = useQueryClient()
   const leave = useMutation({
@@ -270,7 +298,7 @@ function LeaveButton({
         queryKey: workplaceKeys.conversations(),
         exact: true,
       })
-      toast.success("You left the group")
+      onLeftNote("You left the group")
       onLeft()
     },
     // A refusal is said inside the confirmation that asked for it.
@@ -294,10 +322,12 @@ function Members({
   room,
   me,
   onLeft,
+  onLeftNote,
 }: {
   room: ChatConversation
   me: string | undefined
   onLeft: () => void
+  onLeftNote: (said: string) => void
 }) {
   const write = useRoomWriter(room.conversation_id)
   const group = room.kind === "GROUP"
@@ -429,7 +459,6 @@ function Members({
               choices={choices}
               values={adding}
               onChange={setAdding}
-              placeholder={users.isPending ? "Loading…" : "Nobody yet"}
               leading={(name) => <Avatar name={name} size="sm" />}
             />
             <div>
@@ -454,6 +483,7 @@ function Members({
             conversationId={room.conversation_id}
             me={me}
             onLeft={onLeft}
+            onLeftNote={onLeftNote}
           />
         </div>
       )}

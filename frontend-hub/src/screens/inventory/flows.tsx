@@ -600,7 +600,6 @@ function EditorBody({
                 name: event.target.value,
               }))
             }
-            placeholder="Gudang → store"
           />
         </Field>
         <Field
@@ -618,7 +617,6 @@ function EditorBody({
                 code: event.target.value.toUpperCase(),
               }))
             }
-            placeholder="KIRIM_GUDANG_TOKO"
           />
         </Field>
         <Field
@@ -825,7 +823,6 @@ function EditorBody({
                           max={720}
                           disabled={readOnly}
                           value={stage.deadline_hours ?? ""}
-                          placeholder="—"
                           onChange={(event) => {
                             const raw = event.target.value.trim()
                             const hours = Number(raw)
@@ -1014,10 +1011,10 @@ function EditorBody({
                 onClick={() => save.mutate()}
               >
                 {save.isPending
-                  ? "Saving…"
+                  ? "Submitting…"
                   : creating
-                    ? "Create flow"
-                    : "Save new version"}
+                    ? "Submit"
+                    : "Submit"}
               </Button>
             </div>
           </div>

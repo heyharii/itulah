@@ -479,6 +479,7 @@ impl Buckets {
                 refunds_minor: refunds,
                 tender_count: count,
                 direct_mdr_bps: None,
+                direct_bank: None,
             });
         }
         // Change given, or takings no tender accounts for, with no cash bucket
@@ -501,6 +502,7 @@ impl Buckets {
                 refunds_minor: 0,
                 tender_count: 0,
                 direct_mdr_bps: None,
+                direct_bank: None,
             });
         }
         Ok(out)
@@ -550,6 +552,7 @@ async fn day_vat_rate_bps(pool: &PgPool) -> Result<i32, AppError> {
 async fn read_recorded_vat(
     pool: &PgPool,
     site_id: &str,
+    business_date: NaiveDate,
     start: DateTime<Utc>,
     end: DateTime<Utc>,
 ) -> Result<Option<RecordedVat>, AppError> {
@@ -575,12 +578,12 @@ async fn read_recorded_vat(
                 (COALESCE(SUM(tax_total_minor),0)
                  + COALESCE(SUM(charge_tax_minor),0))::bigint AS tax_minor
            FROM edge_sale
-          WHERE site_id = $1 AND occurred_at >= $2 AND occurred_at < $3
+          -- The till's day is its shift's (0714), not the clock's.
+          WHERE site_id = $1 AND business_date = $2
             AND status = 'COMPLETED'",
     )
     .bind(site_id)
-    .bind(start)
-    .bind(end)
+    .bind(business_date)
     .fetch_one(pool)
     .await?;
     let unrecorded_sales: i64 = synced.try_get("unrecorded")?;
@@ -666,12 +669,13 @@ async fn read_day(
                 COALESCE(SUM(change_minor),0)::bigint AS change_minor,
                 COALESCE(SUM(discount_total_minor),0)::bigint AS discount_minor
            FROM edge_sale
-          WHERE site_id = $1 AND occurred_at >= $2 AND occurred_at < $3
+          -- A till's sale trades for its shift's day (0714): a sale at half
+          -- past midnight on a shift opened at eleven is the evening before's.
+          WHERE site_id = $1 AND business_date = $2
             AND status = 'COMPLETED'",
     )
     .bind(site_id)
-    .bind(start)
-    .bind(end)
+    .bind(business_date)
     .fetch_one(pool)
     .await?;
     let mut sale_count: i64 = synced.try_get("sale_count")?;
@@ -689,13 +693,12 @@ async fn read_day(
            JOIN edge_sale s ON s.sale_id = t.sale_id
           -- The same sales the day's totals above count: a voided sale's
           -- money went back to the customer and must not reach the day.
-          WHERE s.site_id = $1 AND s.occurred_at >= $2 AND s.occurred_at < $3
+          WHERE s.site_id = $1 AND s.business_date = $2
             AND s.status = 'COMPLETED'
           GROUP BY t.method, t.acquirer, t.reference, t.card_kind, t.terminal_id",
     )
     .bind(site_id)
-    .bind(start)
-    .bind(end)
+    .bind(business_date)
     .fetch_all(pool)
     .await?;
     for row in &synced_tenders {
@@ -851,7 +854,7 @@ async fn read_day(
         );
     }
 
-    let recorded_vat = read_recorded_vat(pool, site_id, start, end).await?;
+    let recorded_vat = read_recorded_vat(pool, site_id, business_date, start, end).await?;
 
     let (mut postable, exceptions): (Vec<TenderBucket>, Vec<TenderBucket>) = buckets
         .into_vec(untendered - change)?
@@ -860,6 +863,13 @@ async fn read_day(
 
     // A payment method Finance set to settle straight into the bank (0468)
     // books its MDR on the day, at the method's rate.
+    let primary_bank: Option<String> = sqlx::query_scalar(
+        "SELECT upper(b.code) FROM bank_account a JOIN bank b ON b.bank_id = a.bank_id
+          WHERE a.is_company_account AND a.active AND a.kind = 'GIRO'
+          ORDER BY a.is_primary DESC, a.created_at LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await?;
     let direct: Vec<(String, String, i32)> = sqlx::query_as(
         "SELECT tender_type, bank_code, mdr_bps FROM payment_method
           WHERE is_active AND settlement_mode = 'DIRECT_TO_BANK'",
@@ -879,6 +889,26 @@ async fn read_day(
             .find(|(kind, bank, _)| kind == tender && *bank == bucket.acquirer)
         {
             bucket.direct_mdr_bps = Some(*bps);
+            // The bank the money lands in is the EDC's, not the card's: a
+            // Mandiri card swiped on a BCA machine settles into BCA. So the
+            // shop's EDC bank when the tender names it, or when the shop has
+            // only one; failing that the company's primary bank account.
+            let acquirer = bucket.acquirer.to_ascii_uppercase();
+            let site_banks: std::collections::BTreeSet<String> =
+                edc.terminals.values().map(|bank| bank.to_ascii_uppercase()).collect();
+            bucket.direct_bank = Some(if site_banks.contains(&acquirer) {
+                acquirer
+            } else if site_banks.len() == 1 {
+                site_banks.into_iter().next().unwrap_or_default()
+            } else {
+                primary_bank.clone().ok_or_else(|| {
+                    AppError::Validation(format!(
+                        "{} {} settles straight to the bank, and neither the shop's EDC nor \
+                         a primary bank account says which bank",
+                        bucket.method, bucket.acquirer
+                    ))
+                })?
+            });
         }
     }
     let exceptions = exceptions
@@ -1389,9 +1419,7 @@ pub async fn sales_posting_generate_days(
     // day a shop would recognise.
     let days = sqlx::query(
         "SELECT site_id, business_date FROM (
-             SELECT site_id,
-                    site_local_date(occurred_at, site_id) AS business_date
-               FROM edge_sale
+             SELECT site_id, business_date FROM edge_sale
              UNION
              SELECT site_id,
                     site_local_date(completed_at, site_id) AS business_date
@@ -1500,7 +1528,9 @@ fn day_voucher(posting_id: Uuid, purpose: &str) -> String {
 /// the one outcome a posting rule may never cause.
 fn posting_unit(day_unit: &str, semantic_key: &str, head_office: &str) -> String {
     match semantic_key {
-        "vat_out" | "voucher_liability" => head_office.to_string(),
+        // The company's bank accounts are head office's; a shop's card
+        // takings land there and the poster pairs the two units' books.
+        "vat_out" | "voucher_liability" | "bank_giro" => head_office.to_string(),
         _ => day_unit.to_string(),
     }
 }
@@ -1626,7 +1656,7 @@ async fn sales_posting_consume_cost(
                       ON sk.sku_code = el.sku_code
               WHERE e.site_id = $1
                 AND e.status = 'COMPLETED'
-                AND site_local_date(e.occurred_at, $1) = $2
+                AND e.business_date = $2
               GROUP BY sk.id
          ), restocked AS (
              SELECT rl.sku_id, SUM(rl.quantity)::bigint AS qty
@@ -1634,14 +1664,25 @@ async fn sales_posting_consume_cost(
               WHERE r.site_id = $1 AND rl.restock
                 AND site_local_date(r.created_at, $1) = $2
               GROUP BY rl.sku_id
+         ), per_sku AS (
+             SELECT COALESCE(so.sku_id, rs.sku_id) AS sku_id,
+                    sk.article_id,
+                    COALESCE(so.qty, 0) - COALESCE(rs.qty, 0) AS qty
+               FROM sold so
+               FULL JOIN restocked rs ON rs.sku_id = so.sku_id
+               JOIN sku sk ON sk.id = COALESCE(so.sku_id, rs.sku_id)
          )
-         SELECT COALESCE(so.sku_id, rs.sku_id) AS sku_id,
-                sk.article_id,
-                COALESCE(so.qty, 0) - COALESCE(rs.qty, 0) AS qty
-           FROM sold so
-           FULL JOIN restocked rs ON rs.sku_id = so.sku_id
-           JOIN sku sk ON sk.id = COALESCE(so.sku_id, rs.sku_id)
-          WHERE COALESCE(so.qty, 0) - COALESCE(rs.qty, 0) > 0",
+         -- One consumption per ARTICLE: `stock_ledger_consume` keys its replay
+         -- and its posting purpose on the article, so a second SKU of the same
+         -- article consumed separately was taken for a replay and never
+         -- costed. The SKU is kept only when the article sold in one.
+         SELECT article_id,
+                CASE WHEN COUNT(DISTINCT sku_id) = 1
+                     THEN (array_agg(sku_id))[1] END AS sku_id,
+                SUM(qty)::bigint AS qty
+           FROM per_sku
+          WHERE qty > 0
+          GROUP BY article_id",
     )
     .bind(site_id)
     .bind(business_date)
@@ -1662,14 +1703,14 @@ async fn sales_posting_consume_cost(
     .await?
     .unwrap_or_else(|| format!("{site_id}.warehouse"));
     for row in &quantities {
-        let sku: Uuid = row.try_get("sku_id")?;
+        let sku: Option<Uuid> = row.try_get("sku_id")?;
         let article: Uuid = row.try_get("article_id")?;
         let quantity: i64 = row.try_get("qty")?;
         let consumed = stock_ledger::stock_ledger_consume(
             tx,
             &StockOutflow {
                 article_id: article,
-                sku_id: Some(sku),
+                sku_id: sku,
                 epc: None,
                 lot_reference: None,
                 quantity,
@@ -1723,8 +1764,12 @@ async fn sales_posting_unconsume_cost(
     actor: &str,
 ) -> Result<(), AppError> {
     let sources: Vec<(Uuid, String)> = sqlx::query(
-        "SELECT entry_id, source_id FROM journal_entry
-          WHERE source_kind = 'COGS_DAY' AND source_id LIKE $1 || ':%'",
+        // Only the attempts still standing: a day reversed and posted again
+        // keeps its earlier attempts' COGS entries (ATTEMPT_1 …), already
+        // mirrored, and a second mirror of one of them is refused.
+        "SELECT j.entry_id, j.source_id FROM journal_entry j
+          WHERE j.source_kind = 'COGS_DAY' AND j.source_id LIKE $1 || ':%'
+            AND NOT EXISTS (SELECT 1 FROM journal_entry r WHERE r.reversal_of = j.entry_id)",
     )
     .bind(posting_id.to_string())
     .fetch_all(&mut **tx)
@@ -1734,14 +1779,21 @@ async fn sales_posting_unconsume_cost(
     .collect::<Result<_, AppError>>()?;
     for (entry_id, source) in &sources {
         let reversal = reverse(tx, *entry_id, posting_date, reason, actor).await?;
+        // One COGS entry per SKU, and every one of them carries the day's
+        // `source_id` — so the rows to put back are the ones THIS entry
+        // posted, not every row of the source. Reading by source unwound the
+        // whole day once per entry and the second pass hit the unique
+        // (idempotency_key, line_number): a reversal of any day with more
+        // than one SKU sold failed with a 500.
         let originals = sqlx::query(
             "SELECT entry_id, article_id, sku_id, epc, lot_reference, from_pool_id,
                     site_id, quantity, cost_layer_id, valuation_rate_minor, economic_date
                FROM stock_ledger_entry
-              WHERE source_kind = 'COGS_DAY' AND source_id = $1
+              WHERE source_kind = 'COGS_DAY' AND source_id = $1 AND journal_entry_id = $2
               ORDER BY line_number",
         )
         .bind(source)
+        .bind(entry_id)
         .fetch_all(&mut **tx)
         .await?;
         let group = Uuid::new_v4();
@@ -2038,7 +2090,7 @@ struct FoundTender {
 async fn find_tender(pool: &PgPool, tender_id: Uuid) -> Result<FoundTender, AppError> {
     let synced = sqlx::query(
         "SELECT s.site_id,
-                site_local_date(s.occurred_at, s.site_id) AS day,
+                s.business_date AS day,
                 t.method, t.acquirer, t.reference, t.card_kind, t.amount_minor
            FROM edge_sale_tender t
            JOIN edge_sale s ON s.sale_id = t.sale_id

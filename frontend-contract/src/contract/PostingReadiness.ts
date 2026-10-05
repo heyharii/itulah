@@ -3,7 +3,7 @@ import type { BookLocation } from "./BookLocation";
 import type { ReadinessRow } from "./ReadinessRow";
 
 /**
- * "If this happened now at this site, would it post?" — for every role the
- * posting rules use and every source a link names.
+ * "If this happened now in this unit's books, would it post?" — for every
+ * role the posting rules use and every source a link names.
  */
 export type PostingReadiness = { locations: Array<BookLocation>, rows: Array<ReadinessRow>, gaps: number, };

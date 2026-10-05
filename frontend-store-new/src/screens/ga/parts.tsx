@@ -58,15 +58,12 @@ export function GaScreen({
 
   function body(): React.ReactNode {
     if (where.isPending || session.isPending) {
-      return <Quiet>Checking who is signed in…</Quiet>
+      return <Quiet>Checking sign-in…</Quiet>
     }
     if (site === null) {
       return (
         <Banner tone="bad">
-          This till has not been told which shop it is standing in, so there is
-          no place to ask head office about. The node reports no{" "}
-          <code className="font-mono">site_id</code>; that is a setting on the
-          machine behind the counter, not something this screen can choose.
+          This server has no shop set (<code className="font-mono">site_id</code>).
         </Banner>
       )
     }
@@ -74,7 +71,7 @@ export function GaScreen({
       return (
         <RelayRefusal
           access={session.access}
-          what="General affairs — this shop's assets, contracts, repairs and supplies —"
+          what="General affairs"
         />
       )
     }
@@ -490,7 +487,7 @@ export function Fact({
 }) {
   return (
     <div className={cn("min-w-0", wide && "col-span-2")}>
-      <dt className="text-[0.75rem] leading-[1.125rem] text-body">{term}</dt>
+      <dt className="text-meta text-body">{term}</dt>
       <dd
         className={cn(
           "mt-[0.3125rem] text-[0.875rem] leading-[1.375rem] text-ink tabular-nums",

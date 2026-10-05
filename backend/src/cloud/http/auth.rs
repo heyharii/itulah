@@ -191,10 +191,21 @@ fn is_public(path: &str) -> bool {
     if path.starts_with("/api/v1/sync/vouchers/") {
         return true;
     }
+    // The warehouse's print bridge (`cloud::dc::print_bridge`): a machine in
+    // the Gudang with no account, answering to PRINT_BRIDGE_KEY inside the
+    // handler.
+    if path.starts_with("/api/v1/dc/print-bridge/") {
+        return true;
+    }
     // The benefit-balance relay (0818), same shape and same reason as the
     // voucher trio: a node proving which shop it is, guarded per origin by
     // `x-sync-key` inside the handler.
     if path.starts_with("/api/v1/sync/benefit/") {
+        return true;
+    }
+    // Finance's expense code (0822), used by a shop's node: same shape, same
+    // per-origin `x-sync-key` check inside the handler.
+    if path.starts_with("/api/v1/sync/expense-codes/") {
         return true;
     }
     // The points-redemption relay a till reaches through its own node, same
@@ -807,6 +818,14 @@ pub async fn set_user_active(
         infrastructure::publish_auth_policies_for_user(&state.db, user_id, &principal.username)
             .await?;
     Ok(Json(json!({"user":user,"policies":policies})))
+}
+
+/// Lift a wrong-password lockout now, rather than waiting it out.
+pub async fn unlock_user(
+    State(state): State<AppState>,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(infrastructure::unlock_user(&state.db, user_id).await?))
 }
 
 /// Who may sign in at which node — an envelope rather than a bare `{items}`.

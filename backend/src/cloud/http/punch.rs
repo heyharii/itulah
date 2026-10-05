@@ -26,15 +26,15 @@ use super::employment::{caller_and_reach, current_unit, reach_of, resolve};
 use crate::cloud::{
     application::{AppError, AppState},
     domain::{
-        actions, evaluate_day, required_role_for_action, role_allows, AttendanceMonth, Correction, CorrectionEffect, CorrectionId,
-        DayApprovals, DayEvaluation, DayOffset, EmployeeId, MinuteOfDay, UnitId, PunchDirection,
-        PunchTime, Reach,
+        AttendanceMonth, Correction, CorrectionEffect, CorrectionId, DayApprovals, DayEvaluation,
+        DayOffset, EmployeeId, LeaveApproval, LeaveRef, MinuteOfDay, PunchDirection, PunchTime,
+        Reach, UnitId, actions, evaluate_day, required_role_for_action, role_allows,
     },
     postgres::{self as infrastructure, CorrectionRow, PunchRow},
 };
 use axum::{
-    extract::{Path, Query, State},
     Extension, Json,
+    extract::{Path, Query, State},
 };
 use chrono::{DateTime, NaiveDate, Timelike, Utc};
 use serde::{Deserialize, Serialize};
@@ -197,11 +197,8 @@ pub async fn read_attendance(
     let unit = current_unit(&record).map(ToOwned::to_owned);
     let punch_source_connected = match &unit {
         Some(unit) => {
-            infrastructure::unit_has_terminal(
-                &state.db,
-                &UnitId::try_new(unit).map_err(invalid)?,
-            )
-            .await?
+            infrastructure::unit_has_terminal(&state.db, &UnitId::try_new(unit).map_err(invalid)?)
+                .await?
         }
         None => false,
     };
@@ -230,6 +227,15 @@ async fn derive_range(
     let employee_id = record.employee.id().as_str();
     let roster = infrastructure::roster_of(&state.db, employee_id, from, to).await?;
     let punches = infrastructure::punches_between(&state.db, record, from, to).await?;
+    let leave_catalogue = infrastructure::load_catalogue(&state.db).await?;
+    let approved_leave = infrastructure::approved_requests_overlapping(
+        &state.db,
+        employee_id,
+        from,
+        to,
+        &leave_catalogue,
+    )
+    .await?;
     // No schedule is not an empty schedule: a date no version covers has no
     // policy, and every day in the range says so individually rather than the
     // request failing as a whole. A month whose first half is covered is still
@@ -281,14 +287,10 @@ async fn derive_range(
             .collect();
         sources.sort();
         sources.dedup();
-        // Leave and overtime are not adjudicated here: `DayApprovals::none()`
-        // is what this lane can honestly supply, because the approvals live in
-        // `domain::leave` and `domain::overtime` and joining them is the next
-        // slice rather than something to fake. An absent approval never invents
-        // an entitlement — it only means a leave day reads as an absence until
-        // the join lands, which is why that gap is named here rather than
-        // papered over with a default.
-        let approvals = DayApprovals::none();
+        // The leave request is employee- and date-scoped, and its decision was
+        // decoded through the leave domain before it reaches this derivation.
+        // Overtime remains separate because it needs its own agreement join.
+        let approvals = leave_approvals_for_day(&approved_leave, day.unit().as_str(), day.date())?;
         match evaluate_day(day, &on_day, policy, &approvals, chain.effective()) {
             Ok(Some(evaluation)) => days.push(day_view(
                 &evaluation,
@@ -307,6 +309,31 @@ async fn derive_range(
         }
     }
     Ok((days, underivable))
+}
+
+fn leave_approvals_for_day(
+    requests: &[infrastructure::LeaveRequestRecord],
+    unit_id: &str,
+    date: NaiveDate,
+) -> Result<DayApprovals, AppError> {
+    let Some(request) = requests.iter().find(|record| {
+        record.request.state().code() == "APPROVED"
+            && record.request.unit().as_str() == unit_id
+            && record.request.period().covers(date)
+    }) else {
+        return Ok(DayApprovals::none());
+    };
+    let authorization = request.request.state().decision().ok_or_else(|| {
+        AppError::Configuration(format!(
+            "approved leave {} has no decision",
+            request.request.id()
+        ))
+    })?;
+    let leave = LeaveRef::try_new(&request.request.id().to_string()).map_err(invalid)?;
+    Ok(DayApprovals::with_leave(LeaveApproval::new(
+        leave,
+        authorization.clone(),
+    )))
 }
 
 /// The **Today** screen: who is scheduled, who is in, who is late, who has not
@@ -708,7 +735,7 @@ pub async fn list_corrections(
             return Err(AppError::Forbidden(format!(
                 "{} is not posted anywhere that reaches {asked}",
                 principal.username
-            )))
+            )));
         }
         (Some(asked), _) => vec![asked.clone()],
         (None, Reach::Only(mine)) => vec![mine.as_str().to_owned()],
@@ -1087,4 +1114,148 @@ pub async fn read_punch_readiness(
         unrostered_punch_days,
         punch_source_connected: connected,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cloud::domain::{
+        AttendancePolicy, DayPlan, LeaveBacking, LeavePayment, LeavePeriod, LeaveRequest,
+        LeaveRequestId, LeaveRequestState, LeaveRequestWire, LeaveType, LeaveTypeCode, Minutes,
+        PolicyId, PolicyLimits, PolicyVersion, RosterDay, Shift, ShiftId, actions,
+    };
+    use chrono::TimeZone;
+
+    const DATE: &str = "2026-09-14";
+
+    fn approved_leave() -> infrastructure::LeaveRequestRecord {
+        let date = DATE.parse::<NaiveDate>().expect("date");
+        let leave_type = LeaveType::try_new(
+            LeaveTypeCode::try_new("SICK").expect("leave type code"),
+            "Sick leave",
+            LeaveBacking::AsCertified,
+            LeavePayment::StatutoryScale,
+            true,
+        )
+        .expect("leave type");
+        let authorization = |actor: &str, action: &str| {
+            crate::cloud::domain::Authorization::try_new(
+                actor,
+                action,
+                Utc.with_ymd_and_hms(2026, 9, 1, 8, 0, 0)
+                    .single()
+                    .expect("timestamp"),
+                "approved for the test",
+            )
+            .expect("authorization")
+        };
+        let request = LeaveRequest::try_new(
+            LeaveRequestWire {
+                id: LeaveRequestId::try_new("LV-001").expect("request id"),
+                employee: EmployeeId::try_new("emp-1").expect("employee id"),
+                unit: UnitId::try_new("store-07").expect("unit id"),
+                leave_type: LeaveTypeCode::try_new("SICK").expect("leave type code"),
+                period: LeavePeriod::try_new(date, date).expect("period"),
+                chargeable: vec![date],
+                evidence: Some("medical note".to_owned()),
+                requested: authorization("emp-1", actions::LEAVE_REQUEST),
+                state: LeaveRequestState::Approved {
+                    decision: authorization("manager", actions::LEAVE_DECIDE),
+                    ledger_entry: None,
+                },
+            },
+            &leave_type,
+        )
+        .expect("approved request");
+        infrastructure::LeaveRequestRecord {
+            request,
+            created_at: Utc
+                .with_ymd_and_hms(2026, 9, 1, 8, 0, 0)
+                .single()
+                .expect("timestamp"),
+            updated_at: Utc
+                .with_ymd_and_hms(2026, 9, 1, 8, 0, 0)
+                .single()
+                .expect("timestamp"),
+        }
+    }
+
+    fn scheduled_day() -> (RosterDay, AttendancePolicy) {
+        let date = DATE.parse::<NaiveDate>().expect("date");
+        let authorization = crate::cloud::domain::Authorization::try_new(
+            "manager",
+            actions::ROSTER_MANAGE,
+            Utc.with_ymd_and_hms(2026, 9, 1, 8, 0, 0)
+                .single()
+                .expect("timestamp"),
+            "rostered for the test",
+        )
+        .expect("authorization");
+        let shift = Shift::try_new(
+            ShiftId::try_new("morning").expect("shift id"),
+            "Morning",
+            MinuteOfDay::try_new(8 * 60).expect("start"),
+            MinuteOfDay::try_new(16 * 60).expect("end"),
+            DayOffset::SAME_DAY,
+            Minutes::new(60),
+        );
+        let shift = shift.expect("shift");
+        let day = RosterDay::new(
+            EmployeeId::try_new("emp-1").expect("employee id"),
+            UnitId::try_new("store-07").expect("unit id"),
+            date,
+            DayPlan::Scheduled { shift },
+            authorization,
+        )
+        .expect("roster day");
+        let policy = AttendancePolicy::try_new(
+            PolicyId::try_new("standard").expect("policy id"),
+            PolicyVersion::try_new(1).expect("policy version"),
+            "2026-01-01".parse().expect("effective date"),
+            None,
+            PolicyLimits {
+                late_grace: Minutes::new(10),
+                early_leave_grace: Minutes::new(10),
+                overtime_minimum: Minutes::new(30),
+                duplicate_punch_window: Minutes::new(2),
+            },
+        )
+        .expect("attendance policy");
+        (day, policy)
+    }
+
+    #[test]
+    fn approved_leave_join_turns_an_absent_day_into_approved_leave() {
+        let request = approved_leave();
+        let requests = [request];
+        let (day, policy) = scheduled_day();
+        let without_leave = evaluate_day(&day, &[], &policy, &DayApprovals::none(), None)
+            .expect("unapproved day")
+            .expect("scheduled day");
+        assert_eq!(without_leave.outcomes().outcomes()[0].code(), "ABSENT");
+
+        let approval =
+            leave_approvals_for_day(&requests, "store-07", day.date()).expect("approval join");
+        let with_leave = evaluate_day(&day, &[], &policy, &approval, None)
+            .expect("approved day")
+            .expect("scheduled day");
+        assert_eq!(with_leave.outcomes().outcomes()[0].code(), "APPROVED_LEAVE");
+
+        assert!(
+            leave_approvals_for_day(&requests, "store-08", day.date())
+                .expect("unit mismatch")
+                .leave()
+                .is_none()
+        );
+        assert!(
+            leave_approvals_for_day(
+                &requests,
+                "store-07",
+                day.date() + chrono::Duration::days(1)
+            )
+            .expect("date mismatch")
+            .leave()
+            .is_none()
+        );
+    }
 }

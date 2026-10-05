@@ -396,7 +396,6 @@ function Board({
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search titles, posts, tags"
               className="h-8 w-56"
             />
             <Button variant="primary" onClick={() => setOpening(true)}>
@@ -1604,14 +1603,12 @@ function OneThread({
                       <PostEditor
                         value={draft}
                         onChange={setDraft}
-                        placeholder="Add a reply"
                         rows={3}
                         people={people}
                         me={me}
                         attachments={attachments.pending}
                         onAttach={attachments.add}
                         onRemoveAttachment={attachments.remove}
-                        uploading={attachments.uploading}
                         onSubmit={send}
                         footer={
                           <Button
@@ -2058,11 +2055,7 @@ function RetitleForm({
         />
       </Field>
       <Field label="What it is about" required>
-        <Select
-          value={kind}
-          onChange={setKind}
-          placeholder={kinds.isPending ? "Loading…" : "Choose a kind of record"}
-        >
+        <Select value={kind} onChange={setKind}>
           {(kinds.data ?? []).map((option) => (
             <option key={option.kind} value={option.kind}>
               {option.label}
@@ -2108,7 +2101,7 @@ function RetitleForm({
           pending={save.isPending}
           disabled={!ready}
         >
-          {save.isPending ? "Saving…" : moved ? "Save and move" : "Save"}
+          {save.isPending ? "Submitting…" : moved ? "Save and move" : "Submit"}
         </Button>
       </div>
     </form>
@@ -2332,7 +2325,7 @@ function Post({
                       }
                       onClick={onSaveEdit}
                     >
-                      {saving ? "Saving…" : "Save"}
+                      {saving ? "Submitting…" : "Submit"}
                     </Button>
                   </>
                 }
@@ -2770,9 +2763,6 @@ function OpenThreadSheet({
               <Select
                 value={field.state.value}
                 onChange={(next) => field.handleChange(next)}
-                placeholder={
-                  kinds.isPending ? "Loading…" : "Choose a kind of record"
-                }
               >
                 {(kinds.data ?? []).map((kind) => (
                   <option key={kind.kind} value={kind.kind}>
@@ -2795,7 +2785,6 @@ function OpenThreadSheet({
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(event) => field.handleChange(event.target.value)}
-                placeholder="PO-2607-0108"
                 maxLength={120}
               />
             </Field>
@@ -2830,7 +2819,6 @@ function OpenThreadSheet({
                   field.handleChange(event.target.value)
                   writeDraft(NEW_THREAD_TITLE, event.target.value)
                 }}
-                placeholder="Short enough to read in a list"
                 maxLength={200}
               />
             </Field>
@@ -2864,7 +2852,6 @@ function OpenThreadSheet({
                 attachments={attachments.pending}
                 onAttach={attachments.add}
                 onRemoveAttachment={attachments.remove}
-                uploading={attachments.uploading}
                 onSubmit={submit}
               />
               <span className="text-[0.875rem] text-mute">

@@ -7,24 +7,24 @@ import type { OpeningUnmapped } from "./OpeningUnmapped";
 /**
  * One page: is it balanced, what did not map, and what did we make up.
  */
-export type OpeningCutoverReport = { cutover_date: string,
+export type OpeningCutoverReport = { cutover_date: string, 
 /**
  * The one-line answer. True only when every equation below agrees, nothing
  * is unmapped, and the stock reconciles in every unit.
  */
-sound: boolean, equations: Array<OpeningEquation>,
+sound: boolean, equations: Array<OpeningEquation>, 
 /**
  * Trial balance lines that were imported and never posted, with the reason
  * the chart gave. Empty after a successful run, by construction — the
  * import refuses rather than dropping — and the reason it is reported
  * anyway is the run that was interrupted.
  */
-unmapped: Array<OpeningUnmapped>,
+unmapped: Array<OpeningUnmapped>, 
 /**
  * Every piece of opening stock priced by something other than what was
  * paid for it, worst first by value.
  */
-fallbacks: Array<OpeningFallback>, fallback_value_minor: number, stock_value_minor: number,
+fallbacks: Array<OpeningFallback>, fallback_value_minor: number, stock_value_minor: number, 
 /**
  * Their own references, so the report can be put beside their reports.
  */

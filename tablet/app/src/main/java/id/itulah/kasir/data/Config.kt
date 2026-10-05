@@ -39,6 +39,12 @@ data class Config(
     val readerPower: Int = 0,
     val token: String = "",
     val cashier: String = "",
+    /**
+     * The site this node owns, learned from the node's own identity rather
+     * than typed or inferred. Blank until the node has answered once; a till
+     * without it refuses to file floor movements instead of guessing.
+     */
+    val siteId: String = "",
 ) {
     val isCommissioned: Boolean get() = nodeUrl.isNotBlank() && terminalId.isNotBlank()
     val hasPrinter: Boolean get() = printerHost.isNotBlank()
@@ -56,6 +62,7 @@ class ConfigStore(context: Context) {
         readerPower = prefs.getInt(K_POWER, 0),
         token = prefs.getString(K_TOKEN, "").orEmpty(),
         cashier = prefs.getString(K_CASHIER, "").orEmpty(),
+        siteId = prefs.getString(K_SITE, "").orEmpty(),
     )
 
     fun saveCounter(nodeUrl: String, terminalId: String, printerHost: String, printerPort: Int, paper: String) {
@@ -79,6 +86,11 @@ class ConfigStore(context: Context) {
         prefs.edit().putString(K_TOKEN, token).putString(K_CASHIER, cashier).apply()
     }
 
+    /** Keep the site the node named, without touching anything else. */
+    fun saveSite(siteId: String) {
+        prefs.edit().putString(K_SITE, siteId).apply()
+    }
+
     fun clearSession() = prefs.edit().remove(K_TOKEN).remove(K_CASHIER).apply()
 
     private companion object {
@@ -86,5 +98,6 @@ class ConfigStore(context: Context) {
         const val K_PRINTER = "printer_host"; const val K_PORT = "printer_port"
         const val K_PAPER = "paper"; const val K_POWER = "reader_power"
         const val K_TOKEN = "token"; const val K_CASHIER = "cashier"
+        const val K_SITE = "site_id"
     }
 }

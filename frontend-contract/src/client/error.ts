@@ -6,10 +6,18 @@
 export class ApiError extends Error {
   readonly status: number;
 
-  constructor(status: number, message: string) {
+  /// A machine-readable reason, when the server sends one beside its sentence
+  /// — sandbox tenancy's `business_required` / `business_unknown` are the
+  /// first callers that need one. Most routes answer with only `error` and
+  /// this stays `undefined`; a caller that must distinguish one specific
+  /// refusal from the rest checks this rather than parsing the sentence.
+  readonly code: string | undefined;
+
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
   }
 
   /// Whether retrying could plausibly help.
@@ -30,19 +38,21 @@ export class ApiError extends Error {
 
 export async function readError(response: Response): Promise<ApiError> {
   let message = response.statusText || `request failed (${response.status})`;
+  let code: string | undefined;
   try {
     const body: unknown = await response.json();
-    if (
-      body !== null &&
-      typeof body === "object" &&
-      "error" in body &&
-      typeof (body as { error: unknown }).error === "string"
-    ) {
-      message = (body as { error: string }).error;
+    if (body !== null && typeof body === "object") {
+      const record = body as Record<string, unknown>;
+      if (typeof record.error === "string") {
+        message = record.error;
+      }
+      if (typeof record.code === "string") {
+        code = record.code;
+      }
     }
   } catch {
     // A body that is not JSON tells us nothing the status has not; the
     // statusText above stands.
   }
-  return new ApiError(response.status, message);
+  return new ApiError(response.status, message, code);
 }

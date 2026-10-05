@@ -112,7 +112,6 @@ export function History({
                 setSearching(false)
               }
             }}
-            placeholder="Search chats"
             aria-label="Search chats"
             className="min-w-0 flex-1 bg-transparent text-meta text-ink outline-none placeholder:text-mute"
           />

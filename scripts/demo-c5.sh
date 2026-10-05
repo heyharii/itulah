@@ -26,9 +26,9 @@ api, ip, sheet, password = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 token = None
 DEVICES = [
     # app package, device, origin, edge port, site, default pool, all pools, operator
-    ("id.itulah.pindai.dc", "C5-DC-01", "dc", 8182, "dc", "dc.warehouse",
+    ("id.itulah.pindai.dc", "C5-DC-01", "dc", 8181, "dc", "dc.warehouse",
      ["dc.warehouse", "dc.pending.untagged", "dc.pending.unidentified"], "nina"),
-    ("id.itulah.pindai.store", "C5-STORE-01", "store-01", 8181, "store-01", "store-01.floor",
+    ("id.itulah.pindai.store", "C5-STORE-01", "store-01", 8182, "store-01", "store-01.floor",
      ["store-01.floor", "store-01.warehouse", "store-01.reject"], "dian"),
 ]
 

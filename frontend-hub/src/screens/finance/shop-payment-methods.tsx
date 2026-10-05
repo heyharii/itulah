@@ -88,7 +88,6 @@ export function ShopPaymentMethods() {
           <Input
             value={needle}
             onChange={(event) => setNeedle(event.target.value)}
-            placeholder="Search shops"
             className="h-8 w-48"
           />
         }
@@ -102,7 +101,7 @@ export function ShopPaymentMethods() {
               shops.length === 0 ? (
                 <EmptyState>No shop matches the search.</EmptyState>
               ) : (
-                <ul className="divide-y divide-line">
+                <ul className="divide-line divide-y">
                   {shops.map((one) => (
                     <li key={one.site_id}>
                       <button
@@ -217,7 +216,7 @@ function ShopMethods({ site, name }: { site: string; name: string }) {
           disabled={!dirty}
           onClick={() => save.mutate()}
         >
-          {save.isPending ? "Saving…" : "Save"}
+          {save.isPending ? "Submitting…" : "Submit"}
         </Button>
       </Toolbar>
       <Problem error={save.error} />
@@ -226,11 +225,11 @@ function ShopMethods({ site, name }: { site: string; name: string }) {
         render: () =>
           groups.length === 0 ? (
             <EmptyState>
-              The company has no payment method yet. Add them on Payment
-              Methods first.
+              The company has no payment method yet. Add them on Payment Methods
+              first.
             </EmptyState>
           ) : (
-            <div className="divide-y divide-line">
+            <div className="divide-line divide-y">
               {groups.map(([tender, rows]) => (
                 <section key={tender} className="px-4 py-3">
                   <h3 className="mb-2 text-[0.8125rem] font-medium text-mute">
@@ -240,7 +239,7 @@ function ShopMethods({ site, name }: { site: string; name: string }) {
                     {rows.map((row) => (
                       <div
                         key={row.code}
-                        className="flex items-center gap-2 rounded-md border border-line px-3 py-2"
+                        className="border-line flex items-center gap-2 rounded-md border px-3 py-2"
                       >
                         <Checkbox
                           className="min-w-0 flex-1"

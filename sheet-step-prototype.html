@@ -1,0 +1,576 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sheet next/previous (prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   The record sheet, with the old system's next / previous.
+
+   7Soft let a clerk walk records one by one without going back to the list.
+   The hub's <Sheet> opens one record from a list and has to be closed to
+   reach the next. Four ways to give the sheet that walk, all on the same
+   list + sheet:
+
+     A · Arrows in the head       ↑ ↓ and "3 of 12" beside the close button
+     B · Classic record bar       |◀ ◀  Record 3 of 12  ▶ ▶| at the foot, 7Soft's
+     C · Neighbours at the foot   the previous and next record, named
+     D · Work through a queue     "Approve and next" over the awaiting ones
+
+   Common to all four: the order is the list's own (its filter, its search),
+   the row follows the sheet, the section you were on stays open, unsaved
+   edits are asked about before leaving, and ↑ ↓ / J K step from the keyboard.
+
+   Hub tokens (frontend-hub/src/styles/index.css), 16px root, nothing under
+   14px, English copy.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f8f9; --soft-2:#f0f0f2; --soft-3:#f6f6f7;
+  --hairline:#e6e6e9; --hairline-2:#dadade; --hairline-strong:#c6c6cc;
+  --rail:#242526; --rail-2:#303234; --rail-3:#393b3d; --rail-text:#c3c4c7; --rail-hair:#343638;
+  --scrim:rgba(246,246,247,.72);
+  --accent:#2563eb; --accent-bg:#eff5ff; --cta:#2563eb; --cta-hover:#1d4ed8;
+  --ok:#36b827; --ok-bg:#d9f4d2; --ok-fg:#15803d;
+  --warn:#c9892e; --warn-bg:#faeacd; --warn-fg:#b45309;
+  --bad:#d05151; --bad-bg:#fbeaea; --bad-fg:#be123c;
+  --info:#2f86d8;
+  --r-shell:1rem; --r-card:.625rem; --r-inner:.4375rem;
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1);
+  --shadow-soft:0 1px 3px rgb(24 39 60/4%);
+  --shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);
+  --shadow-float:0 2px 6px rgb(24 39 60/5%),0 18px 48px rgb(24 39 60/12%);
+}
+*{box-sizing:border-box}
+html{font-size:16px}
+html,body{height:100%;margin:0}
+body{font-family:Inter,system-ui,sans-serif;font-size:15px;color:var(--text);background:var(--soft-3);-webkit-font-smoothing:antialiased;font-feature-settings:"cv11","ss01"}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+input,select,textarea{font:inherit;color:var(--ink)}
+svg.lucide{width:17px;height:17px;stroke-width:1.7;flex-shrink:0}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px}
+.num{font-variant-numeric:tabular-nums;text-align:right}
+
+/* ── shell: folded column, bar, page ───────────────────────────────────── */
+.shell{display:flex;height:100vh}
+.col{width:68px;background:var(--rail);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:6px;flex-shrink:0}
+.mark{width:30px;height:30px;border-radius:8px;background:#0b0b0b;box-shadow:inset 0 0 0 1px rgb(255 255 255/.12);color:#fff;display:grid;place-items:center;font-weight:600;position:relative;margin-bottom:10px}
+.mark::after{content:"";position:absolute;right:5px;bottom:5px;width:5px;height:5px;border-radius:50%;background:#3b82f6}
+.ci{width:40px;height:40px;border-radius:9px;display:grid;place-items:center;color:var(--rail-text)}
+.ci.on{background:var(--rail-3);color:#fff}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.bar{height:52px;display:flex;align-items:center;gap:8px;padding:0 24px;border-bottom:1px solid var(--hairline);color:var(--body);flex-shrink:0}
+.bar b{color:var(--ink);font-weight:500}
+.bar svg{width:15px;height:15px;color:var(--faint)}
+.page{flex:1;overflow-y:auto;transition:padding-right 280ms var(--ease-drawer)}
+.page.beside{padding-right:31rem}
+.page.beside .nb-col{display:none}
+.content{max-width:100rem;margin:0 auto;padding:28px 32px 120px}
+.ph{display:flex;align-items:flex-end;gap:16px;margin-bottom:20px}
+.ph h1{margin:0;font-size:28px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+.ph p{margin:6px 0 0;color:var(--body)}
+.ph .act{margin-left:auto;display:flex;gap:8px}
+.tools{display:flex;gap:8px;margin-bottom:12px;align-items:center}
+.inp{height:36px;border-radius:var(--r-inner);box-shadow:inset 0 0 0 1px var(--hairline-2);background:var(--canvas);display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--mute)}
+.inp input,.inp select{border:0;outline:none;background:none;height:100%}
+.inp input{width:220px}
+.count{margin-left:auto;color:var(--body)}
+.btn{height:36px;padding:0 14px;border-radius:var(--r-inner);box-shadow:inset 0 0 0 1px var(--hairline-2);background:var(--canvas);color:var(--ink);display:inline-flex;align-items:center;gap:7px;font-weight:500;white-space:nowrap}
+.btn:hover{background:var(--soft)}
+.btn.pri{background:var(--cta);color:#fff;box-shadow:none}
+.btn.pri:hover{background:var(--cta-hover)}
+.btn.ghost{box-shadow:none;background:none;color:var(--body)}
+.btn.ghost:hover{background:var(--soft-2);color:var(--ink)}
+.btn.bad{color:var(--bad-fg)}
+.btn svg{width:16px;height:16px}
+.card{background:var(--canvas);border-radius:12px;box-shadow:0 0 0 1px var(--hairline);overflow:hidden}
+table{width:100%;border-collapse:collapse}
+th{height:40px;text-align:left;font-weight:500;color:var(--body);padding:0 16px;border-bottom:1px solid var(--hairline);white-space:nowrap;background:var(--soft);font-size:14px}
+td{height:52px;padding:0 16px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+tbody tr{cursor:pointer;transition:background 120ms}
+tbody tr:hover td{background:var(--soft)}
+tbody tr.kb td{background:var(--soft)}
+tbody tr.sel td{background:var(--accent-bg)}
+tbody tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+tbody tr.flash td{animation:flash 700ms var(--ease-out)}
+@keyframes flash{from{background:#dbe8ff}}
+td.strong{color:var(--ink);font-weight:500}
+.st{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0}
+.empty{padding:28px;text-align:center;color:var(--mute)}
+
+/* ── the sheet: the hub's floating rail ────────────────────────────────── */
+.veil{position:fixed;inset:0;background:var(--scrim);z-index:30;animation:fade 200ms}
+@keyframes fade{from{opacity:0}}
+.sheet{position:fixed;z-index:40;top:20px;right:20px;bottom:20px;width:clamp(27.5rem,62vw,47.5rem);background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-shell);box-shadow:var(--shadow-float);display:flex;flex-direction:column;overflow:hidden;animation:arrive 280ms var(--ease-drawer)}
+.sheet.beside{width:30rem}
+@keyframes arrive{from{transform:translateX(calc(100% + 20px))}}
+.sh{padding:10px 12px 12px 28px;flex-shrink:0}
+.sh .top{display:flex;align-items:center;gap:6px;min-height:32px}
+.sh .top .id{flex:1;color:var(--body)}
+.sh .row{display:flex;align-items:center;gap:12px;padding-right:4px}
+.sh .who{flex:1;min-width:0}
+.sh .tt{display:flex;align-items:center;gap:10px;min-width:0}
+.sh h2{margin:0;font-size:18px;line-height:25px;font-weight:600;letter-spacing:-.02em;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sh .cap{color:var(--mute);margin-top:2px;font-size:14px}
+.sh .acts{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.vr{width:1px;height:20px;background:var(--hairline);margin:0 2px}
+.ib{width:32px;height:32px;border-radius:var(--r-inner);display:grid;place-items:center;color:var(--line-ico);flex-shrink:0}
+.ib:hover{background:var(--soft-2);color:var(--ink)}
+.ib svg{width:17px;height:17px}
+.stepper{display:flex;align-items:center;gap:2px}
+.stepper .pos{color:var(--body);font-variant-numeric:tabular-nums;padding:0 6px;font-size:14px;white-space:nowrap}
+.stabs{display:flex;gap:2px;padding:0 20px;border-bottom:1px solid var(--hairline);flex-shrink:0}
+.stabs button{height:42px;padding:0 10px;font-size:14px;font-weight:500;color:var(--body);border-bottom:2px solid transparent;margin-bottom:-1px}
+.stabs button.on{color:var(--accent);border-color:var(--accent);font-weight:600}
+.sb{flex:1;min-height:0;overflow-y:auto;padding:24px 28px}
+.sb.up{animation:inUp 200ms var(--ease-out)}
+.sb.down{animation:inDown 200ms var(--ease-out)}
+@keyframes inUp{from{opacity:0;transform:translateY(-14px)}}
+@keyframes inDown{from{opacity:0;transform:translateY(14px)}}
+.sf{border-top:1px solid var(--hairline);padding:12px 20px;flex-shrink:0;display:flex;align-items:center;gap:8px}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:16px 20px;margin:0 0 24px}
+.facts dt{color:var(--body);font-size:14px}
+.facts dd{margin:5px 0 0;color:var(--ink);font-variant-numeric:tabular-nums}
+.field input,.field textarea{width:100%;height:47px;border-radius:var(--r-inner);border:0;box-shadow:inset 0 0 0 1px var(--hairline-2);padding:0 12px;outline:none;background:var(--canvas)}
+.field textarea{height:84px;padding:10px 12px;resize:none}
+.field input:focus,.field textarea:focus{box-shadow:inset 0 0 0 1px var(--accent),0 0 0 3px rgb(37 99 235/.12)}
+h3{font-size:15px;font-weight:600;color:var(--ink);margin:0 0 10px}
+.mini td{height:44px;padding:0 12px}
+.mini th{height:36px;padding:0 12px}
+.hist{border-left:1px solid var(--hairline-2);margin-left:4px;padding-left:16px;display:flex;flex-direction:column;gap:14px}
+.hist div{position:relative;color:var(--text)}
+.hist div::before{content:"";position:absolute;left:-21px;top:7px;width:9px;height:9px;border-radius:50%;background:var(--hairline-strong);box-shadow:0 0 0 3px var(--canvas)}
+.hist span{display:block;color:var(--mute);font-size:14px}
+.ask{margin:0 20px 4px;padding:12px 14px;border-radius:var(--r-card);background:var(--warn-bg);color:var(--warn-fg);display:flex;align-items:center;gap:10px;flex-wrap:wrap;animation:inDown 180ms var(--ease-out)}
+.ask .g{flex:1;min-width:12rem}
+
+/* B · classic record bar */
+.vcr{display:flex;align-items:center;gap:4px;width:100%}
+.vcr .ib{box-shadow:inset 0 0 0 1px var(--hairline-2);background:var(--canvas)}
+.vcr .ib:hover{background:var(--soft)}
+.vcr .rec{flex:1;text-align:center;color:var(--body);font-variant-numeric:tabular-nums}
+.vcr .rec b{color:var(--ink);font-weight:500}
+.vcr .rec input{width:46px;height:30px;text-align:center;border:0;border-radius:6px;box-shadow:inset 0 0 0 1px var(--hairline-2);font-variant-numeric:tabular-nums}
+
+/* C · neighbours */
+.nb{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%}
+.nb button{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:var(--r-card);box-shadow:inset 0 0 0 1px var(--hairline);text-align:left;min-width:0;min-height:56px}
+.nb button:hover{background:var(--soft)}
+.nb button.off{opacity:.45;cursor:default}
+.nb .w{min-width:0;flex:1}
+.nb .w span{display:block;color:var(--mute);font-size:14px;white-space:nowrap}
+.nb .w b{display:block;font-weight:500;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nb .r{justify-content:flex-end;text-align:right}
+.nb kbd{font-family:inherit;font-size:14px;color:var(--mute);background:var(--soft-2);border-radius:5px;padding:0 6px}
+
+/* D · queue */
+.q{width:100%;display:flex;flex-direction:column;gap:10px}
+.qtop{display:flex;align-items:center;gap:10px;color:var(--body)}
+.qbar{flex:1;height:6px;border-radius:3px;background:var(--soft-2);overflow:hidden;display:flex;gap:2px}
+.qbar i{flex:1;background:var(--soft-2)}
+.qbar i.ok{background:var(--ok)}
+.qbar i.bad{background:var(--bad)}
+.qbar i.now{background:var(--accent)}
+.qbtns{display:flex;gap:8px}
+.qbtns .pri{margin-left:auto}
+.reason{width:100%}
+.done{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;height:100%;gap:10px;color:var(--body)}
+.done .big{width:56px;height:56px;border-radius:50%;background:var(--ok-bg);color:var(--ok-fg);display:grid;place-items:center}
+.done .big svg{width:28px;height:28px}
+.done h2{margin:6px 0 0;font-size:22px;font-weight:600;color:var(--ink)}
+
+.toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);background:#191b20;color:#fff;padding:10px 16px;border-radius:10px;z-index:80;box-shadow:var(--shadow-pop);animation:inDown 180ms var(--ease-out)}
+
+/* ── touch: tablet and phone ───────────────────────────────────────────
+   Same sheet, three changes. The walk moves to the FOOT, where the thumb
+   is (the head is the hardest place on a phone to reach). It turns
+   SIDEWAYS — ‹ › and a swipe — because on a phone the list isn't beside the
+   sheet to make up/down mean anything, and paging sideways is what a thumb
+   already does. And every target is 44px. */
+.touch .ib{width:44px;height:44px}
+.touch .btn{height:44px}
+.touch .sb{touch-action:pan-y}
+.ib.bx{box-shadow:inset 0 0 0 1px var(--hairline-2);background:var(--canvas)}
+.sb.fromR{animation:inR 220ms var(--ease-out)}
+.sb.fromL{animation:inL 220ms var(--ease-out)}
+@keyframes inR{from{opacity:.2;transform:translateX(48px)}}
+@keyframes inL{from{opacity:.2;transform:translateX(-48px)}}
+.peek{position:absolute;top:46%;z-index:3;pointer-events:none;opacity:0;display:flex;flex-direction:column;gap:2px;max-width:46%;padding:10px 14px;border-radius:12px;background:var(--canvas);box-shadow:0 0 0 1px var(--hairline),var(--shadow-pop)}
+.peek.r{right:14px;text-align:right}
+.peek.l{left:14px}
+.peek span{color:var(--mute);font-size:14px}
+.peek b{color:var(--ink);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.grip{display:none}
+.bnav{display:none}
+.phone .col{display:none}
+.phone .bar{padding:0 16px}
+.phone .content{padding:16px 16px 96px}
+.phone .ph{flex-wrap:wrap;gap:12px}
+.phone .ph h1{font-size:24px}
+.phone .ph p{display:none}
+.phone .ph .act{margin-left:0}
+.phone .tools{flex-wrap:wrap}
+.phone .tools .inp:first-child{flex:1 1 100%}
+.phone .inp input{width:100%}
+.phone .count{display:none}
+.pc{display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:12px 16px;border-bottom:1px solid var(--hairline);cursor:pointer}
+.pc:last-child{border-bottom:0}
+.pc .sup{color:var(--ink);font-weight:500}
+.pc .meta{color:var(--body);font-size:14px}
+.pc.sel{background:var(--accent-bg);box-shadow:inset 3px 0 0 var(--accent)}
+.pc.flash{animation:flash 700ms var(--ease-out)}
+.phone .bnav{display:flex;position:fixed;left:0;right:0;bottom:0;height:64px;background:var(--canvas);border-top:1px solid var(--hairline);justify-content:space-around;align-items:center;z-index:20}
+.bnav span{display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--mute);font-size:14px}
+.bnav span.on{color:var(--ink);font-weight:500}
+.phone .sheet{top:12px;left:0;right:0;bottom:0;width:auto;border-radius:16px 16px 0 0;border-width:1px 0 0;animation:rise 420ms var(--ease-drawer)}
+@keyframes rise{from{transform:translateY(100%)}}
+.phone .grip{display:flex;justify-content:center;padding:8px 0 2px;touch-action:none;cursor:grab}
+.grip span{width:36px;height:4px;border-radius:2px;background:var(--hairline-strong)}
+.phone .sh{padding:2px 6px 10px 18px}
+.phone .sh .tt{flex-wrap:wrap;row-gap:2px}
+.phone .sh h2{white-space:normal}
+.phone .sb{padding:18px}
+.phone .stabs{padding:0 8px}
+.phone .sf{padding:10px 12px 14px}
+.phone .nb button{min-height:60px}
+
+/* ── device frames (the prototype's, not the design's) ────────────────── */
+.dev{position:fixed;inset:0;z-index:85;background:#e7e7ea;display:flex;justify-content:center;align-items:flex-start;padding-top:18px}
+.dev[hidden]{display:none}
+.frame{flex-shrink:0;border:10px solid #191b20;border-radius:46px;overflow:hidden;background:#fff;transform-origin:top center;box-shadow:0 30px 60px rgb(24 39 60/18%)}
+.frame.tablet{border-width:14px;border-radius:30px}
+.frame iframe{width:100%;height:100%;border:0;display:block}
+body.devmode .proto{left:50%;transform:translateX(-50%)}
+.embed .proto{display:none}
+
+/* ── the prototype's own switch, not part of the design ────────────────── */
+.proto{position:fixed;left:84px;bottom:16px;z-index:90;background:#191b20;color:#d6d7da;border-radius:14px;padding:6px;display:flex;flex-direction:column;align-items:stretch;gap:6px;box-shadow:var(--shadow-float);white-space:nowrap;font-size:14px}
+.seg{display:flex;background:#2a2c31;border-radius:10px;padding:3px}
+.seg button{height:34px;padding:0 12px;border-radius:7px;color:#a9abb1}
+.seg button.on{background:#fff;color:#191b20;font-weight:500}
+.proto .note{color:#a9abb1;padding:4px 8px 2px;width:0;min-width:100%;white-space:normal;line-height:1.35}
+.proto kbd{color:#e5e6e8;background:#2a2c31;border-radius:5px;padding:1px 6px;font-family:inherit}
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="col"><span class="mark">C</span><span class="ci"><i data-lucide="house"></i></span><span class="ci on"><i data-lucide="shopping-cart"></i></span><span class="ci"><i data-lucide="shirt"></i></span><span class="ci"><i data-lucide="boxes"></i></span><span class="ci"><i data-lucide="landmark"></i></span></nav>
+  <div class="main">
+    <header class="bar">Buying<i data-lucide="chevron-right"></i><b>Purchase orders</b></header>
+    <div class="page" id="page"><div class="content" id="list"></div></div>
+  </div>
+</div>
+<nav class="bnav"><span><i data-lucide="house"></i>Home</span><span class="on"><i data-lucide="shopping-cart"></i>Buying</span><span><i data-lucide="boxes"></i>Stock</span><span><i data-lucide="landmark"></i>Finance</span><span><i data-lucide="menu"></i>More</span></nav>
+<div id="sheetRoot"></div>
+<div class="dev" id="dev" hidden><div class="frame" id="frame"><iframe id="ifr" title="Device preview"></iframe></div></div>
+<div class="proto">
+  <div class="seg" id="devseg"></div>
+  <div class="seg" id="seg"></div>
+  <div class="note" id="note"></div>
+</div>
+
+<script>
+const OPTS={
+  A:{l:'A · Arrows in the head',n:'Desktop: ↑ ↓ and "3 of 12" beside the close button, keys <kbd>↑</kbd> <kbd>↓</kbd> or <kbd>J</kbd> <kbd>K</kbd>. Touch: ‹ › at the foot, or swipe the sheet sideways.'},
+  B:{l:'B · Classic record bar',n:'7Soft\'s first / previous / next / last bar at the foot. Type a number to jump. Keys <kbd>PgUp</kbd> <kbd>PgDn</kbd> <kbd>Home</kbd> <kbd>End</kbd>.'},
+  C:{l:'C · Neighbours',n:'The foot names the previous and next PO, so you know where you\'re going before you go.'},
+  D:{l:'D · Queue',n:'"Review 5 awaiting" walks only the ones waiting for you. Approve moves to the next by itself.'},
+};
+const ST={'Draft':'var(--faint)','Awaiting approval':'var(--warn)','Approved':'var(--ok)','Sent':'var(--info)','Partly received':'var(--info)','Received':'var(--ok)','Rejected':'var(--bad)','Cancelled':'var(--bad)'};
+const ARTS=[['Oxford Slim shirt',142000],['Relaxed linen shirt',156000],['Tapered chino',168000],['Pique polo',98000],['Crew tee',64000],['Light bomber',212000]];
+const POS=[
+  ['PO-2026-0412','PT Sinar Garmen','Cikarang DC',1240,186400000,'12 Oct','Rina','Draft','29 Sep'],
+  ['PO-2026-0411','CV Benang Mas','Cikarang DC',860,92150000,'10 Oct','Dimas','Awaiting approval','28 Sep'],
+  ['PO-2026-0410','PT Tekstil Jaya','Store Kemang',420,51600000,'9 Oct','Sari','Awaiting approval','28 Sep'],
+  ['PO-2026-0409','Konveksi Anugerah','Cikarang DC',2100,244800000,'8 Oct','Rina','Sent','27 Sep'],
+  ['PO-2026-0408','UD Rajut Bandung','Store PIK',300,33900000,'8 Oct','Dimas','Awaiting approval','27 Sep'],
+  ['PO-2026-0407','CV Kain Nusantara','Cikarang DC',1500,168000000,'6 Oct','Rina','Partly received','25 Sep'],
+  ['PO-2026-0406','PT Sinar Garmen','Store Senayan',640,77200000,'5 Oct','Sari','Awaiting approval','25 Sep'],
+  ['PO-2026-0405','PT Tekstil Jaya','Cikarang DC',980,110250000,'3 Oct','Dimas','Received','24 Sep'],
+  ['PO-2026-0404','Konveksi Anugerah','Store Kemang',520,58500000,'2 Oct','Rina','Received','23 Sep'],
+  ['PO-2026-0403','CV Benang Mas','Store PIK',760,85120000,'1 Oct','Sari','Awaiting approval','22 Sep'],
+  ['PO-2026-0402','UD Rajut Bandung','Store Senayan',210,23700000,'30 Sep','Dimas','Cancelled','21 Sep'],
+  ['PO-2026-0401','PT Sinar Garmen','Cikarang DC',1800,201600000,'29 Sep','Rina','Received','20 Sep'],
+].map(r=>({no:r[0],sup:r[1],dest:r[2],qty:r[3],val:r[4],eta:r[5],by:r[6],st:r[7],made:r[8],note:''}));
+const byNo=no=>POS.find(p=>p.no===no);
+const rp=n=>'Rp '+n.toLocaleString('id-ID');
+
+const S={opt:'A',filter:'All',q:'',open:null,tab:'details',edit:false,dirty:false,ask:null,kb:null,queue:null,rejecting:false};
+
+/* The order a step walks is the list's own: its filter, its search, its sort.
+   A queue walks its own snapshot instead, so approving a PO (which takes it
+   out of an "Awaiting" filter) doesn't pull the floor out from under it. */
+const visible=()=>POS.filter(p=>(S.filter==='All'||p.st===S.filter)&&(p.no+' '+p.sup).toLowerCase().includes(S.q.toLowerCase()));
+const order=()=>S.queue?S.queue.ids:visible().map(p=>p.no);
+
+const $=id=>document.getElementById(id);
+const icons=()=>lucide.createIcons({attrs:{'stroke-width':1.7}});
+const QS=new URLSearchParams(location.search), EMBED=QS.get('embed');
+(function(){const c=document.documentElement.classList;
+  if(EMBED)c.add('embed','touch',EMBED);
+  else if(innerWidth<768)c.add('phone','touch');
+  else if(matchMedia('(pointer:coarse)').matches)c.add('touch');})();
+const isTouch=()=>document.documentElement.classList.contains('touch');
+const isPhone=()=>document.documentElement.classList.contains('phone');
+const beside=()=>innerWidth>=1380&&!isPhone();
+function toast(msg){const t=document.createElement('div');t.className='toast';t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),2200)}
+
+/* ── list ───────────────────────────────────────────────────────────────── */
+function renderList(){
+  const rows=visible(), awaiting=POS.filter(p=>p.st==='Awaiting approval').length;
+  const statuses=['All',...Object.keys(ST).filter(s=>POS.some(p=>p.st===s))];
+  const cards=()=>'<div class="card">'+(rows.length?rows.map(p=>'<div id="r-'+p.no+'" class="pc'+(S.open===p.no?' sel':'')+'" onclick="openPO(\''+p.no+'\')"><span class="mono strong" style="color:var(--ink)">'+p.no+'</span><span class="st"><span class="dot" style="background:'+ST[p.st]+'"></span>'+p.st+'</span><span class="sup">'+p.sup+'</span><span class="meta num">'+rp(p.val)+'</span><span class="meta">'+p.dest+' · ETA '+p.eta+'</span></div>').join(''):'<div class="empty">Nothing matches.</div>')+'</div>';
+  $('list').innerHTML='<div class="ph"><div><h1>Purchase orders</h1><p>Click a row to open it. Step through the rest without closing the sheet.</p></div><div class="act">'
+    +(S.opt==='D'&&awaiting?'<button class="btn" onclick="startQueue()"><i data-lucide="list-checks"></i>Review '+awaiting+' awaiting</button>':'')
+    +'<button class="btn pri"><i data-lucide="plus"></i>New PO</button></div></div>'
+    +'<div class="tools"><label class="inp"><i data-lucide="search"></i><input id="q" placeholder="Search PO or supplier" value="'+S.q+'"></label>'
+    +'<label class="inp"><span>Status</span><select id="flt">'+statuses.map(s=>'<option'+(S.filter===s?' selected':'')+'>'+s+'</option>').join('')+'</select></label>'
+    +'<span class="count">'+rows.length+' purchase orders</span></div>'
+    +(isPhone()?cards():'<div class="card"><table><thead><tr><th>PO</th><th>Supplier</th><th class="nb-col">Destination</th><th class="num">Qty</th><th class="num">Value</th><th class="nb-col">ETA</th><th>Status</th></tr></thead><tbody>'
+    +(rows.length?rows.map(p=>'<tr id="r-'+p.no+'" class="'+(S.open===p.no?'sel':'')+(S.kb===p.no&&S.open!==p.no?' kb':'')+'" onclick="openPO(\''+p.no+'\')"><td class="mono strong">'+p.no+'</td><td>'+p.sup+'</td><td class="nb-col">'+p.dest+'</td><td class="num">'+p.qty.toLocaleString('id-ID')+'</td><td class="num">'+rp(p.val)+'</td><td class="nb-col">'+p.eta+'</td><td><span class="st"><span class="dot" style="background:'+ST[p.st]+'"></span>'+p.st+'</span></td></tr>').join(''):'<tr><td colspan="7" class="empty">Nothing matches.</td></tr>')
+    +'</tbody></table></div>');
+  $('q').oninput=e=>{S.q=e.target.value;renderList();const q=$('q');q.focus();q.setSelectionRange(q.value.length,q.value.length)};
+  $('flt').onchange=e=>{S.filter=e.target.value;renderList()};
+  $('page').className='page'+(S.open&&beside()?' beside':'');
+  icons();
+}
+/* The row follows the sheet: highlighted, and scrolled into view so closing
+   the sheet lands you where you were reading, not where you started. */
+function followRow(){
+  document.querySelectorAll('[id^="r-"].sel').forEach(r=>r.classList.remove('sel'));
+  const r=$('r-'+S.open);
+  if(r){r.classList.add('sel','flash');setTimeout(()=>r.classList.remove('flash'),700);r.scrollIntoView({block:'nearest',behavior:'smooth'})}
+}
+
+/* ── sheet ──────────────────────────────────────────────────────────────── */
+function openPO(no,dir){
+  const first=!S.open;
+  S.open=no;S.edit=false;S.dirty=false;S.ask=null;S.rejecting=false;S.kb=no;
+  history.replaceState(null,'','?po='+no);
+  if(first)renderList();
+  renderSheet(first?null:dir);followRow();
+}
+function closeSheet(){
+  if(S.edit&&S.dirty){S.ask='close';renderSheet();return}
+  S.open=null;S.queue=null;S.edit=false;history.replaceState(null,'',location.pathname);
+  $('sheetRoot').innerHTML='';renderList();
+}
+function step(dir,to){
+  if(S.edit&&S.dirty){S.ask={dir,to};renderSheet();return}
+  const o=order(), i=o.indexOf(S.open);
+  let j=to!==undefined?to:i+dir;
+  if(to==='first')j=0;if(to==='last')j=o.length-1;
+  if(j<0){toast('This is the first one in the list');return}
+  if(j>=o.length){toast('This is the last one in the list');return}
+  if(j===i)return;
+  openPO(o[j],j>i?1:-1);
+}
+function pos(){const o=order();return {i:o.indexOf(S.open),n:o.length}}
+
+function renderSheet(dir){
+  if(!S.open){$('sheetRoot').innerHTML='';return}
+  const wasBody=document.querySelector('.sb'), keepScroll=!dir&&wasBody?wasBody.scrollTop:0;
+  const b=beside();
+  let h=(b?'':'<div class="veil" onclick="closeSheet()"></div>')+'<aside class="sheet'+(b?' beside':'')+'" id="sheet"'+(document.getElementById('sheet')?' style="animation:none"':'')+'>';
+  if(S.open==='__done'){h+=caughtUp()+'</aside>';$('sheetRoot').innerHTML=h;icons();return}
+  const p=byNo(S.open), {i,n}=pos();
+  h+='<div class="grip" id="grip"><span></span></div><div class="peek" id="peek"></div>';
+  h+='<div class="sh"><div class="top"><span class="id mono">'+p.no+'</span>';
+  if(S.opt!=='B'&&!isTouch())h+='<div class="stepper"><span class="pos">'+(i+1)+' of '+n+'</span><button class="ib" onclick="step(-1)" title="Previous  ↑ or K"><i data-lucide="chevron-up"></i></button><button class="ib" onclick="step(1)" title="Next  ↓ or J"><i data-lucide="chevron-down"></i></button></div><span class="vr"></span>';
+  h+='<button class="ib" onclick="closeSheet()" title="Close  Esc"><i data-lucide="x"></i></button></div>';
+  h+='<div class="row"><div class="who"><div class="tt"><h2>'+p.sup+'</h2><span class="st"><span class="dot" style="background:'+ST[p.st]+'"></span>'+p.st+'</span></div><div class="cap">Raised by '+p.by+' · '+p.made+'</div></div><div class="acts">';
+  if(!S.edit&&p.st!=='Received'&&p.st!=='Cancelled')h+=isPhone()?'<button class="ib" onclick="startEdit()" aria-label="Edit"><i data-lucide="pencil"></i></button>':'<button class="btn ghost" onclick="startEdit()"><i data-lucide="pencil"></i>Edit</button>';
+  h+='<button class="ib" title="More"><i data-lucide="ellipsis"></i></button></div></div></div>';
+  if(S.ask)h+=askBar(p);
+  h+='<nav class="stabs">'+[['details','Details'],['lines','Lines'],['history','History']].map(t=>'<button class="'+(S.tab===t[0]?'on':'')+'" onclick="S.tab=\''+t[0]+'\';renderSheet()">'+t[1]+'</button>').join('')+'</nav>';
+  const anim=!dir?'':isTouch()?(dir===1?' fromR':' fromL'):(dir===1?' down':' up');
+  h+='<div class="sb'+anim+'" id="sb">'+body(p)+'</div>';
+  const foot=footer(p,i,n);
+  if(foot)h+='<div class="sf">'+foot+'</div>';
+  h+='</aside>';
+  $('sheetRoot').innerHTML=h;
+  if(keepScroll)$('sb').scrollTop=keepScroll;
+  document.querySelectorAll('[data-dirty]').forEach(el=>el.oninput=()=>{S.dirty=true;S.draft[el.dataset.dirty]=el.value});
+  wireSwipe();wireGrip();
+  const jump=$('jump');if(jump)jump.onkeydown=e=>{if(e.key==='Enter'){const v=parseInt(jump.value,10);if(v>=1&&v<=n)step(0,v-1);else toast('Type 1 to '+n)}};
+  icons();
+}
+function body(p){
+  const lines=ARTS.slice(p.qty%3,p.qty%3+3).map((a,k)=>[a[0],Math.round(p.qty*(k===0?.4:.3)),a[1]]);
+  if(S.tab==='lines')return '<div class="card"><table class="mini"><thead><tr><th>Article</th><th class="num">Qty</th><th class="num">Price</th></tr></thead><tbody>'+lines.map(l=>'<tr><td class="strong">'+l[0]+'</td><td class="num">'+l[1].toLocaleString('id-ID')+'</td><td class="num">'+l[2].toLocaleString('id-ID')+'</td></tr>').join('')+'</tbody></table></div>';
+  if(S.tab==='history')return '<div class="hist"><div>Raised<span>'+p.by+' · '+p.made+' 10:12</span></div>'+(p.st!=='Draft'&&p.st!=='Awaiting approval'?'<div>Approved<span>Head of buying · '+p.made+' 14:40</span></div>':'')+'<div>'+p.st+'<span>'+(p.st==='Draft'?'Not sent yet':'System')+'</span></div></div>';
+  if(S.edit)return '<div class="facts" style="grid-template-columns:1fr">'
+    +'<div class="field"><dt>Supplier</dt><dd><input data-dirty="sup" value="'+(S.draft.sup??p.sup)+'"></dd></div>'
+    +'<div class="field"><dt>ETA</dt><dd><input data-dirty="eta" value="'+(S.draft.eta??p.eta)+'"></dd></div>'
+    +'<div class="field"><dt>Note to supplier</dt><dd><textarea data-dirty="note" placeholder="New hangtag from this order">'+(S.draft.note??p.note)+'</textarea></dd></div></div>';
+  return '<dl class="facts"><div><dt>Supplier</dt><dd>'+p.sup+'</dd></div><div><dt>Destination</dt><dd>'+p.dest+'</dd></div><div><dt>Quantity</dt><dd>'+p.qty.toLocaleString('id-ID')+' pcs</dd></div><div><dt>Value</dt><dd>'+rp(p.val)+'</dd></div><div><dt>ETA</dt><dd>'+p.eta+' 2026</dd></div><div><dt>Payment terms</dt><dd>30 days</dd></div>'+(p.note?'<div style="grid-column:1/-1"><dt>Note to supplier</dt><dd>'+p.note+'</dd></div>':'')+'</dl>'
+    +'<h3>Lines</h3><div class="card"><table class="mini"><tbody>'+lines.map(l=>'<tr><td class="strong">'+l[0]+'</td><td class="num">'+l[1].toLocaleString('id-ID')+' pcs</td></tr>').join('')+'</tbody></table></div>';
+}
+function footer(p,i,n){
+  if(S.edit)return '<button class="btn ghost" onclick="cancelEdit()">Cancel</button><span style="flex:1"></span>'+(S.opt==='B'?'':'<button class="btn" onclick="save();step(1)">Save and next</button>')+'<button class="btn pri" onclick="save()">Save</button>';
+  if(S.queue)return queueFoot(p);
+  if(S.opt==='B')return '<div class="vcr"><button class="ib" onclick="step(0,\'first\')" title="First  Home"><i data-lucide="chevrons-left"></i></button><button class="ib" onclick="step(-1)" title="Previous  PgUp"><i data-lucide="chevron-left"></i></button><span class="rec">Record <input id="jump" value="'+(i+1)+'"> of <b>'+n+'</b></span><button class="ib" onclick="step(1)" title="Next  PgDn"><i data-lucide="chevron-right"></i></button><button class="ib" onclick="step(0,\'last\')" title="Last  End"><i data-lucide="chevrons-right"></i></button></div>';
+  if(S.opt==='C'){
+    const o=order(), pv=byNo(o[i-1]), nx=byNo(o[i+1]);
+    const ua=isTouch()?'arrow-left':'arrow-up', da=isTouch()?'arrow-right':'arrow-down';
+    const cell=(x,dir,cls)=>x?'<button class="'+cls+'" onclick="step('+dir+')">'+(dir<0?'<i data-lucide="'+ua+'"></i>':'')+'<span class="w"><span>'+(dir<0?'Previous':'Next')+' · <span class="mono">'+x.no.slice(-4)+'</span></span><b>'+x.sup+'</b></span>'+(dir>0?'<i data-lucide="'+da+'"></i>':'')+'</button>':'<button class="off '+cls+'"><span class="w"><span>'+(dir<0?'Previous':'Next')+'</span><b>'+(dir<0?'Start of list':'End of list')+'</b></span></button>';
+    return '<div class="nb">'+cell(pv,-1,'')+cell(nx,1,'r')+'</div>';
+  }
+  if(isTouch())return '<span class="pos" style="color:var(--body)">'+(i+1)+' of '+n+'</span><span style="flex:1"></span><button class="ib bx" onclick="step(-1)" aria-label="Previous"><i data-lucide="chevron-left"></i></button><button class="ib bx" onclick="step(1)" aria-label="Next"><i data-lucide="chevron-right"></i></button>';
+  return '';
+}
+
+/* ── touch gestures ──────────────────────────────────────────────────────
+   Sideways on the body steps; the record you're heading to peeks in from
+   that edge, named, so a swipe is never a guess. Past a fifth of the width
+   (or a quick flick) it goes; short of it, it springs back. At either end it
+   drags at a third of the finger and says so. Vertical stays the page's own
+   scroll. Off while editing — a swipe that leaves a half-typed form is the
+   one gesture nobody forgives. On a phone the grip pulls the sheet down. */
+function wireSwipe(){
+  const sb=$('sb');
+  if(!sb||!isTouch()||S.edit||S.open==='__done')return;
+  let x0,y0,t0,mode=null,dx=0;
+  sb.onpointerdown=e=>{if(e.target.closest('input,textarea,button,select'))return;x0=e.clientX;y0=e.clientY;t0=performance.now();mode='?';dx=0};
+  sb.onpointermove=e=>{
+    if(!mode)return;
+    const mx=e.clientX-x0,my=e.clientY-y0;
+    if(mode==='?'){
+      if(Math.abs(mx)>10&&Math.abs(mx)>Math.abs(my)*1.4){mode='x';sb.setPointerCapture(e.pointerId);sb.style.transition='none'}
+      else if(Math.abs(my)>10)mode=null;
+      return;
+    }
+    const o=order(),i=o.indexOf(S.open),dir=mx<0?1:-1,edge=!o[i+dir];
+    dx=edge?mx*.3:mx;
+    sb.style.transform='translateX('+dx+'px)';sb.style.opacity=String(1-Math.min(.45,Math.abs(dx)/700));
+    peek(dir,Math.min(1,Math.abs(mx)/110),edge?null:byNo(o[i+dir]));
+  };
+  const end=()=>{
+    if(mode!=='x'){mode=null;return}
+    mode=null;
+    const v=Math.abs(dx)/(performance.now()-t0),o=order(),i=o.indexOf(S.open),dir=dx<0?1:-1;
+    if((Math.abs(dx)>sb.clientWidth*.2||v>.6)&&o[i+dir])openPO(o[i+dir],dir);
+    else{sb.style.transition='transform 260ms var(--ease-out),opacity 260ms';sb.style.transform='';sb.style.opacity='';peek(dir,0)}
+  };
+  sb.onpointerup=end;sb.onpointercancel=end;
+}
+function peek(dir,a,x){
+  const el=$('peek');if(!el)return;
+  el.className='peek '+(dir>0?'r':'l');el.style.opacity=a;
+  el.innerHTML=x?'<span>'+(dir>0?'Next':'Previous')+' · <span class="mono">'+x.no.slice(-4)+'</span></span><b>'+x.sup+'</b>':'<span>'+(dir>0?'End':'Start')+' of the list</span>';
+}
+function wireGrip(){
+  const g=$('grip'),sh=$('sheet');
+  if(!g||!isPhone())return;
+  let y0=null,dy=0;
+  g.onpointerdown=e=>{y0=e.clientY;dy=0;g.setPointerCapture(e.pointerId);sh.style.animation='none';sh.style.transition='none'};
+  g.onpointermove=e=>{if(y0===null)return;dy=Math.max(0,e.clientY-y0);sh.style.transform='translateY('+dy+'px)'};
+  g.onpointerup=()=>{
+    if(y0===null)return;y0=null;
+    if(dy>120&&!(S.edit&&S.dirty)){sh.style.transition='transform 200ms';sh.style.transform='translateY(100%)';setTimeout(closeSheet,190)}
+    else{sh.style.transition='transform 320ms var(--ease-drawer)';sh.style.transform='';if(dy>120)closeSheet()}
+  };
+}
+
+/* ── unsaved edits: asked about, never lost, never blocking ─────────────── */
+function startEdit(){S.edit=true;S.dirty=false;S.draft={};S.tab='details';renderSheet()}
+function cancelEdit(){S.edit=false;S.dirty=false;S.ask=null;renderSheet()}
+function save(){const p=byNo(S.open);Object.assign(p,S.draft);S.edit=false;S.dirty=false;toast(p.no+' saved');renderList();renderSheet();followRow()}
+function askBar(p){
+  return '<div class="ask"><i data-lucide="circle-alert"></i><span class="g">You changed '+p.no.slice(-4)+'. Save before you '+(S.ask==='close'?'close it':'move on')+'?</span><button class="btn ghost" style="color:inherit" onclick="discardGo()">Discard</button><button class="btn pri" onclick="saveGo()">Save and '+(S.ask==='close'?'close':'continue')+'</button></div>';
+}
+function saveGo(){const a=S.ask;S.ask=null;save();a==='close'?closeSheet():step(a.dir,a.to)}
+function discardGo(){const a=S.ask;S.ask=null;S.edit=false;S.dirty=false;a==='close'?closeSheet():step(a.dir,a.to)}
+
+/* ── D · queue ──────────────────────────────────────────────────────────── */
+function startQueue(){
+  const ids=POS.filter(p=>p.st==='Awaiting approval').map(p=>p.no);
+  if(!ids.length)return;
+  S.queue={ids,res:{}};S.tab='details';openPO(ids[0]);
+}
+function queueFoot(p){
+  const q=S.queue, done=Object.keys(q.res).length;
+  let h='<div class="q"><div class="qtop"><span>'+done+' of '+q.ids.length+' reviewed</span><div class="qbar">'+q.ids.map(id=>'<i class="'+(q.res[id]==='Approved'?'ok':q.res[id]==='Rejected'?'bad':id===S.open?'now':'')+'"></i>').join('')+'</div></div>';
+  if(q.res[p.no])h+='<div class="qbtns"><span style="color:var(--body);align-self:center">'+q.res[p.no]+' already</span><button class="btn pri" onclick="nextOpen()">Next awaiting<i data-lucide="arrow-down"></i></button></div>';
+  else if(S.rejecting)h+='<div class="field reason"><textarea id="why" placeholder="Why? The buyer sees this."></textarea></div><div class="qbtns"><button class="btn ghost" onclick="S.rejecting=false;renderSheet()">Back</button><button class="btn pri" style="background:var(--bad)" onclick="decide(\'Rejected\')">Reject and next</button></div>';
+  else h+='<div class="qbtns"><button class="btn ghost" onclick="step(1)">Skip</button><button class="btn bad" onclick="S.rejecting=true;renderSheet();$(\'why\').focus()">Reject…</button><button class="btn pri" onclick="decide(\'Approved\')"><i data-lucide="check"></i>Approve and next</button></div>';
+  return h+'</div>';
+}
+function decide(what){
+  if(what==='Rejected'&&!$('why').value.trim()){toast('Say why, so the buyer can fix it');return}
+  const p=byNo(S.open);p.st=what;S.queue.res[p.no]=what;S.rejecting=false;
+  renderList();nextOpen();
+}
+/* The next one still undecided — forward first, then any skipped earlier. */
+function nextOpen(){
+  const q=S.queue, i=q.ids.indexOf(S.open);
+  const rest=[...q.ids.slice(i+1),...q.ids.slice(0,i)].filter(id=>!q.res[id]);
+  if(rest.length)openPO(rest[0],1);else{S.open='__done';renderSheet();renderList()}
+}
+function caughtUp(){
+  const r=Object.values(S.queue.res), a=r.filter(x=>x==='Approved').length, j=r.filter(x=>x==='Rejected').length;
+  return '<div class="sh"><div class="top"><span class="id"></span><button class="ib" onclick="closeSheet()"><i data-lucide="x"></i></button></div></div><div class="sb"><div class="done"><span class="big"><i data-lucide="check"></i></span><h2>All caught up</h2><p>'+a+' approved'+(j?' · '+j+' sent back to the buyer':'')+'</p><button class="btn" onclick="closeSheet()">Back to the list</button></div></div>';
+}
+
+/* ── keys ───────────────────────────────────────────────────────────────── */
+addEventListener('keydown',e=>{
+  const typing=/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+  if(e.key==='Escape'){if(typing)document.activeElement.blur();else if(S.open)closeSheet();return}
+  if(typing)return;
+  if(S.open&&S.open!=='__done'){
+    if(e.key==='ArrowDown'||e.key==='j'||e.key==='PageDown'){e.preventDefault();step(1)}
+    if(e.key==='ArrowUp'||e.key==='k'||e.key==='PageUp'){e.preventDefault();step(-1)}
+    if(S.opt==='B'&&e.key==='Home'){e.preventDefault();step(0,'first')}
+    if(S.opt==='B'&&e.key==='End'){e.preventDefault();step(0,'last')}
+    return;
+  }
+  /* With the sheet shut the same keys walk the list, and Enter opens. */
+  const o=visible().map(p=>p.no);
+  if(['ArrowDown','j','ArrowUp','k'].includes(e.key)){e.preventDefault();const i=o.indexOf(S.kb);S.kb=o[Math.max(0,Math.min(o.length-1,i+(e.key==='ArrowDown'||e.key==='j'?1:-1)))]||o[0];renderList();$('r-'+S.kb)?.scrollIntoView({block:'nearest'})}
+  if(e.key==='Enter'&&S.kb)openPO(S.kb);
+});
+addEventListener('resize',()=>{if(S.open){renderList();renderSheet()}});
+
+/* ── prototype switch ───────────────────────────────────────────────────── */
+let DEV='desktop';
+function setDev(d){
+  DEV=d;
+  $('devseg').innerHTML=[['desktop','Desktop'],['tablet','Tablet'],['phone','Phone']].map(x=>'<button class="'+(x[0]===d?'on':'')+'" onclick="setDev(\''+x[0]+'\')">'+x[1]+'</button>').join('');
+  document.body.classList.toggle('devmode',d!=='desktop');
+  if(d==='desktop'){$('dev').hidden=true;$('ifr').src='about:blank';return}
+  $('dev').hidden=false;
+  const f=$('frame');f.className='frame '+d;
+  const [W,H]=d==='phone'?[390,844]:[1180,820];
+  f.style.width=W+'px';f.style.height=H+'px';
+  $('ifr').src=location.pathname+'?embed='+d+'&opt='+S.opt+'&po='+(S.open&&S.open!=='__done'?S.open:'PO-2026-0410');
+  fitDev();
+}
+function fitDev(){
+  if(DEV==='desktop')return;
+  const f=$('frame'),s=Math.min(1,(innerHeight-196)/f.offsetHeight,(innerWidth-48)/f.offsetWidth);
+  f.style.transform='scale('+s+')';
+}
+addEventListener('resize',fitDev);
+addEventListener('message',e=>{if(EMBED&&e.data&&e.data.opt)setOpt(e.data.opt)});
+function setOpt(k){
+  if(!EMBED&&DEV!=='desktop')$('ifr').contentWindow?.postMessage({opt:k},'*');
+  S.opt=k;S.queue=null;S.edit=false;S.ask=null;S.rejecting=false;
+  if(S.open==='__done')S.open=null;
+  $('seg').innerHTML=Object.entries(OPTS).map(([key,o])=>'<button class="'+(key===k?'on':'')+'" onclick="setOpt(\''+key+'\')">'+o.l+'</button>').join('');
+  $('note').innerHTML=OPTS[k].n;
+  renderList();renderSheet();
+}
+const start=new URLSearchParams(location.search).get('po');
+setOpt(OPTS[QS.get('opt')]?QS.get('opt'):'A');
+if(!EMBED)setDev('desktop');
+openPO(start&&byNo(start)?start:'PO-2026-0410');
+</script>
+</body>
+</html>

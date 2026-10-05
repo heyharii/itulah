@@ -441,7 +441,7 @@ fn balanced_per_unit(
         .iter()
         .map(|line| UnitMovement::new(&line.unit_id, line.debit_minor, line.credit_minor))
         .collect();
-    let kind = kind_for_source(&intent.source_kind);
+    let kind = kind_for_source(&intent.source_kind).map_err(AppError::Validation)?;
     let legs = balancing_legs(&movements, kind, head_office);
     if legs.is_empty() {
         return Ok((intent.lines.clone(), total));
@@ -718,11 +718,13 @@ pub async fn post(
     enforce_budgets(&mut **tx, intent.posting_date, &lines, &resolved).await?;
 
     let entry_id = Uuid::new_v4();
-    let number: i64 = sqlx::query("SELECT nextval('journal_entry_number_seq') AS n")
-        .fetch_one(&mut **tx)
-        .await?
-        .try_get("n")?;
-    let entry_number = format!("JV-{number:08}");
+    let entry_number = super::number_series::next_number(
+        &mut **tx,
+        super::number_series::JOURNAL_ENTRY,
+        intent.posting_date,
+        None,
+    )
+    .await?;
 
     sqlx::query(
         "INSERT INTO journal_entry
@@ -853,11 +855,13 @@ pub async fn reverse(
     .await?;
 
     let reversal_id = Uuid::new_v4();
-    let number: i64 = sqlx::query("SELECT nextval('journal_entry_number_seq') AS n")
-        .fetch_one(&mut **tx)
-        .await?
-        .try_get("n")?;
-    let entry_number = format!("JV-{number:08}");
+    let entry_number = super::number_series::next_number(
+        &mut **tx,
+        super::number_series::JOURNAL_ENTRY,
+        posting_date,
+        None,
+    )
+    .await?;
 
     sqlx::query(
         "INSERT INTO journal_entry

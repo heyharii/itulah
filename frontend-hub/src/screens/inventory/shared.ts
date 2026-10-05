@@ -132,21 +132,22 @@ const DC_FULFILLMENT_POOL_CODES = new Set([
 /// A store's own three pools, which are what it can send back to the DC.
 const STORE_RETURN_POOL_CODES = new Set(["WAREHOUSE", "FLOOR", "REJECT"])
 
-/// The single pool a supplier return may leave from, named literally in the
-/// server's check.
-const SUPPLIER_RETURN_POOL_ID = "dc.reject.dc"
-
 /// `site.kind` for the warehouse. `HO` and not `DC` since 0353 folded the
 /// distribution centre into head office — they are one building, and one row.
 /// A filter left on `DC` matches nothing and silently offers an empty source
 /// list rather than erroring.
 const WAREHOUSE_SITE_KIND = "HO"
 
-/// `site.id` for that same place: still `dc`, the server's
-/// `HEAD_OFFICE_SITE_ID`. The rename to `ho` (0256) has not landed; sending
-/// `ho` asked for a site that does not exist, and every RETURN_TO_DC was
-/// refused. This flips when the server's constant does, not before.
-const WAREHOUSE_SITE_ID = "dc"
+/// The pool codes a supplier return may leave from, mirroring the server's
+/// check (`validate_create_line`: a stockroom, reject or return pool at a
+/// site of the head-office unit) by kind and role, never by pool id.
+const SUPPLIER_RETURN_POOL_CODES: Record<string, true> = {
+  WAREHOUSE: true,
+  REJECT: true,
+  DC_REJECT: true,
+  STORE_REJECT: true,
+  RETURN: true,
+}
 
 export type AllotmentKind = "TO_STORE" | "RETURN_TO_DC" | "RETURN_TO_SUPPLIER"
 
@@ -174,32 +175,11 @@ export function sourcePoolsFor(
           STORE_RETURN_POOL_CODES.has(pool.pool_code)
       )
     case "RETURN_TO_SUPPLIER":
-      return usable.filter((pool) => pool.id === SUPPLIER_RETURN_POOL_ID)
-  }
-}
-
-/// Where an allotment of this kind may go.
-///
-/// Two of the three have exactly one answer and no choice to offer: everything
-/// returned goes to `ho`, and everything sent back to a supplier goes to the
-/// one external place the ledger keeps for suppliers.
-///
-/// `destination_type` stays `DC`: it names the KIND of endpoint the allotment
-/// grammar recognises — store, warehouse, supplier — and the server still
-/// spells that one `DC`. Only the site id moved.
-export function fixedDestinationFor(
-  kind: AllotmentKind
-): { destination_type: "DC" | "SUPPLIER"; destination_id: string } | null {
-  switch (kind) {
-    case "TO_STORE":
-      return null
-    case "RETURN_TO_DC":
-      return { destination_type: "DC", destination_id: WAREHOUSE_SITE_ID }
-    case "RETURN_TO_SUPPLIER":
-      return {
-        destination_type: "SUPPLIER",
-        destination_id: "external/supplier",
-      }
+      return usable.filter(
+        (pool) =>
+          pool.site_kind === WAREHOUSE_SITE_KIND &&
+          SUPPLIER_RETURN_POOL_CODES[pool.pool_code] === true
+      )
   }
 }
 

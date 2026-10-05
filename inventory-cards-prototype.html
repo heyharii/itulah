@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Inventory cards</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Inventory as cards: one card per place, three facts on every card —
+   how much stock the books say, how much the readers saw, and when it was
+   last counted. A problem shows only where there is one.
+   Six card designs over the same data. Hub tokens ("airy charcoal"):
+   charcoal sidebar, white canvas, neutral greys, Inter 14, hairlines, status
+   as a dot and a word, colour only on exceptions. Nothing below 14px.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f9fb; --soft-2:#f0f2f5; --soft-3:#f5f6f8;
+  --hairline:#e7eaf0; --hairline-2:#dce1e8; --track:#eceef2; --fill:#aab1bb;
+  --accent:#2563eb; --accent-ink:#1d4ed8; --accent-bg:#eff5ff;
+  --warn:#d99a2b; --warn-fg:#b45309; --warn-bg:#fdf3e1; --bad:#e25555; --bad-fg:#c0263b; --bad-bg:#fcecec;
+  --rail:#242526; --rail-2:#303234; --rail-3:#393b3d; --rail-ink:#fff; --rail-text:#c3c4c7; --rail-mute:#a1a3a8; --rail-hair:#343638;
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1);
+  --shadow-card:0 1px 2px rgb(24 39 60/4%); --shadow-hover:0 1px 2px rgb(24 39 60/5%),0 8px 20px -10px rgb(24 39 60/16%);
+  --shadow-pop:0 4px 8px rgb(24 39 60/4%),0 16px 40px rgb(24 39 60/12%);
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --ink:#f1f3f6; --text:#d3d7de; --body:#a4aab4; --mute:#8b919b; --faint:#5b616b; --line-ico:#8b919b;
+  --canvas:#17181a; --soft:#1e2023; --soft-2:#26282c; --soft-3:#1c1e21;
+  --hairline:#2c2f34; --hairline-2:#363a40; --track:#2c2f34; --fill:#5b616b;
+  --accent:#4f83f5; --accent-ink:#8cb0ff; --accent-bg:#1c2a44; --warn-fg:#f0b44f; --warn-bg:#3a2d17; --bad-fg:#ff8a8a; --bad-bg:#3a1f22;
+  --rail:#101112; --rail-2:#1c1d1f; --rail-3:#26272a; --rail-hair:#222325; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --ink:#f1f3f6; --text:#d3d7de; --body:#a4aab4; --mute:#8b919b; --faint:#5b616b; --line-ico:#8b919b;
+  --canvas:#17181a; --soft:#1e2023; --soft-2:#26282c; --soft-3:#1c1e21;
+  --hairline:#2c2f34; --hairline-2:#363a40; --track:#2c2f34; --fill:#5b616b;
+  --accent:#4f83f5; --accent-ink:#8cb0ff; --accent-bg:#1c2a44; --warn-fg:#f0b44f; --warn-bg:#3a2d17; --bad-fg:#ff8a8a; --bad-bg:#3a1f22;
+  --rail:#101112; --rail-2:#1c1d1f; --rail-3:#26272a; --rail-hair:#222325; color-scheme:dark}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--canvas)}
+body{font:400 14px/20px Inter,system-ui,sans-serif;color:var(--text);-webkit-font-smoothing:antialiased}
+button,input{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer;text-align:left}
+svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.num{font-variant-numeric:tabular-nums}
+
+/* prototype bar */
+.proto{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:8px 20px;background:var(--soft);border-bottom:1px solid var(--hairline);color:var(--body)}
+.proto b{color:var(--ink);font-weight:600}
+.tg{display:flex;align-items:center;gap:8px}
+.seg{display:flex;gap:2px;padding:3px;border-radius:9px;background:var(--canvas);box-shadow:inset 0 0 0 1px var(--hairline);overflow-x:auto;scrollbar-width:none}
+.seg button{height:28px;padding:0 10px;border-radius:7px;color:var(--body);font-weight:500;white-space:nowrap}
+.seg button[aria-pressed=true]{background:var(--soft-2);color:var(--ink)}
+.proto .sp{flex:1}
+.proto .th{height:30px;width:34px;border-radius:8px;box-shadow:inset 0 0 0 1px var(--hairline);text-align:center}
+
+/* shell */
+.app{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:calc(100vh - 45px)}
+.side{background:var(--rail);color:var(--rail-text);padding:14px 10px;display:flex;flex-direction:column;gap:1px;position:sticky;top:45px;height:calc(100vh - 45px);overflow:auto}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 8px 16px;color:var(--rail-ink);font-weight:600;font-size:15px}
+.mark{width:26px;height:26px;border-radius:7px;background:#000;box-shadow:inset 0 0 0 1px #3a3b3d;display:grid;place-items:center;font-weight:600;color:#fff;position:relative}
+.mark::after{content:"";position:absolute;right:4px;bottom:5px;width:5px;height:5px;border-radius:50%;background:#2563eb}
+.row{display:flex;align-items:center;gap:10px;height:34px;padding:0 8px;border-radius:8px;color:var(--rail-text);white-space:nowrap;width:100%}
+.row:hover{background:var(--rail-2);color:var(--rail-ink)}
+.row .i{color:var(--rail-mute)}
+.row.on{color:var(--rail-ink);font-weight:500}
+.row.on .i{color:var(--rail-ink)}
+.row .ct{margin-left:auto;color:var(--rail-mute)}
+.subs{margin:2px 0 8px 16px;padding-left:12px;border-left:1px solid var(--rail-hair);display:flex;flex-direction:column;gap:1px}
+.sub{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:7px;color:var(--rail-text);width:100%}
+.sub:hover{background:var(--rail-2);color:var(--rail-ink)}
+.sub[aria-current]{background:var(--rail-3);color:var(--rail-ink);font-weight:500}
+.sub .ct{margin-left:auto;color:var(--rail-mute)}
+
+main{min-width:0;padding:22px 32px 96px}
+.wrap{max-width:1180px;margin:0 auto}
+.hd{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.hd h1{font-size:17px;line-height:24px;font-weight:600;color:var(--ink);letter-spacing:-.02em}
+.hd .pcs{color:var(--body);margin-bottom:1px}
+.hd .act{margin-left:auto;display:flex;gap:8px}
+.btn{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-radius:8px;font-weight:500;white-space:nowrap;transition:background-color .15s,transform .16s var(--ease-out)}
+.btn:active{transform:scale(.98)}
+.btn-g{box-shadow:inset 0 0 0 1px var(--hairline-2);color:var(--text);background:var(--canvas)}
+.btn-g:hover{background:var(--soft)}
+.btn-g .i{color:var(--line-ico)}
+.big{position:relative;display:flex;align-items:center;gap:10px;height:44px;padding:0 12px;background:var(--canvas);border:1px solid var(--hairline-2);border-radius:8px;box-shadow:0 1px 3px rgb(24 39 60/4%);transition:border-color .15s,box-shadow .15s}
+.big:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.big .i{color:var(--line-ico)}
+.big input{flex:1;min-width:0;border:0;outline:0;background:transparent;font-size:15px;color:var(--ink)}
+.big input::placeholder{color:var(--mute)}
+.scope{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 4px 0 10px;border-radius:6px;background:var(--accent-bg);color:var(--accent-ink);font-weight:500;white-space:nowrap}
+.scope button{color:var(--accent-ink);border-radius:4px;width:22px;height:22px;display:grid;place-items:center}
+.sugg{position:absolute;top:48px;left:0;right:0;z-index:30;background:var(--canvas);border:1px solid var(--hairline);border-radius:10px;box-shadow:var(--shadow-pop);padding:6px;display:none}
+.big.open .sugg{display:block;animation:pop .16s var(--ease-out)}
+.sugg button{display:flex;width:100%;gap:10px;align-items:center;padding:8px 10px;border-radius:7px}
+.sugg button:hover,.sugg button.hl{background:var(--soft-2)}
+.sugg .c{margin-left:auto;color:var(--mute)}
+.hint{display:flex;gap:18px;flex-wrap:wrap;color:var(--mute);margin:8px 2px 0}
+.hint .w{color:var(--warn-fg)} .hint .b{color:var(--bad-fg)}
+@keyframes pop{from{opacity:0;transform:translateY(-4px)}}
+
+/* groups: a heading and its cards — never a card around cards */
+.grp{margin-top:28px}
+.gh{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding-bottom:10px;border-bottom:1px solid var(--hairline);margin-bottom:14px}
+.gh .nm{display:flex;align-items:center;gap:6px;font-weight:600;color:var(--ink);font-size:15px}
+.gh .tw{width:22px;height:22px;display:grid;place-items:center;border-radius:6px;color:var(--mute);transition:transform .25s var(--ease-out),background-color .15s}
+.gh .nm:hover .tw{background:var(--soft-2);color:var(--ink)}
+.grp.shut .gh .tw{transform:rotate(-90deg)}
+.gh .v{font-weight:600;color:var(--ink);font-size:17px;font-variant-numeric:tabular-nums}
+.gh .s{color:var(--mute)}
+.gh .p{color:var(--warn-fg)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(216px,1fr));gap:12px}
+.grp.shut .grid{display:none}
+.city{grid-column:1/-1;display:flex;gap:10px;align-items:baseline;margin:10px 0 -2px;color:var(--body);font-weight:500}
+.city:first-child{margin-top:0}
+.city span{color:var(--mute);font-weight:400}
+.page{animation:page-in .3s var(--ease-out)}
+@keyframes page-in{from{opacity:0;transform:translateY(6px)}}
+.grid>*{animation:card-in .35s var(--ease-out) both;animation-delay:calc(var(--i,0) * 18ms)}
+@keyframes card-in{from{opacity:0;transform:translateY(4px)}}
+
+/* ── the card, shared ─────────────────────────────────────────────── */
+.card{position:relative;display:block;width:100%;background:var(--canvas);border:1px solid var(--hairline);border-radius:12px;box-shadow:var(--shadow-card);cursor:pointer;transition:border-color .15s,box-shadow .2s var(--ease-out),transform .2s var(--ease-out);outline:0}
+.card:hover,.card:focus-visible{border-color:var(--hairline-2);box-shadow:var(--shadow-hover)}
+.card:focus-visible{box-shadow:0 0 0 3px var(--accent-bg)}
+.card[aria-current]{border-color:var(--ink)}
+.card .nm{color:var(--ink);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .sb2{color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .big-n{font-size:24px;line-height:30px;font-weight:600;color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.search-on .card .big-n{color:var(--accent-ink)}
+.k{color:var(--mute)}
+.old{color:var(--warn-fg)!important}
+.gap{color:var(--warn-fg)}
+.pbl{display:flex;gap:8px;align-items:baseline;color:var(--warn-fg)}
+.pbl::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--warn);flex:none;transform:translateY(-1px)}
+.pbl.b{color:var(--bad-fg)} .pbl.b::before{background:var(--bad)}
+.card.silent .big-n{color:var(--mute)}
+
+/* A · Plain */
+.d-a .card{padding:14px 16px}
+.d-a .big-n{margin-top:6px}
+.d-a dl{margin-top:10px;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.d-a dt{color:var(--mute)}
+.d-a dd{color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.d-a dd .k{margin-left:4px}
+.d-a .pbl{margin-top:10px;padding-top:10px;border-top:1px solid var(--hairline)}
+
+/* B · Three figures */
+.d-b .grid{grid-template-columns:repeat(auto-fill,minmax(264px,1fr))}
+.d-b .card{padding:14px 16px}
+.d-b .top{display:flex;gap:8px;align-items:center}
+.d-b .top .nm{flex:1}
+.d-b .top .dot{width:7px;height:7px;border-radius:50%;background:var(--warn);flex:none}
+.d-b .top .dot.b{background:var(--bad)}
+.d-b .three{margin-top:12px;display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:10px}
+.d-b .three div{min-width:0}
+.d-b .three div:not(:first-child) .f.gap{color:var(--warn-fg)}
+.d-b .three .l{color:var(--mute)}
+.d-b .three .f{margin-top:2px;font-size:17px;line-height:24px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+.d-b .three div:first-child .f{font-size:20px}
+.d-b .three div:not(:first-child) .f{font-weight:500;color:var(--text)}
+.d-b .three .u{color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.d-b .pbl{margin-top:10px}
+
+/* C · Meter: how much of the stock the readers can vouch for */
+.d-c .card{padding:14px 16px}
+.d-c .top{display:flex;gap:10px;align-items:baseline}
+.d-c .top .nm{flex:1}
+.d-c .top .ck{color:var(--mute);white-space:nowrap}
+.d-c .big-n{margin-top:4px}
+.d-c .meter{margin-top:10px;height:6px;border-radius:3px;background:var(--track);overflow:hidden}
+.d-c .meter i{display:block;height:100%;border-radius:3px;background:var(--fill);transform-origin:left;animation:grow .7s var(--ease-out) both}
+.d-c .meter.w i{background:var(--warn)}
+@keyframes grow{from{transform:scaleX(0)}}
+.d-c .ml{margin-top:6px;display:flex;justify-content:space-between;gap:8px;color:var(--mute);white-space:nowrap}
+.d-c .ml span:first-child{overflow:hidden;text-overflow:ellipsis}
+.d-c .ml b{font-weight:500;color:var(--text);font-variant-numeric:tabular-nums}
+.d-c .pbl{margin-top:10px}
+
+/* D · Split: the number on the left, the evidence on the right */
+.d-d .grid{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+.d-d .card{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:0;padding:0;overflow:hidden}
+.d-d .card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:transparent}
+.d-d .card.pw::before{background:var(--warn)} .d-d .card.pb::before{background:var(--bad)}
+.d-d .lhs{padding:14px 16px}
+.d-d .big-n{margin-top:8px}
+.d-d .rhs{padding:14px 16px;border-left:1px solid var(--hairline);background:var(--soft);display:flex;flex-direction:column;gap:4px}
+.d-d .rhs div{display:flex;justify-content:space-between;gap:8px;white-space:nowrap}
+.d-d .rhs span:last-child{color:var(--text);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}
+.d-d .rhs .gap{color:var(--warn-fg)}
+.d-d .pbl{grid-column:1/-1;padding:10px 16px;border-top:1px solid var(--hairline)}
+
+/* E · Row cards: one line each, for when there are thirty stores */
+.d-e .grid{grid-template-columns:repeat(auto-fill,minmax(440px,1fr));gap:8px}
+.d-e .card{display:grid;grid-template-columns:minmax(0,1.3fr) 78px minmax(0,1.2fr) minmax(0,.9fr);align-items:center;gap:14px;min-height:56px;padding:8px 16px;border-radius:10px}
+.d-e .big-n{font-size:17px;line-height:24px;text-align:right}
+.d-e .c2 div:first-child,.d-e .c3 div:first-child{color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.d-e .c2 div:last-child,.d-e .c3 div:last-child{color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.d-e .pbl{grid-column:1/-1;margin-top:-4px;padding-left:0}
+
+/* F · Hang tag: the swing tag a garment wears, for the place it hangs in */
+.d-f .grid{grid-template-columns:repeat(auto-fill,minmax(196px,1fr));gap:18px 14px;padding-top:10px}
+.d-f .card{padding:26px 16px 14px;border-radius:14px 14px 12px 12px;text-align:center}
+.d-f .card::before{content:"";position:absolute;top:9px;left:calc(50% - 5px);width:10px;height:10px;border-radius:50%;background:var(--canvas);box-shadow:inset 0 0 0 1.5px var(--hairline-2)}
+.d-f .card::after{content:"";position:absolute;top:-12px;left:calc(50% - .75px);width:1.5px;height:22px;background:var(--faint);border-radius:1px}
+.d-f .card:hover{transform:rotate(-1.2deg);transform-origin:50% 0}
+.d-f .big-n{margin-top:4px;font-size:28px;line-height:34px}
+.d-f .perf{margin:12px -16px 10px;border-top:1.5px dashed var(--hairline-2)}
+.d-f dl{display:grid;grid-template-columns:1fr 1fr;gap:2px 8px}
+.d-f dt{color:var(--mute)}
+.d-f dd{color:var(--text);font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.d-f dd.k2{font-weight:400;color:var(--mute)}
+.d-f .pbl{justify-content:center;margin-top:10px}
+
+/* the panel for one place */
+.scrim{position:fixed;inset:0;z-index:60;background:rgb(255 255 255/.5);opacity:0;pointer-events:none;transition:opacity .25s var(--ease-out)}
+:root[data-theme=dark] .scrim{background:rgb(0 0 0/.45)}
+.sheet{position:fixed;top:12px;right:12px;bottom:12px;width:min(440px,calc(100vw - 24px));z-index:61;background:var(--canvas);border:1px solid var(--hairline);border-radius:16px;box-shadow:var(--shadow-pop);transform:translateX(calc(100% + 24px));transition:transform .38s var(--ease-drawer);display:flex;flex-direction:column;overflow:hidden}
+.open .scrim{opacity:1;pointer-events:auto}
+.open .sheet{transform:none}
+.sh{display:flex;gap:12px;padding:18px 20px 14px;border-bottom:1px solid var(--hairline)}
+.sh .tx{flex:1;min-width:0}
+.sh h2{font-size:17px;line-height:24px;font-weight:600;color:var(--ink)}
+.sh .v{margin-top:4px;font-size:30px;line-height:36px;font-weight:600;color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.sh .v small{font-size:14px;font-weight:400;color:var(--mute);letter-spacing:0;margin-left:6px}
+.x{width:34px;height:34px;border-radius:8px;display:grid;place-items:center;color:var(--body);flex:none}
+.x:hover{background:var(--soft-2)}
+.pb2{flex:1;overflow:auto;padding:0 20px 20px}
+.h2{margin:18px 0 6px;font-weight:600;color:var(--ink)}
+.h2 span{font-weight:400;color:var(--mute)}
+.ln{display:flex;align-items:center;gap:10px;min-height:40px;border-bottom:1px solid var(--hairline)}
+.ln .l{flex:1}
+.ln .r{font-variant-numeric:tabular-nums;color:var(--text)}
+.ln .r.gap{color:var(--warn-fg)}
+.ln.tot{font-weight:600;color:var(--ink);border-bottom:0;border-top:1px solid var(--hairline-2)}
+.prob{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--hairline)}
+.prob .tx{flex:1}
+.go{color:var(--accent-ink);font-weight:500;white-space:nowrap}
+.none{color:var(--mute);padding:10px 0}
+
+/* counts / setup */
+.list{margin-top:8px;border-top:1px solid var(--hairline)}
+.lg{margin-top:22px;color:var(--mute);font-weight:500}
+.li{display:flex;align-items:center;gap:14px;min-height:52px;padding:8px 10px;border-bottom:1px solid var(--hairline);width:100%}
+.li:hover{background:var(--soft)}
+.li .i{color:var(--line-ico)}
+.li .tx{flex:1;min-width:0}
+.li .t1{color:var(--ink);font-weight:500}
+.li .t2{color:var(--mute)}
+.li .r{color:var(--body);font-variant-numeric:tabular-nums}
+.li .r.b{color:var(--bad-fg)}
+
+@media (max-width:900px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .side{position:static;height:auto;flex-direction:row;flex-wrap:wrap;gap:4px;padding:10px 16px}
+  .side .brand,.side .row:not(.on){display:none}
+  .side .subs{flex-direction:row;margin:0;border:0;padding:0}
+  main{padding:18px 16px 80px}
+  .proto{padding:8px 16px;gap:10px}
+  .d-e .grid,.d-d .grid{grid-template-columns:minmax(0,1fr)}
+  .d-e .card{grid-template-columns:minmax(0,1fr) auto;row-gap:2px}
+  .d-e .c2,.d-e .c3{grid-column:1/-1;display:flex;gap:8px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="proto">
+  <b>Inventory cards</b>
+  <div class="tg">Card <div class="seg" data-tg="d"><button data-v="a">A · Plain</button><button data-v="b">B · Three figures</button><button data-v="c">C · Meter</button><button data-v="d">D · Split</button><button data-v="e">E · Rows</button><button data-v="f">F · Hang tag</button></div></div>
+  <div class="tg">Stores <div class="seg" data-tg="city"><button data-v="flat">flat</button><button data-v="city">by city</button></div></div>
+  <div class="sp"></div>
+  <button class="th" id="theme" title="Light / dark">◐</button>
+</div>
+<div class="app">
+  <nav class="side" id="side" aria-label="Sidebar"></nav>
+  <main><div class="wrap" id="main"></div></main>
+</div>
+<div id="pw"><div class="scrim" data-close></div><aside class="sheet" id="sheet" aria-label="Place"></aside></div>
+
+<script>
+const I = {
+  home:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
+  cart:'<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.2a1.5 1.5 0 0 0 1.5 1.3h8.6a1.5 1.5 0 0 0 1.5-1.2L21 8H6"/>',
+  shirt:'<path d="M8 3 3 6l2 5 2-1v11h10V10l2 1 2-5-5-3a4 4 0 0 1-8 0z"/>',
+  forklift:'<path d="M4 17V7h6l3 5v5M13 12h4V4M17 17h4"/><circle cx="6" cy="18" r="2"/><circle cx="12" cy="18" r="2"/>',
+  box:'<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  tag:'<path d="M3 3h8l10 10-8 8L3 11z"/><circle cx="7.5" cy="7.5" r="1.3"/>',
+  receipt:'<path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
+  wallet:'<path d="M3 7a2 2 0 0 1 2-2h13v4"/><path d="M3 7v11a2 2 0 0 0 2 2h15V9H5a2 2 0 0 1-2-2z"/>',
+  person:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  building:'<path d="M4 21V4h10v17M14 9h6v12M8 8h2M8 12h2M8 16h2"/>',
+  cog:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+  chev:'<path d="m6 9 6 6 6-6"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  scan:'<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M8 9v6M11 9v6M14 9v6M17 9v6"/>',
+  x:'<path d="M18 6 6 18M6 6l12 12"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  count:'<path d="M9 4h6v3H9z"/><path d="M8 5H5v16h14V5h-3"/><path d="m9 14 2 2 4-4"/>',
+  ruler:'<path d="M3 17 17 3l4 4L7 21z"/><path d="m7 13 2 2M10 10l2 2M13 7l2 2"/>',
+  flow:'<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M9 6h5a3 3 0 0 1 3 3v6"/>',
+  pin:'<path d="M12 21s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/>',
+  radio:'<circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4"/>',
+  pulse:'<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+}
+const ic = (k) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${I[k] || ""}</svg>`
+const nf = new Intl.NumberFormat("id-ID"), n = (v) => nf.format(v)
+
+/* ── the places ───────────────────────────────────────────────────
+   v   = stock the books say
+   sn  = seen: what the readers read on their last pass, and when
+         (null when the place has no reader or its pieces have no tag yet)
+   ck  = last counted (a count or a full RFID sweep)
+   pb  = a problem, only when there is one                              */
+const TODAY = new Date(2026, 8, 28), STALE = 21
+const days = (d) => d ? Math.round((TODAY - new Date(2026, d[0] - 1, d[1])) / 864e5) : null
+const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+const dateOf = (d) => `${d[1]} ${MON[d[0] - 1]}`
+
+const GUDANG = [
+  {id:"g-setup", transient:true, name:"Not set up yet", v:88, sn:null, why:"No tags yet"},
+  {id:"g-wh", name:"Warehouse", v:4180, sn:{v:4166, at:"1 h ago"}, ck:[9,19], pb:{t:"4 short in the last count", c:"w", art:"21070031"}},
+  {id:"g-pick", name:"Being picked", v:752, sn:{v:752, at:"20 min ago"}, ck:[9,26]},
+  {id:"g-pack", transient:true, name:"Packed", v:212, sn:{v:210, at:"35 min ago"}, pb:{t:"2 missing since 09:10", c:"w", art:"11020341"}},
+  {id:"g-ret", transient:true, name:"Returns to inspect", v:74, sn:{v:74, at:"3 h ago"}},
+  {id:"g-rej", transient:true, name:"Reject", v:31, sn:null, why:"No reader"},
+]
+const ROAD = [
+  {id:"sj-004", name:"To Kemang", sub:"SJ-280926-004 · 6 koli", v:180, sn:{v:180, at:"at the gate"}, left:"09:40"},
+  {id:"sj-002", name:"To PIK Avenue", sub:"SJ-280926-002 · 8 koli", v:240, sn:{v:240, at:"at the gate"}, left:"08:15"},
+  {id:"sj-011", name:"To Bandung Dago", sub:"SJ-270926-011 · 4 koli", v:120, sn:{v:118, at:"by the store"}, left:"yesterday", pb:{t:"Store got 2 fewer", c:"w"}},
+  {id:"sj-009", name:"Senopati to Gudang", sub:"SJ-270926-009 · 2 koli", v:46, sn:{v:46, at:"at the gate"}, left:"yesterday"},
+  {id:"sj-014", name:"To Surabaya Galaxy", sub:"SJ-260926-014 · 3 koli", v:88, sn:{v:89, at:"by the store"}, left:"26 Sep", pb:{t:"Store got 1 we didn't send", c:"b"}},
+]
+const STORES = [
+  {id:"s-kemang", name:"Kemang", city:"Jakarta", v:3120, sn:{v:3104, at:"2 h ago"}, ck:[9,21]},
+  {id:"s-senopati", name:"Senopati", city:"Jakarta", v:2480, sn:{v:2468, at:"5 h ago"}, ck:[9,14], pb:{t:"3 missing for 16 days", c:"b", art:"11020377"}},
+  {id:"s-pik", name:"PIK Avenue", city:"Jakarta", v:2915, sn:{v:2908, at:"today 10:12"}, ck:[9,28], pb:{t:"7 read somewhere else", c:"w", art:"21030044"}},
+  {id:"s-bintaro", name:"Bintaro Xchange", city:"Jakarta", v:1870, sn:{v:1802, at:"3 h ago", stale:true}, ck:[9,2], pb:{t:"Server silent for 3 h", c:"w"}, silent:true},
+  {id:"s-dago", name:"Bandung Dago", city:"Bandung", v:2060, sn:{v:2051, at:"1 h ago"}, ck:[9,19]},
+  {id:"s-galaxy", name:"Surabaya Galaxy", city:"Surabaya", v:1857, sn:{v:1850, at:"40 min ago"}, ck:[9,7]},
+  {id:"s-medan", name:"Medan Sun Plaza", city:"Medan", v:1644, sn:{v:1583, at:"4 days ago", stale:true}, ck:[8,20]},
+  {id:"s-bali", name:"Bali Beachwalk", city:"Bali", v:1392, sn:{v:1390, at:"2 h ago"}, ck:[9,24]},
+]
+const ART = [
+  {c:"11020341", a:"Sneaker Arka Low", s:.058}, {c:"11020377", a:"Loafer Senja", s:.036},
+  {c:"11040112", a:"Sandal Rinjani", s:.14}, {c:"21010208", a:"Kemeja Linen Bara", s:.061},
+  {c:"21030044", a:"Kaos Oversize Nara", s:.21}, {c:"21050019", a:"Celana Chino Laras", s:.026},
+  {c:"21070031", a:"Jaket Denim Kala", s:.028}, {c:"31010007", a:"Tote Kanvas Rupa", s:.082},
+]
+
+const state = {d:"a", city:"flat", page:"stock", art:null, place:null, shut:{}}
+const hash = (s) => { let h = 2166136261; for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return ((h >>> 0) % 1000) / 1000 }
+const scaleOf = (l) => state.art ? state.art.s * (0.4 + 1.2 * hash(l.id + state.art.c)) : 1
+const vOf = (l) => Math.round(l.v * scaleOf(l))
+const snOf = (l) => l.sn ? {...l.sn, v: Math.min(Math.round(l.sn.v * scaleOf(l)), l.sn.v >= l.v ? Infinity : vOf(l))} : null
+const pbOf = (l) => !l.pb ? null : !state.art ? l.pb : (l.pb.art === state.art.c ? l.pb : null)
+const sum = (ls) => ls.reduce((a, l) => a + vOf(l), 0)
+const allLeaves = () => [...GUDANG, ...ROAD, ...STORES]
+
+/* The three facts, as words every design can place where it likes. */
+function facts(l) {
+  const v = vOf(l), sn = snOf(l), road = l.id.startsWith("sj")
+  const seenN = sn ? n(sn.v) : "—"
+  const gap = sn ? v - sn.v : 0
+  const gapWarn = sn && Math.abs(gap) > Math.max(2, v * .015)
+  const seenWhen = sn ? sn.at : (l.why || "")
+  const d = l.ck ? days(l.ck) : null
+  const ckLabel = road ? "Left" : "Counted"
+  const ckVal = road ? l.left : l.ck ? dateOf(l.ck) : l.transient ? "—" : "Never"
+  const ckWhen = road ? "" : d == null ? "" : d === 0 ? "today" : `${d} days ago`
+  const ckOld = !road && (d == null ? !l.transient : d > STALE)
+  return {v, sn, seenN, seenWhen, gap, gapWarn, ckLabel, ckVal, ckWhen, ckOld, road, snStale: sn?.stale}
+}
+const gapText = (f) => !f.sn ? "" : f.gap === 0 ? "all seen" : f.gap > 0 ? `${n(f.gap)} not seen` : `${n(-f.gap)} more seen`
+const pbLine = (p) => p ? `<div class="pbl ${p.c === "b" ? "b" : ""}">${p.t}</div>` : ""
+const head = (l) => `<div class="nm">${l.name}</div>${l.sub ? `<div class="sb2">${l.sub}</div>` : ""}`
+
+const DESIGNS = {
+  /* A · Plain — the number, then two quiet lines of evidence */
+  a: (l, f, p) => `${head(l)}<div class="big-n">${n(f.v)}</div>
+    <dl><dt>Seen</dt><dd class="${f.gapWarn || f.snStale ? "gap" : ""}">${f.seenN}<span class="k">${f.sn ? "· " + f.seenWhen : f.seenWhen}</span></dd>
+    <dt>${f.ckLabel}</dt><dd class="${f.ckOld ? "old" : ""}">${f.ckVal}${f.ckWhen && f.ckOld ? `<span class="k" style="color:inherit">· ${f.ckWhen}</span>` : ""}</dd></dl>${pbLine(p)}`,
+  /* B · Three figures side by side, equal footing */
+  b: (l, f, p) => `<div class="top"><div class="nm">${l.name}</div>${p ? `<span class="dot ${p.c === "b" ? "b" : ""}" title="${p.t}"></span>` : ""}</div>${l.sub ? `<div class="sb2">${l.sub}</div>` : ""}
+    <div class="three"><div><div class="l">Stock</div><div class="f">${n(f.v)}</div></div>
+    <div><div class="l">Seen</div><div class="f ${f.gapWarn || f.snStale ? "gap" : ""}">${f.seenN}</div><div class="u ${f.snStale ? "old" : ""}">${f.seenWhen}</div></div>
+    <div><div class="l">${f.ckLabel}</div><div class="f ${f.ckOld ? "old" : ""}">${f.ckVal}</div><div class="u">${f.ckWhen}</div></div></div>${pbLine(p)}`,
+  /* C · Meter — how much of the stock the readers can vouch for */
+  c: (l, f, p) => `${head(l)}<div class="big-n">${n(f.v)}</div>
+    <div class="meter ${f.gapWarn || f.snStale ? "w" : ""}"><i style="width:${f.sn ? Math.min(100, f.sn.v / Math.max(1, f.v) * 100) : 0}%"></i></div>
+    <div class="ml"><span class="${f.snStale ? "old" : ""}">${f.sn ? `<b>${f.seenN}</b> seen · ${f.seenWhen}` : f.seenWhen}</span><span class="${f.ckOld ? "old" : ""}">${f.ckVal === "—" ? "" : f.ckLabel + " " + f.ckVal}</span></div>${pbLine(p)}`,
+  /* D · Split — the books on the left, the evidence on the right */
+  d: (l, f, p) => `<div class="lhs">${head(l)}<div class="big-n">${n(f.v)}</div></div>
+    <div class="rhs"><div><span class="k">Seen</span><span class="${f.snStale ? "old" : ""}">${f.seenN}</span></div>
+    <div><span class="k">${f.sn ? "Gap" : ""}</span><span class="${f.gapWarn ? "gap" : "k"}">${f.sn ? gapText(f) : f.seenWhen}</span></div>
+    <div><span class="k">${f.ckLabel}</span><span class="${f.ckOld ? "old" : ""}">${f.ckVal}</span></div></div>${pbLine(p)}`,
+  /* E · Rows — one line per place, for when there are thirty */
+  e: (l, f, p) => `<div>${head(l)}</div><div class="big-n">${n(f.v)}</div>
+    <div class="c2"><div class="${f.gapWarn || f.snStale ? "gap" : ""}">${f.sn ? `${f.seenN} seen` : f.seenWhen}</div><div class="${f.snStale ? "old" : ""}">${f.sn ? f.seenWhen : ""}</div></div>
+    <div class="c3"><div class="${f.ckOld ? "old" : ""}">${f.ckLabel} ${f.ckVal}</div><div>${f.ckWhen}</div></div>${pbLine(p)}`,
+  /* F · Hang tag — the swing tag a garment wears, for the place it hangs in */
+  f: (l, f, p) => `${head(l)}<div class="big-n">${n(f.v)}</div><div class="perf"></div>
+    <dl><dt>Seen</dt><dt>${f.ckLabel}</dt><dd class="${f.gapWarn || f.snStale ? "gap" : ""}">${f.seenN}</dd><dd class="${f.ckOld ? "old" : ""}">${f.ckVal}</dd>
+    <dd class="k2 ${f.snStale ? "old" : ""}">${f.seenWhen}</dd><dd class="k2">${f.ckWhen}</dd></dl>${pbLine(p)}`,
+}
+
+function card(l, i) {
+  const f = facts(l), p = pbOf(l)
+  return `<div class="card${l.silent ? " silent" : ""}${p ? (p.c === "b" ? " pb" : " pw") : ""}" style="--i:${i}" tabindex="0" role="button" data-id="${l.id}"${state.place === l.id ? " aria-current=true" : ""}>${DESIGNS[state.d](l, f, p)}</div>`
+}
+function group(id, name, leaves, sub, inner) {
+  const ps = leaves.map(pbOf).filter(Boolean)
+  return `<section class="grp${state.shut[id] ? " shut" : ""}"><div class="gh"><button class="nm" data-fold="${id}"><span class="tw">${ic("chev")}</span>${name}</button><span class="v">${n(sum(leaves))}</span><span class="s">${sub}</span>${ps.length ? `<span class="p">${ps.length} with a problem</span>` : ""}</div>
+    <div class="grid">${inner || leaves.map(card).join("")}</div></section>`
+}
+function storesInner() {
+  if (state.city !== "city") return null
+  let i = 0
+  return [...new Set(STORES.map(s => s.city))].map(c => {
+    const ks = STORES.filter(s => s.city === c)
+    return `<div class="city">${c}<span>${n(sum(ks))} · ${ks.length} store${ks.length > 1 ? "s" : ""}</span></div>` + ks.map(k => card(k, i++)).join("")
+  }).join("")
+}
+
+function stockPage() {
+  const probs = allLeaves().filter(pbOf).length, stale = STORES.filter(s => days(s.ck) > STALE).length
+  const seen = allLeaves().reduce((a, l) => a + (snOf(l)?.v || 0), 0)
+  return `<div class="page">
+    <div class="hd"><h1>Stock</h1><span class="pcs num">${state.art ? `${state.art.a} · ` : ""}${n(sum(allLeaves()))} pieces · ${n(seen)} seen by the readers</span>
+      <div class="act"><button class="btn btn-g">${ic("clock")}Now</button><button class="btn btn-g">PCS</button></div></div>
+    <label class="big" id="big">${ic("search")}${state.art ? `<span class="scope">${state.art.a}<button data-clear aria-label="Clear">${ic("x")}</button></span>` : ""}<input id="q" placeholder="${state.art ? "" : "One article? Name, code, or scan its tag"}" autocomplete="off" />${ic("scan")}<div class="sugg" id="sugg"></div></label>
+    <div class="hint">${state.art ? `<span>Every card now counts ${state.art.a} only.</span>` : `<span>Stock: what the books say</span><span>Seen: what the readers read last</span><span>Counted: the last count</span>`}
+      ${probs ? `<span class="${allLeaves().some(l => pbOf(l)?.c === "b") ? "b" : "w"}">${probs} place${probs > 1 ? "s have" : " has"} a problem</span>` : ""}${!state.art && stale ? `<span class="w">${stale} stores not counted for 3 weeks</span>` : ""}</div>
+    <div class="d-${state.d}${state.art ? " search-on" : ""}">
+      ${group("gudang", "Gudang", GUDANG, `${GUDANG.length} places`)}
+      ${group("road", "On the road", ROAD, `${ROAD.length} surat jalan`)}
+      ${group("stores", "Stores", STORES, `${STORES.length} stores`, storesInner())}
+    </div></div>`
+}
+
+/* ── one place, opened ──────────────────────────────────────────── */
+function openPlace(id) {
+  const l = allLeaves().find(x => x.id === id); if (!l) return
+  state.place = id
+  const f = facts(l), p = pbOf(l), h = hash(l.id + (state.art?.c || "")), sc = Math.max(1, f.v / 20)
+  const store = l.id.startsWith("s-")
+  const lines = store ? [["+ Went in", Math.round(sc * (2 + 2 * h))], ["+ Customer returns", Math.round(sc * .08 * (1 + h))], ["− Sold", Math.round(sc * (2.5 + h))], ["− Sent back to HO", Math.round(sc * .3 * h)]]
+    : [["+ Went in", Math.round(sc * (1.2 + h))], ["− Went out", Math.round(sc * (1 + h))]]
+  const start = f.v - lines.reduce((a, [k, v]) => a + (k[0] === "+" ? v : -v), 0)
+  document.getElementById("sheet").innerHTML = `<div class="sh"><div class="tx"><div class="k">${l.sub || (state.art ? state.art.a + " at" : "Stock at")}</div><h2>${l.name}</h2><div class="v">${n(f.v)}<small>pieces</small></div></div><button class="x" data-close aria-label="Close">${ic("x")}</button></div>
+    <div class="pb2">
+      <div class="h2">The books and the readers</div>
+      <div class="ln"><span class="l">Stock, the books say</span><span class="r">${n(f.v)}</span></div>
+      <div class="ln"><span class="l">Seen by the readers <span class="k">· ${f.seenWhen}</span></span><span class="r">${f.seenN}</span></div>
+      ${f.sn ? `<div class="ln"><span class="l">Difference</span><span class="r ${f.gapWarn ? "gap" : ""}">${gapText(f)}</span></div>` : ""}
+      ${f.road ? "" : `<div class="ln"><span class="l">Last counted <span class="k">${f.ckWhen ? "· " + f.ckWhen : ""}</span></span><span class="r ${f.ckOld ? "old" : ""}">${f.ckVal}</span><button class="btn btn-g" style="margin-left:8px">${ic("count")}Count now</button></div>`}
+      <div class="h2">This week <span>· since Monday 22 Sep</span></div>
+      <div class="ln"><span class="l k">On Monday</span><span class="r">${n(start)}</span></div>
+      ${lines.map(([k, v]) => `<div class="ln"><span class="l">${k}</span><span class="r">${n(v)}</span></div>`).join("")}
+      <div class="ln tot"><span class="l">= Now</span><span class="r">${n(f.v)}</span></div>
+      <div class="h2">Problems <span>· ${p ? 1 : "none"}</span></div>
+      ${p ? `<div class="prob"><div class="tx">${pbLine(p)}</div><button class="go">${/silent/.test(p.t) ? "Open the store" : /somewhere/.test(p.t) ? "Put them right" : l.id.startsWith("sj") ? "Check the SJ" : /count/.test(p.t) ? "Approve" : "Found or write off"}</button></div>` : `<div class="none">Nothing. This number is as good as its last count.</div>`}
+    </div>`
+  document.getElementById("pw").classList.add("open")
+  document.querySelectorAll(".card[aria-current]").forEach(e => e.removeAttribute("aria-current"))
+  document.querySelector(`.card[data-id="${id}"]`)?.setAttribute("aria-current", "true")
+}
+function closePlace() { state.place = null; document.getElementById("pw").classList.remove("open"); document.querySelectorAll(".card[aria-current]").forEach(e => e.removeAttribute("aria-current")) }
+
+/* ── Counts and Setup ───────────────────────────────────────────── */
+function countsPage() {
+  const g = (label, rows) => `<div class="lg">${label}</div><div class="list">${rows.map(([t, s, r, c]) => `<button class="li">${ic("count")}<div class="tx"><div class="t1">${t}</div><div class="t2">${s}</div></div><span class="r ${c || ""}">${r}</span></button>`).join("")}</div>`
+  return `<div class="page"><div class="hd"><h1>Counts</h1><span class="pcs">1 to approve · 2 stores due</span></div>`
+    + g("Waiting for approval", [["Gudang · Warehouse", "Count · closed yesterday by Rina", "4 short", "b"]])
+    + g("Counting now", [["PIK Avenue", "RFID sweep · started 10:12", "2.140 of 2.915 read"]])
+    + g("Due", [["Medan Sun Plaza", "Last counted 20 Aug", "39 days", "b"], ["Bintaro Xchange", "Last counted 2 Sep", "26 days", "b"]])
+    + g("Done lately", [["Kemang", "Count · 21 Sep", "12 over"], ["Bandung Dago", "RFID sweep · 19 Sep", "11 short"]]) + `</div>`
+}
+function setupPage() {
+  const it = [["ruler", "Units & conversions", "PCS, LUSIN, KODI and how many pieces each is"], ["flow", "Goods flows", "The stages each route of goods runs, and who does them"], ["pin", "Places", "The places stock can stand in"], ["radio", "Readers", "Handhelds and arches, and the raw log of what they read"], ["pulse", "Ledger health", "Replay, repost and the time machine, for support"]]
+  return `<div class="page"><div class="hd"><h1>Setup</h1><span class="pcs">Set once, changed rarely</span></div><div class="list">${it.map(([i, t, s]) => `<button class="li">${ic(i)}<div class="tx"><div class="t1">${t}</div><div class="t2">${s}</div></div></button>`).join("")}</div></div>`
+}
+
+/* ── shell ─────────────────────────────────────────────────────── */
+const MODS = [["home","Home"],["cart","Buying"],["shirt","Merchandise"],["forklift","Operations",12],["box","Inventory"],["tag","Marketing"],["receipt","Sales"],["wallet","Finance",3],["person","HR"],["building","GA"],["cog","System"]]
+function side() {
+  const subs = [["stock","Stock"],["counts","Counts",1],["setup","Setup"]]
+  return `<div class="brand"><span class="mark">C</span>Central</div>` + MODS.map(([i, l, c]) => l === "Inventory"
+    ? `<button class="row on">${ic(i)}<span>Inventory</span></button><div class="subs">${subs.map(([id, t, ct]) => `<button class="sub" data-page="${id}"${state.page === id ? " aria-current=page" : ""}>${t}${ct ? `<span class="ct">${ct}</span>` : ""}</button>`).join("")}</div>`
+    : `<button class="row">${ic(i)}<span>${l}</span>${c ? `<span class="ct">${c}</span>` : ""}</button>`).join("")
+}
+function render() {
+  document.querySelectorAll(".seg").forEach(s => s.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", state[s.dataset.tg] === b.dataset.v)))
+  document.querySelectorAll(".proto .tg").forEach(t => t.style.visibility = state.page === "stock" ? "" : "hidden")
+  document.getElementById("side").innerHTML = side()
+  document.getElementById("main").innerHTML = state.page === "counts" ? countsPage() : state.page === "setup" ? setupPage() : stockPage()
+}
+
+/* ── search ───────────────────────────────────────────────────── */
+let hl = 0
+function suggest(q) {
+  const m = ART.filter(a => !q || a.a.toLowerCase().includes(q.toLowerCase()) || a.c.includes(q)); hl = 0
+  document.getElementById("sugg").innerHTML = m.map((a, i) => `<button data-art="${a.c}" class="${i ? "" : "hl"}"><span>${a.a}</span><span class="c">${a.c}</span></button>`).join("") || `<div class="none" style="padding:8px">No article like that</div>`
+  document.getElementById("big").classList.add("open")
+}
+document.addEventListener("focusin", (e) => { if (e.target.id === "q" && !state.art) suggest(e.target.value) })
+document.addEventListener("input", (e) => { if (e.target.id === "q") suggest(e.target.value) })
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { closePlace(); document.getElementById("big")?.classList.remove("open"); return }
+  if (e.key === "/" && e.target.tagName !== "INPUT") { e.preventDefault(); document.getElementById("q")?.focus() }
+  if (e.target.id === "q") {
+    const bs = [...document.querySelectorAll("#sugg button")]
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); hl = (hl + (e.key === "ArrowDown" ? 1 : -1) + bs.length) % bs.length; bs.forEach((b, i) => b.classList.toggle("hl", i === hl)) }
+    if (e.key === "Enter" && bs[hl]) bs[hl].click()
+    if (e.key === "Backspace" && !e.target.value && state.art) { state.art = null; render(); document.getElementById("q").focus() }
+  }
+  if ((e.key === "Enter" || e.key === " ") && e.target.classList?.contains("card")) { e.preventDefault(); e.target.click() }
+})
+document.addEventListener("click", (e) => {
+  const t = e.target
+  if (!t.closest("#big")) document.getElementById("big")?.classList.remove("open")
+  const seg = t.closest(".seg button"); if (seg) { state[seg.parentElement.dataset.tg] = seg.dataset.v; render(); return }
+  const pg = t.closest("[data-page]"); if (pg) { state.page = pg.dataset.page; closePlace(); render(); return }
+  const art = t.closest("[data-art]"); if (art) { e.preventDefault(); state.art = ART.find(a => a.c === art.dataset.art); render(); return }
+  if (t.closest("[data-clear]")) { e.preventDefault(); state.art = null; render(); return }
+  const fold = t.closest("[data-fold]"); if (fold) { state.shut[fold.dataset.fold] = !state.shut[fold.dataset.fold]; render(); return }
+  if (t.closest("[data-close]")) { closePlace(); return }
+  const c = t.closest(".card[data-id]"); if (c) openPlace(c.dataset.id)
+})
+document.getElementById("theme").addEventListener("click", () => {
+  const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches
+  r.dataset.theme = dark ? "light" : "dark"
+})
+render()
+</script>
+</body>
+</html>

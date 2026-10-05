@@ -2,7 +2,7 @@ import type { LucideIcon } from "lucide-react"
 import type { Role } from "@itulah/contract"
 
 import {
-  domains,
+  shownDomains,
   modulesOfDomain,
   visibleItems,
   type AppModule,
@@ -46,13 +46,17 @@ export function onlyScreen(tile: AppTile): string | undefined {
 export function appsFor(role: Role | undefined): readonly AppTile[] {
   if (!officeFor(role)) return []
   const departments: AppTile[] = [
-    {
-      id: homeNav.id,
-      label: homeNav.label,
-      icon: homeNav.icon,
-      modules: [homeNav],
-    },
-    ...domains.map((domain) => ({
+    ...(homeNav.hidden
+      ? []
+      : [
+          {
+            id: homeNav.id,
+            label: homeNav.label,
+            icon: homeNav.icon,
+            modules: [homeNav],
+          },
+        ]),
+    ...shownDomains.map((domain) => ({
       id: domain.id,
       label: domain.label,
       icon: domain.icon,

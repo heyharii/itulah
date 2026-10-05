@@ -1,37 +1,27 @@
 import { useQuery } from "@tanstack/react-query"
-import { ArrowLeftRight, History, PackagePlus } from "lucide-react"
+import {
+  ArrowLeftRight,
+  ChevronRight,
+  History,
+  PackagePlus,
+} from "lucide-react"
+import { Fragment, useEffect, useState } from "react"
 
-import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { ListTable, type ListColumn } from "@/components/ui/list-table"
-import { Meter } from "@/components/ui/meter"
-import { Pill } from "@/components/ui/pill"
-import { ScanField } from "@/components/ui/scan-field"
 import { Screen } from "@/components/ui/screen"
-import { Stat, StatStrip } from "@/components/ui/stat-strip"
 import { EmptyState } from "@/components/ui/states"
 import { count, moment } from "@/lib/format"
 import { useGo } from "@/lib/go"
-import {
-  fetchPools,
-  poolsKey,
-  type PoolRow,
-  type PoolsAnswer,
-} from "@/lib/queries"
+import { useLayout } from "@/lib/layout"
+import { fetchPools, poolsKey, type PoolRow } from "@/lib/queries"
 import { queryState } from "@/lib/query-state"
+import { cn } from "@/lib/utils"
 import { MoveSheet } from "@/screens/stock/move-sheet"
 import { useMover, type Mover } from "@/screens/stock/mover"
+import { PoolGlyph, Route, StockStrip } from "@/screens/stock/parts"
 import {
-  Fact,
-  Facts,
-  PoolGlyph,
-  Route,
-  StockStrip,
-  Toolbar,
-} from "@/screens/stock/parts"
-import {
-  LEDGER_LIMIT,
   causeLabel,
   placeCodeOf,
   placeLabel,
@@ -41,35 +31,46 @@ import {
 } from "@/screens/stock/shared"
 import type { CatalogRow } from "@itulah/contract"
 
-/// On hand — what is in this shop, and moving a piece between the places it
+/// Stock — what is in this store, and moving a piece between the places it
 /// can be.
 ///
-/// Drawn as the hub's Stock overview (`frontend-hub/src/screens/inventory/
-/// overview.tsx`): the four figures of the inventory equation across the top,
-/// then the pools behind them as a table. A shop owns three pools — its
-/// warehouse, its floor and its reject shelf — so the table is short, and a
-/// row opens in place onto what the ledger last did to that pool.
+/// Drawn as the hub's Ops › Stock: a title, `Stock | Missing · N` under it, and
+/// one flat table — Pool · On hand · Allotted · Missing — with a total at the
+/// foot. A store owns three pools, so the table is short, and a row opens in
+/// place onto what the ledger last did to that pool.
 ///
 /// The one write is a move, and it lives in a sheet (`move-sheet.tsx`). A
 /// scan on this page opens it with the piece already loaded; "Move stock"
 /// opens it waiting for one. Receiving and selling are not moves and are not
 /// here — each writes its own cause through its own endpoint.
+///
+/// The node reports a missing figure per pool, not per piece, so the Missing
+/// tab lists pools with their missing count.
+const PAGE = "[&>div:first-child]:md:mb-6"
+
 export function Stock() {
   const go = useGo()
   const mover = useMover()
+  const [tab, setTab] = useState<"stock" | "missing">("stock")
   const pools = useQuery({
     queryKey: poolsKey(),
     queryFn: ({ signal }) => fetchPools(signal),
   })
+  useScanToMove(mover)
+
+  const rows = (pools.data?.items ?? [])
+    .filter((pool) => !pool.is_rollup)
+    .sort((left, right) => left.display_order - right.display_order)
+  const missing = rows.reduce((sum, pool) => sum + pool.missing, 0)
 
   return (
     <Screen
-      sub="What this shop holds, pool by pool. Scan a garment's tag to move it between them."
+      className={PAGE}
       actions={
         <>
           <Button onClick={() => go("/stock/movements")}>
             <History />
-            Movements
+            Stock ledger
           </Button>
           <Button variant="primary" onClick={() => mover.start()}>
             <ArrowLeftRight />
@@ -80,9 +81,39 @@ export function Stock() {
     >
       <StockStrip />
 
+      <Tabs
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { value: "stock", label: "Stock" },
+          {
+            value: "missing",
+            label: missing > 0 ? `Missing · ${count(missing)}` : "Missing",
+          },
+        ]}
+      />
+
       {queryState(pools, {
-        loading: "Reading this shop's pools…",
-        render: (answer) => <Pools answer={answer} mover={mover} />,
+        loading: "Loading…",
+        render: () =>
+          rows.length === 0 ? (
+            <Card>
+              <EmptyState
+                action={
+                  <Button onClick={() => go("/receive")}>
+                    <PackagePlus />
+                    Receive stock
+                  </Button>
+                }
+              >
+                No stock yet.
+              </EmptyState>
+            </Card>
+          ) : tab === "missing" ? (
+            <MissingPools rows={rows} />
+          ) : (
+            <Pools rows={rows} mover={mover} />
+          ),
       })}
 
       <MoveSheet mover={mover} />
@@ -90,116 +121,79 @@ export function Stock() {
   )
 }
 
-function Pools({ answer, mover }: { answer: PoolsAnswer; mover: Mover }) {
-  const go = useGo()
-  // A rollup is a sum of other pools, not a place: counting it would count
-  // its pieces twice. A shop's node has none today; the filter is what keeps
-  // that true if it ever does.
-  const rows = answer.items
-    .filter((pool) => !pool.is_rollup)
-    .sort((left, right) => left.display_order - right.display_order)
+/// A scan on this page opens the move sheet with the piece loaded. There is no
+/// field to type into: the reader types the code and presses Enter wherever
+/// the caret is, so keys that arrive in a burst and end in Enter are a scan.
+function useScanToMove(mover: Mover) {
+  const { scan, open } = mover
+  useEffect(() => {
+    let buffer = ""
+    let last = 0
+    const onKey = (event: KeyboardEvent) => {
+      if (open || event.ctrlKey || event.metaKey || event.altKey) return
+      const target = event.target
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT")
+      ) {
+        return
+      }
+      const now = Date.now()
+      if (now - last > 100) buffer = ""
+      last = now
+      if (event.key === "Enter") {
+        const raw = buffer.trim()
+        buffer = ""
+        if (raw.length >= 6) scan(raw)
+      } else if (event.key.length === 1) {
+        buffer += event.key
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [scan, open])
+}
 
-  if (rows.length === 0) {
-    return (
-      <Card>
-        <EmptyState
-          action={
-            <Button onClick={() => go("/receive")}>
-              <PackagePlus />
-              Receive stock
-            </Button>
-          }
-        >
-          This node owns no pools yet. Nothing has ever been received here.
-        </EmptyState>
-      </Card>
-    )
-  }
-
-  const total = (pick: (pool: PoolRow) => number) =>
-    rows.reduce((running, pool) => running + pick(pool), 0)
-  const stock = total((pool) => pool.stock)
-  const onHand = total((pool) => pool.on_hand)
-  const allotted = total((pool) => pool.allotted ?? 0)
-  const missing = total((pool) => pool.missing)
-  const floor = rows.find((pool) => placeCodeOf(pool.id) === "floor")
-
+/// The hub's `SubTabs`, underlined, at the store's 15px.
+function Tabs<T extends string>({
+  tabs,
+  value,
+  onChange,
+}: {
+  tabs: readonly { readonly value: T; readonly label: string }[]
+  value: T
+  onChange: (value: T) => void
+}) {
   return (
-    <>
-      <StatStrip className="md:grid-cols-4">
-        <Stat label="Stock" value={count(stock)} sub="Every piece on record" />
-        <Stat
-          label="On hand"
-          value={count(onHand)}
-          sub={
-            floor === undefined
-              ? "Where the ledger puts it"
-              : `${count(floor.on_hand)} on the shop floor`
-          }
-        />
-        <Stat
-          label="Allotted"
-          value={count(allotted)}
-          sub="Promised, not yet gone"
-        />
-        <Stat
-          label="Missing"
-          value={count(missing)}
-          tone={missing > 0 ? "bad" : undefined}
-          sub={missing > 0 ? "Not where it belongs" : "All accounted for"}
-        />
-      </StatStrip>
-
-      <Toolbar>
-        <ScanField
-          onScan={mover.scan}
-          autoFocus={false}
-          placeholder="Scan a tag to move it…"
-          className="md:max-w-[30rem] md:flex-1"
-          action={
-            // The header's primary action, for the width that has no header.
-            <Button
-              variant="primary"
-              className="h-12 md:hidden"
-              onClick={() => mover.start()}
-            >
-              <ArrowLeftRight />
-              Move
-            </Button>
-          }
-        />
-        <p className="text-meta text-mute tabular-nums md:text-right">
-          {answer.inventory_equation} · as of {moment(answer.as_of)}
-        </p>
-      </Toolbar>
-
-      <Card>
-        <ListTable
-          rows={rows}
-          columns={columns}
-          rowKey={(pool) => pool.id}
-          detail={(pool) => <PoolDetail pool={pool} mover={mover} />}
-          empty="This node owns no pools yet."
-        />
-      </Card>
-
-      {stock === 0 && (
-        <p className="mt-3 text-meta text-body">
-          Nothing is on hand yet. A delivery comes in through{" "}
-          <AppLink
-            to="/receive"
-            className="font-medium text-accent underline-offset-2 hover:underline"
-          >
-            Receive
-          </AppLink>
-          , and lands in the warehouse.
-        </p>
-      )}
-    </>
+    <div
+      role="tablist"
+      className="mb-6 flex gap-0.5 overflow-x-auto shadow-[inset_0_-1px_0_var(--color-hairline)]"
+    >
+      {tabs.map((tab) => (
+        <button
+          key={tab.value}
+          type="button"
+          role="tab"
+          aria-selected={tab.value === value}
+          onClick={() => onChange(tab.value)}
+          className={cn(
+            "border-b-2 px-3 pt-2 pb-2.5 text-card-title font-medium whitespace-nowrap transition-colors pointer-coarse:min-h-11",
+            tab.value === value
+              ? "border-ink text-ink"
+              : "border-transparent text-body hover:text-ink",
+          )}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
   )
 }
 
-/// The node's own label for a pool, unless it is one of the shop's three —
+/// The node's own label for a pool, unless it is one of the store's three —
 /// then the word the rest of this app uses, so "Floor" here and "Shop floor"
 /// in the ledger are not two places.
 function poolName(pool: PoolRow): string {
@@ -207,155 +201,212 @@ function poolName(pool: PoolRow): string {
   return code === null ? pool.label : placeLabel(code)
 }
 
-/// How much of what was ever here can still be found. A meter, not a status
-/// colour: it says how much, not what state.
-function accounted(pool: PoolRow): number | null {
-  return pool.stock === 0 ? null : 1 - pool.missing / pool.stock
+const none = <span className="text-mute">—</span>
+
+const figure = (value: number | null) =>
+  value === null || value === 0 ? (
+    none
+  ) : (
+    <span className="tabular-nums">{count(value)}</span>
+  )
+
+const missingFigure = (value: number) =>
+  value > 0 ? (
+    <span className="font-medium text-bad-fg tabular-nums">{count(value)}</span>
+  ) : (
+    none
+  )
+
+const onHandFigure = (value: number) =>
+  value === 0 ? (
+    none
+  ) : (
+    <span
+      className={cn(
+        "font-semibold tabular-nums",
+        value < 0 ? "text-bad-fg" : "text-ink",
+      )}
+    >
+      {count(value)}
+    </span>
+  )
+
+function PoolName({ pool }: { pool: PoolRow }) {
+  return (
+    <span className="flex min-w-0 items-center gap-3">
+      <PoolGlyph code={placeCodeOf(pool.id)} />
+      <span className="truncate text-card-title font-semibold text-ink">
+        {poolName(pool)}
+      </span>
+    </span>
+  )
 }
 
-function PoolStatus({ pool }: { pool: PoolRow }) {
-  if (pool.missing > 0) {
-    return <Pill tone="bad">{count(pool.missing)} missing</Pill>
+const CARD = "overflow-hidden rounded-card border border-hairline bg-canvas"
+
+function Pools({ rows, mover }: { rows: readonly PoolRow[]; mover: Mover }) {
+  const phone = useLayout() === "phone"
+  const [open, setOpen] = useState<string | null>(null)
+  const sum = (pick: (pool: PoolRow) => number) =>
+    rows.reduce((running, pool) => running + pick(pool), 0)
+
+  if (phone) {
+    return (
+      <Card>
+        <ListTable
+          rows={rows}
+          columns={phoneColumns}
+          rowKey={(pool) => pool.id}
+          detail={(pool) => <PoolDetail pool={pool} mover={mover} />}
+          empty="No pools."
+          roomy
+        />
+      </Card>
+    )
   }
-  if (pool.stock === 0) return <Pill>Empty</Pill>
-  return <Pill tone="ok">All accounted for</Pill>
+
+  return (
+    <div className={CARD}>
+      <table className="w-full border-collapse text-cell">
+        <thead>
+          <tr className="h-12 bg-soft text-left font-medium text-body">
+            <th className="px-4 font-medium">Pool</th>
+            <th className="w-36 px-4 text-right font-medium">On hand</th>
+            <th className="w-36 px-4 text-right font-medium">Allotted</th>
+            <th className="w-36 px-4 text-right font-medium">Missing</th>
+            <th className="w-14" />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((pool) => {
+            const expanded = open === pool.id
+            const toggle = () => setOpen(expanded ? null : pool.id)
+            return (
+              <Fragment key={pool.id}>
+                <tr
+                  onClick={toggle}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault()
+                      toggle()
+                    }
+                  }}
+                  tabIndex={0}
+                  aria-expanded={expanded}
+                  className="h-16 cursor-pointer border-t border-hairline text-text transition-colors outline-none first:border-t-0 hover:bg-soft/60 focus-visible:bg-soft"
+                >
+                  <td className="px-4">
+                    <PoolName pool={pool} />
+                  </td>
+                  <td className="px-4 text-right">
+                    {onHandFigure(pool.on_hand)}
+                  </td>
+                  <td className="px-4 text-right">{figure(pool.allotted)}</td>
+                  <td className="px-4 text-right">
+                    {missingFigure(pool.missing)}
+                  </td>
+                  <td className="px-4 text-right">
+                    <ChevronRight
+                      aria-hidden
+                      className={cn(
+                        "inline size-4 text-mute transition-transform duration-200",
+                        expanded && "rotate-90",
+                      )}
+                    />
+                  </td>
+                </tr>
+                {expanded && (
+                  <tr>
+                    <td colSpan={5} className="bg-soft px-4 pt-2 pb-6">
+                      <PoolDetail pool={pool} mover={mover} />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            )
+          })}
+          <tr className="h-14 border-t border-hairline font-semibold text-ink">
+            <td className="px-4">Store total</td>
+            <td className="px-4 text-right tabular-nums">
+              {count(sum((pool) => pool.on_hand))}
+            </td>
+            <td className="px-4 text-right tabular-nums">
+              {sum((pool) => pool.allotted ?? 0) === 0 ? (
+                <span className="font-normal text-mute">—</span>
+              ) : (
+                count(sum((pool) => pool.allotted ?? 0))
+              )}
+            </td>
+            <td className="px-4 text-right tabular-nums">
+              {sum((pool) => pool.missing) === 0 ? (
+                <span className="font-normal text-mute">—</span>
+              ) : (
+                count(sum((pool) => pool.missing))
+              )}
+            </td>
+            <td />
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  )
 }
 
-/// The hub's pool columns, cut to what a shop's node reports. The figures are
-/// right-aligned and give way to one summary line on a phone, where four
-/// numbers in a row are four numbers nobody can tell apart.
-const columns: readonly ListColumn<PoolRow>[] = [
+/// The node counts what is missing per pool, not per piece, so this is the
+/// pools that have some.
+function MissingPools({ rows }: { rows: readonly PoolRow[] }) {
+  const short = rows.filter((pool) => pool.missing > 0)
+  if (short.length === 0) {
+    return (
+      <Card>
+        <EmptyState>Nothing missing.</EmptyState>
+      </Card>
+    )
+  }
+  return (
+    <div className={CARD}>
+      <table className="w-full border-collapse text-cell">
+        <thead>
+          <tr className="h-12 bg-soft text-left font-medium text-body">
+            <th className="px-4 font-medium">Pool</th>
+            <th className="w-36 px-4 text-right font-medium">Missing</th>
+          </tr>
+        </thead>
+        <tbody>
+          {short.map((pool) => (
+            <tr key={pool.id} className="h-16 border-t border-hairline">
+              <td className="px-4">
+                <PoolName pool={pool} />
+              </td>
+              <td className="px-4 text-right">{missingFigure(pool.missing)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/// The phone: one name and one line of figures per pool.
+const phoneColumns: readonly ListColumn<PoolRow>[] = [
+  { id: "pool", header: "Pool", cell: (pool) => <PoolName pool={pool} /> },
   {
-    id: "pool",
-    header: "Pool",
-    cell: (pool) => (
-      <span className="flex min-w-0 items-center gap-2.5">
-        <PoolGlyph code={placeCodeOf(pool.id)} />
-        <span className="min-w-0">
-          <span className="block truncate font-medium text-ink">
-            {poolName(pool)}
-          </span>
-          <span className="block truncate font-mono text-id font-normal text-mute">
-            {pool.id}
-          </span>
-        </span>
-      </span>
-    ),
-  },
-  {
-    id: "stock",
-    header: "Stock",
-    align: "right",
-    card: "hide",
-    cell: (pool) => <span className="tabular-nums">{count(pool.stock)}</span>,
-  },
-  {
-    id: "on-hand",
-    header: "On hand",
-    align: "right",
-    card: "hide",
-    cell: (pool) => (
-      <span
-        className={
-          pool.on_hand < 0
-            ? "font-medium text-bad-fg tabular-nums"
-            : "font-medium text-ink tabular-nums"
-        }
-      >
-        {count(pool.on_hand)}
-      </span>
-    ),
-  },
-  {
-    id: "allotted",
-    header: "Allotted",
-    align: "right",
-    card: "hide",
-    cell: (pool) =>
-      pool.allotted === null ? (
-        <span className="text-mute">—</span>
-      ) : (
-        <span
-          className={
-            pool.allotted > 0
-              ? "text-info-fg tabular-nums"
-              : "text-mute tabular-nums"
-          }
-        >
-          {count(pool.allotted)}
-        </span>
-      ),
-  },
-  {
-    id: "missing",
-    header: "Missing",
-    align: "right",
-    card: "hide",
-    cell: (pool) => (
-      <span
-        className={
-          pool.missing > 0
-            ? "font-medium text-bad-fg tabular-nums"
-            : "text-mute tabular-nums"
-        }
-      >
-        {count(pool.missing)}
-      </span>
-    ),
-  },
-  {
-    id: "accounted",
-    header: "Accounted for",
-    card: "hide",
-    className: "w-44 max-xl:hidden",
-    cell: (pool) => {
-      const share = accounted(pool)
-      return share === null ? (
-        <span className="text-mute">—</span>
-      ) : (
-        <span className="flex items-center gap-2.5">
-          <Meter
-            value={share}
-            tone={pool.missing > 0 ? "warn" : "ok"}
-            className="w-20"
-          />
-          <span className="text-meta text-body tabular-nums">
-            {Math.floor(share * 100)}%
-          </span>
-        </span>
-      )
-    },
-  },
-  {
-    id: "status",
-    header: "Status",
-    card: "status",
-    cell: (pool) => <PoolStatus pool={pool} />,
-  },
-  {
-    // The phone's line of figures. Hidden on a desk, where the four columns
-    // above say the same thing one number at a time.
     id: "summary",
     header: "",
     card: "meta",
-    className: "hidden",
     cell: (pool) =>
-      `${count(pool.on_hand)} on hand · ${count(pool.stock)} stock · ${
-        pool.allotted === null ? "" : `${count(pool.allotted)} allotted · `
-      }${count(pool.missing)} missing`,
+      `${count(pool.on_hand)} on hand · ${count(pool.allotted ?? 0)} allotted · ${count(pool.missing)} missing`,
   },
 ]
 
-/// What opens under a pool: the share still accounted for, and the last few
-/// things the ledger did to it — the question somebody has when a number
-/// looks wrong is "what happened here lately", and this answers it without
-/// leaving the table.
+/// What opens under a pool: the last few things the ledger did to it — the
+/// question somebody has when a number looks wrong is "what happened here
+/// lately", and this answers it without leaving the table.
 function PoolDetail({ pool, mover }: { pool: PoolRow; mover: Mover }) {
   const go = useGo()
   const ledger = useLedger()
   const { bySku } = useRange()
   const code = placeCodeOf(pool.id)
-  const share = accounted(pool)
   const through = (ledger.data ?? [])
     .filter(
       (row) =>
@@ -365,76 +416,50 @@ function PoolDetail({ pool, mover }: { pool: PoolRow; mover: Mover }) {
 
   return (
     <div className="flex flex-col gap-4 pt-2">
-      {/* The meter, for the widths whose row had no room for it — a phone
-          and a narrow desk. A wide desk already shows it in the row. */}
-      <Facts className="xl:hidden">
-        <Fact term="Accounted for">
-          {share === null ? (
-            "Nothing has been here yet"
-          ) : (
-            <span className="flex items-center gap-2.5">
-              <Meter
-                value={share}
-                tone={pool.missing > 0 ? "warn" : "ok"}
-                className="w-24"
+      {ledger.isPending ? (
+        <p className="text-meta text-mute">Loading…</p>
+      ) : through.length === 0 ? (
+        <p className="text-meta text-mute">No recent movements.</p>
+      ) : (
+        <ul>
+          {through.map((row) => (
+            // One line on a desk; on a phone the route takes a line of its
+            // own, because two chips and an arrow squeezed beside a date
+            // and a cause are two empty pills.
+            <li
+              key={row.movement_id}
+              className="flex min-h-12 flex-wrap items-center gap-x-4 gap-y-1 border-t border-hairline py-2 text-cell first:border-t-0"
+            >
+              <Route
+                from={row.from}
+                to={row.to}
+                cause={row.cause}
+                className="min-w-0 max-md:order-first max-md:basis-full md:flex-1"
               />
-              {Math.floor(share * 100)}%
-            </span>
-          )}
-        </Fact>
-      </Facts>
-
-      <div>
-        <div className="mb-1.5 text-meta font-medium text-body">
-          Latest through {poolName(pool).toLowerCase()}
-        </div>
-        {ledger.isPending ? (
-          <p className="text-meta text-mute">Reading the ledger…</p>
-        ) : through.length === 0 ? (
-          <p className="text-meta text-mute">
-            Nothing in the newest {LEDGER_LIMIT} movements touched this pool.
-          </p>
-        ) : (
-          <ul className="overflow-hidden rounded-inner border border-hairline bg-canvas">
-            {through.map((row) => (
-              // One line on a desk; on a phone the route takes a line of its
-              // own, because two chips and an arrow squeezed beside a date
-              // and a cause are two empty pills.
-              <li
-                key={row.movement_id}
-                className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-hairline px-3 py-2 text-cell last:border-b-0"
-              >
-                <Route
-                  from={row.from}
-                  to={row.to}
-                  cause={row.cause}
-                  className="min-w-0 max-md:order-first max-md:basis-full md:flex-1"
-                />
-                <span className="shrink-0 text-meta text-mute tabular-nums md:order-first md:w-24">
-                  {moment(row.occurred_at)}
-                </span>
-                <span className="shrink-0 text-text md:order-first md:w-28">
-                  {causeLabel(row.cause)}
-                </span>
-                <span className="flex min-w-0 max-md:flex-1 max-md:justify-end">
-                  <ProductName epc={row.epc} bySku={bySku} />
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+              <span className="shrink-0 text-meta text-mute tabular-nums md:order-first md:w-24">
+                {moment(row.occurred_at)}
+              </span>
+              <span className="shrink-0 text-text md:order-first md:w-28">
+                {causeLabel(row.cause)}
+              </span>
+              <span className="flex min-w-0 max-md:flex-1 max-md:justify-end">
+                <ProductName epc={row.epc} bySku={bySku} />
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <div className="flex flex-wrap gap-2 max-md:[&>*]:flex-1">
         {code !== null && (
           <Button onClick={() => mover.start(code)}>
             <ArrowLeftRight />
-            Move a piece from here
+            Move a piece
           </Button>
         )}
         <Button onClick={() => go("/stock/movements", { q: pool.id })}>
           <History />
-          Every movement here
+          Stock ledger
         </Button>
       </div>
     </div>

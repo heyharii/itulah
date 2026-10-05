@@ -130,7 +130,9 @@ function react(batch: readonly CollaborationEvent[], client: QueryClient) {
             refreshMessage(client, subject.conversationId, subject.seq).catch(
               () =>
                 void client.invalidateQueries({
-                  queryKey: workplaceKeys.messages(subject.conversationId ?? ""),
+                  queryKey: workplaceKeys.messages(
+                    subject.conversationId ?? ""
+                  ),
                 })
             )
           }
@@ -148,7 +150,9 @@ function react(batch: readonly CollaborationEvent[], client: QueryClient) {
       case "chat.room":
         // The room itself changed: renamed, or somebody joined or left —
         // possibly this reader, who is then told so by the room's own 404.
-        void client.invalidateQueries({ queryKey: workplaceKeys.conversations() })
+        void client.invalidateQueries({
+          queryKey: workplaceKeys.conversations(),
+        })
         void client.invalidateQueries({ queryKey: workplaceKeys.files() })
         break
       case "discussion.thread":

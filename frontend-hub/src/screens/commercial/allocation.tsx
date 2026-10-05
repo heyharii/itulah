@@ -67,39 +67,36 @@ export function HardCap({
     <div>
       <SubHead
         aside={
-          <span className="flex items-center gap-2">
-            <span className="text-meta text-body">
+          <span className="flex items-center gap-3">
+            <span className="text-[0.875rem] text-body">
               {enabled ? "On" : "Off"}
             </span>
             <Switch
               on={enabled}
               busy={toggle.isPending || split.isPending}
-              label={`Split the limit between shops for ${subject}`}
+              label={`Split the limit between stores for ${subject}`}
               onToggle={() => toggle.mutate(!enabled)}
             />
           </span>
         }
       >
-        Split between shops
+        Split between stores
       </SubHead>
 
       {toggle.isError && (
-        <div className="mb-2.5">
+        <div className="mb-4">
           <ErrorState error={toggle.error} />
         </div>
       )}
 
       {queryState(split, {
-        loading: "Reading the split…",
+        loading: "Loading…",
         render: (fetched) => {
           const shown = toggle.data ?? fetched
           return shown.enabled ? (
             <Allowances split={shown} />
           ) : (
-            <Quiet>
-              Off — each shop stops at the shared limit, counted across all
-              shops as of its last sync.
-            </Quiet>
+            <Quiet>Off.</Quiet>
           )
         },
       })}
@@ -114,13 +111,13 @@ function Allowances({ split }: { split: CapAllocation }) {
     (shop) => shop.budget_granted !== null || shop.uses_granted !== null
   )
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-4">
       {held.length === 0 ? (
-        <Quiet>No shop has been granted an allowance yet.</Quiet>
+        <Quiet>No allowances yet.</Quiet>
       ) : (
         <MiniTable
           head={[
-            "Shop",
+            "Store",
             ...(budget
               ? [
                   { label: "Allowance", align: "right" as const },
@@ -129,7 +126,7 @@ function Allowances({ split }: { split: CapAllocation }) {
               : []),
             ...(uses
               ? [
-                  { label: "Baskets", align: "right" as const },
+                  { label: "Transactions", align: "right" as const },
                   { label: "Used", align: "right" as const },
                 ]
               : []),
@@ -140,12 +137,12 @@ function Allowances({ split }: { split: CapAllocation }) {
           ))}
         </MiniTable>
       )}
-      <div className="flex flex-wrap justify-end gap-x-4 text-meta text-body tabular-nums">
+      <div className="flex flex-wrap justify-end gap-x-6 text-meta text-body tabular-nums">
         {split.budget_pool !== null && (
           <span>Not yet granted: {money(split.budget_pool)}</span>
         )}
         {split.uses_pool !== null && (
-          <span>Baskets not yet granted: {count(split.uses_pool)}</span>
+          <span>Transactions not yet granted: {count(split.uses_pool)}</span>
         )}
       </div>
     </div>
@@ -167,17 +164,17 @@ function Row({
     shop.uses_granted !== null && shop.own_uses >= shop.uses_granted
   return (
     <MiniRow>
-      <MiniCell>
+      <MiniCell className="py-4">
         <span title={shop.origin_id} className="block truncate text-ink">
           {shop.label ?? shop.site_id ?? shop.origin_id}
         </span>
       </MiniCell>
       {budget && (
         <>
-          <MiniCell align="right">
+          <MiniCell align="right" className="py-4">
             {shop.budget_granted === null ? "—" : money(shop.budget_granted)}
           </MiniCell>
-          <MiniCell align="right">
+          <MiniCell align="right" className="py-4">
             <span className={spentOut ? "text-bad-fg" : "text-body"}>
               {money(shop.own_spent_minor)}
             </span>
@@ -186,10 +183,10 @@ function Row({
       )}
       {uses && (
         <>
-          <MiniCell align="right">
+          <MiniCell align="right" className="py-4">
             {shop.uses_granted === null ? "—" : count(shop.uses_granted)}
           </MiniCell>
-          <MiniCell align="right">
+          <MiniCell align="right" className="py-4">
             <span className={usedOut ? "text-bad-fg" : "text-body"}>
               {count(shop.own_uses)}
             </span>

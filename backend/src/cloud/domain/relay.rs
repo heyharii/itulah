@@ -84,6 +84,15 @@ pub const HR_RELAY_ALLOWLIST: &[(&str, &str)] = &[
     ("GET", "/api/v1/payroll/components"),
     ("GET", "/api/v1/notifications"),
     ("POST", "/api/v1/notifications/{}/read"),
+    // ── Discuss: a shop's chat with head office (2 Oct 2026) ───────────
+    // Text only: no files, search, typing or participant changes from a shop.
+    ("GET", "/api/v1/chat/conversations"),
+    ("POST", "/api/v1/chat/conversations"),
+    ("GET", "/api/v1/chat/conversations/{}/messages"),
+    ("POST", "/api/v1/chat/conversations/{}/messages"),
+    ("POST", "/api/v1/chat/conversations/{}/read"),
+    // Who a chat can be started with: names only, the discussion directory.
+    ("GET", "/api/v1/discussions/people"),
     // ── roster and swaps ───────────────────────────────────────────────
     ("GET", "/api/v1/roster"),
     ("POST", "/api/v1/employees/{}/roster"),
@@ -118,6 +127,12 @@ pub const HR_RELAY_ALLOWLIST: &[(&str, &str)] = &[
     ("POST", "/api/v1/employees/{}/overtime-orders"),
     ("POST", "/api/v1/employees/{}/overtime-orders/{}/withdrawal"),
     ("GET", "/api/v1/overtime-orders/awaiting"),
+    // ── the shop's cash: its three boxes and their counts (2 Oct 2026) ──
+    // Bound to the relaying node's own site by the handler, whatever the
+    // query says (`http::finance::store_cash_site`).
+    ("GET", "/api/v1/store-cash/boxes"),
+    ("GET", "/api/v1/store-cash/counts"),
+    ("POST", "/api/v1/store-cash/counts"),
     // ── expense claims, and the advances a person is holding ───────────
     ("GET", "/api/v1/expense-claim-types"),
     ("GET", "/api/v1/expense-claims"),
@@ -151,7 +166,12 @@ pub const HR_RELAY_ALLOWLIST: &[(&str, &str)] = &[
     ("GET", "/api/v1/performance/scores"),
     ("PUT", "/api/v1/employees/{}/performance/{}"),
     ("GET", "/api/v1/training-programs"),
+    ("GET", "/api/v1/training-programs/{}/participants"),
     ("POST", "/api/v1/training-programs/{}/participants"),
+    (
+        "POST",
+        "/api/v1/training-programs/{}/participants/{}/attendance",
+    ),
     // ── General Affairs: the shop's own place, and the things in it ────
     //
     // GA does not resolve a `Reach`; its rows carry a `site_id` and its lists
@@ -240,10 +260,7 @@ fn is_id_segment(segment: &str) -> bool {
 /// rung, capped by the rung their assignment at this node grants — a head-office
 /// administrator signed in at a till as its supervisor is, at that till, its
 /// supervisor.
-pub fn relayed_role(
-    cloud_role: super::Role,
-    edge_role: super::Role,
-) -> super::Role {
+pub fn relayed_role(cloud_role: super::Role, edge_role: super::Role) -> super::Role {
     cloud_role.min(edge_role)
 }
 
@@ -275,9 +292,15 @@ mod tests {
             "POST",
             "/api/v1/attendance-periods/store-07/2026-09/closure"
         ));
-        assert!(is_relayable("PUT", "/api/v1/employees/EMP-0007/performance/2026-09"));
+        assert!(is_relayable(
+            "PUT",
+            "/api/v1/employees/EMP-0007/performance/2026-09"
+        ));
         assert!(is_relayable("GET", "/api/v1/notifications"));
-        assert!(is_relayable("POST", "/api/v1/notifications/6f1c2a4e-0000-4000-8000-000000000001/read"));
+        assert!(is_relayable(
+            "POST",
+            "/api/v1/notifications/6f1c2a4e-0000-4000-8000-000000000001/read"
+        ));
     }
 
     #[test]
@@ -297,18 +320,36 @@ mod tests {
             ("GET", "/api/v1/ga/overview"),
             ("GET", "/api/v1/ga/contracts"),
             ("GET", "/api/v1/ga/locations"),
-            ("GET", "/api/v1/ga/repairs/6f1c2a4e-0000-4000-8000-000000000001"),
+            (
+                "GET",
+                "/api/v1/ga/repairs/6f1c2a4e-0000-4000-8000-000000000001",
+            ),
             // Head office's acts.
             ("POST", "/api/v1/ga/assets"),
-            ("PATCH", "/api/v1/ga/assets/6f1c2a4e-0000-4000-8000-000000000001"),
-            ("POST", "/api/v1/ga/assets/6f1c2a4e-0000-4000-8000-000000000001/transfer"),
+            (
+                "PATCH",
+                "/api/v1/ga/assets/6f1c2a4e-0000-4000-8000-000000000001",
+            ),
+            (
+                "POST",
+                "/api/v1/ga/assets/6f1c2a4e-0000-4000-8000-000000000001/transfer",
+            ),
             ("PATCH", "/api/v1/ga/locations/store-07"),
-            ("POST", "/api/v1/ga/repairs/6f1c2a4e-0000-4000-8000-000000000001/approve-budget"),
-            ("POST", "/api/v1/ga/supplies/6f1c2a4e-0000-4000-8000-000000000001/move"),
+            (
+                "POST",
+                "/api/v1/ga/repairs/6f1c2a4e-0000-4000-8000-000000000001/approve-budget",
+            ),
+            (
+                "POST",
+                "/api/v1/ga/supplies/6f1c2a4e-0000-4000-8000-000000000001/move",
+            ),
             ("POST", "/api/v1/ga/contracts"),
             ("POST", "/api/v1/ga/disposals"),
         ] {
-            assert!(!is_relayable(method, path), "{method} {path} must not relay");
+            assert!(
+                !is_relayable(method, path),
+                "{method} {path} must not relay"
+            );
         }
     }
 
@@ -328,7 +369,10 @@ mod tests {
             ("POST", "/api/v1/employees/EMP-0007/employment"),
             ("POST", "/api/v1/hire-proposals/HP-1/decision"),
             ("POST", "/api/v1/change-proposals/CP-1/decision"),
-            ("POST", "/api/v1/attendance-periods/store-07/2026-09/reopening"),
+            (
+                "POST",
+                "/api/v1/attendance-periods/store-07/2026-09/reopening",
+            ),
             ("POST", "/api/v1/expense-claims/EC-1/payout"),
             ("GET", "/api/v1/grievances"),
             ("GET", "/api/v1/finance/journal"),
@@ -338,7 +382,10 @@ mod tests {
             ("DELETE", "/api/v1/employees/EMP-0007"),
             ("POST", "/api/v1/employees"),
         ] {
-            assert!(!is_relayable(method, path), "{method} {path} must not relay");
+            assert!(
+                !is_relayable(method, path),
+                "{method} {path} must not relay"
+            );
         }
     }
 
@@ -364,8 +411,14 @@ mod tests {
 
     #[test]
     fn a_relayed_call_acts_with_the_lower_rung() {
-        assert_eq!(relayed_role(Role::Admin, Role::Supervisor), Role::Supervisor);
+        assert_eq!(
+            relayed_role(Role::Admin, Role::Supervisor),
+            Role::Supervisor
+        );
         assert_eq!(relayed_role(Role::Cashier, Role::Admin), Role::Cashier);
-        assert_eq!(relayed_role(Role::Supervisor, Role::Supervisor), Role::Supervisor);
+        assert_eq!(
+            relayed_role(Role::Supervisor, Role::Supervisor),
+            Role::Supervisor
+        );
     }
 }

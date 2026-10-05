@@ -47,7 +47,7 @@ RESTOCK_NOTE = "Isi ulang store-01 (menunggu)"
 # run, so everything here is chosen by article NAME and colour position.
 BAG = "Tas Selempang Kanvas"        # one size; 3 of colour 1 and 2 of colour 2 go
 MISSING_ARTICLE = "Sandal Slide Karet"  # colour 2, largest size: not found in the count
-GARMENT_SUPPLIER = "SUP-001"         # PT Garmen Nusantara: box 1; everything else box 2
+GARMENT_SUPPLIER = "0001"         # PT Garmen Nusantara: box 1; everything else box 2
 STOCKROOM_KEEP = 2  # bags that stay in the store's stockroom
 
 

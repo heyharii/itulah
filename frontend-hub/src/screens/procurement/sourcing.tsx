@@ -45,6 +45,7 @@ import { ItemFormSheet } from "@/screens/procurement/item-form"
 import { Swatches } from "@/components/ui/swatch"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { sizeSpan, termLabel } from "@/screens/procurement/shared"
+import { supplierDisplayName } from "@/screens/procurement/supplier-format"
 import type {
   CatalogueVocabulary,
   FacetCount,
@@ -112,7 +113,10 @@ export function Sourcing() {
   const supplierNames = useMemo(
     () =>
       new Map(
-        (supplierList.data ?? []).map((one) => [one.supplier_id, one.name])
+        (supplierList.data ?? []).map((one) => [
+          one.supplier_id,
+          supplierDisplayName(one),
+        ])
       ),
     [supplierList.data]
   )
@@ -449,11 +453,6 @@ export function Sourcing() {
                     ? search.open(event.target.value)
                     : search.close()
                 }
-                placeholder={
-                  standing
-                    ? `Search in ${standing.name}`
-                    : "Search the catalogue"
-                }
                 aria-label="Search the catalogue"
                 enterKeyHint="search"
                 className="h-11 w-full rounded-inner border border-hairline-2 bg-canvas pr-3 pl-9 text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
@@ -476,11 +475,6 @@ export function Sourcing() {
             model={{ ...filters, fields: counted }}
             text={search.value ?? undefined}
             onText={(next) => (next ? search.open(next) : search.close())}
-            placeholder={
-              standing
-                ? `Search in ${standing.name}`
-                : "Search every supplier's catalogue, or filter"
-            }
             className="mb-3 max-md:hidden"
           />
 
@@ -675,6 +669,8 @@ function ProductCard({
             two catalogues looking like one app. */}
         <Thumbnail
           url={item.image_url}
+          name={item.name}
+          division={item.division_code}
           fallback="No photograph"
           className="h-[9.875rem] w-full"
         >
@@ -746,7 +742,7 @@ function ProductCard({
           className="flex w-full min-w-0 items-center gap-1.5 text-[0.875rem] text-body transition-colors hover:text-ink"
         >
           <Store className="size-3 shrink-0 text-line-ico" />
-          <span className="truncate">{supplier.name}</span>
+          <span className="truncate">{supplierDisplayName(supplier)}</span>
         </button>
 
         {/* What the item is filed under. Capped at three with a count for the
@@ -869,7 +865,7 @@ function ShopHead({
           </span>
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-[1.125rem] font-semibold text-ink">
-              {supplier.name}
+              {supplierDisplayName(supplier)}
             </h1>
             <div className="mt-0.5 flex items-center gap-2">
               <span className="font-mono text-id text-body">

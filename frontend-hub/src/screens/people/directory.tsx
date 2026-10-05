@@ -227,7 +227,7 @@ const columns: ColumnDef<TableSetup, EmployeeSummary>[] = [
   {
     id: "expiry",
     accessorFn: (row) => daysUntil(row.contract_ends_on) ?? PERMANENT,
-    header: "Term ends in",
+    header: "Term Ends in",
     size: 140,
     /// **Not filterable, because of the accessor directly above.** A permanent
     /// contract has no end date and is stood in for by `PERMANENT` so that it
@@ -527,7 +527,6 @@ export function Directory() {
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search number or name"
               className="h-8 w-48"
             />
             {/* Adding somebody, as Talenta's Add employee does it — the
@@ -1022,7 +1021,7 @@ function Submit({
       disabled={disabled || busy}
       onClick={onClick}
     >
-      {busy ? "Saving…" : label}
+      {busy ? "Submitting…" : label}
     </Button>
   )
 }
@@ -1044,7 +1043,6 @@ function Reason({
         rows={2}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="Why this is being changed"
       />
     </Field>
   )
@@ -1157,7 +1155,7 @@ function TransitionForm({ employeeId }: { employeeId: string }) {
       <form.Subscribe selector={(state) => transitionReady(state.values)}>
         {(ready) => (
           <Submit
-            label="Record the change"
+            label="Submit"
             busy={change.isPending}
             disabled={!ready}
             onClick={() => form.handleSubmit()}
@@ -1473,7 +1471,7 @@ function ContractForm({ employeeId }: { employeeId: string }) {
       <form.Subscribe selector={(state) => contractReady(state.values)}>
         {(ready) => (
           <Submit
-            label="Add the contract"
+            label="Submit"
             busy={add.isPending}
             disabled={!ready}
             onClick={() => form.handleSubmit()}
@@ -1506,11 +1504,7 @@ function CodeForm({ employeeId }: { employeeId: string }) {
       {correct.isError && <ErrorState error={correct.error} />}
 
       <Field label="New employee number" required>
-        <Input
-          value={code}
-          onChange={(event) => setCode(event.target.value)}
-          placeholder="EMP-0042"
-        />
+        <Input value={code} onChange={(event) => setCode(event.target.value)} />
       </Field>
 
       <Reason value={reason} onChange={setReason} />
@@ -1686,7 +1680,6 @@ function AccountForm({
             <Input
               value={username}
               onChange={(event) => setUsername(event.target.value)}
-              placeholder="siti.rahayu"
             />
           </Field>
 
@@ -1711,7 +1704,6 @@ function AccountForm({
               onChange={(event) =>
                 setFresh({ ...fresh, username: event.target.value })
               }
-              placeholder="siti.rahayu"
             />
           </Field>
           <Field label="Display name" required>
@@ -1720,7 +1712,6 @@ function AccountForm({
               onChange={(event) =>
                 setFresh({ ...fresh, displayName: event.target.value })
               }
-              placeholder="Siti Rahayu"
             />
           </Field>
           <Field
@@ -1848,7 +1839,7 @@ function AccountForm({
           <Reason value={reason} onChange={setReason} />
 
           <Submit
-            label="Issue the login"
+            label="Submit"
             busy={issue.isPending}
             disabled={!readyToIssue}
             onClick={() => issue.mutate()}
@@ -2284,10 +2275,10 @@ function ClaimsTab({ employeeId }: { employeeId: string }) {
               <MiniTable
                 head={[
                   "Advance",
-                  { label: "Out since", align: "left" },
+                  { label: "Out Since", align: "left" },
                   { label: "Settled", align: "right" },
                   { label: "Refunded", align: "right" },
-                  { label: "Dipulihkan via gaji", align: "right" },
+                  { label: "Dipulihkan Via Gaji", align: "right" },
                   { label: "Outstanding", align: "right" },
                 ]}
               >

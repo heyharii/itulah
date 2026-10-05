@@ -3,7 +3,7 @@ import type { PaymentBatchEventRow } from "./PaymentBatchEventRow";
 import type { PaymentBatchItemRow } from "./PaymentBatchItemRow";
 import type { PaymentBatchRow } from "./PaymentBatchRow";
 
-export type PaymentBatchDetail = { batch: PaymentBatchRow, items: Array<PaymentBatchItemRow>,
+export type PaymentBatchDetail = { batch: PaymentBatchRow, items: Array<PaymentBatchItemRow>, 
 /**
  * What the run has actually done, in order.
  */

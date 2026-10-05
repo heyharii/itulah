@@ -238,6 +238,10 @@ function AssessForm({
     salvage_value_minor: number | null
     useful_life_months: number | null
     method: string | null
+    /// Required on CAPITALIZE and refused on EXPENSE (0213/0159): it decides
+    /// which accounts the charge posts to, so the server asks rather than
+    /// inferring it from the category.
+    charge_kind: string | null
     in_service_on: string | null
     reason: string
   }) => void
@@ -249,6 +253,7 @@ function AssessForm({
   const [salvage, setSalvage] = useState("0")
   const [months, setMonths] = useState("60")
   const [method, setMethod] = useState("STRAIGHT_LINE")
+  const [chargeKind, setChargeKind] = useState("DEPRECIATION")
   const [inService, setInService] = useState(new Date().toISOString().slice(0, 10))
   const [reason, setReason] = useState("")
 
@@ -261,6 +266,7 @@ function AssessForm({
             salvage_value_minor: Number(salvage) || 0,
             useful_life_months: Number(months) || 0,
             method,
+            charge_kind: chargeKind,
             in_service_on: inService,
             reason: reason.trim(),
           }
@@ -270,6 +276,7 @@ function AssessForm({
             salvage_value_minor: null,
             useful_life_months: null,
             method: null,
+            charge_kind: null,
             in_service_on: null,
             reason: reason.trim(),
           },
@@ -308,6 +315,18 @@ function AssessForm({
               <option value="STRAIGHT_LINE">Garis Lurus</option>
               <option value="DECLINING">Saldo Menurun</option>
               <option value="NONE">Tidak Disusutkan</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-0.5">
+            <span className="text-muted-foreground text-[10.5px]">Charge</span>
+            <select
+              value={chargeKind}
+              onChange={(event) => setChargeKind(event.target.value)}
+              className="h-7 rounded-md border px-1.5 text-[12px]"
+            >
+              <option value="DEPRECIATION">Penyusutan</option>
+              <option value="REPLACEMENT_RESERVE">Cadangan Penggantian</option>
+              <option value="AMORTISATION">Amortisasi</option>
             </select>
           </label>
           <Field label="In service" value={inService} onChange={setInService} />

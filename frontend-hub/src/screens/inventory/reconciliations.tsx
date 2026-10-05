@@ -184,7 +184,7 @@ export function Reconciliations() {
 
   const filters = useFilterState(FIELDS)
 
-  // Debounced: every keystroke re-folds the fleet's transfer claims.
+  // Debounced: every keystroke re-folds the fleet's claims.
   const needle = useDebounced(query.trim(), 400)
   const scope = useMemo<ReconciliationScope>(() => {
     const by = sorting[0]
@@ -254,7 +254,7 @@ export function Reconciliations() {
     <PageContent>
       <PageHeader
         crumb="Inventory"
-        title="Transfer reconciliation"
+        title="Claim reconciliation"
         sub="Every tag a DC says it sent, against every tag a store says it received."
       />
 
@@ -310,7 +310,6 @@ export function Reconciliations() {
                 <Input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Tag, store or shipment"
                   className="h-8 w-64"
                 />
                 <FilterPanel model={model} />
@@ -324,9 +323,9 @@ export function Reconciliations() {
                 {rows.length === 0 ? (
                   <EmptyState>
                     {needle !== "" || filters.filters.length > 0
-                      ? "No transfer claim matches what you asked for."
+                      ? "No claim matches what you asked for."
                       : slice === "attention"
-                        ? "Every transfer claim matches. Nothing here is holding the fleet total back."
+                        ? "Every claim matches. Nothing here is holding the fleet total back."
                         : "No DC has claimed a despatch and no store has claimed a receipt."}
                   </EmptyState>
                 ) : (

@@ -12,7 +12,7 @@ import { Day } from "@/components/ui/day"
 import { Panel } from "@/components/ui/dialog"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
 import { SubHead } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts } from "@/components/ui/sheet"
@@ -35,12 +35,12 @@ import {
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import { cn } from "@/lib/utils"
 import { useDebounced } from "@/lib/use-debounced"
 import {
   Code,
   DebitCredit,
   Grid,
-  Note,
   Td,
   Th,
   TotalRow,
@@ -55,11 +55,7 @@ import {
   draftTotals,
   type DraftLine,
 } from "@/screens/finance/journal-lines"
-import {
-  UnitName,
-  UnitSelect,
-  WindowControl,
-} from "@/screens/finance/parts"
+import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
 import { idempotencyKey } from "@itulah/contract/client"
 import type { JournalEntryRow, JournalLineView } from "@itulah/contract"
 
@@ -194,16 +190,14 @@ export function Journals() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance · Accounting"
-        title="Journals"
-        sub="Entries posted by hand, and every entry the system posted for itself."
+        crumb="Finance · Payments"
+        title="Journal Entry"
         actions={
           <>
             <Input
               value={needle}
               onChange={(event) => setNeedle(event.target.value)}
-              placeholder="Number, memo or who posted"
-              className="h-8 w-48"
+              className="h-control w-48"
             />
             <Button variant="primary" onClick={() => setComposing(true)}>
               New entry
@@ -218,7 +212,7 @@ export function Journals() {
           <Select
             value={kind}
             onChange={setKind}
-            className="h-8 w-44"
+            className="h-control w-44"
             aria-label="Entry type"
           >
             <option value="">Every type</option>
@@ -232,7 +226,7 @@ export function Journals() {
         <UnitSelect
           value={unit}
           onChange={setUnit}
-          className="h-8 w-44"
+          className="h-control w-44"
           aria-label="Unit"
         />
         <Toolbar.Spacer />
@@ -244,36 +238,6 @@ export function Journals() {
           {` · ${count(matched)} ${matched === 1 ? "entry" : "entries"}`}
         </span>
       </Toolbar>
-
-      {/* Who wrote this window's entries, before anybody scrolls. The counts
-          are the server's, over the window, and each one sets the type filter
-          — the fastest way to the answer "show me only what a person keyed". */}
-      {kinds.length > 0 && (
-        <div className="mb-3.5 flex flex-wrap items-center gap-1.5 text-[0.875rem]">
-          <span className="text-mute">In this window:</span>
-          {kinds.map((facet) => (
-            <button
-              key={facet.value}
-              type="button"
-              onClick={() => setKind(kind === facet.value ? "" : facet.value)}
-              className={
-                kind === facet.value
-                  ? "rounded-full border border-accent/40 bg-soft-2 px-2 py-0.5 text-ink"
-                  : "rounded-full border border-hairline-2 px-2 py-0.5 text-body hover:bg-soft-2 hover:text-ink"
-              }
-            >
-              {label(facet.value)}{" "}
-              <span className="text-mute tabular-nums">
-                {count(facet.count)}
-              </span>
-            </button>
-          ))}
-          <span className="text-mute">
-            · counted over the window
-            {q === "" ? "" : " and the search"}, whatever unit is chosen
-          </span>
-        </div>
-      )}
 
       <div className="flex flex-col gap-4">
         {queryState(entries, {
@@ -302,17 +266,15 @@ export function Journals() {
                 <Grid>
                   <thead>
                     <tr>
-                      <Th width="6.5rem">Date</Th>
-                      <Th>Entry</Th>
-                      <Th width="11rem">Type</Th>
-                      <Th width="9rem">Posted by</Th>
-                      <Th align="right" width="5rem">
-                        Lines
-                      </Th>
-                      <Th align="right" width="9.5rem">
+                      <Th width="7.5rem">Date</Th>
+                      <Th width="9.5rem">Entry</Th>
+                      <Th>Memo</Th>
+                      <Th width="10rem">Type</Th>
+                      <Th width="7rem">Posted by</Th>
+                      <Th align="right" width="10rem">
                         Total debit
                       </Th>
-                      <Th width="7rem">Answered</Th>
+                      <Th width="7.5rem">Status</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -320,45 +282,50 @@ export function Journals() {
                       <tr
                         key={entry.entry_id}
                         onClick={() => reading.open(entry.entry_id)}
-                        className="cursor-pointer hover:bg-soft"
+                        className="cursor-pointer"
                       >
-                        <Td>{day(entry.posting_date)}</Td>
-                        <Td>
-                          <span className="block font-mono text-[0.875rem] text-ink">
-                            {entry.entry_number}
-                          </span>
-                          <span className="block truncate text-[0.875rem] text-mute">
-                            {entry.memo ?? "no memo"}
+                        <Td className="whitespace-nowrap">
+                          {day(entry.posting_date)}
+                        </Td>
+                        <Td className="font-mono text-[0.875rem] whitespace-nowrap text-ink">
+                          {entry.entry_number}
+                        </Td>
+                        {/* `max-w-0` lets the column give way: a long memo is cut
+                            with an ellipsis rather than pushing Total off the
+                            right edge. */}
+                        <Td className="max-w-0">
+                          <span
+                            className={cn(
+                              "block truncate",
+                              entry.memo === null ? "text-faint" : "text-body"
+                            )}
+                            title={entry.memo ?? undefined}
+                          >
+                            {entry.memo ?? "—"}
                           </span>
                         </Td>
-                        <Td>
-                          <Pill tone={toneOf(entry)}>
-                            {label(entry.source_kind)}
-                          </Pill>
-                          <span className="mt-0.5 block text-[0.875rem] text-mute">
-                            {byHand(entry)
-                              ? "written by hand"
-                              : "by the system"}
-                          </span>
+                        <Td className="whitespace-nowrap">
+                          {label(entry.source_kind)}
+                          {byHand(entry) && (
+                            <span className="text-mute"> · by hand</span>
+                          )}
                         </Td>
-                        <Td>
+                        <Td className="whitespace-nowrap">
                           <span title={moment(entry.posted_at)}>
                             {entry.posted_by}
                           </span>
                         </Td>
-                        <Td align="right">{count(entry.line_count)}</Td>
-                        <Td align="right">
-                          <span className="font-medium text-ink">
-                            {money(entry.total_minor)}
-                          </span>
+                        <Td align="right" className="whitespace-nowrap">
+                          {money(entry.total_minor)}
                         </Td>
+                        {/* ERPNext's docstatus column. A reversal already says
+                            so under Type, so only the entry it undid carries a
+                            word of its own here. */}
                         <Td>
                           {entry.reversed_by !== null ? (
-                            <Pill tone="bad">Reversed</Pill>
-                          ) : entry.reversal_of !== null ? (
-                            <Pill tone="info">Reversal</Pill>
+                            <Status tone="bad">Reversed</Status>
                           ) : (
-                            <span className="text-faint">—</span>
+                            <Status tone="ok">Posted</Status>
                           )}
                         </Td>
                       </tr>
@@ -367,13 +334,8 @@ export function Journals() {
                       filters match, not a sum of the rows above — which would
                       grow as somebody scrolled and shrink as they searched. */}
                     <TotalRow>
-                      <Td />
-                      <Td>Total debit</Td>
-                      <Td className="font-normal text-mute" align="center">
-                        every entry the filters match
-                      </Td>
-                      <Td />
-                      <Td align="right">{count(matched)}</Td>
+                      <Td>Total</Td>
+                      <Td colSpan={4}>{count(matched)} entries</Td>
                       <Td align="right">{money(head?.total_minor ?? null)}</Td>
                       <Td />
                     </TotalRow>
@@ -383,21 +345,6 @@ export function Journals() {
               </>
             ),
         })}
-
-        <Note>
-          <b>The unit is on the line, not on the entry.</b> Open any row and the
-          lines carry a <b>Unit</b> column — that is{" "}
-          <code>journal_line.unit_id</code>, not null on any posting. An entry
-          whose lines name two units is the case the client&rsquo;s legacy chart
-          expressed with a 14×14 grid of inter-unit accounts; here it is one
-          account and two units. The affiliate legs the poster adds also name
-          the unit on the other side (<code>counter_unit_id</code>), drawn
-          under the line&rsquo;s own unit. Note what the ledger does{" "}
-          <i>not</i> do: the balance check is per entry, not per unit, so an
-          entry written by hand can balance overall and still leave each
-          unit&rsquo;s own books short. The composer says so while it is being
-          written.
-        </Note>
       </div>
 
       <EntryPanel
@@ -653,8 +600,10 @@ function EntryPanel({
               </div>
 
               {interUnit && (
-                <Note>
-                  <b>This entry moves money between units.</b>{" "}
+                <p className="text-[0.875rem] text-body">
+                  <b className="text-ink">
+                    This entry moves money between units.
+                  </b>{" "}
                   {units.map((unit, index) => (
                     <span key={unit.unit_id}>
                       {index > 0 && ", "}
@@ -663,20 +612,15 @@ function EntryPanel({
                       {money(Math.abs(unit.net_minor))}
                     </span>
                   ))}
-                  . The entry balances; each unit&rsquo;s own books do not, and
-                  nothing posts the pair that would settle that between them.
-                  This is the case the legacy chart carried a 14×14 grid of
-                  accounts for.
-                </Note>
+                  . Each unit&rsquo;s own books are left unbalanced.
+                </p>
               )}
 
               {answered ? (
-                <Note>
-                  This entry has already been answered by its mirror. It is not
-                  edited, deleted or hidden — it is still the record of what
-                  somebody did, and still in every balance up to the date its
+                <p className="text-[0.875rem] text-body">
+                  Already reversed. It stays in the books up to the date its
                   reversal was posted.
-                </Note>
+                </p>
               ) : (
                 <div className="flex flex-col gap-2 border-t border-hairline pt-4">
                   <SubHead aside="posts a new entry">Reverse</SubHead>
@@ -696,7 +640,6 @@ function EntryPanel({
                     rows={2}
                     value={reason}
                     onChange={(event) => setReason(event.target.value)}
-                    placeholder="Why this entry is being reversed"
                   />
                   <div className="flex flex-wrap items-end justify-between gap-2">
                     <Field
@@ -704,11 +647,7 @@ function EntryPanel({
                       hint="Empty posts the mirror today."
                       className="w-44"
                     >
-                      <Day
-                        value={postingDate}
-                        onChange={setPostingDate}
-                        placeholder="Today"
-                      />
+                      <Day value={postingDate} onChange={setPostingDate} />
                     </Field>
                     <div className="flex items-center gap-2">
                       <span className="text-[0.875rem] text-mute">
@@ -868,7 +807,6 @@ function ComposerPanel({
             <Input
               value={memo}
               onChange={(event) => setMemo(event.target.value)}
-              placeholder="Optional, and the only prose on the entry"
             />
           </Field>
         </div>
@@ -876,8 +814,9 @@ function ComposerPanel({
         <JournalLinesGrid lines={lines} onChange={setLines} />
 
         {totals.adrift.length > 0 && (
-          <Note>
-            <b>This would be an inter-unit entry.</b> It leaves{" "}
+          <p className="text-[0.875rem] text-body">
+            <b className="text-ink">This would be an inter-unit entry.</b> It
+            leaves{" "}
             {totals.adrift.map((unit, index) => (
               <span key={unit.unit_id}>
                 {index > 0 && ", "}
@@ -886,10 +825,8 @@ function ComposerPanel({
                 {money(Math.abs(unit.net_minor))}
               </span>
             ))}
-            . The database checks that the <i>entry</i> balances, not that each
-            unit does, so this will post — and nothing else will post the pair
-            that settles it between them.
-          </Note>
+            . It will post, but each unit&rsquo;s own books stay unbalanced.
+          </p>
         )}
 
         <div className="flex items-center justify-between gap-3 border-t border-hairline pt-3">

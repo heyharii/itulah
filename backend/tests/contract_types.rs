@@ -683,6 +683,12 @@ fn the_wire_types_are_written_for_the_browser() {
         JobRole,
         JobRoleList,
         JobRolePatch,
+        NumberSeries,
+        NumberSeriesList,
+        NumberSeriesPatch,
+        JobStatus,
+        JobList,
+        JobRunRow,
         InvitePerson,
         InviteRequest,
         IssuedInvitation,
@@ -876,6 +882,19 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("SaveJournalRepeatRequest: {e}"));
     inventory_backend::cloud::postgres::JournalRepeatSweep::export_all(&config)
         .unwrap_or_else(|e| panic!("JournalRepeatSweep: {e}"));
+    // 1 Oct 2026: repeating BKK/BKM (0716), expenses by month, withholding report.
+    inventory_backend::cloud::postgres::CashDocumentRepeat::export_all(&config)
+        .unwrap_or_else(|e| panic!("CashDocumentRepeat: {e}"));
+    inventory_backend::cloud::postgres::SaveCashDocumentRepeatRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("SaveCashDocumentRepeatRequest: {e}"));
+    inventory_backend::cloud::postgres::CashDocumentRepeatSweep::export_all(&config)
+        .unwrap_or_else(|e| panic!("CashDocumentRepeatSweep: {e}"));
+    inventory_backend::cloud::postgres::ExpenseMonthLine::export_all(&config)
+        .unwrap_or_else(|e| panic!("ExpenseMonthLine: {e}"));
+    inventory_backend::cloud::postgres::ExpensesByMonth::export_all(&config)
+        .unwrap_or_else(|e| panic!("ExpensesByMonth: {e}"));
+    inventory_backend::cloud::postgres::WithholdingRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("WithholdingRow: {e}"));
     inventory_backend::cloud::postgres::SitePaymentMethod::export_all(&config)
         .unwrap_or_else(|e| panic!("SitePaymentMethod: {e}"));
     inventory_backend::cloud::postgres::SetSitePaymentMethodsRequest::export_all(&config)
@@ -1579,6 +1598,10 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("GiroBoard: {e}"));
     inventory_backend::cloud::postgres::SettleGiroRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("SettleGiroRequest: {e}"));
+    inventory_backend::cloud::postgres::UnclearGiroRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("UnclearGiroRequest: {e}"));
+    inventory_backend::cloud::postgres::ReplaceGiroRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReplaceGiroRequest: {e}"));
 
     // lane-N: the words a person explains money in, and the three doors out of
     // one bank statement line.
@@ -1762,6 +1785,12 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("RecordScoreBody: {e}"));
     inventory_backend::cloud::http::people::TrainingProgramView::export_all(&config)
         .unwrap_or_else(|e| panic!("TrainingProgramView: {e}"));
+    inventory_backend::cloud::http::people::TrainingParticipantView::export_all(&config)
+        .unwrap_or_else(|e| panic!("TrainingParticipantView: {e}"));
+    inventory_backend::cloud::http::people::TrainingAttendanceRecordView::export_all(&config)
+        .unwrap_or_else(|e| panic!("TrainingAttendanceRecordView: {e}"));
+    inventory_backend::cloud::http::people::RecordTrainingAttendanceBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordTrainingAttendanceBody: {e}"));
     inventory_backend::cloud::http::people::DefineTrainingBody::export_all(&config)
         .unwrap_or_else(|e| panic!("DefineTrainingBody: {e}"));
     inventory_backend::cloud::http::people::NominateBody::export_all(&config)
@@ -1979,6 +2008,11 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("BenefitCodeView: {e}"));
     inventory_backend::cloud::postgres::BenefitHolderView::export_all(&config)
         .unwrap_or_else(|e| panic!("BenefitHolderView: {e}"));
+    // Finance's one-time code for a big shop expense (0822).
+    inventory_backend::cloud::postgres::ExpenseCodeView::export_all(&config)
+        .unwrap_or_else(|e| panic!("ExpenseCodeView: {e}"));
+    inventory_backend::cloud::postgres::IssueExpenseCodeRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("IssueExpenseCodeRequest: {e}"));
     inventory_backend::cloud::http::benefit::AdjustBenefitBody::export_all(&config)
         .unwrap_or_else(|e| panic!("AdjustBenefitBody: {e}"));
     inventory_backend::cloud::http::benefit::BenefitSettingBody::export_all(&config)
@@ -2155,6 +2189,16 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("MissingPage: {e}"));
     inventory_backend::cloud::postgres::ReconciliationPage::export_all(&config)
         .unwrap_or_else(|e| panic!("ReconciliationPage: {e}"));
+    inventory_backend::cloud::postgres::ReceivedShipmentList::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReceivedShipmentList: {e}"));
+    inventory_backend::cloud::postgres::SkuSupplierList::export_all(&config)
+        .unwrap_or_else(|e| panic!("SkuSupplierList: {e}"));
+    inventory_backend::cloud::postgres::ArticleHistory::export_all(&config)
+        .unwrap_or_else(|e| panic!("ArticleHistory: {e}"));
+    inventory_backend::cloud::postgres::UnfilledList::export_all(&config)
+        .unwrap_or_else(|e| panic!("UnfilledList: {e}"));
+    inventory_backend::cloud::postgres::AllotmentCloseShortRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("AllotmentCloseShortRequest: {e}"));
     inventory_backend::cloud::postgres::ControlStatus::export_all(&config)
         .unwrap_or_else(|e| panic!("ControlStatus: {e}"));
     // And the trial balance, which is the same override written larger: its
@@ -2299,4 +2343,134 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("PoImportHealth: {e}"));
     inventory_backend::cloud::intake::po::draft::PoImportDraft::export_all(&config)
         .unwrap_or_else(|e| panic!("PoImportDraft: {e}"));
+
+    // ── The types the generator had stopped writing ────────────────────────
+    //
+    // A type NOT named here is not written (see the note at the top), so when
+    // these names left the list their files stayed on disk with nothing
+    // regenerating them — still exported by the barrel, still imported by live
+    // screens (`frontend-store-new`'s inbound screens read `StoreInbound*`, the
+    // hub's organisation screen reads `UnitView`). A field added to one of
+    // these structs would have reached no browser at all, silently, which is
+    // the failure this file exists to prevent. Every one of them is still a
+    // struct the server serialises, so every one belongs back in the list.
+
+    inventory_backend::cloud::domain::OpeningPriceBasis::export_all(&config)
+        .unwrap_or_else(|e| panic!("OpeningPriceBasis: {e}"));
+    inventory_backend::cloud::domain::OpeningReconciliation::export_all(&config)
+        .unwrap_or_else(|e| panic!("OpeningReconciliation: {e}"));
+    inventory_backend::cloud::domain::OpeningUnitTotal::export_all(&config)
+        .unwrap_or_else(|e| panic!("OpeningUnitTotal: {e}"));
+    inventory_backend::cloud::domain::PaymentPattern::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentPattern: {e}"));
+    inventory_backend::cloud::postgres::CloseTenderReconRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CloseTenderReconRequest: {e}"));
+    inventory_backend::cloud::postgres::CreatePaymentBatchRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("CreatePaymentBatchRequest: {e}"));
+    inventory_backend::cloud::postgres::ExecutePaymentBatchItemRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("ExecutePaymentBatchItemRequest: {e}"));
+    inventory_backend::cloud::postgres::OpenTenderReconRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("OpenTenderReconRequest: {e}"));
+    inventory_backend::cloud::postgres::OpeningBalanceOutcome::export_all(&config)
+        .unwrap_or_else(|e| panic!("OpeningBalanceOutcome: {e}"));
+    inventory_backend::cloud::postgres::OpeningCutoverReport::export_all(&config)
+        .unwrap_or_else(|e| panic!("OpeningCutoverReport: {e}"));
+    inventory_backend::cloud::postgres::OpeningEquation::export_all(&config)
+        .unwrap_or_else(|e| panic!("OpeningEquation: {e}"));
+    inventory_backend::cloud::postgres::OpeningFallback::export_all(&config)
+        .unwrap_or_else(|e| panic!("OpeningFallback: {e}"));
+    inventory_backend::cloud::postgres::OpeningPostedEntry::export_all(&config)
+        .unwrap_or_else(|e| panic!("OpeningPostedEntry: {e}"));
+    inventory_backend::cloud::postgres::OpeningStockOutcome::export_all(&config)
+        .unwrap_or_else(|e| panic!("OpeningStockOutcome: {e}"));
+    inventory_backend::cloud::postgres::OpeningStockUnit::export_all(&config)
+        .unwrap_or_else(|e| panic!("OpeningStockUnit: {e}"));
+    inventory_backend::cloud::postgres::OpeningSubledgerOutcome::export_all(&config)
+        .unwrap_or_else(|e| panic!("OpeningSubledgerOutcome: {e}"));
+    inventory_backend::cloud::postgres::OpeningUnmapped::export_all(&config)
+        .unwrap_or_else(|e| panic!("OpeningUnmapped: {e}"));
+    inventory_backend::cloud::postgres::PaymentBatchDetail::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentBatchDetail: {e}"));
+    inventory_backend::cloud::postgres::PaymentBatchEventRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentBatchEventRow: {e}"));
+    inventory_backend::cloud::postgres::PaymentBatchItemInput::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentBatchItemInput: {e}"));
+    inventory_backend::cloud::postgres::PaymentBatchItemRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentBatchItemRow: {e}"));
+    inventory_backend::cloud::postgres::PaymentBatchRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentBatchRow: {e}"));
+    inventory_backend::cloud::postgres::PaymentBatchRunOutcome::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentBatchRunOutcome: {e}"));
+    inventory_backend::cloud::postgres::PaymentContext::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentContext: {e}"));
+    inventory_backend::cloud::postgres::PaymentContextParty::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentContextParty: {e}"));
+    inventory_backend::cloud::postgres::PaymentDestinationRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentDestinationRow: {e}"));
+    inventory_backend::cloud::postgres::PaymentObligation::export_all(&config)
+        .unwrap_or_else(|e| panic!("PaymentObligation: {e}"));
+    inventory_backend::cloud::postgres::RecordTenderBatchRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordTenderBatchRequest: {e}"));
+    inventory_backend::cloud::postgres::RecordTenderDecisionRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("RecordTenderDecisionRequest: {e}"));
+    inventory_backend::cloud::postgres::TenderBatchLineInput::export_all(&config)
+        .unwrap_or_else(|e| panic!("TenderBatchLineInput: {e}"));
+    inventory_backend::cloud::postgres::TenderBatchLineRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("TenderBatchLineRow: {e}"));
+    inventory_backend::cloud::postgres::TenderDecisionOutcome::export_all(&config)
+        .unwrap_or_else(|e| panic!("TenderDecisionOutcome: {e}"));
+    inventory_backend::cloud::postgres::TenderDecisionRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("TenderDecisionRow: {e}"));
+    inventory_backend::cloud::postgres::TenderReceiptRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("TenderReceiptRow: {e}"));
+    inventory_backend::cloud::postgres::TenderReconDetail::export_all(&config)
+        .unwrap_or_else(|e| panic!("TenderReconDetail: {e}"));
+    inventory_backend::cloud::postgres::TenderReconciliationRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("TenderReconciliationRow: {e}"));
+    inventory_backend::cloud::postgres::TenderSuggestionRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("TenderSuggestionRow: {e}"));
+    inventory_backend::cloud::postgres::TenderSuggestionsView::export_all(&config)
+        .unwrap_or_else(|e| panic!("TenderSuggestionsView: {e}"));
+    inventory_backend::cloud::postgres::UnexplainedReceiptRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("UnexplainedReceiptRow: {e}"));
+    inventory_backend::cloud::postgres::UnitPic::export_all(&config)
+        .unwrap_or_else(|e| panic!("UnitPic: {e}"));
+    inventory_backend::cloud::postgres::UnitSite::export_all(&config)
+        .unwrap_or_else(|e| panic!("UnitSite: {e}"));
+    inventory_backend::cloud::postgres::UnitView::export_all(&config)
+        .unwrap_or_else(|e| panic!("UnitView: {e}"));
+    inventory_backend::edge::flows::FlowNotice::export_all(&config)
+        .unwrap_or_else(|e| panic!("FlowNotice: {e}"));
+    inventory_backend::edge::flows::FlowNoticeEvent::export_all(&config)
+        .unwrap_or_else(|e| panic!("FlowNoticeEvent: {e}"));
+    inventory_backend::edge::flows::FlowNoticeList::export_all(&config)
+        .unwrap_or_else(|e| panic!("FlowNoticeList: {e}"));
+    inventory_backend::edge::flows::InspectReturnRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("InspectReturnRequest: {e}"));
+    inventory_backend::edge::flows::InspectReturnResult::export_all(&config)
+        .unwrap_or_else(|e| panic!("InspectReturnResult: {e}"));
+    inventory_backend::edge::flows::ReturnInspectionDetail::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReturnInspectionDetail: {e}"));
+    inventory_backend::edge::flows::ReturnInspectionList::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReturnInspectionList: {e}"));
+    inventory_backend::edge::flows::ReturnToInspect::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReturnToInspect: {e}"));
+    inventory_backend::edge::flows::ReturnUnitToInspect::export_all(&config)
+        .unwrap_or_else(|e| panic!("ReturnUnitToInspect: {e}"));
+    inventory_backend::edge::inbound::StoreInboundDelivery::export_all(&config)
+        .unwrap_or_else(|e| panic!("StoreInboundDelivery: {e}"));
+    inventory_backend::edge::inbound::StoreInboundDetail::export_all(&config)
+        .unwrap_or_else(|e| panic!("StoreInboundDetail: {e}"));
+    inventory_backend::edge::inbound::StoreInboundLine::export_all(&config)
+        .unwrap_or_else(|e| panic!("StoreInboundLine: {e}"));
+    inventory_backend::edge::inbound::StoreInboundList::export_all(&config)
+        .unwrap_or_else(|e| panic!("StoreInboundList: {e}"));
+    inventory_backend::edge::inbound::StoreInboundReceiveRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("StoreInboundReceiveRequest: {e}"));
+    inventory_backend::edge::inbound::StoreInboundResult::export_all(&config)
+        .unwrap_or_else(|e| panic!("StoreInboundResult: {e}"));
+    inventory_backend::edge::till::TillApproval::export_all(&config)
+        .unwrap_or_else(|e| panic!("TillApproval: {e}"));
+    inventory_backend::edge::till::TillApprovalRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("TillApprovalRequest: {e}"));
 }

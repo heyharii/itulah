@@ -1,4 +1,5 @@
 import type { GaContractRow } from "@itulah/contract"
+import { useSupplierName } from "@/screens/procurement/supplier-name"
 
 /// Words the register and the hub both print, kept out of `parts.tsx` because
 /// that file exports components and react-refresh allows no functions beside
@@ -26,6 +27,16 @@ export function monthLabel(period: string | null): string {
 /// words, so they decide once, here.
 export function partyOf(row: GaContractRow): string {
   return row.supplier_name ?? row.counterparty_name ?? "—"
+}
+
+/// The same, with a supplier written in full, "Maju Jaya, UD". For anything
+/// that draws the party.
+export function useContractParty(): (row: GaContractRow) => string {
+  const supplierName = useSupplierName()
+  return (row) =>
+    row.supplier_id === null && row.supplier_name === null
+      ? partyOf(row)
+      : supplierName(row.supplier_id, row.supplier_name)
 }
 
 /// The place the contract applies to, or the SCOPE when it applies to more

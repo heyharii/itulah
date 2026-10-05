@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Projected stock (prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* Tokens from frontend-hub/src/styles/index.css. */
+:root{
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f9fb; --soft-2:#f0f2f5; --soft-3:#f7f8fa;
+  --hairline:#e7eaf0; --hairline-2:#dce1e8; --hairline-strong:#c7ced8;
+  --dark:#191b20; --backdrop:#dfe3ea;
+  --accent:#2563eb; --accent-bg:#eff5ff; --info:#2f86d8; --info-bg:#ddebfa; --info-fg:#2c57bf;
+  --ok:#36b827; --ok-bg:#d9f4d2; --ok-fg:#15803d;
+  --warn:#c9892e; --warn-bg:#faeacd; --warn-fg:#b45309;
+  --bad:#d05151; --bad-bg:#fbeaea; --bad-fg:#be123c;
+  --new-fg:#d6447e; --new-bg:#fdeaf1;
+  --r-shell:1rem; --r-card:.75rem; --r-inner:.4375rem;
+  --shadow-soft:0 1px 3px rgb(24 39 60 / 4%);
+  --shadow-pop:0 4px 8px rgb(24 39 60 / 4%),0 12px 32px rgb(24 39 60 / 8%);
+  --shadow-shell:0 10px 34px rgb(24 39 60 / 8%);
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  /* series colours for the composition bar */
+  --c-hand:#20242c; --c-order:#2563eb; --c-transit:#2f86d8; --c-allot:#d6447e;
+  font-size:14.4px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Inter,system-ui,sans-serif;background:var(--backdrop);color:var(--text);
+  font-size:.8125rem;line-height:1.45;-webkit-font-smoothing:antialiased;padding:1.25rem;min-height:100vh}
+.shell{display:flex;max-width:82rem;min-width:0;margin:0 auto;min-height:calc(100vh - 2.5rem);background:var(--canvas);
+  border-radius:var(--r-shell);overflow:hidden;box-shadow:var(--shadow-shell);position:relative}
+.side{width:14.5rem;flex:none;background:var(--soft);border-right:1px solid var(--hairline);padding:.75rem .625rem;
+  display:flex;flex-direction:column;gap:.0625rem}
+.brand{display:flex;align-items:center;gap:.5rem;padding:.375rem .5rem .875rem}
+.brand i{width:1.375rem;height:1.375rem;border-radius:.4375rem;background:var(--accent);color:#fff;display:grid;
+  place-items:center;font-style:normal;font-size:.75rem;font-weight:600}
+.brand b{font-weight:500;color:var(--ink);font-size:.875rem}
+.nav{display:flex;align-items:center;gap:.5625rem;padding:.375rem .5rem;border-radius:.5rem;color:var(--text)}
+.nav .i{width:1rem;text-align:center;color:var(--line-ico)}
+.nav.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.nav.on .i{color:var(--accent)}
+.subn{padding:.3125rem .5rem .3125rem 2.0625rem;font-size:.78125rem;color:var(--body);border-radius:.5rem}
+.subn.on{color:var(--ink);font-weight:500;background:var(--soft-2)}
+main{flex:1;min-width:0;padding:1.125rem 1.375rem 2rem;overflow:hidden}
+.crumb{font-size:.6875rem;letter-spacing:.04em;text-transform:uppercase;color:var(--mute)}
+.head{display:flex;align-items:flex-end;gap:.75rem;flex-wrap:wrap}
+h1{font-size:1.375rem;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+.lead{color:var(--body);margin-top:.125rem;max-width:40rem}
+.lenses{margin-left:auto;display:flex;gap:.25rem;background:var(--soft-2);padding:.1875rem;border-radius:999px}
+.lens{border:0;background:transparent;border-radius:999px;padding:.3125rem .75rem;font:inherit;font-size:.78125rem;
+  color:var(--body);cursor:pointer;transition:background .15s var(--ease-out),color .15s var(--ease-out)}
+.lens.on{background:var(--canvas);color:var(--ink);font-weight:500;box-shadow:var(--shadow-soft)}
+select.store{border:1px solid var(--hairline-2);border-radius:999px;padding:.3125rem .625rem;font:inherit;
+  font-size:.78125rem;color:var(--text);background:var(--canvas);display:none}
+select.store.show{display:inline-block}
+/* the equation strip: the lens's rule, spelled out */
+.eq{display:flex;align-items:stretch;gap:.375rem;margin-top:1rem;flex-wrap:wrap}
+.term{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);padding:.625rem .8125rem;
+  min-width:8.5rem;position:relative;overflow:hidden}
+.term::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--sw,transparent)}
+.term .l{font-size:.6875rem;letter-spacing:.03em;text-transform:uppercase;color:var(--mute)}
+.term .v{font-size:1.375rem;font-weight:600;color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.term .d{font-size:.6875rem;color:var(--body)}
+.term.total{background:var(--dark);border-color:var(--dark)}
+.term.total .l,.term.total .d{color:#b4bac4}.term.total .v{color:#fff}
+.op{align-self:center;font-size:1.125rem;color:var(--faint);font-weight:300;padding:0 .125rem}
+.term.muted{opacity:.4}
+.chips{display:flex;gap:.375rem;margin-top:.875rem;flex-wrap:wrap;align-items:center}
+.chip{display:inline-flex;align-items:center;gap:.375rem;border-radius:999px;padding:.25rem .625rem;font-size:.71875rem;
+  cursor:pointer;border:1px solid var(--hairline-2);background:var(--canvas);color:var(--text)}
+.chip i{width:5px;height:5px;border-radius:50%;background:var(--dc,var(--faint))}
+.chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.chip .n{color:var(--mute)}.chip.on .n{color:#b4bac4}
+.hint{font-size:.71875rem;color:var(--mute);margin-left:auto}
+.card{border:1px solid var(--hairline);border-radius:var(--r-card);margin-top:.75rem;overflow:hidden}
+.scroll{overflow-x:auto}
+.scroll table{min-width:52rem}
+table{width:100%;border-collapse:collapse;font-size:.78125rem}
+thead th{text-align:left;font-weight:400;color:var(--mute);font-size:.6875rem;letter-spacing:.03em;text-transform:uppercase;
+  padding:.625rem .625rem;white-space:nowrap;background:var(--soft-3);border-bottom:1px solid var(--hairline)}
+th.r,td.r{text-align:right;font-variant-numeric:tabular-nums}
+tbody td{padding:.5625rem .625rem;border-top:1px solid var(--hairline);vertical-align:middle}
+tbody tr.art{cursor:pointer}
+tbody tr.art:hover{background:var(--soft-3)}
+tbody tr.art.sel{background:var(--accent-bg)}
+tbody tr.sku td{background:var(--soft);font-size:.75rem;color:var(--body);border-top-color:var(--soft-2)}
+tbody tr.sku td:first-child{padding-left:2.25rem}
+.nm{display:flex;align-items:center;gap:.5625rem}
+.sw{width:1.5rem;height:1.5rem;border-radius:.375rem;flex:none;border:1px solid rgb(0 0 0 / 6%)}
+.nm b{font-weight:500;color:var(--ink);display:block}
+.code{font-family:"JetBrains Mono",monospace;font-size:.6875rem;color:var(--mute)}
+.chev{display:inline-block;width:.75rem;color:var(--mute);font-size:.625rem;transition:transform .15s var(--ease-out)}
+.chev.open{transform:rotate(90deg)}
+.z{color:var(--faint)}
+.neg{color:var(--allot,var(--new-fg))}
+.proj{font-weight:600;color:var(--ink)}
+.bar{display:flex;height:.5rem;border-radius:999px;overflow:hidden;background:var(--soft-2);min-width:7rem}
+.bar span{display:block;height:100%}
+.cover{display:inline-flex;align-items:center;gap:.3125rem;border-radius:999px;padding:.0625rem .5rem;font-size:.6875rem;white-space:nowrap}
+.cover i{width:5px;height:5px;border-radius:50%;background:currentColor}
+.cover.bad{background:var(--bad-bg);color:var(--bad-fg)}
+.cover.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.cover.ok{background:var(--ok-bg);color:var(--ok-fg)}
+.cover.info{background:var(--info-bg);color:var(--info-fg)}
+.cover.flat{background:var(--soft-2);color:var(--body)}
+.legend{display:flex;gap:.875rem;font-size:.6875rem;color:var(--body);padding:.625rem .75rem;border-top:1px solid var(--hairline);background:var(--soft-3)}
+.legend span{display:inline-flex;align-items:center;gap:.3125rem}
+.legend i{width:.625rem;height:.375rem;border-radius:2px}
+/* the drawer: the arithmetic of one article */
+.scrim{position:absolute;inset:0;background:rgb(247 248 250 / 60%);opacity:0;pointer-events:none;transition:opacity .2s var(--ease-out)}
+.scrim.show{opacity:1;pointer-events:auto}
+.drawer{position:absolute;top:.625rem;right:.625rem;bottom:.625rem;width:26rem;background:var(--canvas);
+  border:1px solid var(--hairline);border-radius:var(--r-card);box-shadow:var(--shadow-pop);
+  transform:translateX(calc(100% + 1rem));visibility:hidden;transition:transform .28s var(--ease-out),visibility 0s linear .28s;display:flex;flex-direction:column}
+.drawer.show{transform:none;visibility:visible;transition:transform .28s var(--ease-out)}
+.dh{padding:1rem 1.125rem .75rem;border-bottom:1px solid var(--hairline);display:flex;gap:.75rem;align-items:flex-start}
+.dh .sw{width:2.25rem;height:2.25rem;border-radius:.5rem}
+.dh h2{font-size:1rem;font-weight:600;color:var(--ink)}
+.x{margin-left:auto;border:0;background:var(--soft-2);width:1.75rem;height:1.75rem;border-radius:.5rem;cursor:pointer;color:var(--body)}
+.db{padding:.875rem 1.125rem;overflow:auto;flex:1}
+.sec{font-size:.6875rem;letter-spacing:.03em;text-transform:uppercase;color:var(--mute);margin:1rem 0 .5rem}
+.sec:first-child{margin-top:0}
+.math{display:grid;grid-template-columns:1fr auto;row-gap:.3125rem;font-variant-numeric:tabular-nums}
+.math .k{color:var(--body);display:flex;align-items:center;gap:.4375rem}
+.math .k i{width:.5rem;height:.5rem;border-radius:2px}
+.math .v{text-align:right;color:var(--ink);font-weight:500}
+.math .tot{border-top:1px solid var(--hairline-2);padding-top:.375rem;font-weight:600;color:var(--ink)}
+.math .tot.v{font-size:1rem}
+.list{display:flex;flex-direction:column}
+.li{display:grid;grid-template-columns:4.25rem 1fr auto;gap:.625rem;align-items:center;padding:.5rem 0;border-top:1px solid var(--hairline)}
+.li:first-child{border-top:0}
+.date{font-size:.6875rem;color:var(--body);line-height:1.2}
+.date b{display:block;font-size:.9375rem;color:var(--ink);font-weight:600}
+.date.late b{color:var(--bad-fg)}
+.li .t{color:var(--ink)}.li .s{font-size:.6875rem;color:var(--mute)}
+.qty{font-variant-numeric:tabular-nums;font-weight:500;color:var(--ink)}
+.qty.minus{color:var(--new-fg)}
+.stores{width:100%;border-collapse:collapse;font-size:.75rem}
+.stores td,.stores th{padding:.375rem .25rem;border-top:1px solid var(--hairline)}
+.stores th{font-weight:400;color:var(--mute);font-size:.6875rem;text-align:right;border-top:0}
+.stores th:first-child,.stores td:first-child{text-align:left}
+.stores td{text-align:right;font-variant-numeric:tabular-nums}
+.note{margin-top:1rem;background:var(--soft-3);border-radius:var(--r-inner);padding:.625rem .75rem;font-size:.75rem;color:var(--body)}
+.foot{font-size:.71875rem;color:var(--mute);margin-top:.75rem}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="side">
+    <div class="brand"><i>R</i><b>Raven</b></div>
+    <div class="nav"><span class="i">◧</span>Home</div>
+    <div class="nav"><span class="i">⎔</span>Procurement</div>
+    <div class="nav on"><span class="i">▦</span>Inventory</div>
+    <div class="subn">Stock on hand</div>
+    <div class="subn on">Projected stock</div>
+    <div class="subn">Allotments</div>
+    <div class="subn">Counts</div>
+    <div class="nav"><span class="i">⌂</span>Stores</div>
+    <div class="nav"><span class="i">◎</span>Finance</div>
+  </aside>
+
+  <main>
+    <div class="crumb">Inventory</div>
+    <div class="head">
+      <div>
+        <h1>Projected stock</h1>
+        <p class="lead">What we will have, not only what we hold. Read it before raising the next PO: what is already coming, what is already promised, and how long it lasts at today's selling rate.</p>
+      </div>
+      <div class="lenses" id="lenses">
+        <button class="lens on" data-l="gudang">Gudang · free to allot</button>
+        <button class="lens" data-l="stores">Stores</button>
+        <button class="lens" data-l="company">Whole company</button>
+      </div>
+      <select class="store" id="store"></select>
+    </div>
+
+    <div class="eq" id="eq"></div>
+
+    <div class="chips" id="chips"></div>
+
+    <div class="card">
+      <div class="scroll"><table>
+        <thead><tr id="thead"></tr></thead>
+        <tbody id="rows"></tbody>
+      </table></div>
+      <div class="legend">
+        <span><i style="background:var(--c-hand)"></i>On hand</span>
+        <span><i style="background:var(--c-order)"></i>On order (open POs)</span>
+        <span><i style="background:var(--c-transit)"></i>In transit</span>
+        <span><i style="background:var(--c-allot)"></i>Allotted, not yet out</span>
+        <span style="margin-left:auto">Selling rate: last 4 weeks, all stores</span>
+      </div>
+    </div>
+    <p class="foot">Figures are pieces in each article's stock unit. On order counts open PO lines not yet received; a PO past its promised date stays in, flagged late. In transit is what has left the Gudang and no store has counted in yet.</p>
+  </main>
+
+  <div class="scrim" id="scrim"></div>
+  <section class="drawer" id="drawer"></section>
+</div>
+
+<script>
+const STORES = [{id:"C001",name:"Cikupa"},{id:"C002",name:"Bumiayu"},{id:"C003",name:"Purbalingga"}];
+const TODAY = new Date("2026-09-28");
+const d = s => new Date(s);
+// One article: its colour, and per size: Gudang on hand, per-store on hand,
+// open PO lines, in transit per store, allotted-not-yet-out per store, and
+// pieces sold per week across all stores.
+const ARTICLES = [
+ {code:"00000001",name:"Kaos Polos Black",colour:"#23252b",sizes:{
+   S:{g:40, st:[18,12,9], po:[{po:"280926-004",due:"2026-10-06",q:120}], tr:[0,0,12], al:[12,0,0], wk:14},
+   M:{g:22, st:[20,15,11],po:[{po:"280926-004",due:"2026-10-06",q:160}], tr:[0,6,0],  al:[10,8,0], wk:19},
+   L:{g:8,  st:[9,6,4],   po:[{po:"280926-004",due:"2026-10-06",q:100}], tr:[0,0,0],  al:[6,0,0],  wk:12},
+   XL:{g:4, st:[3,2,1],   po:[],                                        tr:[0,0,0],  al:[0,0,0],  wk:5}}},
+ {code:"00000002",name:"Kemeja Linen Sand",colour:"#d8c7a5",sizes:{
+   M:{g:6, st:[4,2,6],   po:[{po:"280926-002",due:"2026-09-22",q:60}], tr:[0,0,0], al:[6,4,0], wk:9},
+   L:{g:2, st:[3,1,2],   po:[{po:"280926-002",due:"2026-09-22",q:40}], tr:[0,0,0], al:[2,2,0], wk:7}}},
+ {code:"00000003",name:"Celana Chino Navy",colour:"#2a3552",sizes:{
+   "30":{g:34,st:[10,8,6],po:[],tr:[0,0,0],al:[0,0,0],wk:4},
+   "32":{g:51,st:[12,9,7],po:[{po:"280926-007",due:"2026-10-20",q:80}],tr:[0,0,0],al:[0,0,0],wk:5},
+   "34":{g:38,st:[8,5,4], po:[],tr:[0,0,0],al:[0,0,0],wk:3}}},
+ {code:"00000004",name:"Jaket Parka Olive",colour:"#5d6441",sizes:{
+   M:{g:0,st:[2,1,0],po:[{po:"280926-005",due:"2026-10-02",q:48},{po:"280926-009",due:"2026-10-27",q:48}],tr:[0,0,6],al:[0,0,0],wk:6},
+   L:{g:0,st:[1,0,0],po:[{po:"280926-005",due:"2026-10-02",q:36}],tr:[0,0,4],al:[0,0,0],wk:5}}},
+ {code:"00000005",name:"Dress Floral Rose",colour:"#d98a9c",sizes:{
+   S:{g:3,st:[5,3,2],po:[],tr:[0,0,0],al:[3,0,0],wk:8},
+   M:{g:1,st:[4,2,3],po:[],tr:[0,0,0],al:[1,0,0],wk:10}}},
+ {code:"00000006",name:"Hoodie Basic Grey",colour:"#9aa0a8",sizes:{
+   M:{g:140,st:[22,18,15],po:[{po:"280926-003",due:"2026-10-01",q:200}],tr:[0,0,0],al:[0,0,0],wk:6},
+   L:{g:120,st:[20,16,12],po:[{po:"280926-003",due:"2026-10-01",q:160}],tr:[0,0,0],al:[0,0,0],wk:5}}},
+];
+const ALLOTS = {C001:"ALT-00000011",C002:"ALT-00000012",C003:"ALT-00000013"};
+const SJ = {C002:"SJ-HO-GUDANG-000007",C003:"SJ-HO-GUDANG-000008"};
+
+let lens = "gudang", storeIx = 2, open = new Set(["00000001"]), filter = "all", selected = null;
+
+const sum = a => a.reduce((x,y)=>x+y,0);
+const fmt = n => n.toLocaleString("en-US");
+function nums(s){ // one size, under the current lens
+  const onOrder = sum(s.po.map(p=>p.q));
+  if (lens==="gudang") return {hand:s.g, order:onOrder, transit:0, allot:sum(s.al), wk:s.wk};
+  if (lens==="stores") {
+    const i = storeIx, share = sum(s.st) ? s.st[i]/sum(s.st) : 1/3;
+    return {hand:s.st[i], order:0, transit:s.tr[i], allot:s.al[i], wk:+(s.wk*share).toFixed(1)};
+  }
+  return {hand:s.g+sum(s.st), order:onOrder, transit:sum(s.tr), allot:0, wk:s.wk};
+}
+// Gudang: promised goods leave the pool. Store: goods allotted to it are coming.
+const projected = n => lens==="gudang" ? n.hand+n.order-n.allot : n.hand+n.order+n.transit+n.allot;
+function add(a,b){return {hand:a.hand+b.hand,order:a.order+b.order,transit:a.transit+b.transit,allot:a.allot+b.allot,wk:+(a.wk+b.wk).toFixed(1)}}
+const zero = {hand:0,order:0,transit:0,allot:0,wk:0};
+const artNums = a => Object.values(a.sizes).map(nums).reduce(add, zero);
+function coverOf(n){
+  const p = projected(n);
+  if (!n.wk) return {w:Infinity,cls:"flat",t:"not selling"};
+  const w = p / n.wk;
+  if (p<=0) return {w,cls:"bad",t:"nothing left"};
+  if (w<3) return {w,cls:"bad",t:`${w.toFixed(1)} wk`};
+  if (w<6) return {w,cls:"warn",t:`${w.toFixed(1)} wk`};
+  if (w>20) return {w,cls:"info",t:`${Math.round(w)} wk · heavy`};
+  return {w,cls:"ok",t:`${w.toFixed(1)} wk`};
+}
+const late = a => Object.values(a.sizes).some(s=>s.po.some(p=>d(p.due)<TODAY));
+const nothingComing = a => Object.values(a.sizes).every(s=>!s.po.length);
+
+const FILTERS = [
+  {k:"all",t:"All articles",dc:"var(--faint)",f:()=>true},
+  {k:"short",t:"Runs out within 3 weeks",dc:"var(--bad)",f:a=>coverOf(artNums(a)).w<3},
+  {k:"none",t:"Nothing on order",dc:"var(--warn)",f:a=>nothingComing(a) && lens!=="stores"},
+  {k:"late",t:"PO past its date",dc:"var(--new-fg)",f:a=>late(a)},
+  {k:"heavy",t:"Heavy · over 20 weeks",dc:"var(--info)",f:a=>coverOf(artNums(a)).w>20 && isFinite(coverOf(artNums(a)).w)},
+];
+
+function renderEq(){
+  const t = ARTICLES.map(artNums).reduce(add, zero), p = projected(t);
+  const where = lens==="stores" ? STORES[storeIx].name : lens==="gudang" ? "Gudang" : "all sites";
+  const term = (l,v,dd,sw,cls="") => `<div class="term ${cls}" style="--sw:${sw}"><div class="l">${l}</div><div class="v">${fmt(v)}</div><div class="d">${dd}</div></div>`;
+  let h;
+  if (lens==="gudang") h = term("On hand",t.hand,"on the Gudang's racks","var(--c-hand)")+`<span class="op">+</span>`+
+      term("On order",t.order,"open PO lines","var(--c-order)")+`<span class="op">−</span>`+
+      term("Allotted",t.allot,"promised to stores, not yet out","var(--c-allot)")+`<span class="op">=</span>`+
+      term("Free to allot",p,"what a new allotment or PO decision starts from","","total");
+  else if (lens==="stores") h = term("On hand",t.hand,`at ${where}`,"var(--c-hand)")+`<span class="op">+</span>`+
+      term("In transit",t.transit,"left the Gudang, not counted in","var(--c-transit)")+`<span class="op">+</span>`+
+      term("Allotted",t.allot,"to this store, not yet out","var(--c-allot)")+`<span class="op">=</span>`+
+      term("Projected",p,`what ${where} will have`,"","total");
+  else h = term("On hand",t.hand,"Gudang and every store","var(--c-hand)")+`<span class="op">+</span>`+
+      term("On order",t.order,"open PO lines","var(--c-order)")+`<span class="op">+</span>`+
+      term("In transit",t.transit,"between Gudang and stores","var(--c-transit)")+`<span class="op">=</span>`+
+      term("Projected",p,"allotments only move it inside the company","","total");
+  document.getElementById("eq").innerHTML = h;
+}
+function renderChips(){
+  document.getElementById("chips").innerHTML = FILTERS.map(f=>{
+    const n = ARTICLES.filter(f.f).length;
+    return `<span class="chip ${filter===f.k?"on":""}" data-f="${f.k}" style="--dc:${f.dc}"><i></i>${f.t}<span class="n">${n}</span></span>`;
+  }).join("") + `<span class="hint">Click an article for its arithmetic and what is coming when</span>`;
+}
+function bar(n){
+  const tot = n.hand+n.order+n.transit+n.allot || 1, w = v => (v/tot*100).toFixed(1)+"%";
+  return `<div class="bar"><span style="width:${w(n.hand)};background:var(--c-hand)"></span><span style="width:${w(n.order)};background:var(--c-order)"></span><span style="width:${w(n.transit)};background:var(--c-transit)"></span><span style="width:${w(n.allot)};background:var(--c-allot)"></span></div>`;
+}
+const cell = (v,cls="") => v ? `<td class="r ${cls}">${cls==="neg"?"−":""}${fmt(v)}</td>` : `<td class="r z">–</td>`;
+function renderTable(){
+  const cols = lens==="gudang" ? ["On hand","On order","Allotted","Free to allot"]
+    : lens==="stores" ? ["On hand","In transit","Allotted","Projected"] : ["On hand","On order","In transit","Projected"];
+  document.getElementById("thead").innerHTML = `<th>Article</th>`+cols.map(c=>`<th class="r">${c}</th>`).join("")+`<th class="r">Sold / wk</th><th>Lasts</th><th>Makeup</th>`;
+  const line = n => {
+    const p = projected(n), c = coverOf(n);
+    const mid = lens==="gudang" ? cell(n.hand)+cell(n.order)+cell(n.allot,"neg")
+      : lens==="stores" ? cell(n.hand)+cell(n.transit)+cell(n.allot) : cell(n.hand)+cell(n.order)+cell(n.transit);
+    return mid + `<td class="r proj">${fmt(p)}</td><td class="r">${n.wk||"–"}</td><td><span class="cover ${c.cls}"><i></i>${c.t}</span></td><td>${bar(n)}</td>`;
+  };
+  const f = FILTERS.find(x=>x.k===filter).f;
+  document.getElementById("rows").innerHTML = ARTICLES.filter(f).map(a=>{
+    const isOpen = open.has(a.code);
+    let h = `<tr class="art ${selected===a.code?"sel":""}" data-a="${a.code}"><td><div class="nm"><span class="chev ${isOpen?"open":""}" data-t="${a.code}">▶</span><span class="sw" style="background:${a.colour}"></span><span><b>${a.name}</b><span class="code">${a.code}${late(a)?' · <span style="color:var(--bad-fg)">PO late</span>':""}</span></span></div></td>${line(artNums(a))}</tr>`;
+    if (isOpen) h += Object.entries(a.sizes).map(([sz,s])=>`<tr class="sku"><td>Size ${sz}${s.po.some(p=>d(p.due)<TODAY)?' <span style="color:var(--bad-fg)">· PO late</span>':""}</td>${line(nums(s))}</tr>`).join("");
+    return h;
+  }).join("") || `<tr><td colspan="9" style="padding:2rem;text-align:center;color:var(--mute)">Nothing here — every article is fine on this count.</td></tr>`;
+}
+function renderDrawer(){
+  const a = ARTICLES.find(x=>x.code===selected), dr = document.getElementById("drawer");
+  document.getElementById("scrim").classList.toggle("show", !!a); dr.classList.toggle("show", !!a);
+  if (!a) return;
+  const n = artNums(a), p = projected(n), c = coverOf(n);
+  const k = (lbl,sw,v,neg) => `<span class="k"><i style="background:${sw}"></i>${lbl}</span><span class="v">${neg?"−":""}${fmt(v)}</span>`;
+  let math = k(lens==="stores"?`On hand at ${STORES[storeIx].name}`:lens==="gudang"?"On hand at the Gudang":"On hand everywhere","var(--c-hand)",n.hand);
+  if (lens!=="stores") math += k("On order","var(--c-order)",n.order);
+  if (lens!=="gudang") math += k("In transit","var(--c-transit)",n.transit);
+  if (lens!=="company") math += k("Allotted, not yet out","var(--c-allot)",n.allot,lens==="gudang");
+  math += `<span class="k tot">${lens==="gudang"?"Free to allot":"Projected"}</span><span class="v tot">${fmt(p)}</span>`;
+  // Arrivals: open PO lines by date, then shipments on the road.
+  const pos = {}; Object.entries(a.sizes).forEach(([sz,s])=>s.po.forEach(x=>{(pos[x.po+x.due] ??= {...x,q:0,sz:[]}).q+=x.q; pos[x.po+x.due].sz.push(sz)}));
+  const inc = Object.values(pos).sort((x,y)=>d(x.due)-d(y.due)).map(x=>{
+    const dt = d(x.due), isLate = dt<TODAY;
+    return `<div class="li"><div class="date ${isLate?"late":""}"><b>${dt.getDate()} ${dt.toLocaleString("en",{month:"short"})}</b>${isLate?Math.round((TODAY-dt)/864e5)+" days late":"promised"}</div><div><div class="t">PO ${x.po}</div><div class="s">Sizes ${x.sz.join(" · ")} · to the Gudang</div></div><div class="qty">+${fmt(x.q)}</div></div>`;
+  });
+  STORES.forEach((st,i)=>{const q=sum(Object.values(a.sizes).map(s=>s.tr[i])); if(q) inc.push(`<div class="li"><div class="date"><b>Road</b>departed</div><div><div class="t">${SJ[st.id]??"SJ"}</div><div class="s">Gudang → ${st.name} · counted in on arrival</div></div><div class="qty">+${q}</div></div>`)});
+  const outs = STORES.map((st,i)=>{const q=sum(Object.values(a.sizes).map(s=>s.al[i])); return q?`<div class="li"><div class="date"><b>Next</b>to pick</div><div><div class="t">${ALLOTS[st.id]}</div><div class="s">Promised to ${st.name}, not picked yet</div></div><div class="qty minus">−${q}</div></div>`:""}).join("");
+  const perStore = `<table class="stores"><tr><th>Store</th><th>On hand</th><th>Coming</th><th>Sold / wk</th></tr>`+STORES.map((st,i)=>{
+    const h=sum(Object.values(a.sizes).map(s=>s.st[i])), cm=sum(Object.values(a.sizes).map(s=>s.tr[i]+s.al[i]));
+    const tot=sum(Object.values(a.sizes).map(s=>sum(s.st)))||1, wk=(n.wk&&lens!=="stores"?n.wk:sum(Object.values(a.sizes).map(s=>s.wk)))*h/tot;
+    return `<tr><td>${st.name}</td><td>${h}</td><td>${cm||"–"}</td><td>${wk.toFixed(1)}</td></tr>`}).join("")+`</table>`;
+  const advice = c.w<3 ? `At ${n.wk} a week this lasts ${c.t}. ${nothingComing(a)?"Nothing is on order: a PO raised today is the next goods this article sees.":"What is on order is already counted above; if it arrives on its date the shortfall is the difference."}`
+    : c.w>20 ? `This carries more than 20 weeks at today's rate. Worth holding the next PO, or moving it to the stores that sell it.`
+    : `This carries ${c.t} at today's rate, what is on order included.`;
+  dr.innerHTML = `<div class="dh"><span class="sw" style="background:${a.colour}"></span><div><h2>${a.name}</h2><div class="code">${a.code} · ${Object.keys(a.sizes).join(" · ")}</div></div><button class="x" id="close">✕</button></div>
+  <div class="db"><div class="sec">The arithmetic · ${document.querySelector(".lens.on").textContent}</div><div class="math">${math}</div>
+  <div class="note"><span class="cover ${c.cls}"><i></i>${c.t}</span>&nbsp; ${advice}</div>
+  <div class="sec">Coming in</div><div class="list">${inc.join("")||'<div class="li"><div></div><div class="s">Nothing on order and nothing on the road.</div><div></div></div>'}</div>
+  ${outs?`<div class="sec">Going out</div><div class="list">${outs}</div>`:""}
+  <div class="sec">By store</div>${perStore}</div>`;
+  document.getElementById("close").onclick = () => {selected=null; render();};
+}
+function render(){renderEq();renderChips();renderTable();renderDrawer();
+  document.getElementById("store").classList.toggle("show", lens==="stores");}
+
+document.getElementById("store").innerHTML = STORES.map((s,i)=>`<option value="${i}" ${i===storeIx?"selected":""}>${s.id} · ${s.name}</option>`).join("");
+document.getElementById("store").onchange = e => {storeIx=+e.target.value; render();};
+document.getElementById("lenses").onclick = e => {const b=e.target.closest(".lens"); if(!b) return;
+  document.querySelectorAll(".lens").forEach(x=>x.classList.toggle("on",x===b)); lens=b.dataset.l; render();};
+document.getElementById("chips").onclick = e => {const c=e.target.closest(".chip"); if(c){filter=c.dataset.f; render();}};
+document.getElementById("rows").onclick = e => {
+  const t = e.target.closest("[data-t]"); if (t){const k=t.dataset.t; open.has(k)?open.delete(k):open.add(k); render(); return;}
+  const r = e.target.closest("tr.art"); if (r){selected = selected===r.dataset.a?null:r.dataset.a; render();}
+};
+document.getElementById("scrim").onclick = () => {selected=null; render();};
+selected = "00000001"; render();
+</script>
+</body>
+</html>

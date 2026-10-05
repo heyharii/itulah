@@ -7,14 +7,13 @@ import { Card } from "@/components/ui/card"
 import { Input, Money, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState, Problem } from "@/components/ui/states"
-import { money } from "@/lib/format"
 import {
   financeKeys,
   listFinanceSettings,
   setFinanceSetting,
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
-import { Code, Grid, Td, Th } from "@/screens/finance-final/parts"
+import { Grid, Td, Th } from "@/screens/finance-final/parts"
 import type { FinanceSetting } from "@itulah/contract"
 
 /// Accounts Settings: the numbers Finance's rules read — tolerances, windows,
@@ -29,10 +28,12 @@ const NAMES: Record<string, string> = {
   "sales.discount_accounting": "Discount accounting",
   "payroll.thr_accrual_months": "THR accrual months",
   "store_expense.manager_limit_minor": "Store manager approval limit",
+  "store_expense.code_above_minor": "Expense code above",
   "journal.two_person_from_minor": "Two-person journal threshold",
   mdr_tolerance_minor: "MDR tolerance",
   mdr_tolerance_bps: "MDR tolerance (rate)",
   return_window_days: "Return window",
+  "sync.publish_payment_methods": "Send payment methods to shops",
 }
 
 /// The DB keeps `numeric`, so "12.0000" can come back for 12.
@@ -50,9 +51,8 @@ export function FinanceSettings() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance · Settings"
-        title="Accounts settings"
-        sub="The thresholds, windows and switches Finance's rules read. A change applies to everything posted from now on."
+        crumb="Finance · Accounting Masters"
+        title="Accounts Settings"
       />
       <Card className="overflow-hidden">
         {queryState(list, {
@@ -64,8 +64,8 @@ export function FinanceSettings() {
               <Grid>
                 <thead>
                   <tr>
-                    <Th>Setting</Th>
-                    <Th width="18rem">Value</Th>
+                    <Th width="15rem">Setting</Th>
+                    <Th width="17rem">Value</Th>
                     <Th>What it does</Th>
                   </tr>
                 </thead>
@@ -104,10 +104,9 @@ function SettingRow({ setting }: { setting: FinanceSetting }) {
   return (
     <tr>
       <Td>
-        <div className="font-medium text-ink">
+        <div className="font-medium text-ink" title={setting.setting_key}>
           {NAMES[setting.setting_key] ?? setting.setting_key}
         </div>
-        <Code>{setting.setting_key}</Code>
       </Td>
       <Td>
         <div className="flex items-center gap-2">
@@ -115,7 +114,7 @@ function SettingRow({ setting }: { setting: FinanceSetting }) {
             <Select
               value={draft}
               onChange={setDraft}
-              className="h-8"
+              className="h-8 w-36"
               aria-label={setting.setting_key}
             >
               <option value="0">Off</option>
@@ -126,7 +125,7 @@ function SettingRow({ setting }: { setting: FinanceSetting }) {
               value={draft}
               onChange={setDraft}
               prefix="Rp"
-              className="h-8"
+              className="h-8 w-36"
               label={setting.setting_key}
             />
           ) : (
@@ -134,7 +133,7 @@ function SettingRow({ setting }: { setting: FinanceSetting }) {
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               inputMode="decimal"
-              className="h-8"
+              className="h-8 w-24"
               aria-label={setting.setting_key}
             />
           )}
@@ -148,16 +147,17 @@ function SettingRow({ setting }: { setting: FinanceSetting }) {
             disabled={!changed}
             onClick={() => save.mutate()}
           >
-            {save.isPending ? "Saving…" : "Save"}
+            {save.isPending ? "Submitting…" : "Submit"}
           </Button>
         </div>
-        {setting.unit === "IDR" && !changed && (
-          <div className="mt-1 text-faint">{money(Number(current))}</div>
-        )}
         <Problem error={save.error} className="mt-1.5" />
       </Td>
-      <Td>
-        <span className="text-body">{setting.note ?? ""}</span>
+      <Td className="whitespace-normal">
+        {/* The note as the owner reads it: without the migration numbers the
+            server's copy carries for its own reference. */}
+        <span className="text-body">
+          {(setting.note ?? "").replace(/\s*\(\d{4}\)/g, "")}
+        </span>
       </Td>
     </tr>
   )

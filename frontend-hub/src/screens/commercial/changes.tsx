@@ -10,7 +10,7 @@ import { Checkbox, Input } from "@/components/ui/field"
 import { DockedFilters } from "@/components/ui/list-chrome"
 import { Meter } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import { Status } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
@@ -42,6 +42,7 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { Named, Quiet } from "@/screens/commercial/parts"
+import { ROOMY } from "@/screens/operations/roomy"
 
 /// Changes — the pricing work that is not finished.
 ///
@@ -150,17 +151,17 @@ const FIELDS: readonly FilterField[] = [
   {
     column: "articles",
     label: "Articles",
-    spec: { kind: "number", unit: "styles" },
+    spec: { kind: "number", unit: "articles" },
   },
   {
     column: "shops",
-    label: "Shops outstanding",
-    spec: { kind: "number", unit: "shops" },
+    label: "Stores outstanding",
+    spec: { kind: "number", unit: "stores" },
   },
   {
     column: "failed",
-    label: "Shops failed",
-    spec: { kind: "number", unit: "shops" },
+    label: "Stores failed",
+    spec: { kind: "number", unit: "stores" },
   },
 ]
 
@@ -181,7 +182,8 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     id: "change",
     accessorFn: (row) => `${row.name} v${row.version}`,
     header: "Change",
-    size: 175,
+    size: 240,
+    meta: { grow: 240 },
     // A ceiling in the cell, not a `size` on the column. `DataTable` only
     // applies `size` when it virtualises (past 150 rows); under that the table
     // is `table-auto` and a long book name — "Harga awal · 2-p basic cotton
@@ -189,9 +191,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     // the end. The name is the one variable-width thing here, so it is the one
     // that carries the ceiling.
     cell: ({ row }) => (
-      <span className="block max-w-[11rem] truncate text-ink">
-        {row.original.name}
-      </span>
+      <span className="block truncate text-ink">{row.original.name}</span>
     ),
   },
   {
@@ -200,7 +200,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     id: "kind",
     accessorFn: (row) => describeChangeKind(row.kind),
     header: "Kind",
-    size: 120,
+    size: 150,
     cell: ({ row }) => (
       <span
         className={
@@ -217,11 +217,11 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     id: "status",
     accessorFn: (row) => describeChangeStatus(row.status),
     header: "Status",
-    size: 100,
+    size: 130,
     cell: ({ row }) => {
       const { status } = row.original
       return (
-        <Pill
+        <Status
           tone={
             status === "ACTIVE"
               ? "ok"
@@ -229,11 +229,10 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
                 ? "info"
                 : undefined
           }
-          withDot
           className="w-fit"
         >
           {describeChangeStatus(status)}
-        </Pill>
+        </Status>
       )
     },
   },
@@ -241,7 +240,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     id: "period",
     accessorFn: (row) => row.effective_from,
     header: "Period",
-    size: 125,
+    size: 210,
     // "· open-ended" is gone. An absent end date was being announced in words
     // on every row, and the absence of a second date already says it — a
     // period written as one date has not ended, which is what open-ended
@@ -260,7 +259,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     id: "articles",
     accessorFn: (row) => row.article_count,
     header: "Articles",
-    size: 80,
+    size: 110,
     meta: { align: "right" },
     cell: ({ row }) => (
       <span className="text-ink tabular-nums">
@@ -273,14 +272,14 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     accessorFn: (row) =>
       row.reaches_every_shop ? Number.MAX_SAFE_INTEGER : row.store_count,
     header: "Stores",
-    size: 100,
+    size: 130,
     meta: { align: "right" },
     // A company-wide book names no shop and reaches all of them, so the two
     // cases cannot share a number — "0" would be the honest count and the
     // wrong answer. Sorted as if it were the largest, because it is.
     cell: ({ row }) =>
       row.original.reaches_every_shop ? (
-        <span className="text-body">Every shop</span>
+        <span className="text-body">Every store</span>
       ) : (
         <span className="text-ink tabular-nums">
           {count(row.original.store_count)}
@@ -292,7 +291,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     accessorFn: (row) =>
       row.rollout.target === 0 ? 0 : row.rollout.activated / row.rollout.target,
     header: "Rollout",
-    size: 120,
+    size: 190,
     meta: { align: "right" },
     // Activated over target, on one line. A failure is not folded into it —
     // a till that tried and could not is a different thing from one that has
@@ -323,7 +322,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     id: "published",
     accessorFn: (row) => row.published_at ?? "",
     header: "Published",
-    size: 110,
+    size: 140,
     // The publisher's name is gone. It was the loudest thing in the column and
     // answered a question nobody asks of a list — "who cut this" belongs to the
     // one book somebody has opened, not to six rows being scanned for what is
@@ -402,11 +401,7 @@ export function Changes() {
 
   return (
     <PageContent>
-      <PageHeader
-        crumb="Marketing"
-        title="Changes"
-        sub="Price work that is not finished — a change leaves when every shop it names is charging it."
-      />
+      <PageHeader crumb="Marketing" title="Changes" />
 
       {/* The order book's shape: the list at the left, the filters docked in
           a column at the right, and the figures at the top of that column so
@@ -416,7 +411,7 @@ export function Changes() {
           read. */}
       <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="flex min-w-0 flex-col">
-          <Toolbar className="mb-3">
+          <Toolbar className="mb-5">
             <Segmented
               options={[
                 { value: "ALL", label: "All" },
@@ -438,9 +433,8 @@ export function Changes() {
                   ? search.close()
                   : search.open(event.target.value)
               }
-              placeholder="Search changes"
               aria-label="Search changes"
-              className="h-8 w-52"
+              className="h-9 w-56"
             />
             {/* A second question for the SERVER, not a fifth tab and not a
                 clause. The four tabs narrow the work; this asks for the changes
@@ -455,12 +449,12 @@ export function Changes() {
 
           <Card className="overflow-hidden">
             {queryState(list, {
-              loading: "Reading price changes…",
+              loading: "Loading…",
               render: () =>
                 rows.length === 0 ? (
                   <EmptyState>
                     {lens === "ALL" && filters.filters.length === 0
-                      ? "Nothing outstanding. Every price change has reached every shop it names — tick “Include settled” for the finished ones."
+                      ? "Nothing outstanding."
                       : lens === "ATTENTION"
                         ? "Nothing needs attention."
                         : "No change matches that."}
@@ -471,7 +465,7 @@ export function Changes() {
                     onRowClick={(row) => book.open(row.publication_id)}
                     isSelected={(row) => row.publication_id === book.value}
                     empty="No change matches that search."
-                    className="max-h-[calc(100vh-20rem)]"
+                    className={`${ROOMY} max-h-[calc(100vh-20rem)]`}
                   />
                 ),
             })}
@@ -490,17 +484,17 @@ export function Changes() {
             {
               label: "On the list",
               value: count(all.length),
-              note: settled ? "including settled" : "outstanding work",
+              note: settled ? "with settled" : "outstanding",
             },
             {
               label: "Outstanding",
               value: count(outstanding),
-              note: "a shop still waiting",
+              note: "stores waiting",
             },
             {
               label: "Attention",
               value: count(attention),
-              note: "failed, or closed unfinished",
+              note: "failed or stuck",
             },
           ]}
         />
@@ -509,7 +503,6 @@ export function Changes() {
       <ChangeSheet
         id={book.value ?? null}
         change={all.find((one) => one.publication_id === book.value) ?? null}
-        subject={book.subject}
         onClose={book.close}
       />
     </PageContent>
@@ -549,14 +542,12 @@ interface ShopLine {
 function ChangeSheet({
   id,
   change,
-  subject,
   onClose,
 }: {
   id: string | null
   /// The list's row, when the list holds it. A link to a settled change with
   /// "Include settled" off still opens, from the detail alone.
   change: PriceChange | null
-  subject: { kind: string; id: string } | undefined
   onClose: () => void
 }) {
   const detail = useQuery({
@@ -659,8 +650,8 @@ function ChangeSheet({
     siteId !== null
       ? nameOf(siteId)
       : siteIds !== null && siteIds.length > 0
-        ? `${count(siteIds.length)} shops`
-        : "All shops"
+        ? `${count(siteIds.length)} stores`
+        : "All stores"
 
   const name = change?.name ?? detail.data?.name ?? "Price change"
   const from = change?.effective_from ?? detail.data?.effective_from ?? null
@@ -671,10 +662,9 @@ function ChangeSheet({
       open={id !== null}
       onOpenChange={(next) => !next && onClose()}
       title={name}
-      subject={subject}
       badge={
         change === null ? undefined : (
-          <Pill
+          <Status
             tone={
               change.status === "ACTIVE"
                 ? "ok"
@@ -682,15 +672,14 @@ function ChangeSheet({
                   ? "info"
                   : undefined
             }
-            withDot
           >
             {describeChangeStatus(change.status)}
-          </Pill>
+          </Status>
         )
       }
     >
       {id === null ? null : (
-        <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-6">
           <Facts>
             <Fact term="Kind">
               {change === null ? "—" : describeChangeKind(change.kind)}
@@ -708,8 +697,8 @@ function ChangeSheet({
               {change === null
                 ? "—"
                 : change.reaches_every_shop
-                  ? "All shops"
-                  : `${count(change.store_count)} shops`}
+                  ? "All stores"
+                  : `${count(change.store_count)} stores`}
             </Fact>
           </Facts>
 
@@ -724,12 +713,12 @@ function ChangeSheet({
               Rollout
             </SubHead>
             {(events.isPending && version !== null) || detail.isPending ? (
-              <Quiet>Asking the shops…</Quiet>
+              <Quiet>Loading…</Quiet>
             ) : shops.length === 0 ? (
-              <Quiet>This change names no shop the centre knows about.</Quiet>
+              <Quiet>No stores.</Quiet>
             ) : (
               <MiniTable
-                head={["Shop", { label: "State", align: "left" }, "Since"]}
+                head={["Store", { label: "State", align: "left" }, "Since"]}
               >
                 {shops.map((one) => (
                   <MiniRow key={one.siteId}>
@@ -744,7 +733,7 @@ function ChangeSheet({
                       )}
                     </MiniCell>
                     <MiniCell>
-                      <Pill
+                      <Status
                         tone={
                           one.state === "FAILED"
                             ? "bad"
@@ -758,9 +747,9 @@ function ChangeSheet({
                           : one.state === "ACTIVE"
                             ? "In service"
                             : one.sent
-                              ? "Sent, not in service"
+                              ? "Sent"
                               : "Not sent yet"}
-                      </Pill>
+                      </Status>
                     </MiniCell>
                     <MiniCell align="right">
                       <span className="text-[0.875rem] text-mute">
@@ -774,7 +763,7 @@ function ChangeSheet({
           </div>
 
           {queryState(detail, {
-            loading: "Reading what it changes…",
+            loading: "Loading…",
             render: (data) => (
               <>
                 {data.markdowns.length > 0 && (
@@ -815,11 +804,7 @@ function ChangeSheet({
                       New prices
                     </SubHead>
                     <MiniTable
-                      head={[
-                        "Product",
-                        { label: "Where", align: "left" },
-                        "Price",
-                      ]}
+                      head={["SKU", { label: "Where", align: "left" }, "Price"]}
                     >
                       {data.price_rules.map((one) => (
                         <MiniRow
@@ -845,9 +830,7 @@ function ChangeSheet({
                   </div>
                 )}
                 {data.markdowns.length === 0 &&
-                  data.price_rules.length === 0 && (
-                    <Quiet>This change carries no prices.</Quiet>
-                  )}
+                  data.price_rules.length === 0 && <Quiet>No prices.</Quiet>}
               </>
             ),
           })}

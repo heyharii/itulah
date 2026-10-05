@@ -144,7 +144,6 @@ export function PayrollRuns() {
         <Select
           value={unitFilter}
           onChange={setUnitFilter}
-          placeholder="Every unit"
           className="h-8 w-52"
         >
           <option value="">Every unit</option>
@@ -157,7 +156,6 @@ export function PayrollRuns() {
         <Select
           value={stateFilter}
           onChange={setStateFilter}
-          placeholder="Every state"
           className="h-8 w-44"
         >
           <option value="">Every state</option>
@@ -185,7 +183,7 @@ export function PayrollRuns() {
                 head={[
                   "Month",
                   "Unit",
-                  "Pay day",
+                  "Pay Day",
                   { label: "State", align: "left" },
                   { label: "Finance", align: "left" },
                 ]}
@@ -438,7 +436,6 @@ function RunSheet({
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            placeholder="angka sudah dicek"
           />
         </Field>
         <div className="flex flex-wrap gap-2">
@@ -544,13 +541,7 @@ function HoldControl({
       )}
       <div className="flex flex-wrap items-end gap-2">
         <Field label="Why" required>
-          <Input
-            value={why}
-            onChange={(event) => setWhy(event.target.value)}
-            placeholder={
-              withheld ? "dokumen sudah lengkap" : "dokumen belum lengkap"
-            }
-          />
+          <Input value={why} onChange={(event) => setWhy(event.target.value)} />
         </Field>
         <Button
           variant={withheld ? "ghost" : "danger"}
@@ -739,7 +730,6 @@ function Handover({ run }: { run: PayrollRunView }) {
             <Input
               value={reason}
               onChange={(event) => setReason(event.target.value)}
-              placeholder="penggajian September"
             />
           </Field>
           <div>
@@ -853,7 +843,6 @@ function OpenRunSheet({
         <Field label="Unit" required>
           <PickOne
             label="Unit"
-            placeholder="Choose a unit…"
             choices={units.map((one) => ({
               value: one.id,
               label: `${one.name} · ${one.employees}`,
@@ -873,7 +862,6 @@ function OpenRunSheet({
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            placeholder="penggajian April"
           />
         </Field>
       </div>

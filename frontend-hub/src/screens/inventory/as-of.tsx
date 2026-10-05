@@ -12,8 +12,9 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { SHOW_MISSING, withoutMissing } from "@/lib/features"
 import { useFilters } from "@/lib/filters"
-import { count, moment } from "@/lib/format"
+import { moment } from "@/lib/format"
 import {
   fleetPools,
   inventoryAsOf,
@@ -29,6 +30,11 @@ import {
   percent,
   sitesOf,
 } from "@/screens/inventory/shared"
+import {
+  DisplayUnitPicker,
+  useDisplayUnit,
+  type DisplayUnit,
+} from "@/screens/inventory/unit-display"
 
 /// The same pools, folded to a moment in the past.
 ///
@@ -39,103 +45,107 @@ import {
 /// the whole discipline of the screen: these numbers are history, nothing may
 /// be posted against them, and there is deliberately not a single write here.
 
-const columns: ColumnDef<TableSetup, Pool>[] = [
-  {
-    id: "pool",
-    accessorFn: (row) => `${row.label} ${row.id}`,
-    header: "Pool",
-    size: 240,
-    // Same reason as Site below: the toolbar already picks a pool, and it
-    // picks it on the wire.
-    cell: ({ row }) => (
-      <div className="min-w-0">
-        <span className="block truncate font-medium text-ink">
-          {row.original.label}
-        </span>
-        <span className="font-mono text-id text-mute">{row.original.id}</span>
-      </div>
-    ),
-  },
-  {
-    id: "site",
-    accessorFn: (row) => row.site_name ?? row.site_id,
-    header: "Site",
-    size: 170,
-    // No filter, and that is not an oversight: the toolbar's Site picker is a
-    // REQUEST parameter, and a second site question answered in the browser
-    // would be a place the narrowing is decided twice. The day the two
-    // disagreed, this one would look right.
-    cell: ({ row }) => (
-      <span className="text-body">
-        {row.original.site_name ?? row.original.site_id}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "group",
-    header: "Group",
-    size: 140,
-    /// The one closed set on the row the toolbar cannot ask for: the kind of
-    /// place, faceted from what the replay actually returned.
-    meta: { filter: { kind: "option" } },
-    cell: ({ row }) => <Tag>{row.original.group}</Tag>,
-  },
-  {
-    accessorKey: "stock",
-    header: "Stock",
-    size: 110,
-    // The only number worth sorting a historical read by: how much was there.
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
-    cell: ({ row }) => count(row.original.stock),
-  },
-  {
-    accessorKey: "on_hand",
-    header: "On hand",
-    size: 110,
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
-    cell: ({ row }) => count(row.original.on_hand),
-  },
-  {
-    accessorKey: "allotted",
-    header: "Allotted",
-    size: 110,
-    /// Nullable, and the dash in the cell is the point: a pool nobody promised
-    /// anything out of is not a pool that promised zero. The accessor hands
-    /// the predicate the raw `null`, so "is empty" asks for exactly those rows
-    /// and no comparison quietly counts them as 0.
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
-    cell: ({ row }) =>
-      row.original.allotted === null ? (
-        <span className="text-mute">—</span>
-      ) : (
-        count(row.original.allotted)
+function poolColumns(display: DisplayUnit): ColumnDef<TableSetup, Pool>[] {
+  return [
+    {
+      id: "pool",
+      accessorFn: (row) => `${row.label} ${row.id}`,
+      header: "Pool",
+      size: 240,
+      // Same reason as Site below: the toolbar already picks a pool, and it
+      // picks it on the wire.
+      cell: ({ row }) => (
+        <div className="min-w-0">
+          <span className="block truncate font-medium text-ink">
+            {row.original.label}
+          </span>
+          <span className="font-mono text-id text-mute">{row.original.id}</span>
+        </div>
       ),
-  },
-  {
-    accessorKey: "missing",
-    header: "Missing",
-    size: 110,
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
-    cell: ({ row }) => (
-      <span className={row.original.missing > 0 ? "text-bad-fg" : "text-mute"}>
-        {count(row.original.missing)}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "lost_rate",
-    header: "Lost rate",
-    size: 110,
-    /// The cell holds a fraction and the column prints a percentage, so the
-    /// box takes the percentage and `scale` puts it back: somebody asking for
-    /// pools losing more than 5% types 5, not 0.05.
-    meta: {
-      align: "right",
-      filter: { kind: "number", scale: 0.01, unit: "%" },
     },
-    cell: ({ row }) => percent(row.original.lost_rate),
-  },
-]
+    {
+      id: "site",
+      accessorFn: (row) => row.site_name ?? row.site_id,
+      header: "Site",
+      size: 170,
+      // No filter, and that is not an oversight: the toolbar's Site picker is a
+      // REQUEST parameter, and a second site question answered in the browser
+      // would be a place the narrowing is decided twice. The day the two
+      // disagreed, this one would look right.
+      cell: ({ row }) => (
+        <span className="text-body">
+          {row.original.site_name ?? row.original.site_id}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "group",
+      header: "Group",
+      size: 140,
+      /// The one closed set on the row the toolbar cannot ask for: the kind of
+      /// place, faceted from what the replay actually returned.
+      meta: { filter: { kind: "option" } },
+      cell: ({ row }) => <Tag>{row.original.group}</Tag>,
+    },
+    {
+      accessorKey: "stock",
+      header: "Stock",
+      size: 110,
+      // The only number worth sorting a historical read by: how much was there.
+      meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+      cell: ({ row }) => display.format(row.original.stock),
+    },
+    {
+      accessorKey: "on_hand",
+      header: "On Hand",
+      size: 110,
+      meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+      cell: ({ row }) => display.format(row.original.on_hand),
+    },
+    {
+      accessorKey: "allotted",
+      header: "Allotted",
+      size: 110,
+      /// Nullable, and the dash in the cell is the point: a pool nobody promised
+      /// anything out of is not a pool that promised zero. The accessor hands
+      /// the predicate the raw `null`, so "is empty" asks for exactly those rows
+      /// and no comparison quietly counts them as 0.
+      meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+      cell: ({ row }) =>
+        row.original.allotted === null ? (
+          <span className="text-mute">—</span>
+        ) : (
+          display.format(row.original.allotted)
+        ),
+    },
+    {
+      accessorKey: "missing",
+      header: "Missing",
+      size: 110,
+      meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+      cell: ({ row }) => (
+        <span
+          className={row.original.missing > 0 ? "text-bad-fg" : "text-mute"}
+        >
+          {display.format(row.original.missing)}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "lost_rate",
+      header: "Lost Rate",
+      size: 110,
+      /// The cell holds a fraction and the column prints a percentage, so the
+      /// box takes the percentage and `scale` puts it back: somebody asking for
+      /// pools losing more than 5% types 5, not 0.05.
+      meta: {
+        align: "right",
+        filter: { kind: "number", scale: 0.01, unit: "%" },
+      },
+      cell: ({ row }) => percent(row.original.lost_rate),
+    },
+  ]
+}
 
 export function AsOf() {
   const [when, setWhen] = useState(() =>
@@ -165,6 +175,8 @@ export function AsOf() {
     [history.data]
   )
 
+  const display = useDisplayUnit()
+  const columns = useMemo(() => withoutMissing(poolColumns(display)), [display])
   const filters = useFilters(columns)
 
   const table = useTable(
@@ -220,15 +232,15 @@ export function AsOf() {
             setPool("")
           }}
           options={sites}
-          placeholder="Every site"
         />
         <Choice
           value={pool}
           onChange={setPool}
           options={pools}
-          placeholder="Every pool"
           className="max-w-72"
         />
+        <Toolbar.Spacer />
+        <DisplayUnitPicker display={display} />
       </Toolbar>
 
       {at === "" ? (
@@ -253,35 +265,37 @@ export function AsOf() {
                 <MetricRow>
                   <Metric
                     label="Stock"
-                    value={count(
+                    value={display.format(
                       rows.reduce((total, row) => total + row.stock, 0)
                     )}
                   />
                   <Metric
                     label="On hand"
-                    value={count(
+                    value={display.format(
                       rows.reduce((total, row) => total + row.on_hand, 0)
                     )}
                   />
                   <Metric
                     label="Allotted"
-                    value={count(
+                    value={display.format(
                       rows.reduce(
                         (total, row) => total + (row.allotted ?? 0),
                         0
                       )
                     )}
                   />
-                  <Metric
-                    label="Missing"
-                    value={count(
-                      rows.reduce((total, row) => total + row.missing, 0)
-                    )}
-                    tone="warn"
-                  />
+                  {SHOW_MISSING && (
+                    <Metric
+                      label="Missing"
+                      value={display.format(
+                        rows.reduce((total, row) => total + row.missing, 0)
+                      )}
+                      tone="warn"
+                    />
+                  )}
                 </MetricRow>
                 <p className="mt-3 text-[0.875rem] text-mute">
-                  {data.inventory_equation} · sightings counted over the{" "}
+                  {data.inventory_equation} · observations counted over the{" "}
                   {data.observed_window_hours}h before that moment.
                   {/* The totals are the replay's, and the clauses below do not
                       touch them. Said here rather than left to be inferred:

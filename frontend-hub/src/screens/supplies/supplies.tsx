@@ -31,9 +31,25 @@ import {
 } from "@/lib/queries/ga"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import { useUnits } from "@/lib/queries/units"
 import { FinanceMark } from "@/screens/contracts/parts"
+import { BillRequestForm } from "@/screens/ga/bill-request"
 import { SupplyComposer } from "@/screens/supplies/composer"
 import type { GaMaintenanceFacet, GaSupplyRequestRow } from "@itulah/contract"
+
+/// The quantity a person typed, read back against the units master (0655):
+/// "2" and RIM becomes "2 Rim" rather than the raw "2 rim" they wrote — the
+/// wording GA actually uses elsewhere. Where the server could not parse it
+/// (`unit_code` null), the raw text is shown as typed rather than guessed at.
+function gaQuantity(
+  row: Pick<GaSupplyRequestRow, "quantity" | "quantity_value" | "unit_code">,
+  units: readonly { code: string; label: string }[]
+): string | null {
+  if (row.quantity === null) return null
+  if (row.unit_code === null || row.quantity_value === null) return row.quantity
+  const unit = units.find((one) => one.code === row.unit_code)
+  return `${row.quantity_value} ${unit?.label ?? row.unit_code}`
+}
 
 /// Supplies — what the places run out of.
 ///
@@ -192,6 +208,7 @@ function SupplyTable({
   onOpen: (requestId: string) => void
   more: Pageable
 }) {
+  const units = useUnits()
   return (
     <Card className="overflow-hidden">
       <div className="overflow-x-auto">
@@ -208,7 +225,12 @@ function SupplyTable({
             <span>Status</span>
           </div>
           {rows.map((row) => (
-            <SupplyLine key={row.request_id} row={row} onOpen={onOpen} />
+            <SupplyLine
+              key={row.request_id}
+              row={row}
+              onOpen={onOpen}
+              units={units.units}
+            />
           ))}
         </div>
       </div>
@@ -222,9 +244,11 @@ function SupplyTable({
 function SupplyLine({
   row,
   onOpen,
+  units,
 }: {
   row: GaSupplyRequestRow
   onOpen: (requestId: string) => void
+  units: readonly { code: string; label: string }[]
 }) {
   return (
     <div
@@ -247,7 +271,7 @@ function SupplyLine({
         </span>
         {row.quantity !== null && (
           <span className="block truncate text-pill text-mute">
-            {row.quantity}
+            {gaQuantity(row, units)}
           </span>
         )}
       </div>
@@ -271,8 +295,8 @@ function SupplyLine({
         {row.po_reference ?? "—"}
       </span>
       <span className="min-w-0 truncate text-right text-meta tabular-nums">
-        {row.status === "BILLED" ? (
-          <span className="text-ok">Billed</span>
+        {row.billed_minor > 0 ? (
+          <span className="text-ok">{money(row.billed_minor)}</span>
         ) : (
           <span className="text-mute">—</span>
         )}
@@ -454,10 +478,11 @@ export function SupplySheet({
 /// What was asked for, by whom and by when. Every fact here is GA's own; the
 /// PO reference is a typed id because there is no PO module to point at.
 function RequestTab({ row }: { row: GaSupplyRequestRow }) {
+  const units = useUnits()
   return (
     <Facts>
       <Fact term="Item">{row.item}</Fact>
-      <Fact term="Quantity">{row.quantity ?? "—"}</Fact>
+      <Fact term="Quantity">{gaQuantity(row, units.units) ?? "—"}</Fact>
       <Fact term="Category">{row.category_name}</Fact>
       <Fact term="Location">{row.site_id}</Fact>
       <Fact term="Requested by">{row.requested_by}</Fact>
@@ -580,7 +605,6 @@ function AdvanceForm({
           <Input
             value={po}
             onChange={(event) => setPo(event.target.value)}
-            placeholder="e.g. PO-GA-2609-01"
             autoFocus
           />
         </Field>
@@ -655,7 +679,6 @@ function RejectForm({
             setProblem("")
             setReason(event.target.value)
           }}
-          placeholder="e.g. No budget for it this month"
           onKeyDown={(event) => {
             if (event.key === "Enter") submit()
           }}
@@ -674,10 +697,12 @@ function RejectForm({
   )
 }
 
-/// The bills that point at this request. There is no `bill_id` on the wire
-/// yet — a bill line can only name a supply request from tahap 6 — so the
-/// figure is an em dash with the reason, not a zero pretending to be spent.
+/// The bills that point at this request, and the way to send one. The figure
+/// counts POSTED bill lines naming this request; a bill GA has sent but
+/// Finance has not posted yet is not in it.
 function BillingTab({ row }: { row: GaSupplyRequestRow }) {
+  const [billing, setBilling] = useState(false)
+  const canBill = row.status === "RECEIVED" || row.status === "BILLED"
   return (
     <div className="flex flex-col gap-4">
       <figure>
@@ -685,14 +710,34 @@ function BillingTab({ row }: { row: GaSupplyRequestRow }) {
           Bill <FinanceMark className="ml-1 align-[0.125rem]" />
         </figcaption>
         <div className="mt-1 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
-          {row.status === "BILLED" ? "Billed" : "—"}
+          {row.billed_minor > 0 ? money(row.billed_minor) : "—"}
         </div>
       </figure>
       <p className="text-pill text-mute">
-        Calculated from POSTED bills that point to this request. A bill line can
-        only point to a supply request from stage 6 onward; before that the
-        figure genuinely doesn't exist yet, not zero.
+        Counted from bills Finance has posted against this request. A bill sent
+        from here shows once Finance posts it.
       </p>
+      {canBill && !billing && (
+        <div>
+          <Button variant="soft" onClick={() => setBilling(true)}>
+            Send bill to Finance
+          </Button>
+        </div>
+      )}
+      {billing && (
+        <BillRequestForm
+          source={{
+            site_id: row.site_id,
+            supplier_id: null,
+            supplier_name: null,
+            amount_minor: row.estimated_cost_minor,
+            memo: row.item,
+            supply_request_id: row.request_id,
+          }}
+          onDone={() => setBilling(false)}
+          onCancel={() => setBilling(false)}
+        />
+      )}
     </div>
   )
 }

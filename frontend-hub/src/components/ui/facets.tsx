@@ -158,7 +158,6 @@ export function FacetGroup({
           <input
             value={needle}
             onChange={(event) => setNeedle(event.target.value)}
-            placeholder={`Find a ${label.toLowerCase()}`}
             aria-label={`Find a ${label.toLowerCase()}`}
             className="h-7 w-full rounded-full border border-transparent bg-soft-2 pr-2 pl-7 text-[0.875rem] text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-2 focus:border-hairline-strong focus:bg-canvas"
           />
@@ -280,7 +279,6 @@ function FacetSheet({
           <input
             value={needle}
             onChange={(event) => setNeedle(event.target.value)}
-            placeholder={`Search ${values.length} ${label.toLowerCase()} values`}
             aria-label={`Search ${label.toLowerCase()}`}
             autoFocus
             className="h-9 w-full rounded-full border border-transparent bg-soft-2 pr-3 pl-9 text-[0.875rem] text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-2 focus:border-hairline-strong focus:bg-canvas"

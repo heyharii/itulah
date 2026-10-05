@@ -14,7 +14,7 @@ import {
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Meter } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import { Status } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
 import { EmptyState } from "@/components/ui/states"
 import { Thumbnail } from "@/components/ui/thumbnail"
@@ -195,11 +195,7 @@ export function CommercialOverview() {
 
   return (
     <PageContent>
-      <PageHeader
-        crumb="Marketing"
-        title="Overview"
-        sub={`What is running, what it gave away, and what is still owed — last ${WINDOW_DAYS} days.`}
-      />
+      <PageHeader crumb="Marketing" title="Overview" />
 
       {/* Six reads land at six different moments, and a tile whose query has
           not answered yet draws an em dash rather than a nought. "Rp 0 given
@@ -260,7 +256,7 @@ export function CommercialOverview() {
           tone={attention.length > 0 ? "down" : "flat"}
         />
         <Kpi
-          label="Shops behind on prices"
+          label="Stores behind on prices"
           value={count(
             fleet.isPending ? undefined : behind.length + silent.length
           )}
@@ -275,19 +271,17 @@ export function CommercialOverview() {
         />
       </KpiStrip>
 
-      <Card className="mb-5 p-4">
+      <Card className="mb-6 p-6">
         <SubHead
-          aside={`${day(scope.from)} – ${day(new Date(now).toISOString())} · money taken off the tills`}
+          aside={`${day(scope.from)} – ${day(new Date(now).toISOString())}`}
         >
           What the offers gave away
         </SubHead>
         {queryState(rules, {
-          loading: "Reading what the shops reported…",
+          loading: "Loading…",
           render: () =>
             stack.rows.length === 0 ? (
-              <EmptyState>
-                No offer has taken anything off a till in this window.
-              </EmptyState>
+              <EmptyState>Nothing given away.</EmptyState>
             ) : (
               <>
                 <BandLegend bands={stack.bands} />
@@ -304,10 +298,10 @@ export function CommercialOverview() {
         })}
       </Card>
 
-      <div className="mb-5">
+      <div className="mb-6">
         <SubHead
           aside={
-            <span className="flex gap-3">
+            <span className="flex gap-4">
               {ended > 0 && (
                 <button
                   type="button"
@@ -327,16 +321,16 @@ export function CommercialOverview() {
           Campaigns
         </SubHead>
         {queryState(campaigns, {
-          loading: "Asking what each campaign did…",
+          loading: "Loading…",
           render: () =>
             onBoard.length === 0 ? (
               <EmptyState>
                 {board.rows.length === 0
-                  ? "No campaign yet."
-                  : "Nothing live or scheduled. Every campaign has ended."}
+                  ? "No campaigns."
+                  : "No live campaigns."}
               </EmptyState>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 [&>*]:min-w-0">
+              <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3 [&>*]:min-w-0">
                 {onBoard.map((row) => (
                   <CampaignCard key={row.campaign_id} row={row} />
                 ))}
@@ -349,8 +343,8 @@ export function CommercialOverview() {
           `min-width: auto` lets it be sized by its widest content, so the
           promotion table inside would widen its own column past the viewport
           and take the page with it — the scroll has to happen in the card. */}
-      <div className="mb-5 grid items-start gap-5 min-[1100px]:grid-cols-[1.35fr_1fr] [&>*]:min-w-0">
-        <Card className="p-4">
+      <div className="mb-6 grid items-start gap-6 min-[1100px]:grid-cols-[1.35fr_1fr] [&>*]:min-w-0">
+        <Card className="p-6">
           <SubHead
             aside={
               <AppLink to="/commercial/promotions" className="text-accent">
@@ -361,12 +355,10 @@ export function CommercialOverview() {
             Promotions doing the work
           </SubHead>
           {queryState(rules, {
-            loading: "Reading the offers…",
+            loading: "Loading…",
             render: () =>
               stack.earning.length === 0 ? (
-                <EmptyState>
-                  Nothing has been discounted in this window.
-                </EmptyState>
+                <EmptyState>Nothing discounted.</EmptyState>
               ) : (
                 // The table scrolls inside the card; the PAGE never scrolls
                 // sideways. Four columns and a 32px thumbnail do not fit a
@@ -378,14 +370,14 @@ export function CommercialOverview() {
                     head={[
                       "Promotion",
                       { label: "Shape", align: "left" },
-                      "Given away",
+                      "Given Away",
                       "Baskets",
                     ]}
                   >
                     {stack.earning.slice(0, 8).map((rule) => (
                       <MiniRow key={rule.rule_id}>
                         <MiniCell>
-                          <div className="flex items-center gap-2.5">
+                          <div className="flex items-center gap-3">
                             {/* The campaign's poster, not the promotion's. See
                               the module note: a rule has no picture, and
                               borrowing its envelope's is the truthful way to
@@ -444,7 +436,7 @@ export function CommercialOverview() {
           })}
         </Card>
 
-        <Card className="p-4">
+        <Card className="p-6">
           <SubHead
             aside={
               <AppLink to="/commercial/vouchers" className="text-accent">
@@ -452,21 +444,21 @@ export function CommercialOverview() {
               </AppLink>
             }
           >
-            What the shop still owes
+            What the business still owes
           </SubHead>
           {queryState(vouchers, {
-            loading: "Counting the cards…",
+            loading: "Loading…",
             render: (book) =>
               book.ledger.issued_count === 0 ? (
-                <EmptyState>No voucher has been issued.</EmptyState>
+                <EmptyState>No vouchers.</EmptyState>
               ) : (
                 <>
-                  <div className="mb-1 text-[1.375rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
+                  <div className="mb-2 text-[1.375rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
                     {money(book.ledger.outstanding_minor)}
                   </div>
-                  <div className="mb-3.5 text-[0.875rem] text-mute">
-                    on {count(book.ledger.outstanding_count)} live cards, of{" "}
-                    {money(book.ledger.issued_minor)} ever issued
+                  <div className="mb-5 text-[0.875rem] text-mute">
+                    {count(book.ledger.outstanding_count)} live cards of{" "}
+                    {count(book.ledger.issued_count)} issued
                   </div>
                   <Share
                     total={book.ledger.issued_minor}
@@ -497,10 +489,9 @@ export function CommercialOverview() {
                       that reason. It is a slice of "still owed" above, never a
                       fourth segment beside it. */}
                   {book.ledger.expired_count > 0 && (
-                    <p className="mt-3.5 border-t border-hairline pt-3 text-[0.875rem] text-bad-fg">
-                      {money(book.ledger.expired_minor)} of that is on{" "}
-                      {count(book.ledger.expired_count)} cards that are already
-                      past their expiry date.
+                    <p className="mt-5 border-t border-hairline pt-4 text-[0.875rem] text-bad-fg">
+                      {money(book.ledger.expired_minor)} on{" "}
+                      {count(book.ledger.expired_count)} cards past their date.
                     </p>
                   )}
                 </>
@@ -509,10 +500,10 @@ export function CommercialOverview() {
         </Card>
       </div>
 
-      <Card className="p-4">
+      <Card className="p-6">
         <SubHead
           aside={
-            <span className="flex gap-3">
+            <span className="flex gap-4">
               <AppLink to="/commercial/prices" className="text-accent">
                 Open Prices
               </AppLink>
@@ -522,11 +513,11 @@ export function CommercialOverview() {
             </span>
           }
         >
-          Prices — are all shops charging what we published?
+          Prices
         </SubHead>
         <div className="grid items-start gap-5 min-[900px]:grid-cols-[1fr_1.2fr] [&>*]:min-w-0">
           {queryState(fleet, {
-            loading: "Asking the shops what they are charging…",
+            loading: "Loading…",
             render: (data) => (
               <div>
                 <Share
@@ -555,7 +546,7 @@ export function CommercialOverview() {
                     },
                   ]}
                   format={(value) =>
-                    `${count(value)} shop${value === 1 ? "" : "s"}`
+                    `${count(value)} store${value === 1 ? "" : "s"}`
                   }
                 />
                 {/* The silent shops by name, deliberately. A shop that has
@@ -563,7 +554,7 @@ export function CommercialOverview() {
                     about what it charges at all, and it is the row an ordering
                     by lateness would bury. */}
                 {(silent.length > 0 || behind.length > 0) && (
-                  <ul className="mt-3.5 space-y-1.5 border-t border-hairline pt-3">
+                  <ul className="mt-5 space-y-3 border-t border-hairline pt-4">
                     {[...silent, ...behind].slice(0, 5).map((shop) => (
                       <li
                         key={shop.origin_id}
@@ -571,7 +562,7 @@ export function CommercialOverview() {
                       >
                         {shop.site_id === null ? (
                           <span className="truncate text-text">
-                            {shop.label ?? "Till not assigned to a shop"}
+                            {shop.label ?? "Till not assigned to a store"}
                           </span>
                         ) : (
                           <AppLink
@@ -600,22 +591,22 @@ export function CommercialOverview() {
           })}
 
           {queryState(changes, {
-            loading: "Reading price changes…",
+            loading: "Loading…",
             render: () =>
               attention.length === 0 ? (
                 <EmptyState>
                   {outstanding.length === 0
                     ? "No price work outstanding."
-                    : `${count(outstanding.length)} changes are rolling out, none of them stuck.`}
+                    : `${count(outstanding.length)} rolling out.`}
                 </EmptyState>
               ) : (
                 <div className="-mx-1 overflow-x-auto px-1">
                   <MiniTable
                     className="min-w-[24rem]"
                     head={[
-                      "Price work nobody has finished",
+                      "Unfinished",
                       { label: "Why", align: "left" },
-                      { label: "Shops", align: "right" },
+                      { label: "Stores", align: "right" },
                     ]}
                   >
                     {attention.slice(0, 6).map((change) => (
@@ -623,7 +614,10 @@ export function CommercialOverview() {
                         <MiniCell>
                           <AppLink
                             to="/commercial/changes"
-                            sheet={{ key: "book", value: change.publication_id }}
+                            sheet={{
+                              key: "book",
+                              value: change.publication_id,
+                            }}
                             className="block truncate text-ink hover:text-accent"
                           >
                             {change.name}
@@ -639,9 +633,9 @@ export function CommercialOverview() {
                             window with shops waiting is work the calendar did
                             not do. */}
                           {change.rollout.failed > 0 ? (
-                            <Pill tone="bad">Reported a failure</Pill>
+                            <Status tone="bad">Reported a failure</Status>
                           ) : (
-                            <Pill tone="warn">Closed, shops waiting</Pill>
+                            <Status tone="warn">Closed, stores waiting</Status>
                           )}
                         </MiniCell>
                         <MiniCell align="right">
@@ -653,7 +647,10 @@ export function CommercialOverview() {
                       </MiniRow>
                     ))}
                   </MiniTable>
-                  <More hidden={attention.length - 6} to="/commercial/changes" />
+                  <More
+                    hidden={attention.length - 6}
+                    to="/commercial/changes"
+                  />
                 </div>
               ),
           })}
@@ -844,7 +841,7 @@ function CampaignCard({ row }: { row: BoardRow }) {
       <div className="relative">
         <Thumbnail
           url={row.image_url}
-          fallback="No banner on this campaign yet"
+          fallback="No banner"
           className="aspect-[16/7] w-full"
         />
         {/* The band's colour, on the poster. It is the only thing tying this
@@ -856,8 +853,8 @@ function CampaignCard({ row }: { row: BoardRow }) {
           style={{ background: row.colour }}
         />
       </div>
-      <div className="p-3.5">
-        <div className="mb-2 flex items-start justify-between gap-2">
+      <div className="p-5">
+        <div className="mb-4 flex items-start justify-between gap-2">
           <span className="min-w-0">
             <span className="block truncate text-[0.875rem] font-semibold text-ink">
               {row.headline ?? row.name ?? row.campaign_id}
@@ -867,18 +864,16 @@ function CampaignCard({ row }: { row: BoardRow }) {
               {span(row.valid_from, row.valid_to)}
             </span>
           </span>
-          <Pill tone={row.running ? "ok" : "neutral"} withDot>
+          <Status tone={row.running ? "ok" : "neutral"}>
             {row.running ? "Running" : describeStatus(row.status)}
-          </Pill>
+          </Status>
         </div>
 
         {row.sale_count === 0 ? (
-          <p className="text-[0.875rem] text-mute">
-            Nothing has been sold under this campaign in the window.
-          </p>
+          <p className="text-[0.875rem] text-mute">No sales.</p>
         ) : (
           <>
-            <div className="grid grid-cols-3 gap-2 text-[0.875rem]">
+            <div className="grid grid-cols-3 gap-4 text-[0.875rem]">
               <Figure label="Given away" value={money(row.benefit_minor)} />
               {/* Per campaign, this IS the server's own figure rather than a
                   sum of overlapping rows — so it can be drawn here and not in
@@ -891,7 +886,7 @@ function CampaignCard({ row }: { row: BoardRow }) {
               <Figure label="Baskets" value={count(row.sale_count)} />
             </div>
             {spend !== null && (
-              <div className="mt-3 flex items-center gap-2.5">
+              <div className="mt-4 flex items-center gap-3">
                 <Meter
                   value={spend}
                   tone={spend > 0.9 ? "bad" : spend > 0.7 ? "warn" : "accent"}
@@ -933,7 +928,7 @@ function More({ hidden, to }: { hidden: number; to: string }) {
   return (
     <AppLink
       to={to}
-      className="mt-2 inline-block text-[0.875rem] text-accent hover:underline"
+      className="mt-4 inline-block text-[0.875rem] text-accent hover:underline"
     >
       +{count(hidden)} more
     </AppLink>
@@ -1006,7 +1001,7 @@ function Share({
           />
         ))}
       </div>
-      <dl className="mt-2.5 space-y-1">
+      <dl className="mt-4 space-y-2">
         {parts.map((part) => (
           <div
             key={part.key}
@@ -1015,7 +1010,7 @@ function Share({
               part.value === 0 && "text-mute"
             )}
           >
-            <dt className="flex min-w-0 items-center gap-1.5">
+            <dt className="flex min-w-0 items-center gap-2">
               <span
                 aria-hidden
                 className="size-[5px] shrink-0 rounded-full"

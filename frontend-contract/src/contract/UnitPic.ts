@@ -3,7 +3,7 @@
 /**
  * Who answers for a unit, from when, and who said so.
  */
-export type UnitPic = { employee_id: string, employee_code: string, name: string | null, valid_from: string,
+export type UnitPic = { employee_id: string, employee_code: string, name: string | null, valid_from: string, 
 /**
  * The first day it no longer held; `None` while it stands.
  */

@@ -1009,17 +1009,6 @@ fn command_node(tx: &Transaction<'_>) -> Result<NodeContext, SyncError> {
     NodeContext::new(node_id, role, site_id).map_err(err)
 }
 
-fn require_dc_work_owner(tx: &Transaction<'_>, site_id: &str) -> Result<NodeContext, SyncError> {
-    let node = command_node(tx)?;
-    if node.role != EdgeRole::Dc || node.site_id.as_str() != site_id {
-        return Err(err(format!(
-            "inventory work for DC {site_id} cannot apply on {}/{}",
-            node.role, node.site_id
-        )));
-    }
-    Ok(node)
-}
-
 /// The node that owns the site an allotment's goods leave from, whatever its
 /// role: the Gudang for an allotment, a shop for its own return or transfer
 /// (owner, 2026-09-27). Head office decided the route when it raised the
@@ -1234,9 +1223,135 @@ fn apply_allotment_activation(
         .map_err(err)
 }
 
+/// Pieces already picked for this line's shop and SKU that only this line
+/// can still take into a carton.
+///
+/// Picking writes no allotment counter (`picked_quantity` rises with packing),
+/// so a release that looked only at the counters gave back a piece standing in
+/// the pick area for the shop: the centre offered it for allotment again and
+/// the packer's "Pack and seal" found no open line for it (E2E 2026-10-02,
+/// White L 00000009204). Whatever other open lines for the same shop and SKU
+/// can absorb is not held here; the rest is.
+fn picked_waiting_reserve(
+    tx: &Transaction<'_>,
+    site_id: &str,
+    allotment_line_id: &str,
+) -> Result<i64, SyncError> {
+    let line: Option<(String, String, i64)> = tx
+        .query_row(
+            "SELECT destination_id, sku_code,
+                    accepted_quantity - packed_quantity - cancelled_quantity
+               FROM dc_allotment_work_line WHERE allotment_line_id = ?1",
+            params![allotment_line_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(err)?;
+    let Some((destination_id, sku_code, open_here)) = line else {
+        return Ok(0);
+    };
+    let waiting: i64 = tx
+        .query_row(
+            &format!(
+                "SELECT COUNT(*) {} AND s.destination_id = ?2 AND u.sku_code = ?3",
+                crate::edge::outbound::WAITING_PICK_UNITS
+            ),
+            params![
+                crate::edge::outbound::picking_place(site_id),
+                destination_id,
+                sku_code
+            ],
+            |row| row.get(0),
+        )
+        .map_err(err)?;
+    if waiting == 0 {
+        return Ok(0);
+    }
+    let open_elsewhere: i64 = tx
+        .query_row(
+            "SELECT COALESCE(SUM(line.accepted_quantity - line.packed_quantity
+                                 - line.cancelled_quantity), 0)
+               FROM dc_allotment_work_line line
+               JOIN dc_allotment_work work ON work.allotment_id = line.allotment_id
+              WHERE work.application_status = 'ACCEPTED'
+                AND work.fulfillment_status IN ('OPEN','IN_PROGRESS')
+                AND line.destination_id = ?1 AND line.sku_code = ?2
+                AND line.allotment_line_id <> ?3",
+            params![destination_id, sku_code, allotment_line_id],
+            |row| row.get(0),
+        )
+        .map_err(err)?;
+    Ok((waiting - open_elsewhere.max(0)).clamp(0, open_here.max(0)))
+}
+
 /// Cancel only the reservation that is still unpicked when this exact-target
 /// command reaches the authoritative DC. Picked/packed/package quantities and
 /// physical inventory are deliberately untouched.
+/// MD gave up on part of a store's share: it comes off what this bench still
+/// has to pack. Written as `cancelled_quantity`, the counter every pick, pack
+/// and cancellation here already subtracts. All or nothing — head office has
+/// already booked every line as given up, so a line that has since been
+/// packed past it refuses the command rather than half-applying it.
+fn apply_allotment_close_short(
+    tx: &Transaction<'_>,
+    payload: &crate::sync::workflow::AllotmentCloseShortPayload,
+) -> Result<(), SyncError> {
+    let node = require_work_owner(tx, &payload.source_site_id)?;
+    let applied_at = time_text(Utc::now());
+    for line in &payload.lines {
+        // Picked pieces stay this shop's: only what is not yet picked is
+        // given up. The centre refuses a close short that reaches into the
+        // pick area before it sends one; this is the node's own guard.
+        let reserved = picked_waiting_reserve(
+            tx,
+            node.site_id.as_str(),
+            &line.allotment_line_id.to_string(),
+        )?;
+        let updated = tx
+            .execute(
+                "UPDATE dc_allotment_work_line
+                    SET cancelled_quantity=cancelled_quantity+?3,updated_at=?4
+                  WHERE allotment_line_id=?1 AND allotment_id=?2
+                    AND accepted_quantity-packed_quantity-cancelled_quantity-?5>=?3
+                    AND accepted_quantity-picked_quantity-cancelled_quantity-?5>=?3",
+                params![
+                    line.allotment_line_id.to_string(),
+                    payload.allotment_id.to_string(),
+                    line.quantity,
+                    applied_at,
+                    reserved
+                ],
+            )
+            .map_err(err)?;
+        if updated != 1 {
+            return Err(err(format!(
+                "Allotment line {} has less than {} left to pack that is not already picked",
+                line.allotment_line_id, line.quantity
+            )));
+        }
+    }
+    let (accepted, packed, dispatched, cancelled): (i64, i64, i64, i64) = tx
+        .query_row(
+            "SELECT COALESCE(SUM(accepted_quantity),0),
+                    COALESCE(SUM(packed_quantity),0),
+                    COALESCE(SUM(dispatched_quantity),0),
+                    COALESCE(SUM(cancelled_quantity),0)
+             FROM dc_allotment_work_line WHERE allotment_id=?1",
+            [payload.allotment_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .map_err(err)?;
+    let status =
+        derive_allotment_status(accepted, packed, dispatched, cancelled, false).map_err(err)?;
+    tx.execute(
+        "UPDATE dc_allotment_work SET fulfillment_status=?2,updated_at=?3
+         WHERE allotment_id=?1 AND application_status='ACCEPTED'",
+        params![payload.allotment_id.to_string(), status.as_str(), applied_at],
+    )
+    .map_err(err)?;
+    Ok(())
+}
+
 fn apply_allotment_cancellation(
     tx: &Transaction<'_>,
     command_id: Uuid,
@@ -1325,11 +1440,16 @@ fn apply_allotment_cancellation(
                 "cancellation must request the full accepted quantity for line {line_id}"
             )));
         }
+        // Pieces picked for the shop and waiting to be packed are not
+        // released either: they continue to the store.
+        let waiting_picked = picked_waiting_reserve(tx, node.site_id.as_str(), line_id_text)?;
         let actual_cancelled = accepted
             .checked_sub(*picked)
             .and_then(|quantity| quantity.checked_sub(*already_cancelled))
             .filter(|quantity| *quantity >= 0)
-            .ok_or_else(|| err(format!("invalid reservation progress for line {line_id}")))?;
+            .ok_or_else(|| err(format!("invalid reservation progress for line {line_id}")))?
+            .saturating_sub(waiting_picked)
+            .max(0);
         let blocked_picked = requested_line
             .quantity
             .checked_sub(actual_cancelled)
@@ -1393,7 +1513,7 @@ fn apply_allotment_cancellation(
                 "UPDATE dc_allotment_work_line
                  SET cancelled_quantity=cancelled_quantity+?2,updated_at=?3
                  WHERE allotment_line_id=?1
-                   AND accepted_quantity-picked_quantity-cancelled_quantity=?2",
+                   AND accepted_quantity-picked_quantity-cancelled_quantity>=?2",
                 params![
                     line.allotment_line_id.to_string(),
                     line.cancelled_quantity,
@@ -1479,7 +1599,7 @@ fn apply_official_count_activation(
     command_id: Uuid,
     payload: &OfficialCountActivationPayload,
 ) -> Result<(), SyncError> {
-    let node = require_dc_work_owner(tx, &payload.site_id)?;
+    let node = require_work_owner(tx, &payload.site_id)?;
     let pool = OperationalPool::from_str(&payload.pool_id).map_err(err)?;
     if !node.owns_pool(&pool) {
         return Err(err(format!(
@@ -1560,7 +1680,7 @@ fn apply_official_count_adjustment(
     command_id: Uuid,
     payload: &OfficialCountAdjustmentPayload,
 ) -> Result<(), SyncError> {
-    let node = require_dc_work_owner(tx, &payload.site_id)?;
+    let node = require_work_owner(tx, &payload.site_id)?;
     let pool = OperationalPool::from_str(&payload.pool_id).map_err(err)?;
     if pool.id() != payload.pool_id || !node.owns_pool(&pool) {
         return Err(err(format!(
@@ -1667,6 +1787,9 @@ fn apply_official_count_adjustment(
     };
     let mut shortage_lines = Vec::new();
     let mut gain_lines = Vec::new();
+    // Counted over, and the tag is the one this pool lost: that is a find,
+    // not a gain (owner, 1 Oct 2026 — a count closes an open Missing first).
+    let mut found_lines = Vec::new();
     let mut rejection_reason = None;
     for line in &local_lines {
         let subject: Option<(String, String)> = tx
@@ -1725,6 +1848,23 @@ fn apply_official_count_adjustment(
                     |row| row.get(0),
                 )
                 .map_err(err)?;
+            let missing_here: i64 = tx
+                .query_row(
+                    "SELECT COALESCE(SUM(quantity),0) FROM inventory_projection
+                     WHERE subject_id=?1 AND place_id=?2",
+                    params![subject_id.to_string(), missing_place.id()],
+                    |row| row.get(0),
+                )
+                .map_err(err)?;
+            if missing_here > 0 && positioned == missing_here && line.expected_quantity == 0 {
+                found_lines.push(MovementLine {
+                    subject_id,
+                    quantity: line.adjustment_quantity.min(missing_here),
+                    from: missing_place.clone(),
+                    to: normal_place.clone(),
+                });
+                continue;
+            }
             if positioned != 0 || line.expected_quantity != 0 {
                 rejection_reason = Some(format!(
                     "count gain EPC {} already has inventory position {}",
@@ -1770,6 +1910,28 @@ fn apply_official_count_adjustment(
                     &node,
                     tx,
                     &format!("official-count:{}:shortage", payload.adjustment_id),
+                    &command,
+                )
+                .map_err(err)?
+                .movement_group_id,
+            );
+        }
+        if !found_lines.is_empty() {
+            let command = MovementCommand {
+                movement_group_id: MovementGroupId::new(),
+                lines: found_lines,
+                cause: MovementCause::Found,
+                reference_type: Some("OFFICIAL_COUNT".into()),
+                reference_id: Some(payload.count_id.to_string()),
+                reason: format!("Approved Official Count {} found what was missing", payload.count_id),
+                actor_id: payload.approved_by.clone(),
+                occurred_at: applied_at,
+            };
+            movement_group_ids.push(
+                SqliteEdge::append_movement(
+                    &node,
+                    tx,
+                    &format!("official-count:{}:found", payload.adjustment_id),
                     &command,
                 )
                 .map_err(err)?
@@ -1927,6 +2089,30 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
     // were not present. Unchanged users keep their sessions during a routine
     // lease renewal; changed auth_version values invalidate sessions locally.
     for user in &snapshot.users {
+        // A node's LOCAL break-glass account (INVENTORY_BOOTSTRAP_ADMIN_PASSWORD)
+        // is usually `admin`, and so is the cloud's bootstrap admin, whom a
+        // role with node_reach EVERY now sends to every server (postgres
+        // 0635). The name is unique here, so inserting the cloud's row failed
+        // and blocked the whole command stream behind it: nobody else on the
+        // policy could sign in, and no catalogue or price reached the node.
+        // The local account is the one that must keep working with the line
+        // down, so it keeps the name and the cloud's namesake is left out.
+        let local_namesake: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM edge_user
+                                WHERE username=?1 AND source='LOCAL' AND id<>?2)",
+                params![user.username, user.user_id.to_string()],
+                |row| row.get(0),
+            )
+            .map_err(err)?;
+        if local_namesake {
+            tracing::warn!(
+                username = %user.username,
+                "auth policy: a LOCAL account here already holds this name; the cloud's \
+                 namesake is not projected onto this node"
+            );
+            continue;
+        }
         tx.execute(
             "INSERT INTO edge_user
                  (id,username,display_name,password_hash,role,active,auth_version,source,
@@ -2242,8 +2428,8 @@ fn apply_tagging_job(
     tx.execute(
         "INSERT INTO tagging_job
              (job_id, session_id, article_code, article_name, image_url, total_quantity,
-              issued_at, received_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+              issued_at, received_at, receipt_line_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             job.job_id.to_string(),
             job.session_id.to_string(),
@@ -2252,7 +2438,8 @@ fn apply_tagging_job(
             job.image_url,
             job.total_quantity,
             job.issued_at.to_rfc3339_opts(SecondsFormat::Micros, true),
-            received_at
+            received_at,
+            job.receipt_line_id.to_string()
         ],
     )
     .map_err(err)?;
@@ -2422,10 +2609,10 @@ fn apply_in_transit_release(
     payload: &crate::sync::transfer::InTransitReleasePayload,
 ) -> Result<(), SyncError> {
     let node = resident_node(tx)?;
-    if node.site_id.as_str() != payload.source_site_id {
+    if node.site_id.as_str() != payload.source_dc_id {
         tracing::warn!(
             release = %payload.release_id,
-            source = %payload.source_site_id,
+            source = %payload.source_dc_id,
             node_site = %node.site_id,
             "ignoring an in-transit release addressed to another site"
         );
@@ -2454,7 +2641,7 @@ fn apply_in_transit_release(
                 command_id.to_string(),
                 payload.koli_id.to_string(),
                 payload.epc,
-                payload.destination_site_id,
+                payload.destination_store_id,
                 outcome,
                 movement_group_id,
                 released_at
@@ -2478,7 +2665,7 @@ fn apply_in_transit_release(
     let subject_id = crate::edge::SubjectId(Uuid::parse_str(&subject).map_err(err)?);
 
     // Where it stands in transit: the stage at this origin, or a legacy leaf.
-    let destination = SiteId::new(&payload.destination_site_id).map_err(err)?;
+    let destination = SiteId::new(&payload.destination_store_id).map_err(err)?;
     let in_transit = [
         OperationalPool::Outbound {
             site_id: node.site_id.clone(),
@@ -2505,6 +2692,67 @@ fn apply_in_transit_release(
         .flatten()
         .is_some_and(|quantity| quantity >= 1)
     });
+    // Booked Missing when the destination's count did not find it, and found
+    // since: out of Missing first, then let go of as usual.
+    let in_transit = match in_transit {
+        Some(place) => Some(place),
+        None => {
+            let missing = in_transit_pools(&node, &payload.destination_store_id)?
+                .into_iter()
+                .find_map(|pool| {
+                    let place = Place::Operational {
+                        pool: pool.clone(),
+                        state: InventoryState::Missing,
+                    };
+                    let held = tx
+                        .query_row(
+                            "SELECT quantity FROM inventory_projection WHERE subject_id=?1 AND place_id=?2",
+                            params![subject_id.0.to_string(), place.id()],
+                            |row| row.get::<_, i64>(0),
+                        )
+                        .optional()
+                        .ok()
+                        .flatten()
+                        .is_some_and(|quantity| quantity >= 1);
+                    held.then_some((pool, place))
+                });
+            match missing {
+                Some((pool, missing_place)) => {
+                    let normal = Place::Operational {
+                        pool,
+                        state: InventoryState::Normal,
+                    };
+                    let found = MovementCommand {
+                        movement_group_id: MovementGroupId::new(),
+                        lines: vec![MovementLine {
+                            subject_id,
+                            quantity: 1,
+                            from: missing_place,
+                            to: normal.clone(),
+                        }],
+                        cause: MovementCause::Found,
+                        reference_type: Some("TRANSFER_RECEIPT".into()),
+                        reference_id: Some(payload.release_id.to_string()),
+                        reason: format!(
+                            "Found at {} after it was booked missing",
+                            payload.destination_store_id
+                        ),
+                        actor_id: "system:in-transit-release".into(),
+                        occurred_at: Utc::now(),
+                    };
+                    crate::edge::SqliteEdge::append_movement(
+                        &node,
+                        tx,
+                        &format!("in-transit-release-found-{}", payload.release_id),
+                        &found,
+                    )
+                    .map_err(err)?;
+                    Some(normal)
+                }
+                None => None,
+            }
+        }
+    };
     let Some(from) = in_transit else {
         return record("NOT_IN_TRANSIT", None);
     };
@@ -2524,7 +2772,7 @@ fn apply_in_transit_release(
         reference_id: Some(payload.release_id.to_string()),
         reason: format!(
             "Counted in at {} ({}); custody passed",
-            payload.destination_site_id,
+            payload.destination_store_id,
             payload.shipment_reference.as_deref().unwrap_or("no surat jalan")
         ),
         actor_id: "system:in-transit-release".into(),
@@ -2538,6 +2786,111 @@ fn apply_in_transit_release(
     )
     .map_err(err)?;
     record("RELEASED", Some(result.movement_group_id.to_string()))?;
+    crate::edge::SqliteEdge::enqueue_pool_snapshot(tx, &node, Uuid::new_v4())
+        .map(|_| ())
+        .map_err(err)
+}
+
+/// The in-transit pools a piece sent to `destination` can stand in here: the
+/// outbound stage, or the legacy per-store leaf.
+fn in_transit_pools(
+    node: &NodeContext,
+    destination: &str,
+) -> Result<Vec<OperationalPool>, SyncError> {
+    let destination = SiteId::new(destination).map_err(err)?;
+    Ok(vec![
+        OperationalPool::Outbound {
+            site_id: node.site_id.clone(),
+            stage: crate::pool_role::OutboundStage::InTransit,
+        },
+        OperationalPool::DcOutboundInTransit {
+            dc_id: node.site_id.clone(),
+            store_id: destination,
+        },
+    ])
+}
+
+/// The destination counted a koli in and this piece was not there: book it
+/// Missing where it stands in transit (owner, 1 Oct 2026 — every shortage is
+/// Missing). Idempotent by the movement key; a piece no longer in transit
+/// here (released, already missing, or never ours) is passed over, never an
+/// error that would stop the command stream.
+fn apply_in_transit_short(
+    tx: &Transaction<'_>,
+    payload: &crate::sync::transfer::InTransitShortPayload,
+) -> Result<(), SyncError> {
+    let node = resident_node(tx)?;
+    if node.site_id.as_str() != payload.source_dc_id {
+        return Ok(());
+    }
+    let subject: Option<String> = tx
+        .query_row(
+            "SELECT id FROM inventory_subject WHERE epc=?1",
+            [&payload.epc],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(err)?;
+    let Some(subject) = subject else {
+        return Ok(());
+    };
+    let subject_id = crate::edge::SubjectId(Uuid::parse_str(&subject).map_err(err)?);
+    let standing = in_transit_pools(&node, &payload.destination_store_id)?
+        .into_iter()
+        .find(|pool| {
+            let place = Place::Operational {
+                pool: pool.clone(),
+                state: InventoryState::Normal,
+            };
+            tx.query_row(
+                "SELECT quantity FROM inventory_projection WHERE subject_id=?1 AND place_id=?2",
+                params![subject_id.0.to_string(), place.id()],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .ok()
+            .flatten()
+            .is_some_and(|quantity| quantity >= 1)
+        });
+    let Some(pool) = standing else {
+        return Ok(());
+    };
+    let command = MovementCommand {
+        movement_group_id: MovementGroupId::new(),
+        lines: vec![MovementLine {
+            subject_id,
+            quantity: 1,
+            from: Place::Operational {
+                pool: pool.clone(),
+                state: InventoryState::Normal,
+            },
+            to: Place::Operational {
+                pool,
+                state: InventoryState::Missing,
+            },
+        }],
+        cause: MovementCause::CountShortage,
+        reference_type: Some("STORE_RECEIPT".into()),
+        reference_id: Some(
+            payload
+                .shipment_reference
+                .clone()
+                .unwrap_or_else(|| payload.receipt_id.to_string()),
+        ),
+        reason: format!(
+            "Not found when {} counted the delivery in",
+            payload.destination_store_id
+        ),
+        actor_id: "system:in-transit-short".into(),
+        occurred_at: Utc::now(),
+    };
+    crate::edge::SqliteEdge::append_movement(
+        &node,
+        tx,
+        &format!("in-transit-short-{}", payload.short_id),
+        &command,
+    )
+    .map_err(err)?;
     crate::edge::SqliteEdge::enqueue_pool_snapshot(tx, &node, Uuid::new_v4())
         .map(|_| ())
         .map_err(err)
@@ -2827,6 +3180,57 @@ fn apply_price_amendment_decision(
     Ok(())
 }
 
+/// A purchase return the buyer raised: excess this DC is holding, to hand to
+/// the supplier (`0068`, cloud `0710`).
+///
+/// Only written down here. The pieces stay where they are until somebody on
+/// the bay hands them over, which is a movement of its own. Idempotent: a
+/// return this node already holds is the same return.
+fn apply_purchase_return(
+    tx: &Transaction<'_>,
+    raised: &crate::cloud::domain::PurchaseReturnPayload,
+) -> Result<(), SyncError> {
+    let inserted = tx
+        .execute(
+            "INSERT OR IGNORE INTO purchase_return
+                 (return_id, return_number, purchase_order_id, po_number, supplier_id,
+                  supplier_name, note, raised_by, received_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                raised.return_id.to_string(),
+                raised.return_number,
+                raised.purchase_order_id.to_string(),
+                raised.po_number,
+                raised.supplier_id,
+                raised.supplier_name,
+                raised.note,
+                raised.raised_by,
+                now_text()
+            ],
+        )
+        .map_err(err)?;
+    if inserted == 0 {
+        return Ok(());
+    }
+    for line in &raised.lines {
+        tx.execute(
+            "INSERT INTO purchase_return_line
+                 (return_id, receipt_line_id, po_line_id, article_code, article_name, quantity)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                raised.return_id.to_string(),
+                line.receipt_line_id.to_string(),
+                line.po_line_id.to_string(),
+                line.article_code,
+                line.article_name,
+                line.quantity
+            ],
+        )
+        .map_err(err)?;
+    }
+    Ok(())
+}
+
 fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result<(), SyncError> {
     match command.command_type.as_str() {
         COMMAND_ACTIVATE_PUBLICATION => {
@@ -2860,6 +3264,11 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
             let order = parse_purchase_order(&command.payload).map_err(err)?;
             apply_purchase_order_revision(tx, &order)
         }
+        crate::cloud::domain::COMMAND_PURCHASE_RETURN_RAISE => {
+            let raised = crate::cloud::domain::parse_purchase_return(&command.payload)
+                .map_err(err)?;
+            apply_purchase_return(tx, &raised)
+        }
         crate::cloud::domain::COMMAND_PURCHASE_ORDER_CANCEL => {
             let cancellation =
                 crate::cloud::domain::parse_purchase_order_cancellation(&command.payload)
@@ -2871,6 +3280,20 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
                     SET cancelled_at = COALESCE(cancelled_at, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
                   WHERE purchase_order_id = ?1",
                 params![cancellation.purchase_order_id.to_string()],
+            )
+            .map_err(err)?;
+            Ok(())
+        }
+        crate::cloud::domain::COMMAND_PURCHASE_ORDER_LINE_CLOSE => {
+            let closure =
+                crate::cloud::domain::parse_purchase_order_line_closure(&command.payload)
+                    .map_err(err)?;
+            // Idempotent, and quiet about a line this node never held.
+            tx.execute(
+                "UPDATE purchase_order_line
+                    SET closed_short_at = COALESCE(closed_short_at, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                  WHERE po_line_id = ?1",
+                params![closure.po_line_id.to_string()],
             )
             .map_err(err)?;
             Ok(())
@@ -2913,6 +3336,11 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
             let payload = parse_allotment_cancellation(&command.payload).map_err(err)?;
             apply_allotment_cancellation(tx, command.command_id, &payload)
         }
+        crate::sync::workflow::INVENTORY_ALLOTMENT_CLOSE_SHORT_V1 => {
+            let payload =
+                crate::sync::workflow::parse_allotment_close_short(&command.payload).map_err(err)?;
+            apply_allotment_close_short(tx, &payload)
+        }
         INVENTORY_OFFICIAL_COUNT_ACTIVATE_V1 => {
             let payload = parse_official_count_activation(&command.payload).map_err(err)?;
             apply_official_count_activation(tx, command.command_id, &payload)
@@ -2938,6 +3366,14 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
             let payload = crate::sync::transfer::parse_in_transit_release(&command.payload)
                 .map_err(err)?;
             apply_in_transit_release(tx, command.command_id, &payload)
+        }
+        // A piece the destination did not find at its door: Missing here.
+        // Only ever sent to a node whose heartbeat carries the transit-short
+        // capability.
+        crate::sync::transfer::INVENTORY_IN_TRANSIT_SHORT_V1 => {
+            let payload = crate::sync::transfer::parse_in_transit_short(&command.payload)
+                .map_err(err)?;
+            apply_in_transit_short(tx, &payload)
         }
         // What a goods flow touching this site did — kept for this node's
         // screens, never acted on (`edge::flows`). Only ever sent to a node
@@ -4434,10 +4870,15 @@ pub fn record_accepted_receipt_line(
     // it. The centre re-derives both and does not take them on trust — a node
     // can be behind, rebuilt, or wrong — but a disagreement is worth seeing.
     //
+    // `wrong_quantity`: the pieces the checker counted as not matching the
+    // order. A part of `excess_quantity`, named so the return that takes them
+    // back can say why.
+    //
     // `agreed_unit_price_minor`: the price at the moment of acceptance, so
     // what this delivery was worth cannot be restated by a later amendment.
     matched_quantity: i64,
     excess_quantity: i64,
+    wrong_quantity: i64,
     agreed_unit_price_minor: Option<i64>,
     counted_by: &str,
     verified_by: &str,
@@ -4510,6 +4951,7 @@ pub fn record_accepted_receipt_line(
             "quantity": counted_quantity,
             "matched_quantity": matched_quantity,
             "excess_quantity": excess_quantity,
+            "wrong_quantity": wrong_quantity,
             "agreed_unit_price_minor": agreed_unit_price_minor,
             "article_code": article_code,
             "counted_by": counted_by,

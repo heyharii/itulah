@@ -20,6 +20,7 @@ use std::io::Cursor;
 use calamine::Reader;
 
 use super::draft::{new_draft_id, new_line_id, PoImportDraft, PoImportDraftLine};
+use crate::cloud::domain::uom::split_quantity;
 use super::loose::{
     normalise_name, parse_amount_loose, parse_date_loose, parse_quantity_loose, string_or_null,
 };
@@ -261,16 +262,32 @@ fn grid_to_draft(grid: &[Vec<Option<String>>], sheet_name: &str) -> Option<PoImp
         notes: None,
         lines: body
             .iter()
-            .map(|row| PoImportDraftLine {
-                line_id: new_line_id(),
-                article_code: cell_at(&map, row, "article_code").and_then(|c| string_or_null(c)),
-                article_name: cell_at(&map, row, "article_name").and_then(|c| string_or_null(c)),
-                quantity: cell_at(&map, row, "quantity").and_then(|c| parse_quantity_loose(c)),
-                unit: cell_at(&map, row, "unit").and_then(|c| string_or_null(c)),
-                unit_price_minor: cell_at(&map, row, "unit_price")
-                    .and_then(|c| parse_amount_loose(c)),
-                promised_date: cell_at(&map, row, "promised_date")
-                    .and_then(|c| parse_date_loose(c)),
+            .map(|row| {
+                // "10 lusin" typed into the quantity cell is a quantity and
+                // a unit; a unit column, when there is one, still wins.
+                let typed = cell_at(&map, row, "quantity");
+                let split = typed
+                    .and_then(|c| split_quantity(c))
+                    .filter(|(quantity, word)| quantity.fract().is_zero() && word.is_some());
+                let quantity = match &split {
+                    Some((quantity, _)) => rust_decimal::prelude::ToPrimitive::to_i64(quantity),
+                    None => typed.and_then(|c| parse_quantity_loose(c)),
+                };
+                let unit = cell_at(&map, row, "unit")
+                    .and_then(|c| string_or_null(c))
+                    .or_else(|| split.and_then(|(_, word)| word));
+                PoImportDraftLine {
+                    line_id: new_line_id(),
+                    article_code: cell_at(&map, row, "article_code").and_then(|c| string_or_null(c)),
+                    article_name: cell_at(&map, row, "article_name").and_then(|c| string_or_null(c)),
+                    quantity,
+                    unit,
+                    unit_code: None,
+                    unit_price_minor: cell_at(&map, row, "unit_price")
+                        .and_then(|c| parse_amount_loose(c)),
+                    promised_date: cell_at(&map, row, "promised_date")
+                        .and_then(|c| parse_date_loose(c)),
+                }
             })
             .collect(),
         questions: Vec::new(),

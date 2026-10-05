@@ -544,10 +544,18 @@ pub async fn raise_instruction(
 
     let instruction_id = Uuid::new_v4();
     let mut tx = pool.begin().await?;
-    let number: i64 = sqlx::query("SELECT nextval('payment_instruction_number_seq') AS n")
+    // Raised today, in the books of the unit whose site asked (0701).
+    let raised_on: chrono::NaiveDate = sqlx::query_scalar("SELECT current_date")
         .fetch_one(&mut *tx)
-        .await?
-        .try_get("n")?;
+        .await?;
+    let asking_unit = super::sites::unit_of_site(&mut *tx, request.site_id.trim()).await?;
+    let number = super::number_series::next_number(
+        &mut tx,
+        super::number_series::PAYMENT_INSTRUCTION,
+        raised_on,
+        Some(&asking_unit),
+    )
+    .await?;
 
     sqlx::query(
         "INSERT INTO payment_instruction
@@ -559,7 +567,7 @@ pub async fn raise_instruction(
                  CASE WHEN $11 THEN now() ELSE NULL END)",
     )
     .bind(instruction_id)
-    .bind(format!("PI-{number:08}"))
+    .bind(&number)
     .bind(request.site_id.trim())
     .bind(request.payee.trim())
     .bind(request.purpose.trim())

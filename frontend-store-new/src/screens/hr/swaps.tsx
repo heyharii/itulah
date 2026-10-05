@@ -35,16 +35,16 @@ export function SwapList({
   return (
     <>
       {centreState(swaps, {
-        loading: "Reading the swap requests…",
+        loading: "Loading…",
         what: "this shop's swap requests",
         render: (queue) => (
           <>
-            <Fenced dropped={queue.elsewhere} place={scope.id} />
+            <Fenced dropped={queue.elsewhere} place={scope.unit_id} />
             <PeopleTable
               rows={queue.rows}
               rowKey={(swap) => swap.id}
               onRowClick={setOpen}
-              empty={`Nobody at ${scope.label} is asking to swap a day.`}
+              empty="No swap requests."
               columns={[
                 {
                   key: "who",
@@ -154,10 +154,6 @@ export function SwapSheet({
           ]}
         />
       </SheetSection>
-      <p className="text-meta text-mute">
-        Approved: both people's days are swapped on the rota at once, and the
-        attendance sheet follows. Refused: the rota stays as it is.
-      </p>
     </PeopleSheet>
   )
 }

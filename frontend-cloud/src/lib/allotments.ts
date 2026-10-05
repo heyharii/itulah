@@ -468,7 +468,7 @@ export function cancelAllotment(
 // in `backend/src/edge/domain/inventory/place.rs`. The server remains the one
 // that decides — when these disagree, its refusal is what the screen shows.
 
-/// The DC pools goods may be fulfilled out of. Not the outbound leaves
+/// The Gudang pools goods may be fulfilled out of. Not the outbound leaves
 /// (`PICKED`, `PACKED`, `SHIPMENT`, `LOADED`, `IN_TRANSIT`): goods already
 /// picked for a store are spoken for and cannot be promised to another.
 const DC_FULFILLMENT_POOL_CODES = new Set([
@@ -480,7 +480,7 @@ const DC_FULFILLMENT_POOL_CODES = new Set([
   "STORE_REJECT",
 ])
 
-/// A Store's own three pools, which are what it can send back to the DC.
+/// A Store's own three pools, which are what it can send back to the Gudang.
 const STORE_RETURN_POOL_CODES = new Set(["WAREHOUSE", "FLOOR", "REJECT"])
 
 /// The single pool a supplier return may leave from, named literally in the
@@ -508,8 +508,14 @@ export function sourcePoolsFor(type: AllotmentType, pools: readonly Pool[]): Poo
 /// Where an Allotment of this kind may go.
 ///
 /// Two of the three have exactly one answer and no choice to offer: everything
-/// returned goes to `dc`, and everything sent back to a supplier goes to the
-/// one external place the ledger has for suppliers.
+/// returned goes to the Gudang, and everything sent back to a supplier goes to
+/// the one external place the ledger has for suppliers.
+///
+/// TODO(0603): head office is the site of kind `HO`, never an id, so the
+/// `destination_id` below must be read (the fleet pools carry `site_kind`, and
+/// the server resolves the destination type from the site's own row) rather
+/// than named `dc`. Left literal only because this function is handed no rows
+/// to read it from.
 export function fixedDestinationFor(
   type: AllotmentType,
 ): { destination_type: DestinationType; destination_id: string } | null {
@@ -539,11 +545,14 @@ export const ALLOTMENT_STATUSES: readonly AllotmentStatus[] = [
 ]
 
 /// A word a person can read, for a wire value written for a machine.
+///
+/// `DC` is the wire's word for the Gudang — the head office warehouse — so a
+/// person reads "Gudang", which is what CONTEXT.md calls the place.
 export function humanise(value: string): string {
   return value
     .toLowerCase()
     .split("_")
-    .map((word) => (word === "dc" ? "DC" : word))
+    .map((word) => (word === "dc" ? "Gudang" : word))
     .join(" ")
     .replace(/^./, (first) => first.toUpperCase())
 }

@@ -721,6 +721,46 @@ pub async fn period_reopen(
     }
 
     let mut tx = pool.begin().await?;
+    // 7Soft's Undo Closing and ERPNext's cancel of a Period Closing Voucher
+    // both undo the LATEST close only. Reopening March under a closed April
+    // would let a correction land in March while April's figures — which
+    // carried March forward — stay sealed; the months are undone newest first.
+    let later: Option<(i16, i16)> = sqlx::query_as(
+        "SELECT year, month FROM fiscal_period
+          WHERE status = 'CLOSED' AND (year, month) > ($1, $2)
+          ORDER BY year DESC, month DESC LIMIT 1
+          FOR UPDATE",
+    )
+    .bind(period.year as i16)
+    .bind(period.month as i16)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some((later_year, later_month)) = later {
+        return Err(AppError::Conflict(format!(
+            "{later_year}-{later_month:02} is closed after {}; undo the latest closing first, \
+             one month at a time",
+            period.label()
+        )));
+    }
+    // A year-end Period Closing Voucher over this month has already moved the
+    // year's result into retained earnings; a posting into the reopened month
+    // would not be in it. Cancel the voucher first, as ERPNext requires.
+    let covering: Option<(NaiveDate, NaiveDate)> = sqlx::query_as(
+        "SELECT period_start, period_end FROM period_closing_voucher
+          WHERE status = 'POSTED' AND make_date($1, $2, 1) BETWEEN period_start AND period_end
+          LIMIT 1",
+    )
+    .bind(period.year)
+    .bind(period.month as i32)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some((start, end)) = covering {
+        return Err(AppError::Conflict(format!(
+            "the Period Closing Voucher for {start} – {end} covers {}; cancel it before \
+             reopening the month",
+            period.label()
+        )));
+    }
     let updated = sqlx::query(
         "UPDATE fiscal_period
             SET status='OPEN', closed_by=NULL, closed_at=NULL,

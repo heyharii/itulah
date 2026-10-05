@@ -6,7 +6,6 @@ import {
   moduleForPath,
   modules,
   newsModule,
-  nodeModule,
   type AppModule,
 } from "@/lib/navigation"
 import { cn } from "@/lib/utils"
@@ -115,7 +114,6 @@ export function Rail({
 
       <div className="flex shrink-0 flex-col items-center gap-1 border-t border-rail-hair px-1.5 pt-2 pb-3">
         <AsideTile module={newsModule} active={current === newsModule.id} />
-        <AsideTile module={nodeModule} active={current === nodeModule.id} />
         {onToggleSidebar && (
           <button
             type="button"

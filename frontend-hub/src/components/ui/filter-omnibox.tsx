@@ -16,6 +16,7 @@ import {
   type FilterOption,
 } from "@/lib/filter-chrome"
 import { facetMatches } from "@/components/ui/facets"
+import { numberKeyDown, numberText } from "@/lib/number-input"
 import {
   arity,
   isComplete,
@@ -100,7 +101,6 @@ export function FilterOmnibox({
   model,
   text,
   onText,
-  placeholder = "Filter, or search",
   className,
 }: {
   readonly model: FilterState
@@ -110,7 +110,6 @@ export function FilterOmnibox({
   /// screen says why the list is short.
   readonly text?: string
   readonly onText: (next: string | undefined) => void
-  readonly placeholder?: string
   readonly className?: string
 }) {
   const { fields, filters, commit, update, remove, clear } = model
@@ -551,16 +550,6 @@ export function FilterOmnibox({
               ref={input}
               onKeyDown={onKeyDown}
               onFocus={() => setOpen(true)}
-              placeholder={
-                // Not the column's name while editing it: the chip or the
-                // label is sitting immediately to the left already saying
-                // "Division", and printing it twice reads as a stutter.
-                editing
-                  ? "Search…"
-                  : filters.length > 0 || (text ?? "") !== ""
-                    ? "Add more filters…"
-                    : placeholder
-              }
               aria-label={
                 editing ? `Value for ${editing.field.label}` : "Filter"
               }
@@ -820,8 +809,18 @@ function Bounds({
             type={type}
             inputMode={type === "number" ? "decimal" : undefined}
             value={values[at] ?? ""}
-            onChange={(event) => set(at, event.target.value)}
-            placeholder={field.spec.unit ?? field.label}
+            onKeyDown={
+              type === "number"
+                ? (event) => numberKeyDown(true, event)
+                : undefined
+            }
+            onChange={(event) => {
+              const typed = event.target.value
+              set(
+                at,
+                type === "number" ? numberText(typed, true) : typed
+              )
+            }}
             className="h-8 w-full rounded-full border border-transparent bg-soft-2 px-3 text-[0.875rem] text-ink outline-none placeholder:text-mute"
           />
         </span>

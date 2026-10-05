@@ -1,40 +1,19 @@
-use serde::{Deserialize, Serialize};
-use std::fmt;
-use uuid::Uuid;
+//! The inventory ids both nodes mint — the Edge's definitions, re-exported.
+//!
+//! The same seven ids (`ArticleId` … `CountId`), by the same macro, one line
+//! apart: this module used to declare a second copy beside the shared pool and
+//! the shared place, and the copies were identical except that the Edge's
+//! carries the browser contract's `ts` derive. Two structurally identical
+//! newtypes with different names is not a harmless duplication: a movement line
+//! built here could not be handed to a writer that took the Edge's, which is
+//! exactly what happened the moment the movement model was made one.
+//!
+//! What a node holds and what the centre holds are the same ids; only the
+//! store that keeps them differs.
 
-macro_rules! uuid_id {
-    ($name:ident) => {
-        #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
-        #[serde(transparent)]
-        pub struct $name(pub Uuid);
-
-        impl $name {
-            pub fn new() -> Self {
-                Self(Uuid::new_v4())
-            }
-        }
-
-        impl Default for $name {
-            fn default() -> Self {
-                Self::new()
-            }
-        }
-
-        impl fmt::Display for $name {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                self.0.fmt(f)
-            }
-        }
-    };
-}
-
-uuid_id!(ArticleId);
-uuid_id!(SkuId);
-uuid_id!(SubjectId);
-uuid_id!(MovementId);
-uuid_id!(MovementGroupId);
-uuid_id!(ObservationId);
-uuid_id!(CountId);
+pub use crate::edge::{
+    ArticleId, CountId, MovementGroupId, MovementId, ObservationId, SkuId, SubjectId,
+};
 
 // `SiteId` and `SiteKind` live in `crate::ids`, shared with the edge. There
 // used to be a copy here that accepted only `dc` and `store-NN` and read the

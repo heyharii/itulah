@@ -3,16 +3,22 @@
 /**
  * The store's tills as head office's register holds them.
  */
-export type StoreTills = {
+export type StoreTills = { 
 /**
  * Tills in the register that are ACTIVE.
  */
-active: number,
+active: number, 
 /**
  * Of those, seen within ten minutes.
  */
-online: number,
+online: number, 
 /**
  * Tills waiting for a supervisor at the shop, as the server last said.
  */
-waiting: number, };
+waiting: number, 
+/**
+ * How many till seats the counter has — Kasir 1 to Kasir N
+ * (`site.till_count`, 0714). Head office's number: a machine sits at a
+ * seat, it does not add one. Nought for a store with no shop yet.
+ */
+seats: number, };

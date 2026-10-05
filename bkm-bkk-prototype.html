@@ -1,0 +1,1194 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BKM · BKK — 10 rancangan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Tokens from frontend-hub/src/styles/index.css. One file, ten designs of the
+   same two documents: BKM (Bukti Kas/Bank Masuk) and BKK (Bukti Kas/Bank
+   Keluar), after the 7Soft manual §6.2–6.5. App copy is English (hub rule);
+   the printed voucher is Indonesian. Keys: 1–9, 0 switch design; M swaps
+   BKM/BKK. */
+:root{
+  --ink:#20242c;--text:#394150;--body:#626b78;--mute:#737c89;--faint:#b9c0c9;--line-ico:#89919d;
+  --canvas:#fff;--soft:#f8f9fb;--soft-2:#f0f2f5;--soft-3:#f7f8fa;--hairline:#e7eaf0;--hairline-2:#dce1e8;--hairline-strong:#c7ced8;--backdrop:#dfe3ea;
+  --dark:#191b20;--rail:#16181d;--rail-2:#23262d;--rail-3:#2e323a;--rail-ink:#f2f4f7;--rail-mute:#7d8491;
+  --accent:#2563eb;--accent-bg:#eff5ff;--cta:#2563eb;--cta-hover:#1d4ed8;
+  --ok:#36b827;--ok-bg:#d9f4d2;--ok-fg:#15803d;--warn:#c9892e;--warn-bg:#faeacd;--warn-fg:#b45309;
+  --bad:#d05151;--bad-bg:#fbeaea;--bad-fg:#be123c;--info-bg:#ddebfa;--info-fg:#2c57bf;
+  --r-shell:16px;--r-card:12px;--r-inner:7px;
+  --shadow-soft:0 1px 3px rgb(24 39 60/4%);
+  --shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);
+  --shadow-shell:0 10px 34px rgb(24 39 60/8%);
+  --ease-out:cubic-bezier(.23,1,.32,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:14px/1.5 Inter,system-ui,sans-serif;color:var(--text);background:var(--backdrop);-webkit-font-smoothing:antialiased;padding:12px 16px 40px}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+b,strong{color:var(--ink);font-weight:600}
+fieldset{border:0;min-width:0}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:13px}
+.num{font-variant-numeric:tabular-nums}
+.muted{color:var(--mute)}
+.sp{flex:1}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+svg{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+kbd{font-family:"JetBrains Mono",monospace;font-size:12px;background:var(--canvas);border:1px solid var(--hairline-2);border-bottom-width:2px;border-radius:5px;padding:0 5px;color:var(--body)}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}}
+@keyframes pop{from{opacity:0;transform:translateY(-4px) scale(.98)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ---------- prototype chrome (not part of the app) ---------- */
+.proto{max-width:1320px;margin:0 auto 12px;display:flex;flex-direction:column;gap:10px}
+.proto-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.brand b{font-size:16px}
+.brand span{color:var(--body);margin-left:6px}
+.modes{display:inline-flex;background:var(--canvas);border:1px solid var(--hairline-2);border-radius:999px;padding:3px;gap:2px}
+.modes button{border:0;background:none;height:32px;padding:0 14px;border-radius:999px;color:var(--body);font-weight:500;display:inline-flex;align-items:center;gap:7px;transition:background .15s var(--ease-out),color .15s}
+.modes button[aria-pressed=true]{background:var(--ink);color:#fff}
+.vtabs{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:1px 0 2px}
+.vtabs::-webkit-scrollbar{display:none}
+.vtabs button{flex:none;height:34px;padding:0 12px 0 6px;border:1px solid var(--hairline-2);background:var(--canvas);border-radius:999px;display:inline-flex;align-items:center;gap:8px;color:var(--text);font-weight:500;transition:border-color .15s,background .15s,color .15s,transform .12s var(--ease-out)}
+.vtabs button:hover{border-color:var(--hairline-strong)}
+.vtabs button:active{transform:scale(.97)}
+.vtabs button i{font-style:normal;width:22px;height:22px;border-radius:50%;background:var(--soft-2);display:grid;place-items:center;font-size:12px;color:var(--body)}
+.vtabs button[aria-pressed=true]{border-color:var(--ink);background:var(--ink);color:#fff}
+.vtabs button[aria-pressed=true] i{background:rgb(255 255 255/.16);color:#fff}
+.proto-why{color:var(--body);max-width:980px}
+.proto-why b{margin-right:6px}
+.stage{max-width:1320px;margin:0 auto;overflow-x:auto}
+
+/* ---------- app shell ---------- */
+.app{display:flex;min-width:1080px;min-height:calc(100vh - 176px);background:var(--canvas);border-radius:var(--r-shell);overflow:hidden;box-shadow:var(--shadow-shell)}
+.enter .app,.enter .v8{animation:rise .3s var(--ease-out)}
+.rail{width:56px;flex:none;background:var(--rail);display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 0}
+.rail .logo{width:30px;height:30px;border-radius:9px;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:600;margin-bottom:10px}
+.rail a{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;color:var(--rail-mute)}
+.rail a.on{background:var(--rail-3);color:var(--rail-ink)}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.ph{padding:14px 24px 14px;border-bottom:1px solid var(--hairline);background:var(--canvas)}
+.crumb{color:var(--mute);font-size:13px;display:flex;gap:6px;align-items:center}
+.ph-row{display:flex;align-items:center;gap:10px;margin-top:4px;flex-wrap:wrap}
+.ph h1{font-size:20px;line-height:1.3;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+.content{flex:1;background:var(--soft);padding:20px 24px 28px;min-width:0}
+.dir{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;flex:none}
+.dir.d-in{background:var(--ok-bg);color:var(--ok-fg)}
+.dir.d-out{background:var(--soft-2);color:var(--ink)}
+
+/* ---------- primitives, as the hub draws them ---------- */
+.card{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);box-shadow:var(--shadow-soft)}
+.btn{height:36px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 14px;border-radius:var(--r-inner);border:1px solid var(--hairline-2);background:var(--canvas);font-weight:500;white-space:nowrap;box-shadow:var(--shadow-soft);transition:background .15s,border-color .15s,transform .12s var(--ease-out),opacity .15s}
+.btn:hover{background:var(--soft-2)}
+.btn:active{transform:scale(.97)}
+.btn svg{color:var(--line-ico)}
+.btn.pri{background:var(--cta);border-color:var(--cta);color:#fff;box-shadow:none}
+.btn.pri svg{color:#fff}
+.btn.pri:hover{background:var(--cta-hover)}
+.btn.ghost{border-color:transparent;background:none;box-shadow:none;color:var(--body)}
+.btn.ghost:hover{background:var(--soft-2);color:var(--ink)}
+.btn.sm{height:32px;padding:0 11px}
+.btn.lg{height:44px;padding:0 20px;font-size:15px}
+.btn:disabled{opacity:.5;pointer-events:none}
+.btn[aria-busy=true]{opacity:.75}
+.link{border:0;background:none;color:var(--body);text-decoration:underline;text-decoration-color:var(--hairline-strong);text-underline-offset:3px;font-weight:500}
+.link:hover{color:var(--ink)}
+.icon-btn{width:32px;height:32px;border:0;background:none;border-radius:8px;display:grid;place-items:center;color:var(--line-ico)}
+.icon-btn:hover{background:var(--soft-2);color:var(--ink)}
+.f{display:flex;flex-direction:column;gap:6px;min-width:0}
+.f>span:first-child{font-weight:500;color:var(--text)}
+.req{color:var(--bad);font-style:normal;margin-left:2px}
+.in{height:40px;width:100%;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);padding:0 12px;outline:none;color:var(--ink);display:flex;align-items:center;gap:8px;min-width:0;transition:border-color .15s,box-shadow .15s}
+.in:hover{border-color:var(--hairline-strong)}
+.in:focus,.in:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.in[aria-invalid=true],.in.bad{border-color:var(--bad)}
+.in.ro{background:var(--soft);color:var(--text)}
+.in.ro:hover{border-color:var(--hairline-2)}
+.in.ro em{margin-left:auto;font-style:normal;color:var(--mute);font-size:13px}
+.in.sm{height:34px}
+.in svg{color:var(--line-ico)}
+select.in{appearance:none;padding-right:34px;cursor:pointer;background:var(--canvas) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2389919d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 11px center/14px}
+textarea.in{height:auto;padding:9px 12px;resize:vertical;line-height:1.5}
+.err{color:var(--bad-fg);font-size:13px}
+.hint{color:var(--mute);font-size:13px}
+.segm{display:inline-flex;background:var(--soft-2);border-radius:var(--r-inner);padding:2px;gap:2px}
+.segm button{height:32px;padding:0 13px;border:0;border-radius:6px;background:none;color:var(--body);font-weight:500;transition:background .15s,color .15s,box-shadow .15s}
+.segm button[aria-pressed=true]{background:var(--canvas);color:var(--ink);box-shadow:var(--shadow-soft)}
+.pill{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px 0 8px;border:1px solid var(--hairline-2);border-radius:999px;font-size:13px;color:var(--text);background:var(--canvas);white-space:nowrap;font-weight:500}
+.pill::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--faint)}
+.pill.ok::before{background:var(--ok)}.pill.warn::before{background:var(--warn)}.pill.bad::before{background:var(--bad)}.pill.info::before{background:var(--accent)}
+.pill.void{color:var(--mute);text-decoration:line-through}
+.chip{height:30px;padding:0 11px;border:1px solid var(--hairline-2);border-radius:999px;background:var(--canvas);color:var(--text);font-weight:500;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;transition:background .15s,border-color .15s,color .15s,transform .12s var(--ease-out)}
+.chip:hover{border-color:var(--hairline-strong)}
+.chip:active{transform:scale(.97)}
+.chip span{color:var(--mute)}
+.chip.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.chip.on span{color:rgb(255 255 255/.7)}
+.banner{display:flex;gap:10px;align-items:flex-start;padding:10px 14px;border-radius:var(--r-inner);margin-bottom:14px}
+.banner.anim{animation:rise .25s var(--ease-out)}
+.banner svg{margin-top:2px}
+.banner.ok{background:var(--ok-bg);color:var(--ok-fg)}.banner.ok b{color:var(--ok-fg)}
+.banner.bad{background:var(--bad-bg);color:var(--bad-fg)}
+.banner.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.banner.info{background:var(--info-bg);color:var(--info-fg)}
+.cb{appearance:none;width:16px;height:16px;border-radius:4px;border:1.5px solid var(--hairline-strong);background:var(--canvas);display:inline-grid;place-items:center;vertical-align:middle;cursor:pointer;transition:background .12s,border-color .12s;flex:none}
+.cb:hover{border-color:var(--line-ico)}
+.cb:checked{background:var(--accent);border-color:var(--accent)}
+.cb:checked::after{content:"";width:8px;height:4px;border:2px solid #fff;border-top:0;border-right:0;transform:translateY(-1px) rotate(-45deg)}
+.cb:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.cb:disabled{opacity:.5;cursor:default}
+.due{font-size:13px;color:var(--mute);margin-left:6px;white-space:nowrap}
+.due.late{color:var(--warn-fg);font-weight:500}
+.big{font-size:30px;line-height:1.15;font-weight:600;color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.big small{font-size:16px;color:var(--mute);font-weight:500;margin-right:5px}
+.words{color:var(--mute);font-size:13px;font-style:italic}
+.avatar{width:26px;height:26px;border-radius:50%;background:var(--accent-bg);color:var(--accent);display:grid;place-items:center;font-size:12px;font-weight:600;flex:none}
+.avatar.sm{width:22px;height:22px;font-size:11px}
+.avatar.lg{width:46px;height:46px;font-size:16px}
+.pickwrap{position:relative}
+.pick{height:40px;width:100%;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);display:flex;align-items:center;gap:8px;padding:0 10px 0 8px;text-align:left;transition:border-color .15s}
+.pick:hover{border-color:var(--hairline-strong)}
+.pick svg{color:var(--line-ico)}
+.pick b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.pick .muted{white-space:nowrap}
+.menu{position:absolute;z-index:30;top:calc(100% + 6px);left:0;right:0;min-width:300px;background:var(--canvas);border:1px solid var(--hairline-2);border-radius:10px;box-shadow:var(--shadow-pop);padding:4px}
+.menu.anim{animation:pop .16s var(--ease-out)}
+.menu.r{left:auto;right:0;width:340px}
+.menu button{display:flex;align-items:center;gap:10px;width:100%;border:0;background:none;padding:8px 10px;border-radius:7px;text-align:left}
+.menu button:hover,.menu button[aria-selected=true]{background:var(--soft-2)}
+.tabs{display:flex;gap:20px}
+.tabs button{border:0;background:none;height:42px;color:var(--body);font-weight:500;display:inline-flex;align-items:center;gap:7px;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s,border-color .15s}
+.tabs button:hover{color:var(--ink)}
+.tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--ink)}
+.tabs .n{font-size:12px;min-width:20px;height:20px;padding:0 6px;border-radius:99px;background:var(--soft-2);color:var(--body);display:inline-grid;place-items:center}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{height:38px;padding:0 12px;background:var(--soft);color:var(--body);font-weight:500;font-size:13px;text-align:left;border-bottom:1px solid var(--hairline);white-space:nowrap}
+.tbl td{height:46px;padding:0 12px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+.tbl tbody tr:last-child td{border-bottom:0}
+.tbl .r{text-align:right}
+.tbl tbody tr{transition:background .12s}
+.tbl tbody tr:hover{background:#f7f9fc}
+.tbl tr.off td{color:var(--mute)}
+.tbl tfoot td{background:var(--soft);font-weight:600;color:var(--ink);border-top:1px solid var(--hairline-2);height:44px}
+.cell-in{height:32px;width:100%;border:1px solid transparent;border-radius:6px;background:transparent;padding:0 8px;text-align:right;font-variant-numeric:tabular-nums;outline:none;color:var(--ink);transition:border-color .15s,background .15s,box-shadow .15s}
+.cell-in.left{text-align:left}
+.cell-in:hover{border-color:var(--hairline-2);background:var(--canvas)}
+.cell-in:focus{border-color:var(--accent);background:var(--canvas);box-shadow:0 0 0 3px var(--accent-bg)}
+.cell-in[aria-invalid=true]{border-color:var(--bad);background:var(--bad-bg);color:var(--bad-fg)}
+.cell-in:disabled{opacity:.45}
+.cell-in::placeholder{color:var(--faint)}
+.addrow{display:flex;align-items:center;gap:8px;width:100%;height:40px;border:0;background:none;color:var(--body);font-weight:500;border-radius:7px;padding:0 8px}
+.addrow:hover{background:var(--soft-2);color:var(--ink)}
+.empty{padding:48px 24px;text-align:center;color:var(--body);display:flex;flex-direction:column;align-items:center;gap:10px}
+.empty p{max-width:460px}
+.empty-ico{width:44px;height:44px;border-radius:12px;background:var(--soft-2);display:grid;place-items:center;color:var(--line-ico)}
+.empty-ico svg{width:22px;height:22px}
+.warnt{color:var(--warn-fg)}
+.toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,16px);opacity:0;pointer-events:none;display:flex;align-items:center;gap:10px;padding:11px 16px;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);box-shadow:var(--shadow-pop);color:var(--ink);font-weight:500;transition:opacity .2s var(--ease-out),transform .25s var(--ease-out);z-index:99}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.toast.ok svg{color:var(--ok-fg)}.toast.bad svg{color:var(--bad-fg)}
+
+/* ---------- 1 · classic ---------- */
+.v1-hdr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) 290px;gap:0 24px;padding:18px 20px}
+.col{display:flex;flex-direction:column;gap:14px;min-width:0}
+.giro{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px;padding:12px;border-radius:9px;background:var(--soft);border:1px dashed var(--hairline-strong)}
+.giro .g-due{grid-column:1/-1}
+.giro-note{grid-column:1/-1;color:var(--mute);font-size:13px}
+.dayrow{display:flex;gap:6px;align-items:center}
+.dayrow .in{flex:1}
+.totalbox{border-left:1px solid var(--hairline);padding-left:24px;display:flex;flex-direction:column;gap:6px}
+.totalbox .lbl{color:var(--body);font-weight:500}
+.mini{display:flex;flex-direction:column;gap:6px;margin-top:10px;padding-top:12px;border-top:1px solid var(--hairline)}
+.mini div{display:flex;justify-content:space-between;gap:10px;color:var(--body)}
+.mini dd{font-variant-numeric:tabular-nums;color:var(--ink)}
+.v1-bar{display:flex;align-items:flex-end;gap:8px;margin-top:20px;border-bottom:1px solid var(--hairline)}
+.v1-bar .btn{margin-bottom:7px}
+.grid-card{margin-top:12px;overflow:visible}
+.grid-card .tbl{border-radius:var(--r-card);overflow:hidden}
+.statusbar{display:flex;gap:16px;align-items:center;padding:12px 4px 0;color:var(--mute);font-size:13px;flex-wrap:wrap}
+.statusbar span{display:inline-flex;gap:4px;align-items:center}
+#probs .banner{margin:12px 0 0}
+
+/* ---------- 2 · list + sheet ---------- */
+.v2{display:grid;grid-template-columns:minmax(0,1fr) 430px;gap:16px;align-items:start}
+.v2-tools{display:flex;align-items:center;gap:10px;padding:12px;border-bottom:1px solid var(--hairline);flex-wrap:wrap}
+.search{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);color:var(--line-ico);min-width:250px}
+.search:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.search input{border:0;outline:none;flex:1;min-width:0;color:var(--ink);background:none}
+.rows tbody tr{cursor:pointer}
+.rows tbody tr.sel{background:var(--accent-bg)}
+.rows tbody tr:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.rows td .sub2{display:block;font-size:13px;color:var(--mute);max-width:260px;overflow:hidden;text-overflow:ellipsis}
+.list-foot{padding:12px;text-align:center;color:var(--mute);font-size:13px;border-top:1px solid var(--hairline)}
+.sheet{position:sticky;top:0;overflow:hidden}
+.enter .sheet{animation:slide .24s var(--ease-out)}
+@keyframes slide{from{opacity:0;transform:translateX(12px)}}
+.sh-head{display:flex;gap:12px;align-items:flex-start;padding:16px 18px 12px;border-bottom:1px solid var(--hairline)}
+.sh-head h2{font-size:17px;font-weight:600;color:var(--ink);line-height:1.3}
+.sh-body{padding:16px 18px 18px;display:flex;flex-direction:column;gap:16px}
+.facts{display:grid;grid-template-columns:118px 1fr;gap:8px 12px}
+.facts dt{color:var(--mute)}.facts dd{color:var(--ink);min-width:0}
+.sub{font-size:14px;font-weight:600;color:var(--ink)}
+.mini-t{width:100%;border-collapse:collapse}
+.mini-t td{padding:8px 0;border-bottom:1px solid var(--hairline);vertical-align:top}
+.mini-t td.r{text-align:right;font-variant-numeric:tabular-nums;padding-left:10px}
+.ladder{display:flex;flex-direction:column;gap:6px}
+.ladder div{display:flex;justify-content:space-between;color:var(--body)}
+.ladder div span:last-child{font-variant-numeric:tabular-nums;color:var(--ink)}
+.ladder .tot{border-top:1px solid var(--hairline-2);padding-top:8px;font-weight:600}
+.ladder .tot span{color:var(--ink)}
+details.jr{border:1px solid var(--hairline);border-radius:9px;padding:10px 12px}
+details.jr summary{cursor:pointer;color:var(--body);font-weight:500;list-style:none;display:flex;align-items:center;gap:6px}
+details.jr summary::-webkit-details-marker{display:none}
+details.jr[open] summary{margin-bottom:8px}
+.sh-actions{display:flex;gap:8px;padding:12px 18px;border-top:1px solid var(--hairline);background:var(--soft)}
+.cinv{display:flex;flex-direction:column;border:1px solid var(--hairline);border-radius:10px;overflow:hidden}
+.crow{display:grid;grid-template-columns:20px minmax(0,1fr) 90px 128px;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--hairline);background:var(--canvas)}
+.crow:last-child{border-bottom:0}
+.crow.off{background:var(--soft)}
+.crow.off .cmeta{color:var(--mute)}
+.cmeta{display:flex;flex-direction:column;min-width:0;line-height:1.35}
+.cmeta .due{margin-left:8px}
+
+/* ---------- 3 · settle board ---------- */
+.v3-top{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:16px}
+.v3-who,.v3-amt{padding:18px 20px;display:flex;flex-direction:column;gap:14px}
+.who-row{display:flex;align-items:center;gap:12px}
+.who-row b{font-size:17px}
+.aging{display:flex;height:10px;border-radius:99px;overflow:hidden;background:var(--soft-2);gap:2px}
+.aging i{display:block;height:100%}
+.leg{display:flex;gap:6px 14px;flex-wrap:wrap;color:var(--body);font-size:13px}
+.leg span{display:inline-flex;align-items:center;gap:6px}
+.leg i{width:8px;height:8px;border-radius:2px;display:inline-block}
+.a0{background:#b8cdf3}.a1{background:#ecc98f}.a2{background:#dea458}.a3{background:#b9772a}
+.bigin{display:flex;align-items:baseline;gap:8px;border-bottom:2px solid var(--ink);padding-bottom:4px;transition:border-color .15s}
+.bigin:focus-within{border-color:var(--accent)}
+.bigin span{font-size:22px;color:var(--mute);font-weight:500}
+.bigin input{border:0;outline:none;font-size:40px;font-weight:600;color:var(--ink);letter-spacing:-.02em;width:100%;font-variant-numeric:tabular-nums;background:none;min-width:0}
+.v3-strip{display:flex;gap:3px;height:12px;margin:18px 0 12px}
+.v3-strip span{position:relative;border-radius:4px;background:var(--hairline);overflow:hidden;min-width:6px}
+.v3-strip span i{position:absolute;inset:0 auto 0 0;background:var(--ink);transition:width .35s var(--ease-out)}
+.v3-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.tile{text-align:left;border:1px solid var(--hairline-2);background:var(--canvas);border-radius:var(--r-card);padding:12px 14px;display:flex;flex-direction:column;gap:6px;transition:border-color .15s,box-shadow .15s,transform .12s var(--ease-out),opacity .15s}
+.tile:hover{border-color:var(--hairline-strong)}
+.tile:active{transform:scale(.98)}
+.tile.full{border-color:var(--ok);box-shadow:inset 0 0 0 1px var(--ok)}
+.tile.part{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.tile.skip{border-style:dashed;opacity:.55}
+.t-top{display:flex;align-items:center;gap:8px}
+.t-top .due{margin-left:0}
+.ord{width:20px;height:20px;border-radius:50%;background:var(--soft-2);font-size:12px;display:grid;place-items:center;color:var(--body);font-weight:600;flex:none}
+.tile.full .ord{background:var(--ok-bg);color:var(--ok-fg)}
+.tile.part .ord{background:var(--accent-bg);color:var(--accent)}
+.t-amt{font-size:18px;font-weight:600;color:var(--ink)}
+.t-bar{height:4px;border-radius:99px;background:var(--soft-2);overflow:hidden}
+.t-bar i{display:block;height:100%;background:var(--accent);transition:width .35s var(--ease-out)}
+.tile.full .t-bar i{background:var(--ok)}
+.t-state{font-size:13px;color:var(--body)}
+.v3-foot{margin-top:16px;padding:14px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.lo{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+
+/* ---------- 4 · sentence ---------- */
+.v4{display:flex;flex-direction:column;align-items:center;padding:64px 32px 40px}
+.v4 .eyebrow{align-self:center;width:100%;max-width:900px;color:var(--mute);font-weight:500;display:flex;align-items:center;gap:8px;margin-bottom:14px}
+.sentence{width:100%;max-width:900px;font-size:30px;line-height:1.8;color:var(--body);letter-spacing:-.015em}
+.w{border:0;background:none;padding:0 2px;color:var(--ink);font-weight:500;border-bottom:2px dashed var(--hairline-strong);cursor:pointer;line-height:1.3;transition:color .15s,border-color .15s}
+.w:hover,.w.open{color:var(--accent);border-bottom-color:var(--accent);border-bottom-style:solid}
+.w.empty{color:var(--warn-fg);border-bottom-color:var(--warn)}
+.w.bad{color:var(--bad-fg);border-bottom-color:var(--bad)}
+.w.money{display:inline-flex;align-items:baseline;gap:6px;cursor:text}
+.w.money span{color:var(--mute);font-weight:500}
+.w.money input{border:0;outline:none;background:none;font:inherit;font-weight:600;color:var(--ink);padding:0;font-variant-numeric:tabular-nums;field-sizing:content;min-width:2ch;letter-spacing:-.015em}
+.pop{margin-top:18px;width:100%;max-width:900px;background:var(--canvas);border:1px solid var(--hairline-2);border-radius:var(--r-card);box-shadow:var(--shadow-pop)}
+.pop.anim{animation:pop .18s var(--ease-out)}
+.pop-h{display:flex;align-items:center;gap:8px;padding:10px 12px 10px 16px;border-bottom:1px solid var(--hairline);font-weight:600;color:var(--ink)}
+.pop-b{padding:10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:6px}
+.pop-b.one{grid-template-columns:1fr}
+.opt{display:flex;align-items:center;gap:10px;text-align:left;border:1px solid var(--hairline);border-radius:10px;background:var(--canvas);padding:10px 12px;transition:border-color .15s,background .15s}
+.opt:hover{border-color:var(--hairline-strong);background:var(--soft)}
+.opt.on{border-color:var(--accent);background:var(--accent-bg)}
+.opt small{display:block;color:var(--mute);font-size:13px}
+.v4-foot{margin-top:36px;width:100%;max-width:900px;display:flex;align-items:center;gap:14px;border-top:1px solid var(--hairline);padding-top:18px;flex-wrap:wrap}
+.jline{color:var(--body)}
+.jline .mono{color:var(--ink)}
+
+/* ---------- 5 · paper ---------- */
+.v5{display:flex;flex-direction:column;align-items:center;gap:14px;background:var(--soft-2) radial-gradient(var(--hairline-2) 1px,transparent 1px) 0 0/18px 18px}
+.v5-tools{width:860px;display:flex;align-items:center;gap:8px}
+.paper{position:relative;width:860px;background:#fff;box-shadow:0 1px 2px rgb(24 39 60/8%),0 18px 40px rgb(24 39 60/10%);padding:34px 44px 30px 56px;color:#1d2129}
+.paper::before{content:"";position:absolute;left:22px;top:22px;bottom:22px;border-left:2px dotted var(--hairline-2)}
+.pp-head{display:grid;grid-template-columns:1fr auto 1fr;align-items:end;gap:16px;border-bottom:2px solid #1d2129;padding-bottom:12px}
+.pp-co{font-weight:600;letter-spacing:.06em}
+.pp-title{text-align:center}
+.pp-title h2{font-size:21px;letter-spacing:.16em;font-weight:600;color:#1d2129}
+.pp-date{text-align:right;color:#4b5260}
+.pp-date b{color:#1d2129;font-weight:600}
+.pp-row{display:grid;grid-template-columns:150px 1fr;align-items:end;gap:12px;margin-top:12px}
+.pp-row>span{color:#4b5260}
+.line{border:0;border-bottom:1px dotted #9aa2ae;min-height:26px;padding:2px 2px;background:none;outline:none;width:100%;color:#1d2129;font-weight:500}
+.line.words{font-style:italic;font-weight:400;background:#f6f7f9;padding:4px 8px;border-radius:3px}
+.pp-tbl{width:100%;border-collapse:collapse;margin-top:16px}
+.pp-tbl th,.pp-tbl td{border:1px solid #1d2129;padding:4px 8px;height:30px}
+.pp-tbl th{font-weight:600;font-size:13px;background:#f5f6f8;text-align:left}
+.pp-tbl td.r,.pp-tbl th.r{text-align:right}
+.pp-tbl td.c{text-align:center;width:36px}
+.pp-tbl input{border:0;outline:none;background:none;width:100%;font:inherit;color:#1d2129}
+.pp-tbl input.r{text-align:right;font-variant-numeric:tabular-nums}
+.pp-tbl input:focus{background:var(--accent-bg)}
+.pp-tbl tr.neg td{color:#7a2231}
+.pp-add{border:0;background:none;color:var(--mute);font-size:13px;padding:0}
+.pp-add:hover{color:var(--ink)}
+.pp-bottom{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:14px}
+.pp-method{display:flex;gap:16px;flex-wrap:wrap;color:#1d2129}
+.box{display:inline-block;width:13px;height:13px;border:1.5px solid #1d2129;margin-right:6px;vertical-align:-2px;position:relative}
+.box.x::after{content:"";position:absolute;left:3px;top:0;width:4px;height:8px;border:solid #1d2129;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.pp-total{display:flex;align-items:center;gap:10px;border:2px solid #1d2129;padding:6px 14px;font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+.pp-sign{display:grid;grid-template-columns:repeat(4,1fr);margin-top:20px;border:1px solid #1d2129}
+.pp-sign div{border-right:1px solid #1d2129;padding:6px 8px 8px;text-align:center;height:104px;display:flex;flex-direction:column;justify-content:space-between;color:#4b5260}
+.pp-sign div:last-child{border-right:0}
+.pp-sign b{color:#1d2129;font-weight:500}
+.stamp{position:absolute;right:128px;top:132px;transform:rotate(-11deg);border:3px solid var(--ok-fg);color:var(--ok-fg);padding:6px 18px;border-radius:8px;font-weight:600;letter-spacing:.22em;font-size:26px;opacity:.85;text-align:center;line-height:1.2}
+.stamp.anim{animation:stamp .35s var(--ease-out)}
+.stamp small{display:block;font-size:12px;letter-spacing:.14em}
+@keyframes stamp{from{transform:rotate(-11deg) scale(1.5);opacity:0}}
+
+/* ---------- 6 · statement match ---------- */
+.v6{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:16px;align-items:start}
+.st-head{padding:14px 16px;border-bottom:1px solid var(--hairline);display:flex;flex-direction:column;gap:10px}
+.prog{height:6px;border-radius:99px;background:var(--soft-2);overflow:hidden}
+.prog i{display:block;height:100%;background:var(--ok);transition:width .4s var(--ease-out)}
+.stl{display:flex;gap:12px;align-items:center;padding:12px 16px;border:0;border-bottom:1px solid var(--hairline);width:100%;text-align:left;background:none;transition:background .12s}
+.stl:hover{background:#f7f9fc}
+.stl.sel{background:var(--accent-bg)}
+.stl.done{opacity:.6}
+.stl .d{width:52px;flex:none;color:var(--mute);font-size:13px}
+.stl .desc{flex:1;min-width:0;font-family:"JetBrains Mono",monospace;font-size:12.5px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stl .amt{font-variant-numeric:tabular-nums;color:var(--ink);font-weight:500}
+.dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--faint)}
+.dot.d-ok{background:var(--ok)}.dot.d-guess{background:var(--accent)}.dot.d-none{background:var(--warn)}
+.m-body{padding:18px;display:flex;flex-direction:column;gap:14px}
+.m-amt{display:flex;align-items:baseline;gap:10px}
+.guess{border:1px solid var(--accent);box-shadow:inset 0 0 0 1px var(--accent);border-radius:var(--r-card);padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.guess.plain{border-color:var(--hairline-2);box-shadow:none}
+.conf{display:flex;align-items:center;gap:8px;color:var(--body);font-size:13px}
+.conf .bar{width:80px;height:5px;background:var(--soft-2);border-radius:99px;overflow:hidden}
+.conf .bar i{display:block;height:100%;background:var(--accent)}
+.whys{display:flex;flex-direction:column;gap:4px}
+.whys li{color:var(--body);list-style:none;display:flex;gap:8px}
+.whys li::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--accent);margin-top:9px;flex:none}
+
+/* ---------- 7 · journal lens ---------- */
+.v7{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:16px;align-items:start}
+.v7-form{padding:18px 20px;display:flex;flex-direction:column;gap:14px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.lens{position:sticky;top:0;overflow:hidden}
+.lens-h{padding:14px 18px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--hairline);flex-wrap:wrap}
+.lens table{width:100%;border-collapse:collapse}
+.lens th{font-size:13px;font-weight:500;color:var(--body);text-align:left;padding:10px 18px;border-bottom:1px solid var(--hairline);background:var(--soft)}
+.lens td{padding:11px 18px;border-bottom:1px solid var(--hairline);font-variant-numeric:tabular-nums;vertical-align:top}
+.lens .r{text-align:right;white-space:nowrap}
+.acct{display:flex;align-items:center;gap:8px}
+.code{font-family:"JetBrains Mono",monospace;font-size:12.5px;color:var(--accent);background:var(--accent-bg);border-radius:5px;padding:1px 6px}
+.code.link{color:var(--warn-fg);background:var(--warn-bg)}
+.lens small{display:block;font-size:13px;margin-top:2px}
+.lens tfoot td{font-weight:600;color:var(--ink);border-bottom:0}
+.dbl{border-bottom:3px double var(--ink)!important}
+.later{margin:14px 18px 18px;border:1px dashed var(--hairline-strong);border-radius:9px;padding:12px 14px;color:var(--body);font-size:13px;display:flex;flex-direction:column;gap:6px}
+.later b{font-weight:500}
+
+/* ---------- 8 · phone ---------- */
+.v8{background:var(--soft-2) radial-gradient(var(--hairline-2) 1px,transparent 1px) 0 0/18px 18px;border-radius:var(--r-shell);padding:24px 24px 30px;min-width:1080px;box-shadow:var(--shadow-shell)}
+.v8-h{display:flex;align-items:center;gap:10px;margin-bottom:18px}
+.v8-h h1{font-size:20px;font-weight:600;color:var(--ink)}
+.phones{display:flex;gap:28px;justify-content:center;flex-wrap:wrap}
+.phone-wrap{display:flex;flex-direction:column;align-items:center;gap:12px}
+.step-cap{display:flex;align-items:center;gap:8px;color:var(--body);font-weight:500}
+.stepn{width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;display:grid;place-items:center;font-size:12px}
+.phone{width:318px;height:660px;border-radius:46px;background:#0f1115;padding:10px;box-shadow:0 22px 50px rgb(24 39 60/20%)}
+.scr{width:100%;height:100%;border-radius:37px;background:var(--canvas);overflow:hidden;display:flex;flex-direction:column;position:relative}
+.notch{position:absolute;top:9px;left:50%;transform:translateX(-50%);width:92px;height:26px;border-radius:99px;background:#0f1115;z-index:2}
+.sb{height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 26px;font-size:13px;font-weight:600;color:var(--ink)}
+.mtop{padding:2px 16px 8px;display:flex;align-items:center;gap:8px;flex:none}
+.mtop b{font-size:16px}
+.mtop small{color:var(--mute);display:block;font-size:13px}
+.mbody{flex:1;padding:6px 16px 16px;display:flex;flex-direction:column;gap:12px;min-height:0;overflow:hidden}
+.m-big{font-size:42px;font-weight:600;color:var(--ink);letter-spacing:-.02em;text-align:center;margin-top:30px;font-variant-numeric:tabular-nums;line-height:1.1}
+.m-big small{font-size:20px;color:var(--mute);font-weight:500;margin-right:4px}
+.m-sub{text-align:center;color:var(--mute)}
+.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:auto}
+.keys button{height:52px;border-radius:14px;border:0;background:var(--soft-2);font-size:21px;font-weight:500;color:var(--ink);display:grid;place-items:center;transition:transform .1s var(--ease-out),background .12s}
+.keys button:active{transform:scale(.94);background:var(--hairline)}
+.keys button svg{width:22px;height:22px}
+.mbtn{height:50px;border-radius:14px;border:0;background:var(--cta);color:#fff;font-weight:600;font-size:16px;width:100%;flex:none;transition:transform .12s var(--ease-out),opacity .15s}
+.mbtn:active{transform:scale(.98)}
+.mbtn[aria-busy=true]{opacity:.7}
+.mbtn.ghost{background:var(--soft-2);color:var(--ink)}
+.cats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.cat{border:1px solid var(--hairline-2);border-radius:14px;padding:10px 12px;text-align:left;background:var(--canvas);display:flex;flex-direction:column;gap:2px;min-height:64px;transition:border-color .15s,background .15s,transform .12s var(--ease-out)}
+.cat:active{transform:scale(.97)}
+.cat.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:var(--accent-bg)}
+.cat b{font-weight:500}
+.cat small{color:var(--mute);font-family:"JetBrains Mono",monospace;font-size:12px}
+.photo{border:1.5px dashed var(--hairline-strong);border-radius:14px;height:66px;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--body);background:var(--soft);width:100%;flex:none}
+.photo.done{border-style:solid;border-color:var(--ok);background:var(--ok-bg);color:var(--ok-fg)}
+.msum{border:1px solid var(--hairline);border-radius:14px;overflow:hidden}
+.msum div{display:flex;justify-content:space-between;gap:10px;padding:10px 14px;border-bottom:1px solid var(--hairline)}
+.msum div:last-child{border:0}
+.msum span:first-child{color:var(--body)}
+.msum span:last-child{color:var(--ink);font-weight:500;text-align:right}
+.balbar{display:flex;flex-direction:column;gap:6px}
+.balbar .track{height:8px;border-radius:99px;background:var(--soft-2);overflow:hidden;display:flex}
+.balbar .track i{display:block;height:100%;background:var(--ink);transition:width .35s var(--ease-out)}
+.balbar .track i.take{background:var(--warn)}
+.balbar .track i.add{background:var(--ok)}
+.balbar div{display:flex;justify-content:space-between;color:var(--body);font-size:13px}
+.done-scr{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;text-align:center;animation:rise .3s var(--ease-out)}
+.done-ico{width:64px;height:64px;border-radius:50%;background:var(--ok-bg);color:var(--ok-fg);display:grid;place-items:center;animation:pop .35s var(--ease-out)}
+.done-ico svg{width:30px;height:30px}
+
+/* ---------- 9 · giro board ---------- */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.kpi{padding:14px 16px}
+.kpi small{color:var(--body);font-weight:500;font-size:14px}
+.kpi b{display:block;font-size:22px;margin-top:2px;font-variant-numeric:tabular-nums}
+.kpi span{color:var(--mute);font-size:13px}
+.board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:start}
+.colm{background:var(--soft-2);border-radius:var(--r-card);padding:10px;display:flex;flex-direction:column;gap:8px;min-height:380px}
+.colm h3{font-size:14px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:8px;padding:2px 4px 4px}
+.colm h3 .n{font-size:12px;min-width:20px;height:20px;padding:0 6px;border-radius:99px;background:var(--canvas);color:var(--body);display:inline-grid;place-items:center;font-weight:500}
+.colm h3 .sum{margin-left:auto;font-weight:500;color:var(--body);font-size:13px;font-variant-numeric:tabular-nums}
+.gcard{background:var(--canvas);border:1px solid var(--hairline);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;box-shadow:var(--shadow-soft)}
+.gcard .top{display:flex;align-items:center;gap:8px}
+.gcard .amt{font-size:17px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.gcard .who{color:var(--text)}
+.gcard .meta{color:var(--mute);font-size:13px}
+.gcard .acts{display:flex;gap:6px;flex-wrap:wrap}
+.cd{font-size:13px;color:var(--body);font-weight:500}
+.cd.late{color:var(--warn-fg)}
+.clr{display:grid;gap:8px;padding:10px;background:var(--soft);border-radius:8px;animation:rise .2s var(--ease-out)}
+.empty-col{color:var(--mute);font-size:13px;text-align:center;padding:24px 8px}
+
+/* ---------- 10 · quick entry ---------- */
+.cmd{padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+.cmd-in{display:flex;align-items:center;gap:10px;height:54px;border:1.5px solid var(--ink);border-radius:12px;padding:0 14px;background:var(--canvas);transition:border-color .15s,box-shadow .15s}
+.cmd-in:focus-within{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-bg)}
+.cmd-in svg{width:18px;height:18px;color:var(--line-ico)}
+.cmd-in input{flex:1;border:0;outline:none;font-size:18px;color:var(--ink);background:none;min-width:0}
+.cmd-in input::placeholder{color:var(--faint)}
+.cmd-prev{display:flex;gap:8px;flex-wrap:wrap;align-items:center;min-height:32px}
+.tok{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px;border-radius:8px;background:var(--soft-2);color:var(--ink);font-weight:500}
+.tok small{color:var(--mute);font-weight:400;font-size:13px}
+.tok.miss{background:var(--warn-bg);color:var(--warn-fg)}
+.tok.miss small{color:var(--warn-fg)}
+.cmd-ex{display:flex;gap:6px;align-items:center;flex-wrap:wrap;color:var(--mute)}
+.batch td{height:50px}
+.v10-foot{display:flex;align-items:center;gap:14px;margin-top:14px;padding:14px 18px}
+</style>
+</head>
+<body>
+<div class="proto" id="proto"></div>
+<div class="stage" id="stage"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+/* ======================================================================
+   Data. Figures on the BKM side are the 7Soft manual's own screenshot
+   (Agung Jaya Sentosa, 7 invoices, 30.413.250); accounts are the client's
+   chart (0348_seed_the_client_account_tree.sql).
+   ====================================================================== */
+const TODAY='2026-09-27';
+const F=new Intl.NumberFormat('id-ID');
+const fmt=n=>F.format(Math.round(n||0));
+const digits=s=>Number(String(s??'').replace(/\D/g,''))||0;
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const dOf=iso=>new Date(iso+'T00:00:00');
+const day=iso=>iso?dOf(iso).toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}):'';
+const dayS=iso=>iso?dOf(iso).toLocaleDateString('id-ID',{day:'numeric',month:'short'}):'';
+const dayL=iso=>dOf(iso).toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+const plusDays=(iso,n)=>{const d=dOf(iso);d.setDate(d.getDate()+n);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
+const lateBy=iso=>Math.round((dOf(TODAY)-dOf(iso))/864e5);
+const initials=n=>n.split(/\s+/).filter(w=>/^[A-Za-z]/.test(w)&&!/^(PT|CV)$/i.test(w)).slice(0,2).map(w=>w[0]).join('').toUpperCase()||'·';
+function dueTag(iso){const d=lateBy(iso);if(d>0)return `<span class="due late">${d} d late</span>`;if(d===0)return `<span class="due late">due today</span>`;return `<span class="due">in ${-d} d</span>`}
+function terbilang(n){
+  n=Math.floor(Math.max(0,n));
+  const s=['','satu','dua','tiga','empat','lima','enam','tujuh','delapan','sembilan','sepuluh','sebelas'];
+  const t=x=>{
+    if(x<12)return s[x];
+    if(x<20)return t(x-10)+' belas';
+    if(x<100)return t(Math.floor(x/10))+' puluh'+(x%10?' '+t(x%10):'');
+    if(x<200)return 'seratus'+(x-100?' '+t(x-100):'');
+    if(x<1000)return t(Math.floor(x/100))+' ratus'+(x%100?' '+t(x%100):'');
+    if(x<2000)return 'seribu'+(x-1000?' '+t(x-1000):'');
+    if(x<1e6)return t(Math.floor(x/1000))+' ribu'+(x%1000?' '+t(x%1000):'');
+    if(x<1e9)return t(Math.floor(x/1e6))+' juta'+(x%1e6?' '+t(x%1e6):'');
+    if(x<1e12)return t(Math.floor(x/1e9))+' miliar'+(x%1e9?' '+t(x%1e9):'');
+    return t(Math.floor(x/1e12))+' triliun'+(x%1e12?' '+t(x%1e12):'');
+  };
+  if(n===0)return 'Nol rupiah';
+  const w=t(n).replace(/\s+/g,' ').trim();
+  return w.charAt(0).toUpperCase()+w.slice(1)+' rupiah';
+}
+
+const I={
+ in:'<svg viewBox="0 0 24 24"><path d="M17 7 7 17M17 17H7V7"/></svg>',
+ out:'<svg viewBox="0 0 24 24"><path d="M7 17 17 7M7 7h10v10"/></svg>',
+ plus:'<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+ x:'<svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+ check:'<svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>',
+ chev:'<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
+ search:'<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+ cal:'<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>',
+ print:'<svg viewBox="0 0 24 24"><path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>',
+ list:'<svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>',
+ undo:'<svg viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg>',
+ bank:'<svg viewBox="0 0 24 24"><path d="M3 21h18M5 21V10M19 21V10M9 21V10M15 21V10M2 10l10-6 10 6"/></svg>',
+ wallet:'<svg viewBox="0 0 24 24"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15v4M3 5v14a2 2 0 0 0 2 2h15v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg>',
+ home:'<svg viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+ book:'<svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/></svg>',
+ users:'<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M16 3.1a4 4 0 0 1 0 7.8M22 21a7 7 0 0 0-5-6.7"/></svg>',
+ box:'<svg viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>',
+ gear:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>',
+ camera:'<svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>',
+ cmd:'<svg viewBox="0 0 24 24"><path d="m4 17 6-6-6-6M12 19h8"/></svg>',
+ spark:'<svg viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/></svg>',
+ link:'<svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>',
+ alert:'<svg viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"/></svg>',
+ back:'<svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>',
+ del:'<svg viewBox="0 0 24 24"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM18 9l-6 6M12 9l6 6"/></svg>',
+ clock:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+ file:'<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
+ swap:'<svg viewBox="0 0 24 24"><path d="M7 16V4M3 8l4-4 4 4M17 8v12M21 16l-4 4-4-4"/></svg>',
+};
+
+/* The cash and bank accounts a voucher can move money through (unit HO). */
+const CB={
+ '1005':{code:'1005',name:'BCA · Giro',full:'Cash In Bank Giro Bank BCA',unit:'HO',kind:'bank',bank:'BCA',bal:1284750400},
+ '1006':{code:'1006',name:'Mandiri · Giro',full:'Cash In Bank Giro Bank MANDIRI',unit:'HO',kind:'bank',bank:'Mandiri',bal:412300000},
+ '1010':{code:'1010',name:'BCA · Tabungan',full:'Cash In Bank Tabungan Bank BCA',unit:'HO',kind:'bank',bank:'BCA',bal:96500000},
+ '1002':{code:'1002',name:'Cash on hand',full:'CASH ON HAND',unit:'HO',kind:'cash',bal:18400000},
+ '1003':{code:'1003',name:'Petty cash',full:'PETTY CASH',unit:'HO',kind:'cash',bal:3250000},
+};
+const GL={
+ '4012':'Discount / Potongan Penjualan','8004':'Potongan Pembelian','6002':'Pendapatan lain-lain','8002':'Pendapatan Bunga Bank',
+ '8003':'Selisih pembulatan','1022':'Piutang Pegawai','1020':'Piutang Kartu Kredit','2033':'Uang Muka - Penjualan',
+ '6043':'Biaya Bank HO','6045':'Biaya Pemakaian Listrik','6041':'Alat Tulis Kantor & Barang Cetakan','6040':'Biaya Kebersihan (Cleaning)',
+ '6042':'Biaya Rumah Tangga','6044':'Biaya Telephone, Facsimile, Modem','6052':'Biaya Perlengkapan Toko dan Kantor',
+ '2002':'Hutang Suppliers Barang Dagangan','2004':'Hutang Supplier Non Barang Dagang','2005':'Outstanding Giro Bank BCA','2006':'Outstanding Giro Bank Mandiri',
+ '1002':'Cash on hand','1003':'Petty cash','1005':'Cash In Bank Giro Bank BCA','1006':'Cash In Bank Giro Bank MANDIRI','1010':'Cash In Bank Tabungan Bank BCA',
+};
+const PARTY={
+ bkm:[{code:'C-0189',name:'Agung Jaya Sentosa',open:37763250},{code:'C-0212',name:'Toko Maju Jaya',open:5825000},{code:'C-0077',name:'CV Sinar Abadi',open:2980000},{code:'C-0001',name:'BCA Card Center',open:18950000}],
+ bkk:[{code:'S-0102',name:'Langgeng Jaya Sentosa',open:51014500},{code:'S-0045',name:'Sumber Komputer',open:8374200},{code:'S-0131',name:'CV Anugrah Textile',open:12450000},{code:'S-0208',name:'PT Graha Clean',open:4200000}],
+};
+const DATA={
+ bkm:{party:'C-0189',picked:7,
+  inv:[{no:'INV/HO/2608/0338',due:'2026-08-15',open:16105000,ref:'SO-82002'},{no:'INV/HO/2609/0404',due:'2026-09-03',open:2220000,ref:'SO-83015'},
+   {no:'INV/HO/2609/0448',due:'2026-09-09',open:1737500,ref:'SO-84047'},{no:'INV/HO/2609/0515',due:'2026-09-12',open:948750,ref:'SO-84115'},
+   {no:'INV/HO/2609/0552',due:'2026-09-13',open:1575000,ref:'SO-84123'},{no:'INV/HO/2609/0602',due:'2026-09-20',open:1485000,ref:'SO-84204'},
+   {no:'INV/HO/2609/0644',due:'2026-10-02',open:6342000,ref:'SO-84212'},{no:'INV/HO/2609/0701',due:'2026-10-10',open:4250000,ref:'SO-84390'},
+   {no:'INV/HO/2609/0733',due:'2026-10-18',open:3100000,ref:'SO-84455'}],
+  off:[{no:'PI/HO/2609/0063',due:'2026-09-29',open:8374200,ref:'SJ-07V18'}]},
+ bkk:{party:'S-0102',picked:1,
+  inv:[{no:'PI/HO/2609/0102',due:'2026-09-05',open:33689000,ref:'SJ-58311'},{no:'PI/HO/2609/0117',due:'2026-10-03',open:12450000,ref:'SJ-58402'},
+   {no:'PI/HO/2609/0131',due:'2026-10-15',open:4875500,ref:'SJ-58477'}],
+  off:[{no:'RJ/HO/2609/0012',due:'2026-09-30',open:2150000,ref:'Retur 12 pcs'}]},
+};
+const M={
+ bkm:{code:'BKM',title:'Cash receipt',plural:'Cash receipts',newTitle:'New cash receipt',party:'Customer',dir:'in',col:'Received',open:'Receivable',
+  settle:'Settle invoices',offset:'Offset payables',offOpen:'Payable',amountLbl:'Total received',post:'Post receipt',
+  paperKas:'BUKTI KAS MASUK',paperBank:'BUKTI BANK MASUK',paperParty:'Diterima dari',paperSign:'Penyetor',
+  disc:'4012',voucher:'BKM/HO/2609/0041',invWord:'invoice',other:['6002','8002','8003','1022']},
+ bkk:{code:'BKK',title:'Cash payment',plural:'Cash payments',newTitle:'New cash payment',party:'Supplier',dir:'out',col:'Paid',open:'Payable',
+  settle:'Settle bills',offset:'Offset receivables',offOpen:'Receivable',amountLbl:'Total paid',post:'Post payment',
+  paperKas:'BUKTI KAS KELUAR',paperBank:'BUKTI BANK KELUAR',paperParty:'Dibayarkan kepada',paperSign:'Penerima',
+  disc:'8004',voucher:'BKK/HO/2609/0057',invWord:'bill',other:['6043','6045','6041','6040','6042','6044','8003']},
+};
+
+/* ---------- state ---------- */
+function fresh(mode){const d=DATA[mode];return{party:d.party,account:'1005',method:mode==='bkm'?'transfer':'giro',date:TODAY,ref:'',note:'',
+ giro:mode==='bkm'?{no:'',bank:'',due:''}:{no:'BG 456124',bank:'BCA',due:'2026-10-12'},
+ inv:d.inv.map((x,i)=>({...x,pick:i<d.picked,disc:0,amt:i<d.picked?x.open:0})),
+ off:d.off.map(x=>({...x,pick:false,amt:0})),other:[]}}
+const ST={bkm:fresh('bkm'),bkk:fresh('bkk')};
+let MODE='bkm',V=1;
+const UI={tab1:'settle',menu:null,tried:{bkm:false,bkk:false},posting:false,posted:{bkm:false,bkk:false},
+ v2sel:{bkm:0,bkk:0},v2new:false,
+ v3amt:{bkm:null,bkk:null},v3skip:{bkm:new Set(),bkk:new Set()},v3left:{bkm:0,bkk:0},v3lo:{bkm:'advance',bkk:'advance'},
+ v4open:null,
+ v6sel:{bkm:0,bkk:0},v6done:{bkm:{},bkk:{}},v6pick:{bkm:{},bkk:{}},
+ v8amt:{bkm:85000,bkk:450000},v8cat:{bkm:'6002',bkk:'6040'},v8photo:{bkm:false,bkk:true},v8saved:{bkm:false,bkk:false},v8saving:false,
+ v9:{bkm:{},bkk:{}},v9open:null,
+ v10text:'',v10posting:false,
+ v10rows:{
+  bkm:[{amt:125400,acc:'8002',cb:'1005',unit:'HO',note:'Bunga jasa giro Sep'},{amt:85000,acc:'6002',cb:'1003',unit:'C003',note:'Kardus bekas'}],
+  bkk:[{amt:1845200,acc:'6045',cb:'1005',unit:'C001',note:'PLN postpaid Sep'},{amt:15000,acc:'6043',cb:'1005',unit:'HO',note:'Adm bank Sep'},{amt:450000,acc:'6040',cb:'1003',unit:'C003',note:'Sabun & alat pel'}]}};
+const S=()=>ST[MODE],T=()=>M[MODE];
+const partyOf=()=>PARTY[MODE].find(p=>p.code===S().party);
+const homeParty=()=>PARTY[MODE].find(p=>p.code===DATA[MODE].party);
+const isHome=()=>S().party===DATA[MODE].party;
+const invs=()=>isHome()?S().inv:[];
+const offs=()=>isHome()?S().off:[];
+function sums(){const s=S(),A=invs().filter(x=>x.pick),O=offs().filter(x=>x.pick);
+ const settled=A.reduce((a,x)=>a+x.amt,0),disc=A.reduce((a,x)=>a+x.disc,0),other=s.other.reduce((a,x)=>a+x.amt,0),off=O.reduce((a,x)=>a+x.amt,0);
+ return{settled,disc,other,off,total:settled+other-off,count:A.length,openSel:A.reduce((a,x)=>a+x.open,0)}}
+/* Over-settling is refused as it is typed; what is merely missing is said
+   once somebody tries to post — a form that opens covered in red is a form
+   that shouts before anything has gone wrong. */
+function problems(submit=UI.tried[MODE]){const s=S(),p={};
+ invs().forEach((x,i)=>{if(x.pick&&x.amt+x.disc>x.open)p['inv'+i]=`${x.no}: more than the ${fmt(x.open)} still open`});
+ offs().forEach((x,i)=>{if(x.pick&&x.amt>x.open)p['off'+i]=`${x.no}: more than the ${fmt(x.open)} still open`});
+ if(submit){
+  if(s.method==='giro'){if(!s.giro.no.trim())p.gno='A giro needs its number';if(!s.giro.due)p.gdue='A giro needs its due date';if(MODE==='bkm'&&!s.giro.bank.trim())p.gbank='Which bank the giro is drawn on'}
+  s.other.forEach((o,i)=>{if(!o.amt)p['oth'+i]=`Other line ${i+1}: amount is needed`});
+  if(sums().total<=0)p.total=`Nothing to ${MODE==='bkm'?'receive':'pay'} yet — settle an ${T().invWord} or add a line`;
+ }
+ return p}
+
+/* ======================================================================
+   Shared pieces
+   ====================================================================== */
+const NAMES=[
+ [1,'Klasik','Tata letak 7Soft yang sudah dikenal tim: kepala dua kolom, tab Pelunasan / Lain-lain / Kontra, grid dengan centang Lunas, tombol Browse Nota dan Tolakan. Dirapikan — yang wajib bertanda *, giro minta nomor + bank + jatuh tempo bersamaan, lebih bayar langsung merah, total dan terbilang hidup.'],
+ [2,'Daftar + sheet','Pola hub sekarang: daftar voucher dengan chip status (draft, giro menunggu, tolak, void); klik baris → sheet di kanan berisi fakta, baris, tangga total dan jurnal. Yang sudah dibukukan hanya-baca; "New" membuka form ringkas di sheet yang sama.'],
+ [3,'Papan pelunasan','Mulai dari siapa dan berapa. Ketik nominal yang masuk — otomatis dibagi ke nota tertua dulu (FIFO) dan kartu nota terisi sendiri. Ketuk kartu untuk melewatinya. Sisa uang → uang muka atau pendapatan lain.'],
+ [4,'Kalimat','Paling minimal: satu kalimat berisi isian. Klik kata bergaris untuk mengubahnya; ketik nominal langsung di dalam kalimat dan jumlah nota ikut berubah. Isian yang kurang berwarna kuning, bukan merah.'],
+ [5,'Kertas','Yang diisi adalah kertas BKM/BKK itu sendiri — judul Bukti Kas atau Bukti Bank ikut akunnya, terbilang otomatis, kotak tanda tangan. Apa yang dilihat = yang dicetak. Bukukan → cap DIBUKUKAN.'],
+ [6,'Cocokkan mutasi','Mulai dari mutasi rekening. Tiap baris mutasi diberi tebakan pasangannya — nota, setoran toko, settlement kartu kredit + MDR, bunga, kliring giro — lengkap dengan alasannya. Satu klik jadi BKM/BKK.'],
+ [7,'Lensa jurnal','Form di kiri, jurnal yang akan terbentuk di kanan: akun klien, Debit/Kredit, potongan ke akun potongan, giro ke Outstanding Giro, dan jurnal yang menyusul saat giro cair. Berubah setiap kali mengetik.'],
+ [8,'Ponsel toko','Kas kecil toko dari ponsel dalam 3 langkah: nominal (keypad), untuk apa (+ foto nota wajib untuk BKK), lalu cek saldo kas kecil sebelum/sesudah dan simpan. Keypad dan tile bisa diketuk.'],
+ [9,'Papan giro','Siklus giro seperti Pencairan BG di 7Soft: Menunggu → Jatuh tempo → Cair / Tolak, dengan Ganti untuk tolakan dan Batal cair. Giro keluar cair dari mutasi bank, tidak diketik (sesuai GIRO-PLAN).'],
+ [10,'Ketik cepat','Ketik seperti bicara — "450rb listrik c001 kas kecil" — langsung jadi baris dengan akun, kas dan unit yang benar. Banyak voucher sekaligus, bukukan sekali. Untuk biaya dan penerimaan harian yang kecil-kecil.'],
+];
+function buildProto(){
+ document.getElementById('proto').innerHTML=`<div class="proto-top"><div class="brand"><b>BKM · BKK</b><span>10 rancangan · data dari manual 7Soft &amp; chart klien</span></div><span class="sp"></span>
+ <div class="modes" role="group" aria-label="Dokumen"><button data-act="mode" data-m="bkm">${I.in} BKM · kas/bank masuk</button><button data-act="mode" data-m="bkk">${I.out} BKK · kas/bank keluar</button></div></div>
+ <div class="vtabs" role="group" aria-label="Rancangan">${NAMES.map(([n,name])=>`<button data-act="v" data-v="${n}"><i>${n%10}</i>${name}</button>`).join('')}</div>
+ <p class="proto-why" id="why"></p>`}
+function syncProto(){
+ document.querySelectorAll('.modes button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.m===MODE));
+ document.querySelectorAll('.vtabs button').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.v===V));
+ const n=NAMES.find(x=>x[0]===V);
+ document.getElementById('why').innerHTML=`<b>${n[0]} · ${n[1]}</b>${n[2]} <span class="muted">— tombol 1–9, 0 ganti rancangan · M ganti BKM/BKK</span>`}
+
+function rail(){return `<nav class="rail" aria-label="Modules"><span class="logo">i</span>${[['home',0],['wallet',1],['book',0],['users',0],['box',0]].map(([k,on])=>`<a class="${on?'on':''}" aria-label="${k}">${I[k]}</a>`).join('')}<span class="sp"></span><a aria-label="Settings">${I.gear}</a></nav>`}
+function head(o={}){const t=T(),ro=UI.posted[MODE];
+ const pill=o.plain?'':(ro?'<span class="pill ok">Posted</span>':'<span class="pill">Draft</span>');
+ const no=o.plain?'':`<span class="mono muted">${t.voucher}</span>`;
+ return `<header class="ph"><div class="crumb">Finance<span>/</span>Cash &amp; bank<span>/</span>${o.crumb||t.plural}</div><div class="ph-row"><span class="dir d-${t.dir}">${I[t.dir]}</span><h1>${o.title||t.newTitle}</h1>${pill}${no}<span class="sp"></span>${o.actions??actions()}</div></header>`}
+function actions(){const t=T();
+ if(UI.posted[MODE])return `<button class="btn" data-act="print">${I.print}Print ${t.code}</button><button class="btn ghost" data-act="reset">Back to draft (demo)</button>`;
+ return `<button class="btn ghost" data-act="toast" data-msg="Saved as a draft — nothing posted">Save draft</button><button class="btn pri" data-act="post" ${UI.posting?'disabled aria-busy="true"':''}>${UI.posting?'Posting…':t.post}</button>`}
+function app(inner,o){return `<div class="app">${rail()}<main class="main">${head(o)}${inner}</main></div>`}
+function postedBanner(){const t=T();return UI.posted[MODE]?`<div class="banner ok ${UI.flash?'anim':''}">${I.check}<span>Posted as <b class="mono">${t.voucher}</b> · journal <span class="mono">JV/HO/2609/0132</span>. September is open, so it can still be voided — never edited.</span></div>`:''}
+function problemBanner(){const p=problems(),k=Object.keys(p);if(!k.length)return '';return `<div class="banner bad" role="alert">${I.alert}<span>${k.map(x=>esc(p[x])).join(' · ')}</span></div>`}
+function fieldErr(k){const p=problems();return p[k]?`<small class="err">${esc(p[k])}</small>`:''}
+function dayField(){return `<div class="in day">${I.cal}<span>${day(S().date)}</span><span class="muted">${S().date===TODAY?'· today':''}</span></div>`}
+function acctSelect(cls=''){const s=S();return `<select class="in ${cls}" data-change="account" aria-label="Cash or bank">${Object.values(CB).map(a=>`<option value="${a.code}" ${a.code===s.account?'selected':''}>${a.name} · ${a.unit} — ${a.code}</option>`).join('')}</select>`}
+function methodSeg(){const s=S();return `<div class="segm" role="group" aria-label="Paid by">${['cash','transfer','giro'].map(m=>`<button type="button" data-act="method" data-m="${m}" aria-pressed="${s.method===m}">${{cash:'Cash',transfer:'Transfer',giro:'Giro'}[m]}</button>`).join('')}</div>`}
+function giroFields(){const s=S(),p=problems();if(s.method!=='giro')return '';
+ return `<div class="giro">
+ <label class="f"><span>Giro no<i class="req">*</i></span><input class="in mono" data-bind="giro.no" value="${esc(s.giro.no)}" placeholder="BG 000000" aria-invalid="${!!p.gno}">${fieldErr('gno')}</label>
+ ${MODE==='bkm'?`<label class="f"><span>Drawn on<i class="req">*</i></span><input class="in" data-bind="giro.bank" value="${esc(s.giro.bank)}" placeholder="BCA, Mandiri, BRI…" aria-invalid="${!!p.gbank}">${fieldErr('gbank')}</label>`:`<div class="f"><span>Drawn on</span><div class="in ro">${CB[s.account].bank||'—'} <em>from the account</em></div></div>`}
+ <div class="f g-due"><span>Due<i class="req">*</i></span><div class="dayrow"><div class="in day ${p.gdue?'bad':''}">${I.cal}<span>${s.giro.due?day(s.giro.due):'<span class="muted">Pick a day</span>'}</span></div>${[14,30,45].map(n=>`<button type="button" class="chip" data-act="due" data-n="${n}">+${n} d</button>`).join('')}</div>${fieldErr('gdue')}</div>
+ <p class="giro-note">${MODE==='bkm'?'Waits as a giro until it is deposited and clears — see the Giro board.':'Posts to Outstanding Giro until the bank statement shows it cleared.'}</p></div>`}
+function partyMenu(cls=''){return `<div class="menu ${cls} ${UI.fresh?'anim':''}" role="listbox">${PARTY[MODE].map(p=>`<button role="option" data-act="setparty" data-c="${p.code}" aria-selected="${p.code===S().party}"><span class="avatar sm">${initials(p.name)}</span><span><b style="font-weight:500">${p.name}</b> <span class="mono muted">${p.code}</span></span><span class="sp"></span><span class="num muted">${fmt(p.open)}</span></button>`).join('')}</div>`}
+function partyPick(){const p=partyOf();return `<div class="pickwrap"><button type="button" class="pick" data-act="menu" data-m="party"><span class="avatar">${initials(p.name)}</span><b style="font-weight:500">${esc(p.name)}</b><span class="mono muted">${p.code}</span><span class="sp"></span><span class="muted num">${fmt(p.open)} open</span>${I.chev}</button>${UI.menu==='party'?partyMenu():''}</div>`}
+function partyChange(){return `<div class="pickwrap"><button type="button" class="btn sm ghost" data-act="menu" data-m="party">Change ${I.chev}</button>${UI.menu==='party'?partyMenu('r'):''}</div>`}
+function emptyParty(){const t=T(),p=partyOf(),h=homeParty();return `<div class="empty"><span class="empty-ico">${I.file}</span><b>${esc(p.name)} has nothing open to settle</b><p>Money from them that isn't for an ${t.invWord} goes on Other lines. (In this demo only ${esc(h.name)} has open ${t.invWord}s.)</p><div class="row" style="justify-content:center"><button class="btn sm" data-act="addother">${I.plus} Add an other line</button><button class="btn sm ghost" data-act="setparty" data-c="${h.code}">Back to ${esc(h.name)}</button></div></div>`}
+function compactInv(){const t=T(),p=problems();return `<div class="cinv">${invs().map((x,i)=>`<div class="crow ${x.pick?'':'off'}" data-row="${i}"><input type="checkbox" class="cb" data-change="pick" data-i="${i}" ${x.pick?'checked':''} aria-label="Settle ${x.no}"><div class="cmeta"><span class="mono">${x.no}</span><span>${fmt(x.open)}${dueTag(x.due)}</span></div><input class="cell-in" data-money data-bind="inv.disc.${i}" value="${x.disc?fmt(x.disc):''}" placeholder="disc." ${x.pick?'':'disabled'} aria-label="Discount on ${x.no}"><input class="cell-in" data-money data-bind="inv.amt.${i}" value="${x.amt?fmt(x.amt):''}" placeholder="0" aria-invalid="${!!p['inv'+i]}" aria-label="${t.col} on ${x.no}"></div>`).join('')}</div>`}
+function otherCompact(){const t=T(),s=S();return `<div class="cinv">${s.other.map((o,i)=>`<div class="crow" style="grid-template-columns:minmax(0,1fr) 128px 32px"><select class="in sm" data-change="otheracc" data-i="${i}" aria-label="Account">${t.other.map(c=>`<option value="${c}" ${c===o.acc?'selected':''}>${c} · ${GL[c]}</option>`).join('')}</select><input class="cell-in" data-money data-bind="other.amt.${i}" value="${o.amt?fmt(o.amt):''}" placeholder="0" aria-label="Amount"><button class="icon-btn" data-act="delother" data-i="${i}" aria-label="Remove line">${I.x}</button></div>`).join('')}<button class="addrow" data-act="addother" style="border-radius:0">${I.plus} Add a line — ${MODE==='bkm'?'interest, other income, a staff repayment':'bank fees, electricity, supplies'}</button></div>`}
+
+/* The journal a voucher will post. Account links decide the receivable,
+   payable and discount accounts; the codes are the client's chart. */
+function journal(){const s=S(),su=sums(),a=CB[s.account],p=partyOf(),L=[];
+ const og=a.code==='1006'?'2006':'2005';
+ const cash=s.method==='giro'
+  ?(MODE==='bkm'?{code:'link',link:'giro in',name:'Giro received · not cleared',warn:'The chart has no account for giro received yet — link one in Account links before posting.'}:{code:og,name:GL[og]})
+  :{code:a.code,name:a.full};
+ if(MODE==='bkm'){
+  if(su.total)L.push({...cash,dr:su.total});
+  if(su.disc)L.push({code:'4012',name:GL['4012'],dr:su.disc});
+  if(su.off)L.push({code:'2002',name:`${GL['2002']} · ${p.name}`,dr:su.off,note:'netted off'});
+  if(su.settled+su.disc)L.push({code:'link',link:'receivable',name:`Receivable · ${p.name}`,cr:su.settled+su.disc,note:`${su.count} invoice${su.count===1?'':'s'}`});
+  s.other.forEach(o=>{if(o.amt)L.push({code:o.acc,name:GL[o.acc],cr:o.amt,note:o.note})});
+ }else{
+  if(su.settled+su.disc)L.push({code:'2002',name:`${GL['2002']} · ${p.name}`,dr:su.settled+su.disc,note:`${su.count} bill${su.count===1?'':'s'}`});
+  s.other.forEach(o=>{if(o.amt)L.push({code:o.acc,name:GL[o.acc],dr:o.amt,note:o.note})});
+  if(su.total)L.push({...cash,cr:su.total});
+  if(su.disc)L.push({code:'8004',name:GL['8004'],cr:su.disc});
+  if(su.off)L.push({code:'link',link:'receivable',name:`Receivable · ${p.name}`,cr:su.off,note:'netted off'});
+ }
+ return L}
+
+/* ======================================================================
+   1 · Classic — 7Soft's layout, tidied
+   ====================================================================== */
+function settleTable(){const t=T(),p=problems(),rows=invs(),su=sums();if(!rows.length)return emptyParty();
+ return `<table class="tbl"><thead><tr><th style="width:44px"></th><th>${t.invWord==='bill'?'Bill':'Invoice'}</th><th>Due</th><th class="r">${t.open}</th><th>Ref</th><th class="r" style="width:150px">Discount</th><th class="r" style="width:170px">${t.col}</th><th style="width:70px">In full</th></tr></thead><tbody>
+ ${rows.map((x,i)=>`<tr data-row="${i}" class="${x.pick?'':'off'}"><td><input type="checkbox" class="cb" data-change="pick" data-i="${i}" ${x.pick?'checked':''} aria-label="Settle ${x.no}"></td><td class="mono">${x.no}</td><td>${day(x.due)}${dueTag(x.due)}</td><td class="r num">${fmt(x.open)}</td><td class="muted mono">${x.ref}</td>
+ <td class="r"><input class="cell-in" data-money data-bind="inv.disc.${i}" value="${x.disc?fmt(x.disc):''}" placeholder="0" ${x.pick?'':'disabled'} aria-label="Discount on ${x.no}"></td>
+ <td class="r"><input class="cell-in" data-money data-bind="inv.amt.${i}" value="${x.amt?fmt(x.amt):''}" placeholder="0" aria-invalid="${!!p['inv'+i]}" aria-label="${t.col} on ${x.no}"></td>
+ <td><input type="checkbox" class="cb" data-change="full" data-i="${i}" ${x.pick&&x.amt+x.disc===x.open?'checked':''} aria-label="${x.no} in full"></td></tr>`).join('')}
+ </tbody><tfoot><tr><td></td><td colspan="2"><span data-out="count">${su.count}</span> of ${rows.length} selected</td><td class="r num" data-out="openSel">${fmt(su.openSel)}</td><td></td><td class="r num" data-out="disc">${fmt(su.disc)}</td><td class="r num" data-out="settled">${fmt(su.settled)}</td><td></td></tr></tfoot></table>`}
+function otherTable(){const t=T(),s=S(),p=problems();return `<table class="tbl"><thead><tr><th style="width:340px">Account</th><th>Note</th><th class="r" style="width:190px">Amount</th><th style="width:52px"></th></tr></thead><tbody>
+ ${s.other.map((x,i)=>`<tr><td><select class="in sm" data-change="otheracc" data-i="${i}" aria-label="Account">${t.other.map(c=>`<option value="${c}" ${c===x.acc?'selected':''}>${c} · ${GL[c]}</option>`).join('')}</select></td><td><input class="cell-in left" data-bind="other.note.${i}" value="${esc(x.note)}" placeholder="What it was" aria-label="Note"></td><td class="r"><input class="cell-in" data-money data-bind="other.amt.${i}" value="${x.amt?fmt(x.amt):''}" placeholder="0" aria-invalid="${!!p['oth'+i]}" aria-label="Amount"></td><td><button class="icon-btn" data-act="delother" data-i="${i}" aria-label="Remove line">${I.x}</button></td></tr>`).join('')}
+ <tr><td colspan="4"><button class="addrow" data-act="addother">${I.plus} Add a line — ${MODE==='bkm'?'interest, other income, a staff repayment':'bank fees, electricity, supplies'}</button></td></tr></tbody></table>`}
+function offsetTable(){const t=T(),p=problems(),list=offs();if(!list.length)return emptyParty();
+ return `<div class="banner info" style="margin:12px 12px 0">${I.swap}<span>${esc(partyOf().name)} is also a ${MODE==='bkm'?'supplier':'customer'}. Tick a ${t.offOpen.toLowerCase()} to net it against this ${t.code} — the ${MODE==='bkm'?'receipt':'payment'} shrinks by the same amount.</span></div>
+ <table class="tbl"><thead><tr><th style="width:44px"></th><th>Document</th><th>Due</th><th class="r">${t.offOpen}</th><th>Ref</th><th class="r" style="width:180px">Net off</th></tr></thead><tbody>
+ ${list.map((x,i)=>`<tr class="${x.pick?'':'off'}"><td><input type="checkbox" class="cb" data-change="offpick" data-i="${i}" ${x.pick?'checked':''} aria-label="Offset ${x.no}"></td><td class="mono">${x.no}</td><td>${day(x.due)}${dueTag(x.due)}</td><td class="r num">${fmt(x.open)}</td><td class="muted mono">${x.ref}</td><td class="r"><input class="cell-in" data-money data-bind="off.amt.${i}" value="${x.amt?fmt(x.amt):''}" placeholder="0" aria-invalid="${!!p['off'+i]}" ${x.pick?'':'disabled'} aria-label="Net off ${x.no}"></td></tr>`).join('')}
+ </tbody></table>`}
+function v1(){const s=S(),t=T(),ro=UI.posted[MODE],su=sums(),tab=UI.tab1;
+ return app(`<div class="content">${postedBanner()}
+ <fieldset ${ro?'disabled':''}>
+ <section class="card v1-hdr">
+  <div class="col">
+   <div class="f"><span>Voucher no</span><div class="in ro mono">${t.voucher}<em>auto</em></div></div>
+   <div class="f"><span>Date<i class="req">*</i></span>${dayField()}</div>
+   <label class="f"><span>Cash / bank<i class="req">*</i></span>${acctSelect()}</label>
+   <label class="f"><span>Reference</span><input class="in" data-bind="ref" value="${esc(s.ref)}" placeholder="${MODE==='bkm'?'Their transfer reference':'Our transfer reference'}"></label>
+  </div>
+  <div class="col">
+   <div class="f"><span>${t.party}<i class="req">*</i></span>${partyPick()}</div>
+   <div class="f"><span>Paid by</span>${methodSeg()}</div>
+   ${giroFields()}
+   <label class="f"><span>Note</span><input class="in" data-bind="note" value="${esc(s.note)}" placeholder="Printed on the ${t.code}"></label>
+  </div>
+  <div class="totalbox"><span class="lbl">${t.amountLbl}</span><div class="big"><small>Rp</small><span data-out="total">${fmt(su.total)}</span></div><div class="words" data-out="words">${terbilang(su.total)}</div>
+   <dl class="mini"><div><dt>${t.settle}</dt><dd data-out="settled">${fmt(su.settled)}</dd></div><div><dt>Discount given</dt><dd data-out="disc">${fmt(su.disc)}</dd></div><div><dt>Other lines</dt><dd data-out="other">${fmt(su.other)}</dd></div><div><dt>${t.offset}</dt><dd data-out="offneg">${su.off?'− '+fmt(su.off):'0'}</dd></div></dl></div>
+ </section>
+ <div class="v1-bar"><div class="tabs" role="tablist">
+  <button role="tab" type="button" aria-selected="${tab==='settle'}" data-act="tab1" data-t="settle">${t.settle}<span class="n">${su.count}</span></button>
+  <button role="tab" type="button" aria-selected="${tab==='other'}" data-act="tab1" data-t="other">Other lines<span class="n">${s.other.length}</span></button>
+  <button role="tab" type="button" aria-selected="${tab==='offset'}" data-act="tab1" data-t="offset">${t.offset}<span class="n">${offs().filter(x=>x.pick).length}</span></button></div>
+  <span class="sp"></span>
+  <button type="button" class="btn sm" data-act="browse">${I.list} Browse open ${t.invWord}s</button>
+  <button type="button" class="btn sm ghost" data-act="toast" data-msg="Pick the bounced giro this ${t.code} replaces — its ${t.invWord}s come back open">${I.undo} Replace a bounced giro</button></div>
+ <section class="card grid-card">${tab==='settle'?settleTable():tab==='other'?otherTable():offsetTable()}</section>
+ </fieldset>
+ <div id="probs">${problemBanner()}</div>
+ <div class="statusbar"><span><kbd>⌘</kbd><kbd>↵</kbd> post</span><span>Discount posts to <span class="mono">${t.disc}</span> ${GL[t.disc]} — change it in Account links</span><span class="sp"></span><span>${UI.tried[MODE]?'':'Missing fields are pointed out when you post, not before'}</span></div>
+ </div>`)}
+
+/* ======================================================================
+   2 · List + sheet — the hub's own pattern
+   ====================================================================== */
+const LIST={
+ bkm:[{no:'BKM/HO/2609/0041',date:'2026-09-27',party:'Agung Jaya Sentosa',code:'C-0189',acc:'1005',method:'transfer',amt:30413250,st:'draft',what:'7 invoices',draft:true},
+  {no:'BKM/HO/2609/0040',date:'2026-09-26',party:'BCA Card Center',code:'C-0001',acc:'1005',method:'transfer',amt:18742300,st:'posted',what:'Card settlement 25 Sep · MDR 207.700'},
+  {no:'BKM/HO/2609/0039',date:'2026-09-26',party:'Store C003 · Kebayoran',code:'C003',acc:'1005',method:'cash',amt:12500000,st:'posted',what:'Cash deposit, till of 25 Sep'},
+  {no:'BKM/HO/2609/0038',date:'2026-09-25',party:'Toko Maju Jaya',code:'C-0212',acc:'1006',method:'giro',amt:4250000,st:'waiting',what:'BG 118930 · Mandiri · due 12 Okt'},
+  {no:'BKM/HO/2609/0037',date:'2026-09-25',party:'—',code:'',acc:'1005',method:'transfer',amt:125400,st:'posted',what:'8002 · Bunga jasa giro Agu'},
+  {no:'BKM/HO/2609/0036',date:'2026-09-24',party:'CV Sinar Abadi',code:'C-0077',acc:'1005',method:'giro',amt:2980000,st:'waiting',what:'BG 551027 · BRI · due 26 Sep'},
+  {no:'BKM/HO/2609/0035',date:'2026-09-23',party:'Toko Maju Jaya',code:'C-0212',acc:'1005',method:'giro',amt:1575000,st:'bounced',what:'BG 402288 · BNI · bounced 18 Sep'},
+  {no:'BKM/HO/2609/0034',date:'2026-09-22',party:'Agung Jaya Sentosa',code:'C-0189',acc:'1005',method:'transfer',amt:9820000,st:'void',what:'Voided — posted to the wrong customer'}],
+ bkk:[{no:'BKK/HO/2609/0057',date:'2026-09-27',party:'Langgeng Jaya Sentosa',code:'S-0102',acc:'1005',method:'giro',amt:33689000,st:'draft',what:'1 bill · BG 456124',draft:true},
+  {no:'BKK/HO/2609/0056',date:'2026-09-27',party:'PLN',code:'',acc:'1005',method:'transfer',amt:1845200,st:'posted',what:'6045 · Listrik C001 Sep'},
+  {no:'BKK/HO/2609/0055',date:'2026-09-26',party:'Sumber Komputer',code:'S-0045',acc:'1005',method:'giro',amt:8374200,st:'waiting',what:'BG 456123 · BCA · due 26 Sep'},
+  {no:'BKK/HO/2609/0054',date:'2026-09-26',party:'CV Anugrah Textile',code:'S-0131',acc:'1006',method:'giro',amt:12450000,st:'waiting',what:'BG 456120 · Mandiri · due 3 Okt'},
+  {no:'BKK/HO/2609/0053',date:'2026-09-25',party:'PT Graha Clean',code:'S-0208',acc:'1005',method:'transfer',amt:4200000,st:'posted',what:'Cleaning contract, September'},
+  {no:'BKK/HO/2609/0052',date:'2026-09-25',party:'—',code:'',acc:'1005',method:'transfer',amt:15000,st:'posted',what:'6043 · Adm bank'},
+  {no:'BKK/HO/2609/0051',date:'2026-09-24',party:'PT Delta Tex',code:'S-0077',acc:'1005',method:'giro',amt:5100000,st:'bounced',what:'BG 456101 · bounced 20 Sep'},
+  {no:'BKK/HO/2609/0050',date:'2026-09-23',party:'Langgeng Jaya Sentosa',code:'S-0102',acc:'1005',method:'transfer',amt:6250000,st:'void',what:'Voided — a duplicate of 0049'}]};
+const STPILL={draft:['','Draft'],posted:['ok','Posted'],waiting:['warn','Giro waiting'],cleared:['ok','Cleared'],bounced:['bad','Bounced'],void:['void','Void']};
+function simpleJournal(r){
+ let cash={code:r.acc,name:CB[r.acc].full};
+ if(r.method==='giro')cash=MODE==='bkk'?{code:r.acc==='1006'?'2006':'2005',name:GL[r.acc==='1006'?'2006':'2005']}:{code:'link',link:'giro in',name:'Giro received'};
+ const m=r.what.match(/^(\d{4}) ·/);
+ let counter=m?{code:m[1],name:GL[m[1]]}:{code:'link',link:MODE==='bkm'?'receivable':'payable',name:r.party};
+ if(!m&&MODE==='bkk'&&r.code.startsWith('S-'))counter={code:'2002',name:`${GL['2002']} · ${r.party}`};
+ if(!m&&r.code&&!r.code.includes('-'))counter={code:'1002',name:`Cash on hand · ${r.code}`};
+ return MODE==='bkm'?[{...cash,dr:r.amt},{...counter,cr:r.amt}]:[{...counter,dr:r.amt},{...cash,cr:r.amt}]}
+function v2detail(r){const t=T(),s=S(),live=!!r.draft,[c,l]=STPILL[r.st],acc=CB[live?s.account:r.acc];
+ const su=live?sums():{settled:r.amt,disc:0,other:0,off:0,total:r.amt};
+ const party=live?partyOf().name:r.party;
+ const lines=live?invs().filter(x=>x.pick).map(x=>[x.no,`${t.invWord} · due ${dayS(x.due)}`,x.amt]).concat(s.other.map(o=>[o.acc,GL[o.acc],o.amt])):[[r.what,'',r.amt]];
+ const method=live?s.method:r.method;
+ const giro=live?(s.method==='giro'?`${esc(s.giro.no||'—')} · due ${s.giro.due?dayS(s.giro.due):'—'}`:''):(r.method==='giro'?esc(r.what):'');
+ const jr=live?journal():simpleJournal(r);
+ return `<div class="sh-head"><span class="dir d-${t.dir}">${I[t.dir]}</span><div style="flex:1;min-width:0"><div class="mono muted">${r.no}</div><h2>${esc(party)}</h2></div><span class="pill ${c}">${l}</span></div>
+ <div class="sh-body"><div><div class="big"><small>Rp</small>${fmt(su.total)}</div><div class="words">${terbilang(su.total)}</div></div>
+ ${r.st==='bounced'?`<div class="banner bad" style="margin:0">${I.alert}<span>The giro bounced. The ${t.invWord}s it paid are open again — record the replacement from the Giro board.</span></div>`:''}
+ ${r.st==='void'?`<div class="banner warn" style="margin:0">${I.alert}<span>${esc(r.what)}. It stays on record; its journal was reversed.</span></div>`:''}
+ <dl class="facts"><dt>Date</dt><dd>${day(r.date)}</dd><dt>Cash / bank</dt><dd>${acc.name} · ${acc.unit} <span class="mono muted">${acc.code}</span></dd><dt>Paid by</dt><dd>${method}${giro&&method==='giro'?` · ${giro}`:''}</dd><dt>${live?'Drafted':'Posted'} by</dt><dd>Hari · ${dayS(r.date)}</dd></dl>
+ <div><div class="sub">Lines</div><table class="mini-t">${lines.map(([a,b,v])=>`<tr><td><span class="mono">${esc(a)}</span>${b?`<br><span class="muted">${esc(b)}</span>`:''}</td><td class="r">${fmt(v)}</td></tr>`).join('')||`<tr><td class="muted">No lines yet</td><td></td></tr>`}</table></div>
+ <div class="ladder"><div><span>${t.settle}</span><span>${fmt(su.settled)}</span></div><div><span>Discount given</span><span>${fmt(su.disc)}</span></div><div><span>Other lines</span><span>${fmt(su.other)}</span></div><div><span>${t.offset}</span><span>${su.off?'− '+fmt(su.off):'0'}</span></div><div class="tot"><span>${t.amountLbl}</span><span>${fmt(su.total)}</span></div></div>
+ <details class="jr"><summary>${I.book} Journal · ${jr.length} lines</summary><table class="mini-t">${jr.map(x=>`<tr><td><span class="code ${x.code==='link'?'link':''}">${x.code==='link'?x.link:x.code}</span> ${esc(x.name)}</td><td class="r">${x.dr?fmt(x.dr):''}</td><td class="r">${x.cr?fmt(x.cr):''}</td></tr>`).join('')}</table></details></div>
+ <div class="sh-actions">${live?`<button class="btn pri" data-act="v" data-v="1">Open the full form</button><button class="btn ghost" data-act="post">${t.post}</button>`:r.st==='void'?`<span class="muted">Void vouchers stay on the list, greyed.</span>`:`<button class="btn" data-act="print">${I.print}Print ${t.code}</button><button class="btn ghost" data-act="toast" data-msg="Void asks why, then reverses the journal — the number is never reused">Void…</button>`}</div>`}
+function v2composer(){const t=T();return `<div class="sh-head"><span class="dir d-${t.dir}">${I[t.dir]}</span><div style="flex:1"><div class="mono muted">${t.voucher} · new</div><h2>${t.newTitle}</h2></div><button class="icon-btn" data-act="v2close" aria-label="Close">${I.x}</button></div>
+ <div class="sh-body">${postedBanner()}<fieldset ${UI.posted[MODE]?'disabled':''} class="col"><div class="f"><span>${t.party}<i class="req">*</i></span>${partyPick()}</div><div class="two"><label class="f"><span>Cash / bank<i class="req">*</i></span>${acctSelect()}</label><div class="f"><span>Paid by</span>${methodSeg()}</div></div>${giroFields()}
+ <div class="f"><span>${t.settle}</span>${invs().length?compactInv():emptyParty()}</div></fieldset><div id="probs">${problemBanner()}</div>
+ <div class="ladder"><div class="tot"><span>${t.amountLbl}</span><span data-out="total">${fmt(sums().total)}</span></div></div></div>
+ <div class="sh-actions">${UI.posted[MODE]?`<button class="btn" data-act="print">${I.print}Print ${t.code}</button><button class="btn ghost" data-act="reset">Back to draft (demo)</button>`:`<button class="btn pri" data-act="post" ${UI.posting?'disabled aria-busy="true"':''}>${UI.posting?'Posting…':t.post}</button><button class="btn ghost" data-act="v2close">Cancel</button>`}</div>`}
+function v2(){const t=T(),list=LIST[MODE],sel=UI.v2sel[MODE];
+ const rows=list.map((r,i)=>{const [c,l]=STPILL[UI.posted[MODE]&&r.draft?'posted':r.st];const live=!!r.draft;const amt=live?sums().total:r.amt;
+  return `<tr class="${i===sel&&!UI.v2new?'sel':''}" data-act="v2sel" data-i="${i}" tabindex="0"><td><span class="mono">${r.no}</span><span class="sub2">${dayS(r.date)}</span></td><td><span style="color:var(--ink);font-weight:500">${esc(live?partyOf().name:r.party)}</span><span class="sub2">${esc(live?`${sums().count} ${t.invWord}${sums().count===1?'':'s'}`:r.what)}</span></td><td>${CB[r.acc].name}<span class="sub2">${r.method}</span></td><td class="r num">${fmt(amt)}</td><td><span class="pill ${c}">${l}</span></td></tr>`}).join('');
+ const chips=[['All',list.length],['Draft',list.filter(r=>r.st==='draft').length],['Giro waiting',list.filter(r=>r.st==='waiting').length],['Bounced',list.filter(r=>r.st==='bounced').length]];
+ return app(`<div class="content"><div class="v2"><section class="card" style="overflow:hidden"><div class="v2-tools"><div class="search">${I.search}<input placeholder="Search ${t.code} no, ${t.party.toLowerCase()}, giro no…" aria-label="Search"></div><div class="row">${chips.map(([l,n],i)=>`<button type="button" class="chip ${i===0?'on':''}">${l} <span>${n}</span></button>`).join('')}</div></div>
+ <table class="tbl rows"><thead><tr><th>${t.code}</th><th>${t.party} · what</th><th>Cash / bank</th><th class="r">Amount</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table><div class="list-foot">Loads more as you scroll · 1.284 ${t.plural.toLowerCase()} this year</div></section>
+ <aside class="card sheet" aria-label="Voucher">${UI.v2new?v2composer():v2detail(list[sel])}</aside></div></div>`,
+ {plain:true,title:t.plural,actions:`<button class="btn" data-act="toast" data-msg="Export queued — it arrives as a file">Export</button><button class="btn pri" data-act="v2new">${I.plus}New ${t.title.toLowerCase()}</button>`})}
+
+/* ======================================================================
+   3 · Settle board — who, and how much; the rest follows
+   ====================================================================== */
+function allocate(){const list=invs();if(UI.v3amt[MODE]==null)UI.v3amt[MODE]=sums().total;let left=UI.v3amt[MODE];const sk=UI.v3skip[MODE];
+ list.map((x,i)=>i).sort((a,b)=>list[a].due.localeCompare(list[b].due)).forEach(i=>{const x=list[i];if(sk.has(i)){x.pick=false;x.amt=0;return}const take=Math.max(0,Math.min(left,x.open-x.disc));x.amt=take;x.pick=take>0;left-=take});
+ UI.v3left[MODE]=left}
+function v3strip(){return invs().slice().sort((a,b)=>a.due.localeCompare(b.due)).map(x=>`<span style="flex:${x.open}" title="${x.no}"><i style="width:${x.open?Math.round((x.amt+x.disc)/x.open*100):0}%"></i></span>`).join('')}
+function v3tiles(){const list=invs(),sk=UI.v3skip[MODE];
+ return list.map((x,i)=>i).sort((a,b)=>list[a].due.localeCompare(list[b].due)).map((i,n)=>{const x=list[i],skip=sk.has(i),full=x.pick&&x.amt+x.disc>=x.open,part=x.pick&&!full;const pct=x.open?Math.round((x.amt+x.disc)/x.open*100):0;
+  return `<button type="button" class="tile ${skip?'skip':full?'full':part?'part':''}" data-act="v3skip" data-i="${i}" aria-pressed="${!skip}"><div class="t-top"><span class="ord">${full?'✓':n+1}</span><span class="mono">${x.no}</span><span class="sp"></span>${dueTag(x.due)}</div><div class="t-amt num">${fmt(x.open)}</div><div class="t-bar"><i style="width:${pct}%"></i></div><div class="t-state">${skip?'Skipped — tap to include':full?'Settled in full':part?`Partly — ${fmt(x.amt)} of ${fmt(x.open)}`:'Not reached by this amount'}</div></button>`}).join('')}
+function v3foot(){const t=T(),list=invs(),full=list.filter(x=>x.pick&&x.amt+x.disc>=x.open).length,part=list.filter(x=>x.pick&&x.amt+x.disc<x.open).length,left=UI.v3left[MODE];
+ const opts=[['advance',MODE==='bkm'?'Advance · 2033 Uang Muka - Penjualan':'Advance to supplier'],['other',MODE==='bkm'?'Other income · 6002':'Other expense · 6042'],...(left<1000?[['round','Rounding · 8003']]:[])];
+ const lo=left>0?`<div class="lo"><span class="muted">Keep the ${fmt(left)} left over as</span>${opts.map(([k,l])=>`<button type="button" class="chip ${UI.v3lo[MODE]===k?'on':''}" data-act="v3lo" data-k="${k}">${l}</button>`).join('')}</div>`:'';
+ const ro=UI.posted[MODE];
+ return `<div><b>${full} settled in full</b>${part?`, <b>${part} partly</b>`:''} <span class="muted">·</span> ${left>0?`<span class="warnt">${fmt(left)} left over</span>`:'<span class="muted">nothing left over</span>'}</div>${lo}<span class="sp"></span>${ro?`<button class="btn" data-act="print">${I.print}Print ${t.code}</button>`:`<button class="btn pri lg" data-act="post" ${UI.posting?'disabled aria-busy="true"':''}>${UI.posting?'Posting…':`${t.post} · ${fmt(UI.v3amt[MODE])}`}</button>`}`}
+function v3(){const t=T(),p=partyOf();allocate();const list=invs();
+ if(!list.length)return app(`<div class="content"><section class="card">${emptyParty()}</section></div>`);
+ const b=[0,0,0,0];list.forEach(x=>{const d=lateBy(x.due);b[d<=0?0:d<=30?1:d<=60?2:3]+=x.open});const tot=b.reduce((a,c)=>a+c,0);
+ return app(`<div class="content">${postedBanner()}<fieldset ${UI.posted[MODE]?'disabled':''}>
+ <div class="v3-top">
+  <section class="card v3-who"><div class="who-row"><span class="avatar lg">${initials(p.name)}</span><div><b>${esc(p.name)}</b><div class="muted"><span class="mono">${p.code}</span> · ${list.length} open ${t.invWord}s</div></div><span class="sp"></span>${partyChange()}</div>
+   <div><div class="muted">${t.open} still open</div><div class="big"><small>Rp</small>${fmt(tot)}</div></div>
+   <div class="aging" aria-hidden="true">${b.map((v,i)=>v?`<i class="a${i}" style="flex:${v}"></i>`:'').join('')}</div>
+   <div class="leg">${['Not due','1–30 d late','31–60 d late','60+ d late'].map((l,i)=>`<span><i class="a${i}"></i>${l} <b class="num" style="font-weight:500">${fmt(b[i])}</b></span>`).join('')}</div></section>
+  <section class="card v3-amt"><label class="muted" for="v3amt" style="font-weight:500">${MODE==='bkm'?'How much came in?':'How much are we paying?'}</label>
+   <div class="bigin"><span>Rp</span><input id="v3amt" data-money data-bind="v3amt" value="${fmt(UI.v3amt[MODE])}" inputmode="numeric" autocomplete="off"></div>
+   <div class="row">${acctSelect('sm')}${methodSeg()}</div>${giroFields()}
+   <p class="muted row" style="gap:6px">${I.spark} Oldest ${t.invWord}s first. Tap a card to skip it — the rest shifts along.</p></section>
+ </div>
+ <div class="v3-strip" id="v3strip" aria-hidden="true">${v3strip()}</div>
+ <div class="v3-tiles" id="v3tiles">${v3tiles()}</div></fieldset>
+ <div id="probs">${problemBanner()}</div>
+ <div class="card v3-foot" id="v3foot">${v3foot()}</div></div>`)}
+
+/* ======================================================================
+   4 · Sentence — one line, every blank a choice
+   ====================================================================== */
+function v4jline(){const s=S(),a=CB[s.account],su=sums(),og=a.code==='1006'?'2006':'2005';
+ const cash=s.method==='giro'?(MODE==='bkm'?'giro received':`${og} Outstanding Giro`):`${a.code} ${a.name}`;
+ const cp=MODE==='bkm'?`receivable · ${partyOf().name}`:`2002 · ${partyOf().name}`;
+ const left=UI.v3left[MODE]>0?` · <span class="warnt">${fmt(UI.v3left[MODE])} matches no ${T().invWord} — kept as an advance</span>`:'';
+ return (MODE==='bkm'?`Posts <span class="mono">Dr ${esc(cash)}</span> · <span class="mono">Cr ${esc(cp)}</span>`:`Posts <span class="mono">Dr ${esc(cp)}</span> · <span class="mono">Cr ${esc(cash)}</span>`)+` · ${fmt(su.total)}${left}`}
+function v4pop(){const k=UI.v4open;if(!k)return '';const s=S(),t=T();let title='',body='',one=false;
+ if(k==='acc'){title=MODE==='bkm'?'Into which account':'From which account';body=Object.values(CB).map(a=>`<button type="button" class="opt ${a.code===s.account?'on':''}" data-act="v4acc" data-c="${a.code}"><span class="dir d-out">${a.kind==='bank'?I.bank:I.wallet}</span><span style="flex:1"><b style="font-weight:500">${a.name} · ${a.unit}</b><small>${a.full} · ${a.code}</small></span><span class="num muted">${fmt(a.bal)}</span></button>`).join('')}
+ else if(k==='party'){title=t.party;body=PARTY[MODE].map(p=>`<button type="button" class="opt ${p.code===s.party?'on':''}" data-act="setparty" data-c="${p.code}"><span class="avatar">${initials(p.name)}</span><span style="flex:1"><b style="font-weight:500">${p.name}</b><small class="mono">${p.code}</small></span><span class="num muted">${fmt(p.open)} open</span></button>`).join('')}
+ else if(k==='method'){title=MODE==='bkm'?'Received by':'Paid by';body=[['cash','Cash','Into Cash on hand or Petty cash'],['transfer','Transfer','Bank to bank — settled at once'],['giro','Giro',MODE==='bkm'?'A bilyet giro — waits until it is deposited and clears':'A bilyet giro — sits on Outstanding Giro until the statement clears it']].map(([m,l,d])=>`<button type="button" class="opt ${s.method===m?'on':''}" data-act="method" data-m="${m}"><span style="flex:1"><b style="font-weight:500">${l}</b><small>${d}</small></span></button>`).join('')}
+ else if(k==='giro'){one=true;title='Giro number';body=`<label class="f"><span>Giro no<i class="req">*</i></span><input class="in mono" data-bind="giro.no" value="${esc(s.giro.no)}" placeholder="BG 000000" autofocus></label>`}
+ else if(k==='gbank'){title='Drawn on';body=['BCA','Mandiri','BRI','BNI','Danamon'].map(b=>`<button type="button" class="opt ${s.giro.bank===b?'on':''}" data-act="v4bank" data-b="${b}"><b style="font-weight:500">${b}</b></button>`).join('')}
+ else if(k==='gdue'){title='Giro due';body=[14,30,45,60].map(n=>`<button type="button" class="opt ${s.giro.due===plusDays(TODAY,n)?'on':''}" data-act="due" data-n="${n}"><span style="flex:1"><b style="font-weight:500">${day(plusDays(TODAY,n))}</b><small>in ${n} days</small></span></button>`).join('')}
+ else if(k==='date'){title='Dated';body=[[0,'Today'],[-1,'Yesterday'],[-2,'Two days ago']].map(([n,l])=>`<button type="button" class="opt ${s.date===plusDays(TODAY,n)?'on':''}" data-act="v4date" data-n="${n}"><span style="flex:1"><b style="font-weight:500">${l}</b><small>${dayL(plusDays(TODAY,n))}</small></span></button>`).join('')}
+ else if(k==='inv'){title=`${t.settle} — oldest first`;body=invs().map((x,i)=>`<button type="button" class="opt ${x.pick?'on':''}" data-act="v4inv" data-i="${i}"><input type="checkbox" class="cb" ${x.pick?'checked':''} tabindex="-1" aria-hidden="true" style="pointer-events:none"><span style="flex:1"><span class="mono" style="color:var(--ink)">${x.no}</span><small>due ${dayS(x.due)} · ${x.ref}</small></span><span class="num">${fmt(x.pick?x.amt:x.open)}</span></button>`).join('')||`<div class="muted" style="padding:10px">Nothing open for ${esc(partyOf().name)}.</div>`}
+ else if(k==='note'){one=true;title='Note';body=`<textarea class="in" rows="2" data-bind="note" placeholder="Printed on the ${t.code}" autofocus>${esc(s.note)}</textarea>`}
+ return `<div class="pop ${UI.fresh?'anim':''}"><div class="pop-h">${title}<span class="sp"></span><button type="button" class="icon-btn" data-act="v4open" data-k="${k}" aria-label="Close">${I.x}</button></div><div class="pop-b ${one?'one':''}">${body}</div></div>`}
+function v4(){const s=S(),t=T(),p=partyOf(),a=CB[s.account],pr=problems(),ro=UI.posted[MODE];
+ if(UI.v3amt[MODE]==null)UI.v3amt[MODE]=sums().total;
+ allocate();const n=sums().count,amt=UI.v3amt[MODE];
+ const w=(k,label,cls='')=>`<button type="button" class="w ${cls} ${UI.v4open===k?'open':''}" data-act="v4open" data-k="${k}" ${ro?'disabled':''}>${label}</button>`;
+ const miss=(val,key)=>val?'':(pr[key]?'bad':'empty');
+ const giro=s.method==='giro'?` ${w('giro',s.giro.no?esc(s.giro.no):'which giro?',miss(s.giro.no,'gno'))}${MODE==='bkm'?` on ${w('gbank',s.giro.bank?esc(s.giro.bank):'which bank?',miss(s.giro.bank,'gbank'))}`:''} due ${w('gdue',s.giro.due?dayS(s.giro.due):'when?',miss(s.giro.due,'gdue'))}`:'';
+ const sentence=`${MODE==='bkm'?'Received':'Paid'} <span class="w money"><span>Rp</span><input data-money data-bind="v4amt" value="${fmt(amt)}" aria-label="Amount" size="${Math.max(3,fmt(amt).length)}" ${ro?'disabled':''}></span> ${MODE==='bkm'?'into':'from'} ${w('acc',`${a.name} ${a.unit}`)} ${MODE==='bkm'?'from':'to'} ${w('party',esc(p.name))} by ${w('method',s.method)}${giro}, dated ${w('date',s.date===TODAY?'today':dayS(s.date))}, settling <span id="v4inv">${w('inv',`${n} ${t.invWord}${n===1?'':'s'}`)}</span>.`;
+ return app(`<div class="content v4">${postedBanner()}<div class="eyebrow">${I[t.dir]} ${t.title} · <span class="mono">${t.voucher}</span></div><p class="sentence">${sentence}</p>${v4pop()}
+ <div class="v4-foot"><span class="jline" id="v4j">${v4jline()}</span><span class="sp"></span>${ro?`<button class="btn" data-act="print">${I.print}Print ${t.code}</button><button class="btn ghost" data-act="reset">Back to draft (demo)</button>`:`<button type="button" class="link" data-act="v4open" data-k="note">${s.note?'Edit the note':'Add a note'}</button><button class="btn pri lg" data-act="post" ${UI.posting?'disabled aria-busy="true"':''}>${UI.posting?'Posting…':t.post}</button>`}</div></div>`,{actions:''})}
+
+/* ======================================================================
+   5 · Paper — the voucher as it prints
+   ====================================================================== */
+function v5(){const s=S(),t=T(),a=CB[s.account],p=partyOf(),su=sums(),posted=UI.posted[MODE];const title=a.kind==='bank'?t.paperBank:t.paperKas;
+ const rows=[];
+ invs().forEach((x,i)=>{if(x.pick)rows.push({desc:`Pelunasan ${x.no} (${x.ref})${x.disc?` · potongan ${fmt(x.disc)}`:''}`,acc:MODE==='bkm'?'Piutang':'2002',bind:`inv.amt.${i}`,amt:x.amt})});
+ s.other.forEach((o,i)=>rows.push({desc:o.note,descBind:`other.note.${i}`,ph:GL[o.acc],acc:o.acc,bind:`other.amt.${i}`,amt:o.amt}));
+ offs().forEach(x=>{if(x.pick)rows.push({desc:`Dikompensasi ${x.no}`,acc:MODE==='bkm'?'2002':'Piutang',amt:x.amt,neg:true})});
+ const blanks=Math.max(1,7-rows.length);
+ const tick=m=>`<span class="box ${s.method===m?'x':''}"></span>`;
+ return app(`<div class="content v5">${postedBanner()}<div class="v5-tools"><span class="muted">What you fill in is what prints · A5 landscape · ${a.kind==='bank'?'a bank account prints Bukti Bank':'a cash account prints Bukti Kas'}</span><span class="sp"></span><button type="button" class="btn sm" data-act="toast" data-msg="Sent to the printer — A5, one copy">${I.print}Print</button>${posted?'':`<button type="button" class="btn sm pri" data-act="post" ${UI.posting?'disabled aria-busy="true"':''}>${UI.posting?'Posting…':t.post}</button>`}</div>
+ <div class="paper"><fieldset ${posted?'disabled':''}>
+  <div class="pp-head"><div><div class="pp-co">HEAD OFFICE</div><div class="mono muted">Unit HO · ${a.kind==='bank'?'Bank':'Kas'}</div></div><div class="pp-title"><h2>${title}</h2><div class="mono">No. ${t.voucher}</div></div><div class="pp-date">Tanggal<br><b>${dayL(s.date)}</b></div></div>
+  <div class="pp-row"><span>${t.paperParty}</span><div class="line">${esc(p.name)} <span class="mono muted">${p.code}</span></div></div>
+  <div class="pp-row"><span>${a.kind==='bank'?'Rekening':'Kas'}</span><div class="line">${a.full} · ${a.unit} <span class="mono muted">${a.code}</span></div></div>
+  <div class="pp-row"><span>Uang sejumlah</span><div class="line words" data-out="words">${terbilang(su.total)}</div></div>
+  <table class="pp-tbl"><thead><tr><th class="c">No</th><th>Keterangan</th><th style="width:96px">Akun</th><th class="r" style="width:170px">Jumlah (Rp)</th></tr></thead><tbody>
+  ${rows.map((r,i)=>`<tr class="${r.neg?'neg':''}"><td class="c">${i+1}</td><td>${r.descBind?`<input value="${esc(r.desc)}" placeholder="${esc(r.ph)}" data-bind="${r.descBind}" aria-label="Keterangan">`:esc(r.desc)}</td><td class="mono">${r.acc}</td><td class="r">${r.bind?`<input class="r" data-money data-bind="${r.bind}" value="${r.amt?fmt(r.amt):''}" placeholder="0" aria-label="Jumlah">`:`(${fmt(r.amt)})`}</td></tr>`).join('')}
+  ${Array.from({length:blanks},(_,i)=>`<tr><td class="c">${rows.length+i+1}</td><td>${i===0&&!posted?`<button type="button" class="pp-add" data-act="addother">+ tambah baris</button>`:''}</td><td></td><td></td></tr>`).join('')}
+  </tbody></table>
+  <div class="pp-bottom"><div class="pp-method"><span>${tick('cash')}Tunai</span><span>${tick('transfer')}Transfer</span><span>${tick('giro')}Giro${s.method==='giro'?` no. <b>${esc(s.giro.no||'……')}</b> jatuh tempo <b>${s.giro.due?day(s.giro.due):'……'}</b>`:''}</span></div><div class="pp-total"><span>Rp</span><span data-out="total">${fmt(su.total)}</span></div></div>
+  <div class="pp-sign">${['Dibuat oleh','Diperiksa','Disetujui',t.paperSign].map((l,i)=>`<div><span>${l}</span><b>${i===0?'Hari':'( ........................ )'}</b></div>`).join('')}</div>
+  ${posted?`<div class="stamp ${UI.flash?'anim':''}">DIBUKUKAN<small>27 SEP 2026 · JV/HO/2609/0132</small></div>`:''}
+ </fieldset></div></div>`)}
+
+/* ======================================================================
+   6 · Statement match — start from what the bank already says
+   ====================================================================== */
+const STMT={
+ bkm:[
+  {id:'a1',date:'2026-09-26',desc:'TRSF E-BANKING CR 2609/FTSCY/WS95031 AGUNG JAYA SENTOSA',amt:30413250,guess:{kind:'party',name:'Agung Jaya Sentosa',label:'Agung Jaya Sentosa — settles 7 invoices',why:['The 7 oldest open invoices add up to exactly this amount','The customer\'s name is in the description'],conf:98,posts:'Dr 1005 BCA Giro · Cr Receivable Agung Jaya Sentosa'}},
+  {id:'a2',date:'2026-09-26',desc:'KR OTOMATIS MID 885012345 BCA CARD 25/09',amt:18742300,guess:{kind:'card',label:'Card settlement for 25 Sep — 4 stores',why:['Card sales on 25 Sep: 18.950.000 across C001–C004','The 207.700 short is the bank\'s fee (1,1%) → 6043 Biaya Bank HO'],conf:91,posts:'Dr 1005 18.742.300 · Dr 6043 207.700 · Cr 1020 Piutang Kartu Kredit 18.950.000'}},
+  {id:'a3',date:'2026-09-26',desc:'SETORAN TUNAI C003 KEBAYORAN',amt:12500000,guess:{kind:'transfer',label:'Cash deposit from store C003',why:['C003 closed its till on 25 Sep with 12.500.000 for the bank','A move between our own accounts — not income'],conf:95,posts:'Dr 1005 BCA Giro HO · Cr 1002 Cash on hand C003'}},
+  {id:'a4',date:'2026-09-27',desc:'BUNGA JASA GIRO',amt:125400,guess:{kind:'acc',label:'Bank interest — 8002 Pendapatan Bunga Bank',why:['Arrives on the last business days of every month, same wording'],conf:88,posts:'Dr 1005 · Cr 8002 Pendapatan Bunga Bank'}},
+  {id:'a5',date:'2026-09-27',desc:'TRSF CR 0192 SUMBER KOMPUTER',amt:2150000,guess:null},
+  {id:'a6',date:'2026-09-25',desc:'TRSF E-BANKING CR TOKO MAJU JAYA',amt:4250000,done:'BKM/HO/2609/0033'},
+  {id:'a7',date:'2026-09-25',desc:'KR OTOMATIS MID 885012345 BCA CARD 24/09',amt:21066800,done:'BKM/HO/2609/0032'}],
+ bkk:[
+  {id:'b1',date:'2026-09-26',desc:'TRSF E-BANKING DB 2609/FTSCY LANGGENG JAYA SENTOSA',amt:33689000,guess:{kind:'draft',name:'Langgeng Jaya Sentosa',label:'Your draft BKK/HO/2609/0057 — Langgeng Jaya Sentosa',why:['Same supplier and same amount as the draft','The draft says giro BG 456124, but the bank paid it by transfer — posting switches the draft to transfer'],conf:96,posts:'Dr 2002 Hutang Suppliers · Cr 1005 BCA Giro'}},
+  {id:'b2',date:'2026-09-26',desc:'KLIRING BG 456123',amt:8374200,guess:{kind:'giro',label:'Giro BG 456123 to Sumber Komputer has cleared',why:['Issued on BKK/HO/2609/0055, due 26 Sep, same amount','Clearing moves it off Outstanding Giro — it is not a new BKK'],conf:99,posts:'Dr 2005 Outstanding Giro Bank BCA · Cr 1005 BCA Giro'}},
+  {id:'b3',date:'2026-09-27',desc:'BIAYA ADM',amt:15000,guess:{kind:'acc',label:'Bank admin fee — 6043 Biaya Bank HO',why:['Every month, the same amount'],conf:93,posts:'Dr 6043 Biaya Bank HO · Cr 1005'}},
+  {id:'b4',date:'2026-09-27',desc:'PLN POSTPAID 5210 8812 3345',amt:1845200,guess:{kind:'acc',label:'Electricity for store C001 — 6045',why:['PLN customer 5210 8812 3345 belongs to C001'],conf:86,posts:'Dr 6045 Biaya Pemakaian Listrik (C001) · Cr 1005'}},
+  {id:'b5',date:'2026-09-27',desc:'TRSF DB 0098123 BUDI S',amt:750000,guess:null},
+  {id:'b6',date:'2026-09-22',desc:'KLIRING BG 456119',amt:4200000,done:'Giro BG 456119 cleared'},
+  {id:'b7',date:'2026-09-25',desc:'BIAYA ADM',amt:15000,done:'BKK/HO/2609/0052'}]};
+function v6manual(l,i){const t=T(),v=UI.v6pick[MODE][l.id]||'';
+ const opts=[...t.other.map(c=>[c,`${c} · ${GL[c]}`]),...PARTY[MODE].map(p=>['p:'+p.code,`${t.party} · ${p.name}`]),['t:1002',MODE==='bkm'?'Transfer in from Cash on hand':'Transfer out to Cash on hand']];
+ return `<div class="row" style="margin-top:6px"><select class="in" data-change="v6acc" data-id="${l.id}" style="flex:1;min-width:240px" aria-label="What it was"><option value="">An account, a ${t.party.toLowerCase()} or a transfer…</option>${opts.map(([k,lab])=>`<option value="${k}" ${k===v?'selected':''}>${esc(lab)}</option>`).join('')}</select><button type="button" class="btn" data-act="v6make" data-i="${i}" data-manual="1">Create ${t.code}</button></div>`}
+function v6match(l,i){const t=T(),made=l.done||UI.v6done[MODE][l.id];
+ const head=`<div class="m-body"><div class="muted">${dayL(l.date)}</div><div class="m-amt"><span class="big"><small>Rp</small>${fmt(l.amt)}</span><span class="pill ${made?'ok':l.guess?'info':'warn'}">${made?'Explained':l.guess?'Suggested':'Needs you'}</span></div><div class="mono" style="color:var(--text)">${esc(l.desc)}</div>`;
+ if(made)return head+`<div class="banner ok" style="margin:0">${I.check}<span>Explained by <b class="mono">${esc(made)}</b>. It won't be suggested again.</span></div></div>`;
+ if(l.guess){const g=l.guess;return head+`<div class="guess"><div class="row"><span class="avatar">${g.name?initials(g.name):I.spark}</span><b>${esc(g.label)}</b><span class="sp"></span><span class="conf"><span class="bar"><i style="width:${g.conf}%"></i></span>${g.conf}%</span></div><ul class="whys">${g.why.map(w=>`<li>${esc(w)}</li>`).join('')}</ul><div class="mono muted" style="font-size:12.5px">${esc(g.posts)}</div><div class="row"><button type="button" class="btn pri" data-act="v6make" data-i="${i}">${g.kind==='giro'?'Clear the giro':g.kind==='draft'?'Post the draft as transfer':`Create ${t.code}`}</button><button type="button" class="btn ghost" data-act="toast" data-msg="Pick another ${t.invWord}, an account or a transfer below">Not this</button></div></div>
+  <div class="guess plain"><b>Or say what it was</b>${v6manual(l,i)}</div></div>`}
+ return head+`<div class="guess plain"><b>Nothing matches on its own</b><p class="muted">No open ${t.invWord} has this amount and the description names nobody we know. Say what it was:</p>${v6manual(l,i)}</div></div>`}
+function v6(){const t=T(),L=STMT[MODE],done=UI.v6done[MODE],sel=UI.v6sel[MODE];
+ const n=L.filter(l=>l.done||done[l.id]).length;
+ const list=L.map((l,i)=>{const d=l.done||done[l.id];return `<button type="button" class="stl ${i===sel?'sel':''} ${d?'done':''}" data-act="v6sel" data-i="${i}"><span class="dot ${d?'d-ok':l.guess?'d-guess':'d-none'}"></span><span class="d">${dayS(l.date)}</span><span class="desc">${esc(l.desc)}</span><span class="amt">${MODE==='bkm'?'+':'−'}${fmt(l.amt)}</span></button>`}).join('');
+ return app(`<div class="content"><div class="v6"><section class="card" style="overflow:hidden"><div class="st-head"><div class="row"><span class="dir d-out">${I.bank}</span><div><b>BCA · Giro HO</b> <span class="mono muted">1005</span><div class="muted">Statement 25–27 Sep · ${MODE==='bkm'?'money in':'money out'} · imported today 07:10</div></div><span class="sp"></span><button type="button" class="btn sm" data-act="toast" data-msg="Pick the CSV downloaded from KlikBCA">Import</button></div>
+  <div class="row"><b class="num">${n} of ${L.length}</b><span class="muted">lines explained</span><span class="sp"></span><span class="muted"><span class="dot d-guess" style="display:inline-block"></span> suggested &nbsp; <span class="dot d-none" style="display:inline-block"></span> needs you</span></div><div class="prog"><i style="width:${Math.round(n/L.length*100)}%"></i></div></div>
+  <div>${list}</div></section>
+  <section class="card">${v6match(L[sel],sel)}</section></div></div>`,
+ {plain:true,title:MODE==='bkm'?'Money in, from the statement':'Money out, from the statement',crumb:'Reconcile',actions:''})}
+
+/* ======================================================================
+   7 · Journal lens — the form, and the entry it becomes
+   ====================================================================== */
+function lensLater(){const s=S(),a=CB[s.account],tot=sums().total,og=a.code==='1006'?'2006':'2005';
+ if(s.method!=='giro')return `<div class="later"><b>Nothing waits for later.</b><span>A ${s.method} settles at once; the bank statement only confirms it.</span></div>`;
+ if(MODE==='bkk')return `<div class="later"><b>Later — when the ${a.bank||'bank'} statement shows ${esc(s.giro.no||'the giro')} cleared${s.giro.due?` (due ${dayS(s.giro.due)})`:''}:</b><span><span class="code">${og}</span> ${GL[og]} · Dr ${fmt(tot)}</span><span><span class="code">${a.code}</span> ${a.full} · Cr ${fmt(tot)}</span><span class="muted">Dated by the statement line, never typed. A bounce reverses it and reopens the bill.</span></div>`;
+ return `<div class="later"><b>Later — when the giro is deposited and clears:</b><span><span class="code">${a.code}</span> ${a.full} · Dr ${fmt(tot)}</span><span><span class="code link">giro in</span> Giro received · Cr ${fmt(tot)}</span></div>`}
+function lensHTML(){const L=journal(),dr=L.reduce((a,x)=>a+(x.dr||0),0),cr=L.reduce((a,x)=>a+(x.cr||0),0),ok=dr===cr&&dr>0;
+ return `<div class="lens-h"><b>What this posts</b><span class="pill">Unit HO</span><span class="pill">September · open</span><span class="sp"></span>${ok?'<span class="pill ok">Balanced</span>':dr||cr?'<span class="pill bad">Out of balance</span>':'<span class="pill warn">Nothing yet</span>'}</div>
+ <table><thead><tr><th>Account</th><th class="r">Debit</th><th class="r">Credit</th></tr></thead><tbody>${L.map(x=>`<tr><td><div class="acct">${x.code==='link'?`<span class="code link">${x.link}</span>`:`<span class="code">${x.code}</span>`}<span>${esc(x.name)}</span></div>${x.note?`<small class="muted">${esc(x.note)}</small>`:''}${x.warn?`<small class="warnt">${esc(x.warn)}</small>`:''}</td><td class="r num">${x.dr?fmt(x.dr):''}</td><td class="r num">${x.cr?fmt(x.cr):''}</td></tr>`).join('')||`<tr><td colspan="3" class="muted">Settle an ${T().invWord} or add a line and the entry appears here.</td></tr>`}</tbody>
+ <tfoot><tr><td>Total</td><td class="r num"><span class="dbl">${fmt(dr)}</span></td><td class="r num"><span class="dbl">${fmt(cr)}</span></td></tr></tfoot></table>${lensLater()}`}
+function v7(){const t=T(),posted=UI.posted[MODE];
+ return app(`<div class="content">${postedBanner()}<div class="v7"><section class="card v7-form"><fieldset ${posted?'disabled':''} class="col">
+  <div class="f"><span>${t.party}<i class="req">*</i></span>${partyPick()}</div>
+  <div class="two"><label class="f"><span>Cash / bank<i class="req">*</i></span>${acctSelect()}</label><div class="f"><span>Paid by</span>${methodSeg()}</div></div>${giroFields()}
+  <div class="f"><span>${t.settle} <span class="muted" style="font-weight:400">· discount, then ${t.col.toLowerCase()}</span></span>${invs().length?compactInv():emptyParty()}</div>
+  <div class="f"><span>Other lines</span>${otherCompact()}</div></fieldset><div id="probs">${problemBanner()}</div></section>
+  <section class="card lens" id="lens">${lensHTML()}</section></div></div>`)}
+
+/* ======================================================================
+   8 · Store phone — petty cash in three taps
+   ====================================================================== */
+const MOB={
+ bkk:{title:'Petty cash spend',store:'C003 · Kebayoran',pc:'Petty cash C003',bal:1250000,voucher:'BKK/C003/2609/0112',ask:'How much did you pay?',
+  cats:[['6040','Cleaning'],['6042','Household'],['6041','Stationery & print'],['6052','Store supplies'],['6044','Phone & internet'],['6045','Electricity']]},
+ bkm:{title:'Cash in',store:'C003 · Kebayoran',pc:'Petty cash C003',bal:1250000,voucher:'BKM/C003/2609/0048',ask:'How much came in?',
+  cats:[['6002','Used cardboard sold'],['1022','Staff repays a loan'],['8003','Till rounding'],['1003','Top-up from HO']]}};
+function phone(step,label,inner){return `<div class="phone-wrap"><div class="step-cap"><span class="stepn">${step}</span>${label}</div><div class="phone"><div class="scr"><div class="notch"></div><div class="sb"><span>9:41</span><span>5G ▮</span></div>${inner}</div></div></div>`}
+function v8(){const t=T(),D=MOB[MODE],amt=UI.v8amt[MODE],cat=UI.v8cat[MODE],c=D.cats.find(x=>x[0]===cat),photo=UI.v8photo[MODE],saved=UI.v8saved[MODE];
+ const top=(title,back)=>`<div class="mtop">${back?`<span class="icon-btn" aria-hidden="true">${I.back}</span>`:''}<div><b>${title}</b><small>${D.store}</small></div></div>`;
+ const after=MODE==='bkk'?D.bal-amt:D.bal+amt,over=MODE==='bkk'&&amt>D.bal;
+ const p1=phone(1,'How much',`${top(D.title,false)}<div class="mbody"><div class="m-big"><small>Rp</small>${fmt(amt)}</div><div class="m-sub">${D.ask}<br>${D.pc} holds ${fmt(D.bal)}</div><div class="keys">${['1','2','3','4','5','6','7','8','9','000','0','del'].map(k=>`<button type="button" data-act="key" data-k="${k}" aria-label="${k==='del'?'Delete':k}">${k==='del'?I.del:k}</button>`).join('')}</div><button type="button" class="mbtn" data-act="toast" data-msg="Next — what it was for">Next</button></div>`);
+ const p2=phone(2,'What for',`${top(D.title,true)}<div class="mbody"><div class="cats">${D.cats.map(([code,l])=>`<button type="button" class="cat ${code===cat?'on':''}" data-act="v8cat" data-c="${code}"><b>${l}</b><small>${code}</small></button>`).join('')}</div>
+  <input class="in" placeholder="${MODE==='bkk'?'What exactly — e.g. sabun, alat pel':'Who or what — e.g. 12 kardus'}" aria-label="Note">
+  <button type="button" class="photo ${photo?'done':''}" data-act="v8photo">${photo?I.check+' nota.jpg · attached':I.camera+(MODE==='bkk'?' Photo of the receipt · required':' Photo · optional')}</button><span class="sp"></span><button type="button" class="mbtn" data-act="toast" data-msg="Next — check and save">Next</button></div>`);
+ const p3=phone(3,'Check & save',saved?`<div class="done-scr"><span class="done-ico">${I.check}</span><b style="font-size:18px">Saved</b><span class="mono">${D.voucher}</span><p class="muted">${D.pc} now holds ${fmt(after)}. HO sees it in the petty cash book straight away — no paper to send.</p><button type="button" class="mbtn ghost" data-act="v8again">Record another</button></div>`
+  :`${top('Check',true)}<div class="mbody"><div class="msum"><div><span>Amount</span><span class="num">Rp ${fmt(amt)}</span></div><div><span>${MODE==='bkk'?'For':'From'}</span><span>${c?c[1]:'—'} <span class="mono muted">${cat}</span></span></div><div><span>${MODE==='bkk'?'Paid from':'Into'}</span><span>${D.pc}</span></div><div><span>Receipt</span><span>${photo?'nota.jpg':'—'}</span></div><div><span>Date</span><span>Today, ${dayS(TODAY)}</span></div></div>
+  <div class="balbar"><div><span>${D.pc}</span><span class="num">${fmt(D.bal)} → <b>${fmt(Math.max(0,after))}</b></span></div><div class="track">${MODE==='bkk'?`<i style="width:${Math.max(0,Math.min(100,after/D.bal*100))}%"></i><i class="take" style="width:${Math.min(100,amt/D.bal*100)}%"></i>`:`<i style="width:${D.bal/(D.bal+amt)*100}%"></i><i class="add" style="width:${amt/(D.bal+amt)*100}%"></i>`}</div></div>
+  ${over?`<div class="banner bad" style="margin:0">${I.alert}<span>More than petty cash holds. Ask HO for a top-up first.</span></div>`:''}
+  ${MODE==='bkk'&&!photo?`<div class="banner warn" style="margin:0">${I.camera}<span>Add the receipt photo in step 2 first.</span></div>`:''}
+  <span class="sp"></span><button type="button" class="mbtn" data-act="v8save" ${over||UI.v8saving?'disabled':''} ${UI.v8saving?'aria-busy="true"':''}>${UI.v8saving?'Saving…':`Save ${t.code}`}</button></div>`);
+ return `<div class="v8"><div class="v8-h"><span class="dir d-${t.dir}">${I[t.dir]}</span><h1>${D.title} — the store's phone</h1><span class="pill">3 steps</span><span class="sp"></span><span class="muted">One flow, laid side by side. Tap the keypad, the tiles and the photo.</span></div><div class="phones">${p1}${p2}${p3}</div></div>`}
+
+/* ======================================================================
+   9 · Giro board — 7Soft's Pencairan BG, as a board
+   ====================================================================== */
+const GIRO={
+ bkm:[{id:'g1',no:'BG 771204',bank:'BCA',party:'Agung Jaya Sentosa',amt:6342000,due:'2026-10-02',st:'wait',from:'BKM/HO/2609/0031'},
+  {id:'g2',no:'BG 118930',bank:'Mandiri',party:'Toko Maju Jaya',amt:4250000,due:'2026-10-12',st:'wait',from:'BKM/HO/2609/0038'},
+  {id:'g3',no:'BG 551027',bank:'BRI',party:'CV Sinar Abadi',amt:2980000,due:'2026-09-26',st:'wait',from:'BKM/HO/2609/0036'},
+  {id:'g4',no:'BG 660311',bank:'BCA',party:'Agung Jaya Sentosa',amt:16105000,due:'2026-09-20',st:'cleared',at:'2026-09-21',from:'BKM/HO/2609/0024'},
+  {id:'g5',no:'BG 402288',bank:'BNI',party:'Toko Maju Jaya',amt:1575000,due:'2026-09-17',st:'bounced',at:'2026-09-18',from:'BKM/HO/2609/0035'}],
+ bkk:[{id:'k1',no:'BG 456124',bank:'BCA',party:'Langgeng Jaya Sentosa',amt:33689000,due:'2026-10-12',st:'wait',from:'BKK/HO/2609/0057 · draft'},
+  {id:'k2',no:'BG 456120',bank:'Mandiri',party:'CV Anugrah Textile',amt:12450000,due:'2026-10-03',st:'wait',from:'BKK/HO/2609/0054'},
+  {id:'k3',no:'BG 456123',bank:'BCA',party:'Sumber Komputer',amt:8374200,due:'2026-09-26',st:'wait',from:'BKK/HO/2609/0055'},
+  {id:'k4',no:'BG 456119',bank:'BCA',party:'PT Graha Clean',amt:4200000,due:'2026-09-22',st:'cleared',at:'2026-09-22',from:'BKK/HO/2609/0046'},
+  {id:'k5',no:'BG 456101',bank:'BCA',party:'PT Delta Tex',amt:5100000,due:'2026-09-19',st:'bounced',at:'2026-09-20',from:'BKK/HO/2609/0051'}]};
+const gstate=g=>{const o=UI.v9[MODE][g.id];return o?{...g,...o}:g};
+const gcol=g=>g.st==='cleared'?'cleared':g.st==='bounced'?'bounced':lateBy(g.due)>=-7?'due':'wait';
+function gcard(g){const t=T(),c=gcol(g),d=lateBy(g.due),open=UI.v9open===g.id;
+ const cd=c==='cleared'?`<span class="cd">Cleared ${dayS(g.at)}${MODE==='bkk'?' · by statement':''}</span>`:c==='bounced'?`<span class="cd late">Bounced ${dayS(g.at)}</span>`:d>0?`<span class="cd late">${d} d past due</span>`:d===0?`<span class="cd late">Due today</span>`:`<span class="cd">Due ${dayS(g.due)} · in ${-d} d</span>`;
+ let acts='';
+ if(c==='wait'||c==='due')acts=MODE==='bkm'?`<button type="button" class="btn sm" data-act="v9open" data-id="${g.id}">Deposit &amp; clear</button><button type="button" class="btn sm ghost" data-act="v9set" data-id="${g.id}" data-st="bounced">Bounced</button>`
+  :`<span class="pill info">Clears from the statement</span><button type="button" class="btn sm ghost" data-act="v9find">Find it</button>`;
+ else if(c==='bounced')acts=g.repl?`<span class="pill ok">Replaced by <span class="mono">${g.repl}</span></span>`:`<button type="button" class="btn sm" data-act="v9repl" data-id="${g.id}">${I.undo} Replace</button><span class="muted" style="font-size:13px">${MODE==='bkm'?'its invoices are open again':'its bills are open again'}</span>`;
+ else if(MODE==='bkm')acts=`<button type="button" class="btn sm ghost" data-act="v9set" data-id="${g.id}" data-st="wait">Undo clearing</button>`;
+ const form=open?`<div class="clr"><label class="f"><span>Into</span><select class="in sm">${['1005','1006'].map(k=>`<option>${CB[k].name} · HO</option>`).join('')}</select></label><div class="f"><span>Cleared on</span><div class="in sm day">${I.cal}${day(TODAY)}</div></div><div class="row"><button type="button" class="btn sm pri" data-act="v9set" data-id="${g.id}" data-st="cleared">Clear ${fmt(g.amt)}</button><button type="button" class="btn sm ghost" data-act="v9open" data-id="${g.id}">Cancel</button></div></div>`:'';
+ return `<div class="gcard"><div class="top"><span class="mono" style="color:var(--ink)">${g.no}</span><span class="pill">${g.bank}</span><span class="sp"></span>${cd}</div><div class="amt">Rp ${fmt(g.amt)}</div><div class="who">${esc(g.party)}</div><div class="meta">from <span class="mono">${g.from}</span></div><div class="acts">${acts}</div>${form}</div>`}
+function v9(){const G=GIRO[MODE].map(gstate),by=k=>G.filter(g=>gcol(g)===k),sum=a=>a.reduce((x,g)=>x+g.amt,0);
+ const cols=[['wait','Waiting'],['due','Due within 7 days'],['cleared','Cleared'],['bounced','Bounced']];
+ const kpi=[['Waiting',by('wait')],['Due within 7 days',by('due')],['Cleared this month',by('cleared')],['Bounced this month',by('bounced')]];
+ return app(`<div class="content"><div class="kpis">${kpi.map(([l,a])=>`<div class="card kpi"><small>${l}</small><b>${fmt(sum(a))}</b><span>${a.length} giro${a.length===1?'':'s'}</span></div>`).join('')}</div>
+ <div class="board">${cols.map(([k,l])=>{const a=by(k);return `<div class="colm"><h3>${l}<span class="n">${a.length}</span><span class="sum">${fmt(sum(a))}</span></h3>${a.map(gcard).join('')||'<div class="empty-col">Nothing here</div>'}</div>`}).join('')}</div></div>`,
+ {plain:true,title:MODE==='bkm'?'Giro received':'Giro issued',crumb:'Giro',actions:`<button type="button" class="btn" data-act="toast" data-msg="Opening giro: the ones still out on day one (7Soft's Saldo Awal BG)">Opening giro</button>`})}
+
+/* ======================================================================
+   10 · Quick entry — type it the way it's said
+   ====================================================================== */
+const KW={bkk:[[/listrik|pln/,'6045'],[/atk|kertas|tinta|cetak|fotokopi/,'6041'],[/kebersihan|cleaning|sabun|\bpel\b|sapu/,'6040'],[/galon|air minum|kopi|gula|\bteh\b|rumah tangga/,'6042'],[/telepon|telp|internet|wifi|pulsa/,'6044'],[/\badm\b|admin|biaya bank/,'6043'],[/perlengkapan|lakban|plastik|hanger/,'6052']],
+ bkm:[[/bunga/,'8002'],[/kardus|bekas|lain/,'6002'],[/pembulatan|selisih/,'8003'],[/kasbon|pegawai|karyawan/,'1022'],[/setoran|setor/,'1002']]};
+const CBKW=[[/kas kecil|petty/,'1003'],[/\bkas\b|tunai|cash/,'1002'],[/mandiri/,'1006'],[/tabungan/,'1010'],[/\bbca\b/,'1005']];
+const EX={bkm:['125.400 bunga bca','85rb kardus bekas c003','12,5jt setoran c003 ke bca','300rb kasbon pegawai kas'],bkk:['450rb listrik c001 kas kecil','1,2jt atk ho bca','85rb galon c003','15rb adm bank mandiri']};
+function parseCmd(text){const raw=String(text||'').trim();if(!raw)return null;let t=' '+raw.toLowerCase()+' ',amt=0,m;
+ m=t.match(/(\d+(?:[.,]\d+)?)\s*(rb|ribu|k|jt|juta)(?=\W)/);
+ if(m){amt=Math.round(parseFloat(m[1].replace(',','.'))*(m[2][0]==='j'?1e6:1e3));t=t.replace(m[0],' ')}
+ else{m=t.match(/\d{1,3}(?:\.\d{3})+|\d{4,}/);if(m){amt=Number(m[0].replace(/\./g,''));t=t.replace(m[0],' ')}}
+ let unit='HO';m=t.match(/\b(c\d{3}|ho)\b/);if(m){unit=m[1].toUpperCase();t=t.replace(m[0],' ')}
+ let acc=null;for(const [re,c] of KW[MODE])if(re.test(t)){acc=c;break}
+ let cb=null;for(const [re,c] of CBKW){const mm=t.match(re);if(mm){cb=c;t=t.replace(mm[0],' ');break}}
+ if(MODE==='bkm'&&acc==='1002'&&(!cb||cb==='1002'))cb='1005';
+ if(!cb)cb=unit==='HO'?'1005':'1003';
+ const note=t.replace(/\b(ke|dari|untuk|buat|bayar|terima)\b/g,' ').replace(/\s+/g,' ').trim();
+ return{amt,acc,cb,unit,note:note?note.charAt(0).toUpperCase()+note.slice(1):(acc?GL[acc]:'')}}
+function accName(c){return c==='1002'&&MODE==='bkm'?'Transfer from Cash on hand':GL[c]}
+function previewHTML(p){if(!p)return `<span class="muted">Amount, what it was, which cash or bank, which unit — in any order.</span>`;
+ const acc=p.acc?`<span class="tok">${accName(p.acc)} <small class="mono">${p.acc}</small></span>`:`<span class="tok miss">What was it? <small>add a word like ${MODE==='bkm'?'bunga, kardus, setoran':'listrik, atk, galon'}</small></span>`;
+ return `<span class="tok">${p.amt?'Rp '+fmt(p.amt):'<span class="warnt">amount?</span>'}</span>${acc}<span class="tok">${MODE==='bkm'?'into':'from'} ${CB[p.cb].name} <small>${p.cb==='1002'||p.cb==='1003'?p.unit:'HO'}</small></span><span class="tok"><small>unit</small> ${p.unit}</span>${p.note?`<span class="tok"><small>note</small> ${esc(p.note)}</span>`:''}<span class="sp"></span><button type="button" class="btn sm pri" data-act="v10add" ${p.amt&&p.acc?'':'disabled'}>Add line ↵</button>`}
+function v10add(){const p=parseCmd(UI.v10text);if(!p||!p.amt||!p.acc){toast(!p?'Type something first':!p.amt?'How much? Add an amount like 450rb':'What was it for? Add a word like listrik','bad');return}
+ UI.v10rows[MODE].push({amt:p.amt,acc:p.acc,cb:p.cb,unit:p.unit,note:p.note});UI.v10text='';render();const c=document.getElementById('cmd');if(c)c.focus()}
+function v10(){const t=T(),rows=UI.v10rows[MODE],p=parseCmd(UI.v10text),total=rows.reduce((a,r)=>a+r.amt,0);const accOpts=MODE==='bkm'?[...t.other,'1002']:t.other.concat(['6052']);
+ return app(`<div class="content"><section class="card cmd"><div class="cmd-in">${I.cmd}<input id="cmd" data-bind="v10text" value="${esc(UI.v10text)}" placeholder="${MODE==='bkm'?'e.g.  125.400 bunga bca':'e.g.  450rb listrik c001 kas kecil'}" autocomplete="off" spellcheck="false" aria-label="Type a ${t.code}"><kbd>↵</kbd></div><div class="cmd-prev" id="v10prev">${previewHTML(p)}</div><div class="cmd-ex"><span>Try</span>${EX[MODE].map(x=>`<button type="button" class="chip" data-act="v10ex" data-x="${esc(x)}">${esc(x)}</button>`).join('')}</div></section>
+ <section class="card" style="margin-top:14px;overflow:hidden"><table class="tbl batch"><thead><tr><th style="width:40px">#</th><th style="width:270px">Account</th><th style="width:200px">${MODE==='bkm'?'Into':'From'}</th><th style="width:70px">Unit</th><th>Note</th><th class="r" style="width:150px">Amount</th><th style="width:96px"></th><th style="width:48px"></th></tr></thead><tbody>
+ ${rows.map((r,i)=>`<tr><td class="muted">${i+1}</td><td><select class="in sm" data-change="v10acc" data-i="${i}" aria-label="Account">${accOpts.map(c=>`<option value="${c}" ${c===r.acc?'selected':''}>${c} · ${accName(c)}</option>`).join('')}</select></td><td><select class="in sm" data-change="v10cb" data-i="${i}" aria-label="Cash or bank">${Object.values(CB).map(a=>`<option value="${a.code}" ${a.code===r.cb?'selected':''}>${a.name}</option>`).join('')}</select></td><td class="mono">${r.unit}</td><td><input class="cell-in left" data-bind="v10.note.${i}" value="${esc(r.note)}" aria-label="Note"></td><td class="r"><input class="cell-in" data-money data-bind="v10.amt.${i}" value="${fmt(r.amt)}" aria-label="Amount"></td><td><span class="pill ok">Ready</span></td><td><button type="button" class="icon-btn" data-act="v10del" data-i="${i}" aria-label="Remove line">${I.x}</button></td></tr>`).join('')||`<tr><td colspan="8"><div class="empty"><span class="empty-ico">${I.cmd}</span><b>Nothing queued</b><p>Type one above and press Enter. Each line becomes its own ${t.code}.</p></div></td></tr>`}
+ </tbody></table></section>
+ <div class="card v10-foot"><span class="muted">${rows.length} line${rows.length===1?'':'s'} · one ${t.code} each · dated today</span><span class="sp"></span><b class="num" style="font-size:18px" data-out="v10total">Rp ${fmt(total)}</b><button type="button" class="btn pri" data-act="v10post" ${!rows.length||UI.v10posting?'disabled':''} ${UI.v10posting?'aria-busy="true"':''}>${UI.v10posting?'Posting…':`Post ${rows.length} ${t.code}${rows.length===1?'':'s'}`}</button></div></div>`,
+ {plain:true,title:MODE==='bkm'?'Quick receipts':'Quick payments',crumb:'Quick entry',actions:''})}
+
+/* ======================================================================
+   Wiring
+   ====================================================================== */
+const RENDER={1:v1,2:v2,3:v3,4:v4,5:v5,6:v6,7:v7,8:v8,9:v9,10:v10};
+const HOOK={
+ 3:()=>{const a=document.getElementById('v3strip');if(!a)return;a.innerHTML=v3strip();document.getElementById('v3tiles').innerHTML=v3tiles();document.getElementById('v3foot').innerHTML=v3foot()},
+ 4:()=>{const a=document.getElementById('v4inv');if(!a)return;const n=sums().count,t=T();a.innerHTML=`<button type="button" class="w ${UI.v4open==='inv'?'open':''}" data-act="v4open" data-k="inv">${n} ${t.invWord}${n===1?'':'s'}</button>`;document.getElementById('v4j').innerHTML=v4jline()},
+ 7:()=>{const l=document.getElementById('lens');if(l)l.innerHTML=lensHTML()},
+};
+function render(fresh){const st=document.getElementById('stage');st.innerHTML=RENDER[V]();
+ if(fresh){st.classList.remove('enter');void st.offsetWidth;st.classList.add('enter')}
+ syncProto();refresh()}
+/* What typing changes without re-drawing the page — a re-draw would take
+   the caret out of the box being typed in. */
+function refresh(){const su=sums();
+ const set=(k,v)=>document.querySelectorAll(`[data-out="${k}"]`).forEach(n=>{n.textContent=v});
+ set('total',fmt(su.total));set('words',terbilang(su.total));set('settled',fmt(su.settled));set('disc',fmt(su.disc));set('other',fmt(su.other));
+ set('offneg',su.off?'− '+fmt(su.off):'0');set('openSel',fmt(su.openSel));set('count',su.count);
+ set('v10total','Rp '+fmt(UI.v10rows[MODE].reduce((a,r)=>a+r.amt,0)));
+ const p=problems();
+ invs().forEach((x,i)=>{document.querySelectorAll(`[data-bind="inv.amt.${i}"]`).forEach(n=>n.setAttribute('aria-invalid',p['inv'+i]?'true':'false'));
+  document.querySelectorAll(`[data-row="${i}"]`).forEach(r=>{r.classList.toggle('off',!x.pick);const cb=r.querySelector('[data-change="pick"]');if(cb)cb.checked=x.pick;const d=r.querySelector(`[data-bind="inv.disc.${i}"]`);if(d)d.disabled=!x.pick;const f=r.querySelector('[data-change="full"]');if(f)f.checked=x.pick&&x.amt+x.disc===x.open})});
+ offs().forEach((x,i)=>document.querySelectorAll(`[data-bind="off.amt.${i}"]`).forEach(n=>n.setAttribute('aria-invalid',p['off'+i]?'true':'false')));
+ const pb=document.getElementById('probs');if(pb)pb.innerHTML=problemBanner();
+ HOOK[V]?.()}
+let toastTimer;
+function toast(msg,tone='ok'){const el=document.getElementById('toast');el.className='toast show '+tone;el.innerHTML=(tone==='bad'?I.alert:I.check)+'<span>'+esc(msg)+'</span>';clearTimeout(toastTimer);toastTimer=setTimeout(()=>{el.className='toast '+tone},2800)}
+/* Post: refused with the reasons said where they are, then pending, then a
+   receipt on the page. */
+function post(){if(UI.posted[MODE]||UI.posting)return;const p=problems(true);
+ if(Object.keys(p).length){UI.tried[MODE]=true;render();toast(Object.values(p)[0],'bad');return}
+ UI.posting=true;render();
+ setTimeout(()=>{UI.posting=false;UI.posted[MODE]=true;UI.tried[MODE]=false;UI.flash=true;render();UI.flash=false;toast(`${T().voucher} posted`)},700)}
+
+const ACT={
+ mode:b=>{MODE=b.dataset.m;UI.menu=null;UI.v4open=null;UI.v9open=null;render(true)},
+ v:b=>{V=+b.dataset.v;UI.menu=null;UI.v4open=null;UI.v9open=null;render(true);window.scrollTo({top:0,behavior:'smooth'})},
+ tab1:b=>{UI.tab1=b.dataset.t;render()},
+ method:b=>{const s=S(),m=b.dataset.m;s.method=m;if(m==='cash'&&CB[s.account].kind!=='cash')s.account='1002';if(m!=='cash'&&CB[s.account].kind==='cash')s.account='1005';UI.v4open=null;render()},
+ menu:b=>{UI.menu=UI.menu===b.dataset.m?null:b.dataset.m;UI.fresh=true;render();UI.fresh=false},
+ setparty:b=>{S().party=b.dataset.c;UI.menu=null;UI.v4open=null;UI.v3amt[MODE]=null;UI.v3skip[MODE]=new Set();render()},
+ addother:()=>{S().other.push({acc:T().other[0],note:'',amt:0});if(V===1)UI.tab1='other';UI.menu=null;render()},
+ delother:b=>{S().other.splice(+b.dataset.i,1);render()},
+ browse:()=>{invs().forEach(x=>{x.pick=true;x.amt=x.open-x.disc});UI.tab1='settle';UI.v3amt[MODE]=null;render();toast(`All ${invs().length} open ${T().invWord}s added — untick the ones this ${T().code} doesn't pay`)},
+ post:()=>post(),
+ reset:()=>{ST[MODE]=fresh(MODE);UI.posted[MODE]=false;UI.tried[MODE]=false;UI.v3amt[MODE]=null;UI.v3skip[MODE]=new Set();render()},
+ print:()=>{V=5;render(true);toast(`This is the ${T().code} as it prints`)},
+ toast:b=>toast(b.dataset.msg),
+ due:b=>{S().giro.due=plusDays(TODAY,+b.dataset.n);UI.v4open=null;render()},
+ v2sel:b=>{UI.v2sel[MODE]=+b.dataset.i;UI.v2new=false;render()},
+ v2new:()=>{UI.v2new=true;render()},
+ v2close:()=>{UI.v2new=false;render()},
+ v3skip:b=>{const i=+b.dataset.i,sk=UI.v3skip[MODE];sk.has(i)?sk.delete(i):sk.add(i);render()},
+ v3lo:b=>{UI.v3lo[MODE]=b.dataset.k;HOOK[3]()},
+ v4open:b=>{UI.v4open=UI.v4open===b.dataset.k?null:b.dataset.k;UI.fresh=true;render();UI.fresh=false;const f=document.querySelector('.pop [autofocus]');if(f)f.focus()},
+ v4acc:b=>{const s=S();s.account=b.dataset.c;const k=CB[b.dataset.c].kind;if(k==='cash')s.method='cash';else if(s.method==='cash')s.method='transfer';UI.v4open=null;render()},
+ v4bank:b=>{S().giro.bank=b.dataset.b;UI.v4open=null;render()},
+ v4date:b=>{S().date=plusDays(TODAY,+b.dataset.n);UI.v4open=null;render()},
+ v4inv:b=>{const x=invs()[+b.dataset.i];x.pick=!x.pick;x.amt=x.pick?x.open-x.disc:0;UI.v3amt[MODE]=sums().total;UI.v3skip[MODE]=new Set(invs().map((y,j)=>y.pick?-1:j).filter(j=>j>=0));render()},
+ v6sel:b=>{UI.v6sel[MODE]=+b.dataset.i;render()},
+ v6make:b=>{const i=+b.dataset.i,L=STMT[MODE],l=L[i],t=T();
+  if(b.dataset.manual&&!UI.v6pick[MODE][l.id]){toast('Choose what it was first','bad');return}
+  const made=Object.keys(UI.v6done[MODE]).length;
+  const no=l.guess&&!b.dataset.manual&&l.guess.kind==='giro'?`${l.desc.replace('KLIRING ','Giro ')} cleared`:l.guess&&!b.dataset.manual&&l.guess.kind==='draft'?t.voucher:`${t.code}/HO/2609/00${60+made}`;
+  UI.v6done[MODE][l.id]=no;toast(`${no} — ${fmt(l.amt)} explained`);
+  const next=L.findIndex(x=>!x.done&&!UI.v6done[MODE][x.id]);if(next>=0)UI.v6sel[MODE]=next;render()},
+ key:b=>{const k=b.dataset.k;let v=String(UI.v8amt[MODE]||'');if(k==='del')v=v.slice(0,-1);else v=(v==='0'?'':v)+k;UI.v8amt[MODE]=Math.min(digits(v),999999999);UI.v8saved[MODE]=false;render()},
+ v8cat:b=>{UI.v8cat[MODE]=b.dataset.c;UI.v8saved[MODE]=false;render()},
+ v8photo:()=>{UI.v8photo[MODE]=!UI.v8photo[MODE];UI.v8saved[MODE]=false;render()},
+ v8save:()=>{if(MODE==='bkk'&&!UI.v8photo[MODE]){toast('A photo of the receipt is needed','bad');return}if(!UI.v8amt[MODE]){toast('How much? Type it on the keypad','bad');return}UI.v8saving=true;render();setTimeout(()=>{UI.v8saving=false;UI.v8saved[MODE]=true;render()},700)},
+ v8again:()=>{UI.v8saved[MODE]=false;UI.v8amt[MODE]=0;render()},
+ v9open:b=>{UI.v9open=UI.v9open===b.dataset.id?null:b.dataset.id;render()},
+ v9set:b=>{const id=b.dataset.id,st=b.dataset.st,g=GIRO[MODE].find(x=>x.id===id),t=T();
+  UI.v9[MODE][id]={st,at:TODAY,repl:null};UI.v9open=null;render();
+  toast(st==='cleared'?`${g.no} cleared into BCA · Giro — its ${t.code} is now paid`:st==='bounced'?`${g.no} bounced — its ${t.invWord}s are open again`:`${g.no} is waiting again`,st==='bounced'?'bad':'ok')},
+ v9repl:b=>{const id=b.dataset.id,g=GIRO[MODE].find(x=>x.id===id),t=T(),no=`${t.code}/HO/2609/00${70+Object.keys(UI.v9[MODE]).length}`;
+  UI.v9[MODE][id]={...(UI.v9[MODE][id]||{st:'bounced',at:g.at}),repl:no};render();toast(`${no} started for ${g.party} — replaces ${g.no}`)},
+ v9find:()=>{V=6;render(true);toast('Waiting for the bank to show it')},
+ v10ex:b=>{UI.v10text=b.dataset.x;render();const c=document.getElementById('cmd');if(c){c.focus();c.setSelectionRange(c.value.length,c.value.length)}},
+ v10add:()=>v10add(),
+ v10del:b=>{UI.v10rows[MODE].splice(+b.dataset.i,1);render()},
+ v10post:()=>{const rows=UI.v10rows[MODE],t=T();const bad=rows.filter(r=>!r.acc||!r.amt).length;if(bad){toast(`${bad} line${bad>1?'s need':' needs'} an account and an amount`,'bad');return}
+  UI.v10posting=true;render();setTimeout(()=>{const n=rows.length;UI.v10posting=false;UI.v10rows[MODE]=[];render();toast(`${n} ${t.code}${n===1?'':'s'} posted — ${t.code}/HO/2609/0061 to /00${60+n}`)},700)},
+};
+const CHG={
+ pick:el=>{const x=invs()[+el.dataset.i];x.pick=el.checked;x.amt=x.pick?(x.amt||x.open-x.disc):0;if(!x.pick)x.disc=0;UI.v3amt[MODE]=null;render()},
+ full:el=>{const x=invs()[+el.dataset.i];if(el.checked){x.pick=true;x.amt=x.open-x.disc}else{x.pick=false;x.amt=0;x.disc=0}UI.v3amt[MODE]=null;render()},
+ offpick:el=>{const x=offs()[+el.dataset.i];x.pick=el.checked;x.amt=x.pick?x.open:0;render()},
+ account:el=>{const s=S();s.account=el.value;const k=CB[el.value].kind;if(k==='cash')s.method='cash';else if(s.method==='cash')s.method='transfer';render()},
+ otheracc:el=>{S().other[+el.dataset.i].acc=el.value;refresh()},
+ v6acc:el=>{UI.v6pick[MODE][el.dataset.id]=el.value},
+ v10acc:el=>{UI.v10rows[MODE][+el.dataset.i].acc=el.value},
+ v10cb:el=>{UI.v10rows[MODE][+el.dataset.i].cb=el.value},
+};
+/* Money is grouped as it is typed — 2.000.000, never 2000000. */
+function regroup(el){const pos=el.selectionStart??el.value.length,before=el.value.length,v=digits(el.value);el.value=v?fmt(v):'';const np=Math.max(0,pos+(el.value.length-before));try{el.setSelectionRange(np,np)}catch(e){}}
+function BIND(k,el){const s=S(),[a,b,c]=k.split('.');
+ if(a==='inv'){const r=invs()[+c];if(!r)return;r[b]=digits(el.value);if(b==='amt')r.pick=r.amt>0;UI.v3amt[MODE]=null}
+ else if(a==='off'){const r=offs()[+c];if(r)r.amt=digits(el.value)}
+ else if(a==='other'){const r=s.other[+c];if(!r)return;if(b==='amt')r.amt=digits(el.value);else r[b]=el.value}
+ else if(a==='giro'){s.giro[b]=el.value}
+ else if(a==='v3amt'||a==='v4amt'){UI.v3amt[MODE]=digits(el.value);UI.v3skip[MODE]=new Set();allocate();if(a==='v4amt')el.size=Math.max(3,el.value.length)}
+ else if(a==='v10text'){UI.v10text=el.value;const pv=document.getElementById('v10prev');if(pv)pv.innerHTML=previewHTML(parseCmd(el.value));return}
+ else if(a==='v10'){const r=UI.v10rows[MODE][+c];if(!r)return;if(b==='amt')r.amt=digits(el.value);else r[b]=el.value}
+ else s[a]=el.value;
+ refresh()}
+
+document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');
+ if(!b){if((UI.menu&&!e.target.closest('.menu'))||(UI.v4open&&!e.target.closest('.pop'))){UI.menu=null;UI.v4open=null;render()}return}
+ if(b.disabled||b.closest('fieldset[disabled]')&&b.tagName!=='A')return;
+ ACT[b.dataset.act]?.(b,e)});
+document.addEventListener('input',e=>{const el=e.target;if(el.dataset.money!==undefined)regroup(el);if(el.dataset.bind)BIND(el.dataset.bind,el)});
+document.addEventListener('change',e=>{const el=e.target;if(el.dataset.change)CHG[el.dataset.change]?.(el)});
+document.addEventListener('keydown',e=>{
+ if(e.target.id==='cmd'&&e.key==='Enter'){e.preventDefault();v10add();return}
+ if(e.target.matches?.('tr[data-act]')&&(e.key==='Enter'||e.key===' ')){e.preventDefault();e.target.click();return}
+ if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){if([1,2,3,4,5,7].includes(V)){e.preventDefault();post()}return}
+ if(e.key==='Escape'&&(UI.menu||UI.v4open||UI.v9open)){UI.menu=null;UI.v4open=null;UI.v9open=null;render();return}
+ const typing=/INPUT|TEXTAREA|SELECT/.test(e.target.tagName);
+ if(typing||e.metaKey||e.ctrlKey||e.altKey)return;
+ if(/^[0-9]$/.test(e.key)){V=e.key==='0'?10:+e.key;render(true)}
+ else if(e.key==='m'||e.key==='M'){MODE=MODE==='bkm'?'bkk':'bkm';render(true)}});
+
+buildProto();render(true);
+</script>
+</body>
+</html>

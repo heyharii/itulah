@@ -2,7 +2,8 @@
 
 export type OpenShiftRequest = { 
 /**
- * Which till. One terminal, one drawer — two shifts open on the same one
+ * Which seat — `KASIR-1` … `KASIR-N`, head office's number of them
+ * ([`seat_ids`]). One seat, one drawer: two shifts open at the same one
  * would each believe the other's cash was theirs.
  */
 terminal_id: string, opening_float_minor: number, actor_id: string, idempotency_key: string, };

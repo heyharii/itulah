@@ -63,6 +63,19 @@ pub async fn finance_controls(
     let tax = super::tax_reconciliation(pool, None).await?;
     for nature in ["PAYABLE", "CREDIT"] {
         let slice: Vec<_> = tax.iter().filter(|row| row.nature == nature).collect();
+        // The ledger once per account: every row on an account carries that
+        // account's whole balance, and several periods and types share one.
+        let ledger: std::collections::BTreeMap<String, i64> = slice
+            .iter()
+            .map(|row| {
+                (
+                    row.account_code.clone().unwrap_or_else(|| row.tax_type_code.clone()),
+                    row.gl_minor,
+                )
+            })
+            .collect();
+        let gl_minor: i64 = ledger.values().sum();
+        let subledger_minor: i64 = slice.iter().map(|row| row.subledger_minor).sum();
         rows.push(ControlRow {
             domain: format!("TAX_{nature}"),
             label: if nature == "PAYABLE" {
@@ -70,9 +83,9 @@ pub async fn finance_controls(
             } else {
                 "Kredit pajak".into()
             },
-            gl_minor: slice.iter().map(|row| row.gl_minor).sum(),
-            subledger_minor: slice.iter().map(|row| row.subledger_minor).sum(),
-            difference_minor: slice.iter().map(|row| row.difference_minor).sum(),
+            gl_minor,
+            subledger_minor,
+            difference_minor: gl_minor - subledger_minor,
             unmatched: slice.iter().filter(|row| row.difference_minor != 0).count() as i64,
             covered: true,
             // Said on the row, because the one mistake this domain invites is
@@ -126,9 +139,11 @@ pub async fn finance_controls(
         "SELECT
             COALESCE((SELECT SUM(l.credit_minor - l.debit_minor)
                         FROM journal_line l
+                        JOIN journal_entry e ON e.entry_id = l.entry_id
                        WHERE l.account_code IN (
                              SELECT account_code FROM account_resolution
                               WHERE role IN ('trade_payable','non_merchandise_payable'))
+                         AND e.posting_date <= COALESCE($1::date, CURRENT_DATE)
                     ), 0)::bigint AS gl_minor,
             COALESCE((SELECT SUM(st.outstanding_minor)
                         FROM payment_ledger_as_of(COALESCE($1::date, CURRENT_DATE)) st
@@ -182,19 +197,40 @@ pub async fn finance_controls(
     let interunit: i64 = sqlx::query_scalar(
         "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor),0)::bigint
            FROM journal_line l
+           JOIN journal_entry e ON e.entry_id = l.entry_id
           WHERE l.account_code IN (
                 SELECT account_code FROM account_resolution
-                 WHERE role IN ('affiliate_receivable','affiliate_payable'))",
+                 WHERE role IN ('affiliate_receivable','affiliate_payable'))
+            AND e.posting_date <= COALESCE($1::date, CURRENT_DATE)",
     )
+    .bind(as_of)
     .fetch_one(pool)
     .await?;
+    // Goods on the road are the one legitimate gap: the SJD rule books the
+    // receiver's Hutang Affiliasi Atas Barang at dispatch and head office's
+    // Piutang only at receipt (stock_ledger::stock_transfer_post_pending), so
+    // until the shop counts the box in, the pair is one leg short by exactly
+    // what is in transit. That is the subledger; anything beyond it is a leg
+    // that never posted.
+    let in_transit: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(CASE WHEN t.stage = 'DISPATCH' THEN t.value_minor
+                                  ELSE -t.value_minor END), 0)::bigint
+           FROM stock_transfer_posting t
+           JOIN journal_entry e ON e.entry_id = t.journal_entry_id
+          WHERE t.stage IN ('DISPATCH', 'RECEIPT')
+            AND e.posting_date <= COALESCE($1::date, CURRENT_DATE)",
+    )
+    .bind(as_of)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
     rows.push(ControlRow {
         domain: "INTERUNIT".into(),
         label: "Affiliasi antar unit".into(),
         gl_minor: interunit,
-        subledger_minor: 0,
-        difference_minor: interunit,
-        unmatched: i64::from(interunit != 0),
+        subledger_minor: -in_transit,
+        difference_minor: interunit + in_transit,
+        unmatched: i64::from(interunit + in_transit != 0),
         covered: true,
         note: Some("Setiap piutang antar unit adalah hutang unit lain; totalnya nol.".into()),
     });
@@ -217,18 +253,25 @@ pub async fn finance_controls(
                FROM bank_statement s
                JOIN mapped ON mapped.unit_id = s.unit_id
                           AND mapped.account_code = s.account_code
+              WHERE s.period_end <= COALESCE($1::date, CURRENT_DATE)
               ORDER BY s.unit_id, s.account_code, s.period_end DESC
          )
          SELECT
+            -- The ledger as at each statement's own last day, for the
+            -- accounts that have one: a payment posted after the bank cut
+            -- the statement is not a difference, it is next month's line.
             COALESCE((SELECT SUM(l.debit_minor - l.credit_minor)
                         FROM journal_line l
-                        JOIN mapped ON mapped.unit_id = l.unit_id
-                                   AND mapped.account_code = l.account_code), 0)::bigint
+                        JOIN journal_entry e ON e.entry_id = l.entry_id
+                        JOIN latest ON latest.unit_id = l.unit_id
+                                   AND latest.account_code = l.account_code
+                       WHERE e.posting_date <= latest.period_end), 0)::bigint
                 AS gl_minor,
             COALESCE((SELECT SUM(closing_minor) FROM latest), 0)::bigint AS subledger_minor,
             (SELECT COUNT(*) FROM mapped)::bigint AS accounts,
             (SELECT COUNT(*) FROM latest)::bigint AS with_statement",
     )
+    .bind(as_of)
     .fetch_one(pool)
     .await?;
     let bank_gl: i64 = bank.try_get("gl_minor")?;
@@ -268,19 +311,32 @@ pub async fn finance_controls(
         "SELECT
             COALESCE((SELECT SUM(l.debit_minor - l.credit_minor)
                         FROM journal_line l
+                        JOIN journal_entry e ON e.entry_id = l.entry_id
                        WHERE l.account_code IN (
                              SELECT account_code FROM account_resolution
-                              WHERE role = 'fixed_asset')), 0)::bigint AS gl_minor,
+                              WHERE role = 'fixed_asset')
+                         AND e.posting_date <= COALESCE($1::date, CURRENT_DATE)), 0)::bigint
+                AS gl_minor,
+            -- Each asset at its LATEST decision: a re-assessment supersedes
+            -- the one before, it does not add to it.
             COALESCE((SELECT SUM(c.capitalized_cost_minor)
-                        FROM asset_capitalization c
-                        JOIN fixed_asset a ON a.asset_id = c.asset_id
-                       WHERE a.disposed_on IS NULL), 0)::bigint AS subledger_minor,
+                        FROM fixed_asset a
+                        JOIN LATERAL (
+                             SELECT c.decision, c.capitalized_cost_minor
+                               FROM asset_capitalization c
+                              WHERE c.asset_id = a.asset_id
+                              ORDER BY c.sequence DESC LIMIT 1
+                        ) c ON c.decision IN ('CAPITALIZE', 'IN_PROGRESS')
+                       WHERE a.disposed_on IS NULL
+                          OR a.disposed_on > COALESCE($1::date, CURRENT_DATE)), 0)::bigint
+                AS subledger_minor,
             COALESCE((SELECT COUNT(*) FROM fixed_asset a
                        WHERE a.disposed_on IS NULL
                          AND NOT EXISTS (SELECT 1 FROM asset_capitalization c
                                           WHERE c.asset_id = a.asset_id)), 0)::bigint
                 AS uncapitalised",
     )
+    .bind(as_of)
     .fetch_one(pool)
     .await;
     match asset {
@@ -375,28 +431,46 @@ pub async fn finance_controls(
         });
     }
 
-    // ── the ones nothing can answer yet ────────────────────────────────────
-    rows.push(ControlRow {
-        domain: "INVENTORY".into(),
-        label: "Persediaan".into(),
-        gl_minor: sqlx::query_scalar(
-            "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor),0)::bigint
-               FROM journal_line l
-              WHERE l.account_code IN (
-                    SELECT account_code FROM account_resolution WHERE role = 'inventory')",
-        )
-        .fetch_one(pool)
-        .await?,
-        subledger_minor: 0,
-        difference_minor: 0,
-        unmatched: 0,
-        covered: false,
-        note: Some(
-            "Stok belum bernilai uang: tidak ada metode kos, jadi angka persediaan \
-             tidak bisa diturunkan dari gudang. Lihat docs/finance-client-decisions.md."
-                .into(),
-        ),
-    });
+    // ── inventory ──────────────────────────────────────────────────────────
+    //
+    // Each unit's stock at cost — the pieces the edges report on hand, plus
+    // what was received and not yet set up — against its 1029, and what is on
+    // the road against 1031 (inventory_valuation.rs). Read as at today: the
+    // edges say where each piece is now, not where it was at month end.
+    match super::stock_vs_ledger(pool).await {
+        Ok(units) => {
+            let gl: i64 = units.iter().map(|u| u.ledger_minor + u.in_transit_ledger_minor).sum();
+            let sub: i64 = units.iter().map(|u| u.stock_minor + u.in_transit_stock_minor).sum();
+            let off = units
+                .iter()
+                .filter(|u| u.difference_minor != 0 || u.in_transit_difference_minor != 0)
+                .count() as i64;
+            rows.push(ControlRow {
+                domain: "INVENTORY".into(),
+                label: "Persediaan".into(),
+                gl_minor: gl,
+                subledger_minor: sub,
+                difference_minor: gl - sub,
+                unmatched: off,
+                covered: true,
+                note: Some(
+                    "Stok fisik × harga PO per unit (termasuk yang belum di-setup) terhadap 1029, \
+                     dan barang di jalan terhadap 1031 — posisi hari ini."
+                        .into(),
+                ),
+            });
+        }
+        Err(error) => rows.push(ControlRow {
+            domain: "INVENTORY".into(),
+            label: "Persediaan".into(),
+            gl_minor: 0,
+            subledger_minor: 0,
+            difference_minor: 0,
+            unmatched: 0,
+            covered: false,
+            note: Some(format!("nilai stok tidak terbaca: {error}")),
+        }),
+    }
 
     Ok(rows)
 }
@@ -461,12 +535,12 @@ pub async fn finance_close_readiness(
 
     // Trading days that never became a document.
     let unposted: i64 = sqlx::query_scalar(
-        // Each shop's day by its own clock (`site.timezone`, 0603).
+        // Each shop's day as its tills traded it: the shift's (0714).
         "SELECT COUNT(*)::bigint FROM (
-             SELECT DISTINCT s.site_id, site_local_date(s.occurred_at, s.site_id) AS day
+             SELECT DISTINCT s.site_id, s.business_date AS day
                FROM edge_sale s
-              WHERE EXTRACT(YEAR FROM site_local_date(s.occurred_at, s.site_id)) = $1
-                AND EXTRACT(MONTH FROM site_local_date(s.occurred_at, s.site_id)) = $2
+              WHERE EXTRACT(YEAR FROM s.business_date) = $1
+                AND EXTRACT(MONTH FROM s.business_date) = $2
          ) traded
          WHERE NOT EXISTS (
              SELECT 1 FROM sales_posting p
@@ -484,6 +558,45 @@ pub async fn finance_close_readiness(
         if unposted == 0 { "OK" } else { "BLOCKER" },
         format!("{unposted} hari berdagang dan belum diposting"),
         unposted,
+    ));
+
+    // Posted days a till has added to since. A shift left open across
+    // midnight dates its sales to the day it opened (0714), so a sale rung
+    // on 1 Oct can land on a 28 Sep already in the books — and nothing else
+    // would say so: the revenue simply never reaches the ledger. Counted the
+    // way `read_day` counts, synced tills by shift day plus the cloud's own
+    // sales by the shop's clock.
+    let stale: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM sales_posting p
+          WHERE p.status = 'POSTED'
+            AND EXTRACT(YEAR FROM p.business_date) = $1
+            AND EXTRACT(MONTH FROM p.business_date) = $2
+            AND EXISTS (
+                SELECT 1 FROM (
+                SELECT COUNT(*)::bigint AS n, COALESCE(SUM(t.total_minor), 0)::bigint AS g
+                  FROM (SELECT total_minor FROM edge_sale
+                         WHERE site_id = p.site_id AND business_date = p.business_date
+                           AND status = 'COMPLETED'
+                        UNION ALL
+                        SELECT total_minor FROM sale
+                         WHERE site_id = p.site_id AND status = 'COMPLETED'
+                           AND completed_at >= (p.business_date::timestamp
+                                 AT TIME ZONE site_business_timezone(p.site_id))
+                           AND completed_at < ((p.business_date + 1)::timestamp
+                                 AT TIME ZONE site_business_timezone(p.site_id))) t) now
+                 WHERE (now.n, now.g) IS DISTINCT FROM (p.sale_count, p.gross_minor))",
+    )
+    .bind(i32::from(year16))
+    .bind(i32::from(month16))
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+    checks.push(check(
+        "SALE_DAYS_STALE",
+        "Hari yang diposting masih sama dengan penjualannya",
+        if stale == 0 { "OK" } else { "BLOCKER" },
+        format!("{stale} hari berubah setelah diposting — reverse lalu posting ulang"),
+        stale,
     ));
 
     // Prepaid months that belong to this one and have not been allocated.
@@ -510,7 +623,12 @@ pub async fn finance_close_readiness(
     ));
 
     // Controls that do not agree.
-    let controls = finance_controls(pool, None).await?;
+    // Measured at the month's last day, not today: October's postings are
+    // not September's differences.
+    let month_end = NaiveDate::from_ymd_opt(i32::from(year16), u32::try_from(month16).unwrap_or(1), 1)
+        .and_then(|first| first.checked_add_months(chrono::Months::new(1)))
+        .and_then(|next| next.pred_opt());
+    let controls = finance_controls(pool, month_end).await?;
     for control in controls.iter().filter(|row| row.covered) {
         if control.difference_minor != 0 {
             checks.push(check(

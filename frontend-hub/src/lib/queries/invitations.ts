@@ -87,7 +87,9 @@ export const SECTION_LABEL: Readonly<Record<SectionCode, string>> = {
 /// recognises. A section the server lists that this build does not know yet
 /// is dropped rather than crashing the checkbox grid — it simply cannot be
 /// ticked here until this list catches up.
-export function sectionsOf(value: readonly string[] | undefined): SectionCode[] {
+export function sectionsOf(
+  value: readonly string[] | undefined
+): SectionCode[] {
   if (!Array.isArray(value)) return []
   return value.filter((one): one is SectionCode =>
     (SECTIONS as readonly string[]).includes(one)

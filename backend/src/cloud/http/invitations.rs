@@ -41,8 +41,30 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
-/// Where a join link points: the setting, else the browser's origin.
+/// Where a join link points: the setting, else the browser's origin — and,
+/// on a sandbox server, which business it joins.
+///
+/// The sandbox gateway (`cloud::tenancy`) names the business it resolved on
+/// every request it hands on, as `x-itulah-business`. An invited person opens
+/// the link in a browser that has never chosen a business, so the link has to
+/// carry it: `MintedInvitation::issued` puts it after the token as
+/// `?business=`, which the hub reads before anything else.
 pub fn link_origin(headers: &HeaderMap, secure: bool) -> Result<String, AppError> {
+    let origin = public_origin(headers, secure)?;
+    let business = headers
+        .get(crate::cloud::tenancy::BUSINESS_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .filter(|slug| {
+            !slug.is_empty()
+                && slug.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        });
+    Ok(match business {
+        Some(slug) => format!("{origin}?business={slug}"),
+        None => origin,
+    })
+}
+
+fn public_origin(headers: &HeaderMap, secure: bool) -> Result<String, AppError> {
     fn origin_shaped(value: &str) -> Option<String> {
         let value = value.trim().trim_end_matches('/');
         let rest = value

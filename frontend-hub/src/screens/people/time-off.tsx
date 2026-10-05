@@ -246,7 +246,6 @@ export function TimeOffRequests() {
         <Input
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search person, kind or unit"
           className="h-8 w-60"
           aria-label="Search requests"
         />
@@ -451,7 +450,6 @@ function RequestSheet({
             <Input
               value={reason}
               onChange={(event) => setReason(event.target.value)}
-              placeholder="toko cukup orang"
             />
           </Field>
           <ButtonGroup>
@@ -564,7 +562,6 @@ function FileLeaveSheet({
         <Field label="Employee" required>
           <PickOne
             label="Employee"
-            placeholder="Choose…"
             choices={people.map((one) => ({
               value: one.employee_id,
               label: one.full_name ?? one.employee_code,
@@ -576,7 +573,6 @@ function FileLeaveSheet({
         <Field label="Kind of leave" required>
           <PickOne
             label="Kind of leave"
-            placeholder="Choose…"
             choices={(kinds.data ?? []).map((one) => ({
               value: one.code,
               label: one.name,
@@ -597,7 +593,6 @@ function FileLeaveSheet({
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            placeholder="acara keluarga"
           />
         </Field>
         {chosen?.requires_evidence === true && (
@@ -605,7 +600,6 @@ function FileLeaveSheet({
             <Input
               value={evidence}
               onChange={(event) => setEvidence(event.target.value)}
-              placeholder="surat dokter"
             />
           </Field>
         )}

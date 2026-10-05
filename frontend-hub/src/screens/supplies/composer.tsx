@@ -1,17 +1,45 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Field, Input, Money, Select } from "@/components/ui/field"
 import { Choices, Section } from "@/components/ui/form"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner } from "@/components/ui/states"
-import { financeKeys, listAssets } from "@/lib/queries/finance"
 import {
   gaKeys,
   gaSupplyCategories,
   recordGaSupplyRequest,
+  useGaSites,
 } from "@/lib/queries/ga"
+import { useUnits, type UnitOfMeasure } from "@/lib/queries/units"
+
+/// What the server's own quantity parser (0655) would make of what was
+/// typed, read the same way it reads it: the trailing word is the unit —
+/// matched against a unit's code or one of its aliases, case-insensitively —
+/// and everything before it is the number. Shown as a preview so a person
+/// finds out their spelling didn't parse before they submit, not after.
+function readQuantity(
+  text: string,
+  units: readonly UnitOfMeasure[]
+): { value: string; unit: UnitOfMeasure } | null {
+  const trimmed = text.trim()
+  if (trimmed === "") return null
+  const at = trimmed.lastIndexOf(" ")
+  if (at === -1) return null
+  const value = trimmed.slice(0, at).trim()
+  const word = trimmed
+    .slice(at + 1)
+    .trim()
+    .toLowerCase()
+  if (value === "" || word === "" || Number.isNaN(Number(value))) return null
+  const unit = units.find(
+    (one) =>
+      one.active &&
+      (one.code.toLowerCase() === word || one.aliases.includes(word))
+  )
+  return unit === undefined ? null : { value, unit }
+}
 
 /// Asking for something, as the place that needs it.
 ///
@@ -65,14 +93,21 @@ export function SupplyComposer({
     staleTime: Infinity,
   })
 
-  // Sites, from Finance's facet — the same list every GA form offers, because
-  // a site is a site in all of them.
-  const shape = useQuery({
-    queryKey: financeKeys.assets(false, null),
-    queryFn: ({ signal }) => listAssets({ limit: 1 }, signal),
-    enabled: open,
-    staleTime: 5 * 60 * 1000,
-  })
+  // Sites, from GA's own locations — the same list every GA form offers,
+  // because a site is a site in all of them.
+  const { sites: siteOptions } = useGaSites(open)
+
+  // For the "reads as" preview beside the quantity field — the same master
+  // the server checks the free text against (0655).
+  const units = useUnits()
+  const activeUnits = useMemo(
+    () => units.units.filter((one) => one.active),
+    [units.units]
+  )
+  const quantityPreview = useMemo(
+    () => readQuantity(form.quantity ?? "", units.units),
+    [form.quantity, units.units]
+  )
 
   const category = form.category ?? categories.data?.[0]?.category_code ?? ""
 
@@ -178,17 +213,32 @@ export function SupplyComposer({
             <Input
               value={form.item ?? ""}
               onChange={(event) => set("item", event.target.value)}
-              placeholder="e.g. LED bulbs, cable reel, power socket"
               autoFocus
             />
           </Field>
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Quantity" aside="free text, e.g. 10 pcs">
+            <Field
+              label="Quantity"
+              aside="free text, e.g. 10 pcs, 2 rim, 5 dus"
+            >
               <Input
                 value={form.quantity ?? ""}
                 onChange={(event) => set("quantity", event.target.value)}
-                placeholder="10 pcs"
+                list="ga-supply-units"
               />
+              {/* Recognised units, so a person types "rim" rather than
+                  guessing at "ream". Only a hint — any text still submits,
+                  the same as before this master existed. */}
+              <datalist id="ga-supply-units">
+                {activeUnits.map((one) => (
+                  <option key={one.code} value={one.label} />
+                ))}
+              </datalist>
+              <p className="mt-1 text-pill text-mute">
+                {quantityPreview !== null
+                  ? `Reads as: ${quantityPreview.value} ${quantityPreview.unit.label}`
+                  : `Recognised units: ${activeUnits.map((one) => one.label).join(", ")}`}
+              </p>
             </Field>
             <Field label="Needed by">
               <Input
@@ -213,7 +263,7 @@ export function SupplyComposer({
                 aria-label="Location"
               >
                 <option value="">Select…</option>
-                {(shape.data?.facets.sites ?? []).map((one) => (
+                {siteOptions.map((one) => (
                   <option key={one.value} value={one.value}>
                     {one.label ?? one.value}
                   </option>
@@ -228,7 +278,6 @@ export function SupplyComposer({
               <Input
                 value={form.requested_by ?? ""}
                 onChange={(event) => set("requested_by", event.target.value)}
-                placeholder="e.g. Store manager C007"
               />
             </Field>
           </div>
@@ -242,14 +291,12 @@ export function SupplyComposer({
             <Money
               value={form.estimate ?? ""}
               onChange={(next) => set("estimate", next)}
-              placeholder="850000"
             />
           </Field>
           <Field label="Notes">
             <Input
               value={form.notes ?? ""}
               onChange={(event) => set("notes", event.target.value)}
-              placeholder="e.g. for the Cikarang mess"
             />
           </Field>
         </Section>

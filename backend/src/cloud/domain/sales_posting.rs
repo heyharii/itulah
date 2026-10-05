@@ -181,6 +181,11 @@ pub struct TenderBucket {
     /// then debits the bank net of MDR and books the MDR at once; otherwise
     /// the acquirer owes the gross and the MDR waits for its settlement.
     pub direct_mdr_bps: Option<i32>,
+    /// The bank a DIRECT_TO_BANK bucket lands in — the bank of the EDC it
+    /// was paid on. Set with `direct_mdr_bps`; the day then debits that bank
+    /// (`bank_giro`) instead of an acquirer receivable (owner, 1 Oct 2026:
+    /// digital takings go straight to Cash in Bank).
+    pub direct_bank: Option<String>,
 }
 
 /// A day, as the ledger has to see it.
@@ -502,6 +507,12 @@ pub fn build_with(figures: &DayFigures, rules: DayRules) -> Result<DayPosting, S
             if asset_key == "sales_discount" {
                 vouchers += net;
             }
+            // Straight to the bank: the EDC's bank account takes the money
+            // the day it was taken, and no acquirer owes anything.
+            let (asset_key, asset_qualifier) = match &bucket.direct_bank {
+                Some(bank) => ("bank_giro", bank.clone()),
+                None => (asset_key, asset_qualifier.clone()),
+            };
             let fee = bucket
                 .direct_mdr_bps
                 .map(|bps| (net * i64::from(bps) + 5_000) / 10_000)
@@ -524,6 +535,10 @@ pub fn build_with(figures: &DayFigures, rules: DayRules) -> Result<DayPosting, S
             if asset_key == "sales_discount" {
                 vouchers += net;
             }
+            let (asset_key, asset_qualifier) = match &bucket.direct_bank {
+                Some(bank) => ("bank_giro", bank.clone()),
+                None => (asset_key, asset_qualifier.clone()),
+            };
             sides.push(LedgerSide::credit(
                 asset_key,
                 &asset_qualifier,
@@ -669,6 +684,7 @@ mod tests {
             refunds_minor: 0,
             tender_count: 1,
             direct_mdr_bps: None,
+            direct_bank: None,
         }
     }
 

@@ -1,0 +1,33 @@
+[package]
+name = "central-desktop"
+version = "0.1.5"
+edition = "2021"
+description = "Central on the desktop: the hosted hub in its own window"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png", "webview-data-url"] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-window-state = "2"
+# Notifications that report a click, on macOS (UserNotifications) and Windows
+# (toast activation). Tauri's own plugin shows them but cannot say one was
+# clicked; Delta Chat wrote this crate for the same move off Electron.
+user-notify = "0.4"
+percent-encoding = "2"
+# `generate_context!` writes the plugin config (the updater's) as JSON.
+serde_json = "1"
+tokio = { version = "1", features = ["time"] }
+url = "2"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

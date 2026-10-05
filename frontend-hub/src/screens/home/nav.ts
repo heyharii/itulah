@@ -17,6 +17,9 @@ export const homeNav: AppModule = {
   label: "Home",
   icon: Sunrise,
   home: "/home",
+  // Out of the sidebar for now (owner, 2026-10-01); `/` lands on the first
+  // department instead.
+  hidden: true,
   sections: [
     {
       items: [{ path: "/home", label: "Brief", icon: Sunrise }],

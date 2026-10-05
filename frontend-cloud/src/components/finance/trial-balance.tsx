@@ -137,7 +137,7 @@ export function TrialBalanceScreen() {
 /// An account can be posted to at more than one location, and each is its own
 /// line — the code alone is not a key here.
 function rowId(row: TrialBalanceRow): string {
-  return `${row.account_code}-${row.site_id ?? ""}`
+  return `${row.account_code}-${row.unit_id ?? ""}`
 }
 
 function Frame({

@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { Check, Copy, Download } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Field, Input, Select } from "@/components/ui/field"
 import { Pill } from "@/components/ui/pill"
-import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import { Sheet } from "@/components/ui/sheet"
 import { Banner } from "@/components/ui/states"
 import { ago, moment } from "@/lib/format"
 import { gaKeys, gaLocations } from "@/lib/queries/ga"
@@ -19,6 +20,7 @@ import {
   type Enrolment,
   type IssuedEnrolment,
 } from "@/lib/queries/system"
+import { cn } from "@/lib/utils"
 import { saying } from "@/screens/system/units"
 
 /// Machines waiting to become nodes, and codes nobody has used yet.
@@ -281,7 +283,11 @@ export function InstallSheet({
       onOpenChange={(next) => {
         if (!next) close()
       }}
-      title="Install a server"
+      title={
+        issued
+          ? `Installing ${label.trim() || issued.site_id}`
+          : "Install a server"
+      }
       footer={
         <div className="flex justify-end gap-2">
           <Button variant="quiet" onClick={close}>
@@ -294,44 +300,14 @@ export function InstallSheet({
               disabled={siteId === ""}
               onClick={() => issue.mutate()}
             >
-              {issue.isPending ? "Issuing…" : "Issue code"}
+              {issue.isPending ? "Submitting…" : "Submit"}
             </Button>
           )}
         </div>
       }
     >
       {issued ? (
-        <div className="flex flex-col gap-5">
-          <div className="rounded-inner border border-dashed border-hairline-2 py-6 text-center">
-            <div className="text-meta text-mute">Activation code</div>
-            <div className="mt-1 font-mono text-[2rem] font-semibold tracking-wider text-ink select-all">
-              {issued.code}
-            </div>
-            <div className="mt-1 text-meta text-mute">
-              valid until {moment(issued.expires_at)} · one machine, once
-            </div>
-          </div>
-          <Facts>
-            <Fact term="Site">{issued.site_id}</Fact>
-            <Fact term="Role">{issued.node_role}</Fact>
-          </Facts>
-          <ol className="list-decimal space-y-1.5 pl-5 text-[0.875rem] text-body">
-            <li>Install the store server on the shop machine.</li>
-            <li>
-              On that machine, open{" "}
-              <span className="font-mono">http://localhost:8082/setup</span> and
-              enter this code.
-            </li>
-            <li>
-              The machine shows a six-digit number. It appears on this page as a
-              claim — approve it when the shop reads you the same number.
-            </li>
-          </ol>
-          <Banner tone="warn">
-            This code is shown once. Closing the sheet forgets it; issue a new
-            one if it is lost — the new code cancels this one.
-          </Banner>
-        </div>
+        <InstallJourney issued={issued} />
       ) : (
         <div className="flex flex-col gap-3.5">
           <div className="grid grid-cols-2 gap-3.5">
@@ -344,7 +320,7 @@ export function InstallSheet({
                 }}
               >
                 <option value="STORE">Store</option>
-                <option value="DC">Warehouse (DC)</option>
+                <option value="DC">Gudang</option>
               </Select>
             </Field>
             <Field label="Code valid for">
@@ -389,5 +365,262 @@ export function InstallSheet({
         </div>
       )}
     </Sheet>
+  )
+}
+
+/// Where the packages are published. The CI workflow "Store server packages"
+/// attaches the MSI and the Linux tarball to every `store-v*` release; a
+/// deployment that mirrors them somewhere the shops can reach sets
+/// `VITE_STORE_SERVER_DOWNLOADS`.
+const DOWNLOADS =
+  (import.meta.env.VITE_STORE_SERVER_DOWNLOADS as string | undefined) ??
+  "https://github.com/heyharii/itulah/releases?q=store-v&expanded=true"
+
+/// The address a new machine enrols against: head office's public address,
+/// else wherever this hub is being served from.
+const CLOUD_URL =
+  (import.meta.env.VITE_CLOUD_PUBLIC_URL as string | undefined) ??
+  window.location.origin
+
+type Step = "download" | "code" | "match" | "done"
+const STEPS: readonly { id: Step; title: string }[] = [
+  { id: "download", title: "Get the installer" },
+  { id: "code", title: "Give the machine its code" },
+  { id: "match", title: "Match the number" },
+  { id: "done", title: "Connected" },
+]
+
+/// The whole install as one live path: each step lights as the machine gets
+/// there, read off the enrolment every few seconds, so nobody at head office
+/// has to go looking for the claim in the queue behind the sheet.
+function InstallJourney({ issued }: { issued: IssuedEnrolment }) {
+  const [os, setOs] = useState<"windows" | "linux">("windows")
+  const [approved, setApproved] = useState<string | null>(null)
+  const enrolments = useQuery({
+    queryKey: systemKeys.enrolments(),
+    queryFn: ({ signal }) => listEnrolments(signal),
+    refetchInterval: approved === null ? 3_000 : false,
+  })
+  const row = (enrolments.data ?? []).find(
+    (one) => one.enrolment_id === issued.enrolment_id
+  )
+  const status = row?.status ?? "ISSUED"
+  const dead =
+    status === "EXPIRED" || status === "REVOKED" || status === "REJECTED"
+  const at: Step =
+    approved !== null || status === "APPROVED"
+      ? "done"
+      : status === "CLAIMED"
+        ? "match"
+        : "code"
+  const reached = (step: Step) =>
+    STEPS.findIndex((one) => one.id === step) <=
+    STEPS.findIndex((one) => one.id === at)
+
+  const command =
+    os === "windows"
+      ? // PowerShell, in the folder the installer was saved to: the file name
+        // carries its version (itulah-store-<version>-x64.msi), so it is found
+        // rather than typed.
+        `msiexec /i (Get-ChildItem itulah-store-*-x64.msi)[0].FullName /qn ENROLL_CODE=${issued.code}`
+      : // From the unpacked tarball (deploy/edge/install-store.sh): installs
+        // the service and stages the code, so the node claims it on start.
+        `sudo ./install-store.sh --code ${issued.code} --cloud ${CLOUD_URL}`
+
+  return (
+    <div className="flex flex-col gap-5">
+      {dead && (
+        <Banner tone="bad">
+          This code can no longer be used ({status.toLowerCase()}). Close the
+          sheet and issue a new one.
+        </Banner>
+      )}
+      <ol className="flex flex-col">
+        {STEPS.map((step, index) => {
+          const done = reached(step.id) && step.id !== at
+          const here =
+            step.id === at || (step.id === "download" && at === "code")
+          const last = index === STEPS.length - 1
+          return (
+            <li
+              key={step.id}
+              className="grid grid-cols-[2rem_minmax(0,1fr)] gap-x-3"
+            >
+              <div className="flex flex-col items-center">
+                <span
+                  className={cn(
+                    "grid size-8 shrink-0 place-items-center rounded-full text-[0.875rem] font-semibold tabular-nums transition-colors duration-300",
+                    done
+                      ? "bg-ok text-on-dark"
+                      : here
+                        ? "bg-cta text-cta-fg ring-4 ring-accent-bg"
+                        : "bg-soft text-mute"
+                  )}
+                >
+                  {done ? <Check className="size-4 stroke-[2.5]" /> : index + 1}
+                </span>
+                {!last && (
+                  <span
+                    className={cn(
+                      "my-1 w-px flex-1 transition-colors duration-300",
+                      done ? "bg-ok" : "bg-hairline"
+                    )}
+                  />
+                )}
+              </div>
+              <div className={cn("min-w-0 pt-1", !last && "pb-6")}>
+                <h3
+                  className={cn(
+                    "text-[0.9375rem] font-semibold",
+                    here || done ? "text-ink" : "text-mute"
+                  )}
+                >
+                  {step.title}
+                </h3>
+
+                {step.id === "download" && (
+                  <div className="mt-2.5 flex flex-col gap-2.5">
+                    <div className="grid grid-cols-2 gap-2">
+                      {(
+                        [
+                          ["windows", "Windows", "MSI · the shop PC"],
+                          ["linux", "Linux", "tarball · a mini server"],
+                        ] as const
+                      ).map(([value, name, what]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setOs(value)}
+                          aria-pressed={os === value}
+                          className={cn(
+                            "flex flex-col items-start rounded-inner border px-3.5 py-2.5 text-left transition-colors",
+                            os === value
+                              ? "border-ink bg-canvas"
+                              : "border-hairline hover:border-hairline-strong"
+                          )}
+                        >
+                          <span className="font-medium text-ink">{name}</span>
+                          <span className="text-[0.875rem] text-mute">
+                            {what}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                    <a
+                      href={DOWNLOADS}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 self-start text-[0.875rem] font-medium text-accent hover:underline"
+                    >
+                      <Download className="size-4" />
+                      Download the{" "}
+                      {os === "windows" ? "Windows installer" : "Linux package"}
+                    </a>
+                  </div>
+                )}
+
+                {step.id === "code" && (
+                  <div className="mt-2.5 flex flex-col gap-2.5">
+                    <div className="flex items-center justify-between gap-3 rounded-inner border border-dashed border-hairline-strong px-4 py-3">
+                      <span className="font-mono text-[1.625rem] font-semibold tracking-[0.12em] text-ink select-all">
+                        {issued.code}
+                      </span>
+                      <CopyButton text={issued.code} />
+                    </div>
+                    <p className="text-[0.875rem] text-body">
+                      Type it on the machine&rsquo;s setup page,{" "}
+                      <span className="font-mono">
+                        http://localhost:8082/setup
+                      </span>{" "}
+                      — or install and enrol in one go
+                      {os === "windows"
+                        ? ", in PowerShell where the installer was saved:"
+                        : ", from the unpacked package:"}
+                    </p>
+                    <div className="flex items-center gap-2 rounded-inner bg-soft px-3 py-2">
+                      <code className="min-w-0 flex-1 truncate font-mono text-[0.875rem] text-ink">
+                        {command}
+                      </code>
+                      <CopyButton text={command} />
+                    </div>
+                    <Expiry until={issued.expires_at} />
+                  </div>
+                )}
+
+                {step.id === "match" &&
+                  (at === "match" && row ? (
+                    <div className="mt-2.5 overflow-hidden rounded-inner border border-hairline">
+                      <ClaimRow
+                        row={row}
+                        onApproved={(report) =>
+                          setApproved(bootstrapSaying(report))
+                        }
+                      />
+                    </div>
+                  ) : at === "code" && !dead ? (
+                    <p className="mt-1.5 flex items-center gap-2 text-[0.875rem] text-mute">
+                      <span className="relative flex size-2">
+                        <span className="absolute inline-flex size-full animate-ping rounded-full bg-accent opacity-60" />
+                        <span className="relative inline-flex size-2 rounded-full bg-accent" />
+                      </span>
+                      Waiting for the machine to use the code…
+                    </p>
+                  ) : null)}
+
+                {step.id === "done" && at === "done" && (
+                  <p className="mt-1.5 text-[0.875rem] text-body">
+                    {approved ??
+                      "Enrolled. Catalogue, prices, users and promotions are on their way to the machine."}{" "}
+                    It shows up on Servers and Sync within a minute.
+                  </p>
+                )}
+              </div>
+            </li>
+          )
+        })}
+      </ol>
+    </div>
+  )
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <Button
+      size="sm"
+      variant="quiet"
+      onClick={() => {
+        void navigator.clipboard?.writeText(text).then(() => {
+          setCopied(true)
+          window.setTimeout(() => setCopied(false), 1_500)
+        })
+      }}
+    >
+      {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+      {copied ? "Copied" : "Copy"}
+    </Button>
+  )
+}
+
+/// "Expires in 58 min", counting down, so a code about to die is noticed
+/// before the shop types it.
+function Expiry({ until }: { until: string }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 15_000)
+    return () => window.clearInterval(id)
+  }, [])
+  const minutes = Math.max(0, Math.round((Date.parse(until) - now) / 60_000))
+  return (
+    <p
+      className={cn(
+        "text-[0.875rem]",
+        minutes <= 10 ? "text-warn-fg" : "text-mute"
+      )}
+    >
+      {minutes === 0
+        ? "The code has expired."
+        : `Expires in ${minutes >= 120 ? `${Math.round(minutes / 60)} h` : `${minutes} min`} · one machine, once. A new code cancels this one.`}
+    </p>
   )
 }

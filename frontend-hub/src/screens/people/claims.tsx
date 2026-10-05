@@ -545,7 +545,6 @@ function FileClaimSheet({ onClose }: { onClose: () => void }) {
           <Input
             value={description}
             onChange={(event) => setDescription(event.target.value)}
-            placeholder="Taksi ke gudang, antar dokumen"
           />
         </Field>
         <Field
@@ -556,7 +555,6 @@ function FileClaimSheet({ onClose }: { onClose: () => void }) {
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            placeholder="laporan kerja lapangan"
           />
         </Field>
       </div>
@@ -746,7 +744,6 @@ function ClaimSheet({
             <Input
               value={reason}
               onChange={(event) => setReason(event.target.value)}
-              placeholder="struknya belum lengkap"
             />
           </Field>
           <div>
@@ -898,7 +895,6 @@ function DecidePanel({ row }: { row: ClaimRow }) {
         <Input
           value={reason}
           onChange={(event) => setReason(event.target.value)}
-          placeholder="taksi ke gudang disetujui, parkir tidak"
         />
       </Field>
       <ButtonGroup>

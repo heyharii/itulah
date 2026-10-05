@@ -4,11 +4,11 @@ import type { StoreActionOption } from "./StoreActionOption";
 /**
  * `GET /api/v1/stores/{unit}/actions`.
  */
-export type StoreActionMenu = { unit_id: string, site_id?: string | null,
+export type StoreActionMenu = { unit_id: string, site_id?: string | null, 
 /**
  * The store's server, when it has one.
  */
-origin_id?: string | null, server_version?: string | null,
+origin_id?: string | null, server_version?: string | null, 
 /**
  * Whether this caller may send any of them (an Admin, the owner, IT).
  */

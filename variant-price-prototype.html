@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Variant prices (prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* Tokens from frontend-hub/src/styles/index.css. */
+:root{
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f9fb; --soft-2:#f0f2f5; --soft-3:#f7f8fa;
+  --hairline:#e7eaf0; --hairline-2:#dce1e8; --hairline-strong:#c7ced8;
+  --dark:#191b20; --backdrop:#dfe3ea;
+  --accent:#2563eb; --accent-bg:#eff5ff; --cta:#2563eb; --cta-hover:#1d4ed8;
+  --ok-fg:#15803d; --warn-fg:#b45309; --bad:#d05151; --bad-fg:#be123c;
+  --r-shell:1rem; --r-card:.75rem; --r-inner:.4375rem;
+  --shadow-soft:0 1px 3px rgb(24 39 60 / 4%);
+  --shadow-pop:0 4px 8px rgb(24 39 60 / 4%),0 12px 32px rgb(24 39 60 / 8%);
+  --shadow-shell:0 10px 34px rgb(24 39 60 / 8%);
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  font-size:16px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Inter,system-ui,sans-serif;background:var(--backdrop);color:var(--text);font-size:.9375rem;
+  line-height:1.45;-webkit-font-smoothing:antialiased;padding:1.25rem;min-height:100vh}
+button,input{font:inherit;color:inherit}
+.top{max-width:52rem;margin:0 auto .875rem;display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
+.top h1{font-size:1rem;font-weight:600;color:var(--ink)}
+.top p{color:var(--body);font-size:.875rem}
+.lenses{margin-left:auto;display:flex;gap:.25rem;background:var(--soft-2);padding:.1875rem;border-radius:999px;flex-wrap:wrap}
+.lens{border:0;background:transparent;border-radius:999px;padding:.3125rem .75rem;font-size:.875rem;color:var(--body);cursor:pointer;
+  transition:background .15s var(--ease-out),color .15s var(--ease-out)}
+.lens.on{background:var(--canvas);color:var(--ink);font-weight:500;box-shadow:var(--shadow-soft)}
+.pane{max-width:52rem;margin:0 auto;background:var(--canvas);border-radius:var(--r-shell);box-shadow:var(--shadow-shell);
+  padding:1.25rem 1.5rem 0;display:flex;flex-direction:column;gap:1.5rem}
+.ph{display:flex;align-items:baseline;gap:.5rem}
+.ph b{font-size:1.0625rem;font-weight:600;color:var(--ink)}
+.ph span{color:var(--mute);font-size:.875rem}
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.75rem;max-width:36rem}
+.facts dt{font-size:.875rem;color:var(--mute)} .facts dd{color:var(--ink);font-weight:500}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem 1.5rem}
+.field label{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.875rem;color:var(--body);margin-bottom:.375rem}
+.field label i{color:var(--bad);font-style:normal}
+.box{height:2.25rem;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 .75rem;display:flex;align-items:center;
+  gap:.375rem;background:var(--canvas);color:var(--ink)}
+.box input{border:0;outline:0;background:transparent;width:100%;color:var(--ink)}
+.box:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.box .rp{color:var(--mute)}
+.chip{display:inline-flex;align-items:center;gap:.3125rem;border:1px solid var(--hairline-2);border-radius:999px;padding:.0625rem .5rem;
+  font-size:.875rem;color:var(--text)}
+.chip .sw{width:.625rem;height:.625rem;border-radius:50%;border:1px solid rgb(0 0 0 / 12%)}
+.fields{align-items:start}
+.box.mk input{text-align:right}
+.hint{font-size:.875rem}
+.span2{grid-column:span 2}
+.field label.lab{display:flex;align-items:baseline;justify-content:space-between;gap:.5rem;overflow:visible}
+/* Field's `aside` in the hub: a soft pill at the right of the label row */
+.pill{flex:none;border-radius:var(--r-inner);background:var(--soft-2);padding:0 .375rem;color:var(--body);font-size:.875rem;font-variant-numeric:tabular-nums}
+.aside{color:var(--mute);margin-left:.25rem}
+.box.ro{background:var(--soft-3);border-color:var(--hairline);color:var(--text)}
+.two tbody td{position:relative}
+.calc{position:absolute;right:.25rem;top:calc(100% - .25rem);z-index:6;white-space:nowrap;background:var(--dark);color:#fff;
+  font-size:.875rem;line-height:1.25rem;padding:.125rem .5rem;border-radius:.3125rem;box-shadow:var(--shadow-pop);font-variant-numeric:tabular-nums;
+  animation:pop .14s var(--ease-out);transform-origin:right top}
+.two tbody td[data-mk]:hover::after{content:attr(data-mk);position:absolute;right:.25rem;top:calc(100% - .25rem);z-index:6;
+  white-space:nowrap;background:var(--dark);color:#fff;font-size:.875rem;line-height:1.25rem;padding:.125rem .5rem;border-radius:.3125rem;
+  box-shadow:var(--shadow-pop);font-variant-numeric:tabular-nums;pointer-events:none;animation:pop .14s var(--ease-out);transform-origin:right top}
+/* while the price is being typed, the edit chip says it instead */
+.two tbody td[data-mk]:has(input.pr)::after{display:none}
+.calc2{min-height:1.25rem;margin-top:.375rem;text-align:right;color:var(--body);font-size:.875rem;font-variant-numeric:tabular-nums}
+.pr.loss{color:var(--bad-fg)}
+.hint{font-size:.875rem;color:var(--mute);margin-top:.3125rem}
+.sub{display:flex;align-items:center;gap:.75rem;margin-bottom:.75rem}
+.sub b{font-size:.9375rem;font-weight:600;color:var(--ink)}
+.bar{display:flex;align-items:center;gap:.75rem;margin-bottom:.375rem;min-height:1.875rem}
+.seg{display:flex;background:var(--soft-2);padding:.1875rem;border-radius:var(--r-inner);gap:.125rem}
+.seg button{border:0;background:transparent;border-radius:.3125rem;padding:.1875rem .75rem;font-size:.875rem;color:var(--body);cursor:pointer}
+.seg button.on{background:var(--canvas);color:var(--ink);font-weight:500;box-shadow:var(--shadow-soft)}
+.tally{margin-left:auto;white-space:nowrap;font-size:.875rem;font-weight:500;font-variant-numeric:tabular-nums}
+.ok{color:var(--ok-fg)} .warn{color:var(--warn-fg)} .bad{color:var(--bad-fg)}
+.note{font-size:.875rem;color:var(--body)} .note b{color:var(--ink);font-weight:500}
+
+/* the matrix — same build as Matrix in setups.tsx */
+.mx{width:100%;overflow-x:auto;border:1px solid var(--hairline);border-radius:var(--r-inner)}
+table{width:100%;min-width:max-content;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:.875rem}
+th,td{height:2.25rem;border-color:var(--hairline);border-style:solid;border-width:0}
+thead th{border-bottom-width:1px;font-weight:400;color:var(--body);text-align:right;padding:0 .5rem;background:var(--canvas)}
+thead th.c{text-align:left;padding:0 .75rem}
+.c{position:sticky;left:0;z-index:2;background:var(--canvas);border-right-width:1px !important;text-align:left;padding:0 .75rem}
+tbody th.c{font-weight:500;color:var(--ink)}
+tbody tr+tr > *, tfoot > tr > *{border-top-width:1px}
+.sep{border-left-width:1px}
+td{text-align:right;padding:0 .5rem;font-variant-numeric:tabular-nums;vertical-align:middle}
+td.tot{padding:0 .75rem;font-weight:500;color:var(--ink)}
+tfoot > tr > *{background:var(--soft-2) !important;color:var(--text)}
+tfoot td.tot{font-weight:600;color:var(--ink)}
+tfoot th.c{font-weight:400;color:var(--body)}
+.cell{display:block;margin:0 -.5rem;width:calc(100% + 1rem);height:2.25rem;border:0;outline:0;background:transparent;text-align:right;
+  padding:0 .5rem;color:var(--ink);font-variant-numeric:tabular-nums}
+.cell:hover,.cell:focus{background:var(--soft-2)}
+.cell::placeholder{color:var(--faint)}
+.cell.inherit::placeholder{color:var(--mute)}
+.cell.own{color:var(--accent);font-weight:500}
+.cell:disabled{cursor:not-allowed;background:repeating-linear-gradient(135deg,transparent 0 5px,var(--soft-3) 5px 6px)}
+.cell:disabled::placeholder{color:var(--faint)}
+.hbtn{border:0;background:transparent;cursor:pointer;color:inherit;display:inline-flex;align-items:center;gap:.25rem;
+  padding:.125rem .3125rem;margin:0 -.3125rem;border-radius:.3125rem}
+.hbtn:hover{background:var(--soft-2);color:var(--ink)}
+.hbtn svg{width:.75rem;height:.75rem;color:var(--line-ico)}
+
+/* variant B: two lines in a cell */
+.two td{height:auto;padding:.4375rem .5rem .375rem;vertical-align:top;transition:background .12s var(--ease-out)}
+.two tbody td:not(.tot):hover,.two tbody td:focus-within{background:var(--soft-2)}
+.two tbody td.tot,.two tbody th.c{vertical-align:middle}
+.two .cell,.pr{display:block;margin:0 -.25rem;width:calc(100% + .5rem);height:1.75rem;padding:0 .25rem;border:0;border-radius:.3125rem;
+  background:transparent;transition:box-shadow .12s var(--ease-out),background .12s var(--ease-out)}
+/* the count and the price are the same kind of field: flat at rest, both boxes show when you hover the cell, a blue ring while typing */
+.two tbody td:hover .cell,.two tbody td:hover .pr:not(:disabled){background:var(--canvas);box-shadow:inset 0 0 0 1px var(--hairline-strong)}
+.two .cell:focus,input.pr{outline:0;background:var(--canvas);box-shadow:inset 0 0 0 1.5px var(--accent)}
+/* the price line: grey while the SKU follows base, blue once it has its own.
+   Inset by a quarter rem so its box sits inside the column rules, padded back
+   by the same so its digits stand on the count's right edge. */
+.pr{margin-top:.3125rem;text-align:right;font-size:.875rem;line-height:1.75rem;color:var(--mute);cursor:text;font-variant-numeric:tabular-nums}
+.pr.own{color:var(--accent);font-weight:500}
+.pr:disabled{cursor:default}
+input.pr{color:var(--ink)}
+.hbtn svg{opacity:.0;transition:opacity .12s var(--ease-out)}
+.two th:hover .hbtn svg,.hbtn:focus-visible svg{opacity:1}
+@media (hover:none){ .hbtn svg{opacity:1} .two .cell,.pr:not(:disabled){box-shadow:inset 0 0 0 1px var(--hairline)} }
+
+/* variant C: price row */
+tr.prow > *{background:var(--soft-3)}
+tr.prow th.c{background:var(--soft-3);color:var(--body);font-weight:400}
+
+.pop{position:fixed;z-index:50;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);box-shadow:var(--shadow-pop);
+  padding:.75rem;width:15rem;transform-origin:var(--o,top);animation:pop .16s var(--ease-out)}
+@keyframes pop{from{opacity:0;transform:scale(.96)}}
+.pop h4{font-size:.875rem;font-weight:500;color:var(--ink);margin-bottom:.5rem}
+.pop .row{display:flex;gap:.5rem;margin-top:.625rem}
+.btn{height:2rem;border-radius:var(--r-inner);border:1px solid var(--hairline-2);background:var(--canvas);padding:0 .75rem;cursor:pointer;
+  font-size:.875rem;transition:transform .1s var(--ease-out)}
+.btn:active{transform:scale(.97)}
+.btn.pri{background:var(--cta);border-color:var(--cta);color:#fff;font-weight:500}
+.btn.pri:hover{background:var(--cta-hover)}
+.btn.pri:disabled{opacity:.45;cursor:not-allowed}
+.link{border:0;background:none;color:var(--accent);cursor:pointer;font-size:.875rem}
+
+.foot{position:sticky;bottom:0;z-index:5;margin:0 -1.5rem;border-top:1px solid var(--hairline);background:var(--canvas);padding:.875rem 1.5rem;
+  display:flex;align-items:center;gap:1rem;border-radius:0 0 var(--r-shell) var(--r-shell)}
+.foot p{flex:1;font-size:.875rem;color:var(--mute)}
+.foot .btn.pri{height:2.25rem;min-width:13rem}
+.why{max-width:52rem;margin:1rem auto 0;color:var(--body);font-size:.875rem;line-height:1.6}
+.why b{color:var(--ink);font-weight:500}
+@media (max-width:40rem){
+  .span2{grid-column:auto}
+  body{padding:.75rem 0}
+  .top,.why{padding:0 1rem}
+  .pane{border-radius:0;padding:1rem 1rem 0}
+  .fields{grid-template-columns:1fr}
+  .facts{grid-template-columns:1fr 1fr}
+  .foot{margin:0 -1rem;padding:.75rem 1rem;flex-direction:column;align-items:stretch;border-radius:0}
+  .lenses{margin-left:0}
+}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div>
+    <h1>Variant prices in the grid</h1>
+    <p>New items → one delivery. Three ways to price each SKU without leaving the table.</p>
+  </div>
+  <div class="lenses" id="lenses">
+    <button class="lens on" data-v="a">A · Pieces / Price switch</button>
+    <button class="lens" data-v="b">B · Both in each cell</button>
+    <button class="lens" data-v="c">C · Price by size</button>
+  </div>
+</div>
+
+<div class="pane">
+  <div class="ph"><b>New items</b><span>Kemeja Oxford Slim · RCV-0926-014</span></div>
+
+  <dl class="facts">
+    <div><dt>Delivery</dt><dd>RCV-0926-014</dd></div>
+    <div><dt>Supplier</dt><dd>CV Sinar Garmen</dd></div>
+    <div><dt>Counted</dt><dd>120 pieces</dd></div>
+  </dl>
+
+  <div class="fields">
+    <div class="field span2"><label>Name <i>*</i></label><div class="box">Kemeja Oxford Slim</div></div>
+    <div class="field"><label>Division <i>*</i></label><div class="box">Men · Tops</div></div>
+    <div class="field"><label>Tags</label><div class="box"><span class="chip">Basic</span><span class="chip">Workwear</span></div></div>
+    <div class="field">
+      <label>Base price <i>*</i></label>
+      <div class="box"><span class="rp">Rp</span><input id="base" inputmode="numeric" value="189.000" /></div>
+    </div>
+    <div class="field">
+      <label class="lab">Markup <span class="pill" title="Purchase price per pc, from PO-0912">Cost price Rp 105.000</span></label>
+      <div class="box mk"><input id="markup" inputmode="decimal" /><span class="rp">%</span></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="sub"><b>Variants</b></div>
+    <div class="fields" style="margin-bottom:1.25rem">
+      <div class="field"><label>Colours <i>*</i></label><div class="box" style="gap:.375rem">
+        <span class="chip"><span class="sw" style="background:#fff"></span>Putih</span>
+        <span class="chip"><span class="sw" style="background:#26324a"></span>Navy</span>
+        <span class="chip"><span class="sw" style="background:#1d1d1f"></span>Hitam</span></div></div>
+      <div class="field"><label>Sizes <i>*</i></label><div class="box" style="gap:.375rem">
+        <span class="chip">S</span><span class="chip">M</span><span class="chip">L</span><span class="chip">XL</span><span class="chip">XXL</span></div></div>
+    </div>
+    <div class="bar" id="bar"></div>
+    <div class="mx" id="mx"></div>
+  </div>
+
+  <div class="foot">
+    <p id="missing"></p>
+    <button class="btn pri" id="go">Add to inventory</button>
+  </div>
+</div>
+
+<div class="why" id="why"></div>
+
+<script>
+const COLOURS=[{k:"PTH",l:"Putih"},{k:"NVY",l:"Navy"},{k:"HTM",l:"Hitam"}];
+const SIZES=[{k:"02",l:"S"},{k:"03",l:"M"},{k:"04",l:"L"},{k:"05",l:"XL"},{k:"06",l:"XXL"}];
+const COUNTED=120;
+const qty={}, own={}, sizePrice={};
+[[8,12,12,8,0],[6,14,14,10,4],[6,10,8,6,2]].forEach((r,i)=>r.forEach((q,j)=>qty[COLOURS[i].k+"|"+SIZES[j].k]=q));
+own["NVY|06"]=209000; own["HTM|06"]=209000;
+let view="a", mode="pieces", pop=null;
+
+const $=s=>document.querySelector(s);
+const digits=s=>Number(String(s).replace(/[^\d]/g,""))||0;
+const rp=n=>n.toLocaleString("id-ID");
+const k=(c,s)=>c+"|"+s;
+const base=()=>digits($("#base").value);
+const BUY=105000;
+const markupOf=v=>Math.round((v-BUY)/BUY*1000)/10;
+const pct=n=>(Number.isInteger(n)?n:n.toFixed(1)).toString().replace(".",",")+"%";
+const priceOf=(c,s)=>{
+  if(view==="c") return sizePrice[s]??base();
+  return own[k(c,s)]??base();
+};
+const q=(c,s)=>qty[k(c,s)]||0;
+const declared=()=>COLOURS.reduce((a,c)=>a+SIZES.reduce((b,s)=>b+q(c.k,s.k),0),0);
+const pen=`<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10.5 2.5l3 3L6 13H3v-3z"/></svg>`;
+
+function state(){
+  const d=declared();
+  return {d,over:d>COUNTED,balanced:d===COUNTED};
+}
+function tone(){const s=state();return s.over?"bad":s.balanced?"ok":"warn"}
+
+function priced(){
+  // SKUs that will actually be minted, and how their prices spread.
+  const list=[];
+  COLOURS.forEach(c=>SIZES.forEach(s=>{ if(q(c.k,s.k)>0) list.push(priceOf(c.k,s.k)) }));
+  const b=base();
+  return {n:list.length,diff:list.filter(p=>p!==b).length,min:Math.min(...list),max:Math.max(...list),
+    value:COLOURS.reduce((a,c)=>a+SIZES.reduce((x,s)=>x+q(c.k,s.k)*priceOf(c.k,s.k),0),0)};
+}
+
+function bar(){
+  const s=state(), p=priced();
+  const range=(p.min===p.max?`Rp ${rp(p.min)}`:`Rp ${rp(p.min)} – ${rp(p.max)}`)+
+    ` · markup ${p.min===p.max?pct(markupOf(p.min)):pct(markupOf(p.min))+" – "+pct(markupOf(p.max))}`;
+  let left="";
+  if(view==="a"){
+    left=`<div class="seg"><button data-m="pieces" class="${mode==="pieces"?"on":""}">Pieces</button><button data-m="price" class="${mode==="price"?"on":""}">Price</button></div>`;
+    if(mode==="price") left+=`<span class="note">${p.diff?`<b>${p.diff}</b> of ${p.n} SKUs off base · `:""}${range}</span>`;
+  } else {
+    left = view==="b"
+      ? `<span class="note">${p.diff?`<b>${p.diff}</b> of ${p.n} SKUs have their own price · ${range}`:`Every SKU at base — click a grey price to give that SKU its own`}</span>`
+      : `<span class="note">${p.diff?`<b>${p.diff}</b> of ${p.n} SKUs off base · `:"All at base · "}${range}</span>`;
+  }
+  const right = view==="a"&&mode==="price"
+    ? `<span class="tally" style="color:var(--body)">Retail value <b style="color:var(--ink)">Rp ${rp(p.value)}</b></span>`
+    : `<span class="tally ${tone()}">${s.d} of ${COUNTED}</span>`;
+  $("#bar").innerHTML=left+right;
+}
+
+function head(label,attr,editable){
+  return editable?`<button type="button" class="hbtn" ${attr}>${label}${pen}</button>`:label;
+}
+
+function grid(){
+  const priceMode = view==="a"&&mode==="price";
+  const cls = view==="b"?"two":"";
+  let h=`<table class="${cls}"><colgroup><col>${SIZES.map(()=>`<col style="width:${priceMode?"6.5rem":view==="b"?"6rem":"5.25rem"}">`).join("")}<col style="width:${priceMode?"8.5rem":"5.5rem"}"></colgroup>`;
+  h+=`<thead><tr><th class="c">Colour</th>`;
+  SIZES.forEach((s,i)=>h+=`<th class="${i?"sep":""}">${head(s.l,`data-col="${s.k}"`,priceMode||view==="b")}</th>`);
+  h+=`<th class="sep" style="color:var(--ink);font-weight:500;padding:0 .75rem">${priceMode?"Value":"All"}</th></tr></thead><tbody>`;
+
+  if(view==="c"){
+    h+=`<tr class="prow"><th class="c">Price</th>`;
+    SIZES.forEach((s,i)=>{
+      const v=sizePrice[s.k];
+      h+=`<td class="${i?"sep":""}"><input class="cell ${v!=null?"own":"inherit"}" data-sp="${s.k}" inputmode="numeric" placeholder="${rp(base())}" value="${v!=null?rp(v):""}" aria-label="Price for size ${s.l}"></td>`;
+    });
+    h+=`<td class="sep tot"></td></tr>`;
+  }
+
+  COLOURS.forEach(c=>{
+    h+=`<tr><th class="c">${head(c.l,`data-row="${c.k}"`,priceMode||view==="b")}</th>`;
+    SIZES.forEach((s,i)=>{
+      const key=k(c.k,s.k), n=q(c.k,s.k);
+      let inner;
+      if(priceMode){
+        const o=own[key];
+        inner = n===0
+          ? `<input class="cell" disabled placeholder="—" title="No pieces, so no SKU to price">`
+          : `<input class="cell ${o!=null?"own":"inherit"}" data-p="${key}" inputmode="numeric" placeholder="${rp(base())}" value="${o!=null?rp(o):""}" aria-label="Kemeja Oxford Slim ${c.l} ${s.l} price">`;
+      } else if(view==="b"){
+        const o=own[key];
+        // Tab walks the counts only; the price line is reached by clicking it.
+        inner=`<input class="cell" data-q="${key}" inputmode="numeric" placeholder="0" value="${n||""}" aria-label="${c.l} ${s.l} pieces">`+
+          `<button type="button" class="pr ${o!=null?"own":""} ${n&&(o??base())<BUY?"loss":""}" data-edit="${key}" tabindex="-1" ${n?"":"disabled"} aria-label="${c.l} ${s.l} price">${n?rp(o??base()):""}</button>`;
+      } else {
+        inner=`<input class="cell" data-q="${key}" inputmode="numeric" placeholder="0" value="${n||""}" aria-label="${c.l} ${s.l} pieces">`;
+      }
+      // The markup, for the chip that shows on hover — nothing drawn at rest.
+      const mk = view==="b"&&n ? ` data-mk="${pct(markupOf(priceOf(c.k,s.k)))} markup"` : "";
+      h+=`<td class="${i?"sep":""}"${mk}>${inner}</td>`;
+    });
+    const rowTot = priceMode
+      ? rp(SIZES.reduce((a,s)=>a+q(c.k,s.k)*priceOf(c.k,s.k),0))
+      : SIZES.reduce((a,s)=>a+q(c.k,s.k),0);
+    h+=`<td class="sep tot">${rowTot}</td></tr>`;
+  });
+
+  h+=`</tbody><tfoot><tr><th class="c">All</th>`;
+  SIZES.forEach((s,i)=>{
+    const v = priceMode ? rp(COLOURS.reduce((a,c)=>a+q(c.k,s.k)*priceOf(c.k,s.k),0))
+                        : COLOURS.reduce((a,c)=>a+q(c.k,s.k),0);
+    h+=`<td class="${i?"sep":""}">${v}</td>`;
+  });
+  const p=priced();
+  h+=`<td class="sep tot ${priceMode?"":tone()}">${priceMode?rp(p.value):declared()}</td></tr></tfoot></table>`;
+  $("#mx").innerHTML=h;
+}
+
+function footer(){
+  const s=state(), b=base();
+  let m=null;
+  if(!s.balanced) m = s.over
+    ? `The grid comes to ${s.d} and the warehouse counted ${COUNTED}. A session cannot mint stock that did not arrive.`
+    : `${COUNTED-s.d} of the ${COUNTED} pieces counted are not in the grid yet — every one of them has to end up somewhere.`;
+  else if(b===0) m="A base price, so the SKUs are worth something when they are drawn.";
+  $("#missing").textContent=m??"";
+  $("#missing").className=s.over?"bad":"";
+  $("#go").disabled=m!==null;
+}
+
+const WHY={
+  a:`<b>A — recommended.</b> The grid stays the grid you count into; a <b>Pieces / Price</b> switch swaps what the cells hold. In Price, every cell shows the base price in grey — typing makes it that SKU's own price (blue); clearing it goes back to base. Click a <b>size</b> or <b>colour</b> header to price the whole column or row at once (the usual case: XXL +20k). Cells with no pieces are hatched — no SKU, nothing to price. Nothing changes for somebody who never opens Price.`,
+  b:`<b>B, tidied.</b> Each cell: the count on top, its price under it — grey follows the base price, blue is its own. A price box takes <b>either a price or a markup</b>: type <b>209000</b> or <b>90%</b>, and the chip under it shows the other half (= 99% markup / = Rp 199.500) before you press Enter. Cost is one per article (the PO line's), so a SKU's markup and its price are the same decision said two ways. Hover a size or colour header for the pencil to price a whole column or row — that takes % too. Hover any cell to see its markup; at rest the grid shows counts and prices only. Tab only walks the counts.`,
+  c:`<b>C.</b> One Price row above the counts, one price per size. Covers the common rule (big sizes cost more) with 5 boxes instead of 15 — but a colour premium (e.g. a limited colourway) can't be said here. Lightest, least complete.`
+};
+
+function render(){ bar(); grid(); footer(); $("#why").innerHTML=WHY[view];
+  if(document.activeElement?.id!=="markup") $("#markup").value=String(markupOf(base())).replace(".",","); }
+
+function openPop(btn){
+  closePop();
+  const col=btn.dataset.col, row=btn.dataset.row;
+  const label = col ? `All ${SIZES.find(s=>s.k===col).l}` : `All ${COLOURS.find(c=>c.k===row).l}`;
+  const el=document.createElement("div"); el.className="pop";
+  el.innerHTML=`<h4>${label} at</h4><div class="box"><input placeholder="${rp(base())} or 90%" style="text-align:right"></div><div class="calc2"></div>
+    <div class="row"><button class="btn pri" data-a="set" style="flex:1">Apply</button><button class="btn" data-a="reset">Back to base</button></div>`;
+  document.body.appendChild(el);
+  const r=btn.getBoundingClientRect();
+  const left=Math.min(Math.max(8,r.left),innerWidth-el.offsetWidth-8);
+  el.style.left=left+"px"; el.style.top=(r.bottom+6)+"px";
+  el.style.setProperty("--o",`${r.left-left+10}px top`);
+  const inp=el.querySelector("input"); inp.focus();
+  const c2=el.querySelector(".calc2");
+  inp.addEventListener("input",()=>{ liveFormat(inp); c2.textContent=counterpart(inp.value); });
+  const apply=(v)=>{
+    COLOURS.forEach(c=>SIZES.forEach(s=>{
+      if((col&&s.k!==col)||(row&&c.k!==row)) return;
+      const key=k(c.k,s.k);
+      if(v==null||v===base()) delete own[key]; else own[key]=v;
+    }));
+    closePop(); render();
+  };
+  el.addEventListener("click",e=>{
+    const a=e.target.dataset.a;
+    if(a==="set"){const n=parsePrice(inp.value); if(n) apply(n);} if(a==="reset") apply(null);
+  });
+  inp.addEventListener("keydown",e=>{ if(e.key==="Enter"){const n=parsePrice(inp.value); if(n) apply(n);} if(e.key==="Escape") closePop(); });
+  pop=el;
+}
+// A price box takes either a price ("209000") or a markup over cost ("90%").
+function parsePrice(raw){
+  if(raw.includes("%")){ const m=parseFloat(raw.replace(",",".").replace(/[^\d.\-]/g,"")); return isNaN(m)?0:Math.round(BUY*(1+m/100)); }
+  return digits(raw);
+}
+function liveFormat(inp){
+  if(inp.value.includes("%")) inp.value=inp.value.replace(/[^\d,.%]/g,"").replace(/%.*/,"%");
+  else { const n=digits(inp.value); inp.value=n?rp(n):""; }
+}
+function counterpart(raw){
+  const n=parsePrice(raw); if(!n) return "";
+  return raw.includes("%") ? `= Rp ${rp(n)}` : `= ${pct(markupOf(n))} markup`;
+}
+function editPrice(btn){
+  const key=btn.dataset.edit, o=own[key];
+  const inp=document.createElement("input");
+  inp.className="pr"; inp.inputMode="numeric"; inp.placeholder=rp(base()); inp.value=o!=null?rp(o):"";
+  inp.setAttribute("aria-label",btn.getAttribute("aria-label"));
+  inp.inputMode="text"; inp.placeholder=`${rp(base())} or %`;
+  btn.replaceWith(inp); inp.focus(); inp.select();
+  // The other half of the sum, live, just under the box.
+  const chip=document.createElement("span"); chip.className="calc"; inp.after(chip);
+  const show=()=>{ chip.textContent=counterpart(inp.value); chip.hidden=!chip.textContent; };
+  show();
+  let done=false;
+  const finish=(keep)=>{ if(done) return; done=true;
+    if(keep){ const n=parsePrice(inp.value); if(n&&n!==base()) own[key]=n; else delete own[key]; }
+    render(); };
+  inp.addEventListener("input",()=>{ liveFormat(inp); show(); });
+  inp.addEventListener("keydown",e=>{ if(e.key==="Enter"){e.preventDefault();finish(true)} if(e.key==="Escape") finish(false); });
+  inp.addEventListener("blur",()=>finish(true));
+}
+function closePop(){ if(pop){pop.remove();pop=null} }
+
+document.addEventListener("click",e=>{
+  if(pop && !pop.contains(e.target) && !e.target.closest(".hbtn")) closePop();
+  const lens=e.target.closest(".lens");
+  if(lens){ view=lens.dataset.v; mode="pieces"; document.querySelectorAll(".lens").forEach(x=>x.classList.toggle("on",x===lens)); render(); return; }
+  const m=e.target.closest(".seg button"); if(m){ mode=m.dataset.m; render(); return; }
+  const hb=e.target.closest(".hbtn"); if(hb){ openPop(hb); return; }
+  const pe=e.target.closest("button.pr"); if(pe&&!pe.disabled){ editPrice(pe); }
+});
+
+// Typing: update state, then refresh everything EXCEPT the box being typed in.
+document.addEventListener("input",e=>{
+  const t=e.target;
+  if(t.id==="base"){ const n=digits(t.value); t.value=n?rp(n):""; $("#markup").value=n?String(markupOf(n)).replace(".",","):""; bar(); refreshPlaceholders(); footer(); refreshTotals(); return; }
+  if(t.id==="markup"){ const m=parseFloat(t.value.replace(",","."))||0; $("#base").value=rp(Math.round(BUY*(1+m/100))); bar(); refreshPlaceholders(); footer(); refreshTotals(); return; }
+  if(t.dataset.q){ const n=digits(t.value); t.value=n||""; qty[t.dataset.q]=n; bar(); footer(); refreshTotals(); return; }
+  if(t.dataset.p){ const n=digits(t.value); t.value=n?rp(n):""; if(n) own[t.dataset.p]=n; else delete own[t.dataset.p];
+    t.classList.toggle("own",!!n); t.classList.toggle("inherit",!n); bar(); refreshTotals(); return; }
+  if(t.dataset.sp){ const n=digits(t.value); t.value=n?rp(n):""; if(n) sizePrice[t.dataset.sp]=n; else delete sizePrice[t.dataset.sp];
+    t.classList.toggle("own",!!n); t.classList.toggle("inherit",!n); bar(); return; }
+});
+// Re-render on blur so hatched/disabled price cells follow the counts.
+document.addEventListener("focusout",e=>{ if(e.target.dataset?.q) grid(); });
+function refreshPlaceholders(){ document.querySelectorAll(".cell.inherit").forEach(i=>{ if(!i.disabled) i.placeholder=rp(base()) }); }
+function refreshTotals(){
+  const active=document.activeElement, key=active?.dataset?.q||active?.dataset?.p, which=active?.dataset?.q?"q":"p";
+  grid();
+  if(key){ const el=document.querySelector(`[data-${which}="${key}"]`); if(el){ el.focus(); const v=el.value.length; el.setSelectionRange?.(v,v);} }
+}
+
+render();
+</script>
+</body>
+</html>

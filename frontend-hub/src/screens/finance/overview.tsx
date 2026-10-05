@@ -11,44 +11,51 @@ import {
 import { useMemo } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { ExceptionQueue, type Exception } from "@/components/ui/exception-queue"
-import { Kpi, KpiStrip } from "@/components/ui/kpi"
-import { KeyValue } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
-import { Toolbar } from "@/components/ui/segmented"
-import { count, day, money } from "@/lib/format"
+import { count, money } from "@/lib/format"
 import {
   acquisitionGap,
-  balanceMatrix,
   financeKeys,
   listAssets,
   listBankStatements,
   listBills,
   listPeriods,
-  statement,
   trialBalance,
   unbilledReceipts,
 } from "@/lib/queries/finance"
-import { queryState } from "@/lib/query-state"
 import { usePostingReadiness } from "@/screens/finance/badges"
-import { asPresented, monthLabel } from "@/screens/finance/chart"
-import { useWindow } from "@/screens/finance/hooks"
-import { RankedBars, WindowControl } from "@/screens/finance/parts"
+import { monthLabel } from "@/screens/finance/chart"
+import {
+  ChartCard,
+  ChartState,
+  LinkCards,
+  NumberCards,
+  ProfitAndLossChart,
+  WorkspaceHeading,
+  useLastMonths,
+  useMonthlyPnl,
+  useNumberCards,
+  type LinkCardSpec,
+} from "@/screens/finance/workspace"
 
-/// What finance has to deal with, led by what is stopping it.
+/// Finance's Home: ERPNext's Accounting workspace (Invoicing on version 16,
+/// `accounts/workspace/invoicing`), in its order — the Profit and Loss chart
+/// across the top, the number cards, then "Reports & Masters", cards of links
+/// to the masters and tools.
 ///
-/// DESIGN.md is blunt that an overview opens with a queue of problems carrying
-/// a severity, an amount and one action — not with vanity tiles. A board of
-/// green numbers tells somebody their day is fine; this tells them what their
-/// day is. The strip underneath carries the four figures that are worth
-/// knowing whether or not anything is wrong.
+/// Above them, only when there is something, what is stopping the books.
+/// ERPNext puts its onboarding there; ours is the list of gaps that refuse a
+/// posting, and a stoppage nobody sees until the till refuses a sale is the
+/// one thing this page exists to prevent.
 ///
-/// Every read here is the same key the screen it links to uses, so opening this
-/// page warms those screens and closing it costs nothing.
+/// Every read is under the key the screen it links to uses, so opening Home
+/// warms those screens.
 export function FinanceOverview() {
   const navigate = useNavigate()
-  const range = useWindow()
+  const months = useLastMonths(12)
+  const pnl = useMonthlyPnl(months)
+  const cards = useNumberCards()
 
   const periods = useQuery({
     queryKey: financeKeys.periods(),
@@ -81,25 +88,6 @@ export function FinanceOverview() {
     queryFn: ({ signal }) => listBankStatements(signal),
     select: (page) => page.rows,
   })
-  const cash = useQuery({
-    queryKey: financeKeys.balances("10110", null),
-    queryFn: ({ signal }) => balanceMatrix("10110", undefined, signal),
-  })
-
-  /// Where the money went, for the window in the toolbar.
-  ///
-  /// The profit and loss under the exact key the Reports screen owns, so
-  /// opening this page warms that one and arriving there finds the answer
-  /// already in hand — the same bargain every other read on this board makes.
-  /// It is the ninth read and the only one that is not already on some
-  /// screen’s critical path, which is why it is a chart under the queue and
-  /// not a tile above it: nothing on this page waits for it.
-  const result = useQuery({
-    queryKey: financeKeys.statement("PROFIT_LOSS", range.from, range.to, null),
-    queryFn: ({ signal }) =>
-      statement("PROFIT_LOSS", { from: range.from, to: range.to }, signal),
-  })
-
   /// Assets the books never bought.
   ///
   /// `fixed_asset` has no acquisition posting rule and never will — an asset is
@@ -108,63 +96,13 @@ export function FinanceOverview() {
   /// ever put in. It is the one exception on this board that no other screen
   /// can derive, which is why it is worth a tenth read.
   ///
-  /// Outside the `board` aggregate below, and `retry: false`: a node that does
-  /// not serve this read yet answers 404, and a whole overview that refused to
-  /// draw because one exception report is missing would be a worse failure than
-  /// the gap it is reporting. An absent answer simply adds no row.
+  /// `retry: false`: a node that does not serve this read yet answers 404, and
+  /// an absent answer simply adds no row.
   const unbacked = useQuery({
     queryKey: financeKeys.acquisitionGap(),
     queryFn: ({ signal }) => acquisitionGap(signal),
     retry: false,
   })
-
-  /// Eight reads, one loading sentence and one error sentence.
-  ///
-  /// `queryState` takes the shape rather than a Query, which is what lets a
-  /// board built out of several reads still use the app's single set of
-  /// states. Gating each tile on its own read would put eight spinners on one
-  /// page; showing the board while half of it is missing would report "nothing
-  /// overdue" about a list that had not arrived.
-  const board = {
-    isPending:
-      periods.isPending ||
-      readiness.isPending ||
-      bills.isPending ||
-      balance.isPending ||
-      unbilled.isPending ||
-      unassessed.isPending ||
-      statements.isPending ||
-      cash.isPending,
-    isError:
-      periods.isError ||
-      readiness.isError ||
-      bills.isError ||
-      balance.isError ||
-      unbilled.isError ||
-      unassessed.isError ||
-      statements.isError ||
-      cash.isError,
-    error:
-      periods.error ??
-      readiness.error ??
-      bills.error ??
-      balance.error ??
-      unbilled.error ??
-      unassessed.error ??
-      statements.error ??
-      cash.error,
-    data: true as const,
-    refetch: () => {
-      void periods.refetch()
-      void readiness.refetch()
-      void bills.refetch()
-      void balance.refetch()
-      void unbilled.refetch()
-      void unassessed.refetch()
-      void statements.refetch()
-      void cash.refetch()
-    },
-  }
 
   const now = new Date()
   const thisYear = now.getFullYear()
@@ -355,159 +293,109 @@ export function FinanceOverview() {
     thisMonth,
   ])
 
-  const overdue = (bills.data ?? []).filter(
-    (bill) => bill.status.toUpperCase() !== "POSTED" && bill.days_overdue > 0
-  )
-  const exposure = (unbilled.data ?? []).reduce(
-    (sum, row) => sum + row.value_at_order_price_minor,
-    0
-  )
-
-  /// The cost classes of the profit and loss, in the client’s own words.
-  ///
-  /// Classes 5 through 8 and never class 4: income is not an expense, and a
-  /// mix that put the two on one track would be answering "how big is the
-  /// business" rather than "where did the money go". `asPresented` is what
-  /// turns a ledger figure into the one a report prints — the cost classes are
-  /// debit-natured, so it is the identity here, and calling it anyway is what
-  /// stops this chart being the one place in the module that knows better.
-  const expenses = (result.data?.sections ?? [])
-    .filter((section) => section.root_class >= "5")
-    // A class that spent nothing is not part of a mix, and an empty track
-    // beside a full one says "this family is worthless" rather than "nothing
-    // was booked here this month". The statement itself is where a reader goes
-    // to see that a class did not move — it says so in words, per class.
-    .filter((section) => section.total_minor !== 0)
-    .map((section) => ({
-      key: section.root_class,
-      label: section.title,
-      // The client's class names run to "BEBAN USAHA LAINNYA", which the label
-      // column was cutting to "BEBAN USAHA LAIN…". The column is wider now and
-      // this is what covers the ones it still cannot hold.
-      title: section.title,
-      value: asPresented(section.total_minor, section.root_class),
-    }))
-
-  const spend = expenses.reduce((sum, section) => sum + section.value, 0)
-
   return (
     <PageContent>
-      <PageHeader
-        crumb="Finance"
-        title="Overview"
-        sub="What is stopping the books, and what they are holding."
-      />
+      <PageHeader title="Finance" />
 
-      <Toolbar>
-        <WindowControl range={range} />
-        <Toolbar.Spacer />
-        {/* The window belongs to the expense chart at the bottom and to
-            nothing else on this page — the queue and the strip are about
-            today, and a control that silently rewrote them would be worse
-            than one that says what it moves. */}
-        <span className="text-[0.875rem] text-mute">
-          {range.chip} · the window the expense mix is read over
-        </span>
-      </Toolbar>
+      {exceptions.length > 0 && <ExceptionQueue exceptions={exceptions} />}
 
-      {queryState(board, {
-        loading: "Reading the books…",
-        render: () => (
-          <>
-            <ExceptionQueue
-              exceptions={exceptions}
-              empty="Nothing is blocking a posting: the books balance, every meaning has an account, the month is open and no bill is past due."
-            />
+      <ChartCard title="Profit and Loss" meta="Last 12 months · Monthly">
+        <ChartState pending={pnl.pending} failed={pnl.failed}>
+          <ProfitAndLossChart rows={pnl.rows} />
+        </ChartState>
+      </ChartCard>
 
-            <KpiStrip className="md:grid-cols-2 xl:grid-cols-4">
-              <Kpi
-                label="Cash & equivalents"
-                value={money(cash.data?.grand_total_minor ?? 0)}
-                delta={cash.data ? `as at ${day(cash.data.as_of)}` : undefined}
-              />
-              <Kpi
-                label="Bills past due"
-                value={money(
-                  overdue.reduce((sum, bill) => sum + bill.total_minor, 0)
-                )}
-                delta={`${count(overdue.length)} invoices`}
-                tone={overdue.length > 0 ? "down" : "flat"}
-              />
-              <Kpi
-                label="Unbilled deliveries"
-                value={money(exposure)}
-                delta="not in the books"
-                tone={exposure > 0 ? "down" : "flat"}
-              />
-              <Kpi
-                label="Accounts posted to"
-                value={count(balance.data?.rows.length ?? 0)}
-                delta={balance.data?.balanced ? "balanced" : "out of balance"}
-                tone={balance.data?.balanced ? "up" : "down"}
-              />
-            </KpiStrip>
+      <NumberCards cards={cards} />
 
-            {/* Below the queue, never above it. A board opens with what is
-                stopping somebody, and a chart of ordinary spending above that
-                is the vanity tile DESIGN.md is blunt about. */}
-            <Card className="mb-3">
-              <CardHeader>
-                <CardTitle>Expense mix</CardTitle>
-                <span className="text-[0.875rem] text-mute">
-                  {range.chip}
-                  {result.data && (
-                    <>
-                      {" · "}
-                      <span className="font-medium text-ink tabular-nums">
-                        {money(spend)}
-                      </span>
-                    </>
-                  )}
-                </span>
-              </CardHeader>
-              <div className="px-4 pb-3.5">
-                {result.isPending ? (
-                  <p className="text-[0.875rem] text-mute">
-                    Reading the profit and loss…
-                  </p>
-                ) : result.isError ? (
-                  <p className="text-[0.875rem] text-mute">
-                    The profit and loss could not be read for this window.
-                  </p>
-                ) : (
-                  <RankedBars
-                    rows={expenses}
-                    empty="Nothing was spent in this window, in any class."
-                  />
-                )}
-              </div>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Where the books stand</CardTitle>
-              </CardHeader>
-              <div className="px-4 pb-4">
-                <KeyValue term="Total debits">
-                  {money(balance.data?.total_debit_minor)}
-                </KeyValue>
-                <KeyValue term="Total credits">
-                  {money(balance.data?.total_credit_minor)}
-                </KeyValue>
-                <KeyValue term="Months opened">
-                  {count(periods.data?.length ?? 0)}
-                </KeyValue>
-                <KeyValue term="Bank statements imported">
-                  {count(statements.data?.length ?? 0)}
-                </KeyValue>
-                <KeyValue term="Locations the books are kept for">
-                  {count(readiness.data?.locations.length ?? 0)}
-                </KeyValue>
-              </div>
-            </Card>
-          </>
-        ),
-      })}
+      <WorkspaceHeading>Reports &amp; Masters</WorkspaceHeading>
+      <LinkCards cards={REPORTS_AND_MASTERS} />
     </PageContent>
   )
 }
+
+/// ERPNext's link cards, one per group of the Finance menu, in the menu's
+/// order and with its rows — so Home is the menu laid out flat, and a link
+/// here and a row there never disagree.
+const REPORTS_AND_MASTERS: readonly LinkCardSpec[] = [
+  {
+    title: "Payables",
+    links: [
+      { label: "Purchase Invoice", to: "/finance/payables/bills" },
+      { label: "Accounts Payable", to: "/finance/payables/aging" },
+      {
+        label: "Accounts Payable Summary",
+        to: "/finance/reports/accounts-payable-summary",
+      },
+    ],
+  },
+  {
+    title: "Payments",
+    links: [
+      { label: "Payment Entry", to: "/finance/payables/payments" },
+      { label: "Journal Entry", to: "/finance/accounting/journal-entries" },
+      { label: "BKK", to: "/finance/cash-bank/bkk" },
+      { label: "BKM", to: "/finance/cash-bank/bkm" },
+      {
+        label: "Journal Entry Template",
+        to: "/finance/setup/journal-templates",
+      },
+      { label: "Mode of Payment", to: "/finance/setup/payment-methods" },
+    ],
+  },
+  {
+    title: "Banking",
+    links: [
+      { label: "Bank Account", to: "/finance/cash-bank/bank-accounts" },
+      { label: "Giro Board", to: "/finance/cash-bank/giro" },
+      { label: "Bank Clearance", to: "/finance/cash-bank/bank-clearance" },
+      {
+        label: "Bank Transactions",
+        to: "/finance/cash-bank/bank-transactions",
+      },
+      {
+        label: "Bank Reconciliation",
+        to: "/finance/cash-bank/bank-reconciliation",
+      },
+    ],
+  },
+  {
+    title: "Financial Reports",
+    links: [
+      { label: "General Ledger", to: "/finance/accounting/general-ledger" },
+      { label: "Trial Balance", to: "/finance/accounting/trial-balance" },
+      {
+        label: "Profit and Loss Statement",
+        to: "/finance/reports/profit-and-loss",
+      },
+      { label: "Balance Sheet", to: "/finance/reports/balance-sheet" },
+      { label: "Cash Flow", to: "/finance/reports/cash-flow" },
+    ],
+  },
+  {
+    title: "Assets",
+    links: [
+      { label: "Asset", to: "/finance/assets/capitalization" },
+      { label: "Asset Category", to: "/finance/setup/asset-classes" },
+    ],
+  },
+  {
+    title: "Tax Masters",
+    links: [
+      {
+        label: "Tax Withholding Category",
+        to: "/finance/tax-setup/withholding",
+      },
+    ],
+  },
+  {
+    title: "Accounting Masters",
+    links: [
+      {
+        label: "Chart of Accounts",
+        to: "/finance/accounting/chart-of-accounts",
+      },
+      { label: "Accounts Settings", to: "/finance/settings/accounts" },
+      { label: "Accounting Period", to: "/finance/setup/periods" },
+    ],
+  },
+]

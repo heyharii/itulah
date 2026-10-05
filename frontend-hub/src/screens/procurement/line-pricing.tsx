@@ -24,24 +24,34 @@ export function PricingFields({
   pricing,
   onChange,
   required,
+  sellingProblem,
+  unit,
 }: {
   pricing: Pricing
   onChange: (next: Pricing) => void
+  /// What the purchase price is per, when it is not one piece — "lusin", and
+  /// the pieces in one. The base price stays per piece.
+  unit?: { readonly label: string; readonly factor: number }
   /// A star beside the purchase price, where the form requires it.
   required?: boolean
+  /// Why what it will sell for cannot stand — at a loss or at cost — said
+  /// under the base price. See `sellingProblem` in the model.
+  sellingProblem?: string | null
 }) {
   const set = (change: Partial<Pricing>) =>
-    onChange(syncPricing(pricing, change))
+    onChange(syncPricing(pricing, change, unit?.factor ?? 1))
   return (
     <div className="grid gap-4 md:grid-cols-3">
-      <Field label="Purchase price" required={required} aside="per pc">
+      <Field
+        label="Purchase price"
+        required={required}
+        aside={`per ${unit?.label ?? "pc"}`}
+      >
         <Money
           label="Purchase price"
           prefix="Rp"
           value={pricing.purchase}
           onChange={(purchase) => set({ purchase })}
-          placeholder="31.000"
-          className="pl-10"
         />
       </Field>
       <Field label="Markup">
@@ -50,7 +60,6 @@ export function PricingFields({
             aria-label="Markup"
             inputMode="decimal"
             value={pricing.markup}
-            placeholder="0"
             className="pr-8 text-right tabular-nums"
             onChange={(event) => set({ markup: event.target.value })}
           />
@@ -59,14 +68,16 @@ export function PricingFields({
           </span>
         </span>
       </Field>
-      <Field label="Base price" aside="selling, per pc">
+      <Field
+        label="Base price"
+        aside="selling, per pc"
+        problem={sellingProblem ?? null}
+      >
         <Money
           label="Base price"
           prefix="Rp"
           value={pricing.base}
           onChange={(base) => set({ base })}
-          placeholder="49.000"
-          className="pl-10"
         />
       </Field>
     </div>
@@ -85,12 +96,19 @@ export function VariantGrid({
   variants,
   onChange,
   colourLabel,
+  sizeLabel,
   basePrice,
+  fallbackPrice,
 }: {
   variants: readonly VariantDraft[]
   onChange: (next: VariantDraft[]) => void
   colourLabel: (code: string) => string
+  /// A size code as it is said ("M" for "03"); the code itself when absent.
+  sizeLabel?: (code: string) => string
   basePrice: string
+  /// What a SKU is worth while it has no price of its own and the base price
+  /// is empty — the purchase price.
+  fallbackPrice?: string
 }) {
   const patch = (index: number, change: Partial<VariantDraft>) =>
     onChange(
@@ -99,7 +117,7 @@ export function VariantGrid({
   const hasColour = variants.some((one) => one.colour !== null)
   const hasSize = variants.some((one) => one.size !== null)
   const pieces = variantPieces(variants)
-  const base = digits(basePrice)
+  const base = digits(basePrice) ?? digits(fallbackPrice ?? "")
   const value = variants.reduce((sum, one) => {
     const quantity = digits(one.quantity) ?? 0
     const price = digits(one.price) ?? base ?? 0
@@ -120,8 +138,8 @@ export function VariantGrid({
             <tr>
               {hasColour && <th className={GRID_HEAD}>Colour</th>}
               {hasSize && <th className={GRID_HEAD}>Size</th>}
-              <th className={cn(GRID_HEAD, "text-right")}>Qty</th>
-              <th className={cn(GRID_HEAD, "text-right")}>Price / pc</th>
+              <th className={cn(GRID_HEAD, "text-right")}>Quantity</th>
+              <th className={cn(GRID_HEAD, "text-right")}>Price / Pc</th>
             </tr>
           </thead>
           <tbody>
@@ -137,7 +155,9 @@ export function VariantGrid({
                 )}
                 {hasSize && (
                   <td className="px-3 py-1.5 font-mono text-[0.875rem] text-ink">
-                    {one.size ?? "—"}
+                    {one.size === null
+                      ? "—"
+                      : (sizeLabel?.(one.size) ?? one.size)}
                   </td>
                 )}
                 <td className="px-1.5 py-1.5">
@@ -146,7 +166,6 @@ export function VariantGrid({
                     inputMode="numeric"
                     min={0}
                     value={one.quantity}
-                    placeholder="0"
                     onChange={(event) =>
                       patch(index, { quantity: event.target.value })
                     }
@@ -159,7 +178,6 @@ export function VariantGrid({
                     label={`Price of ${[one.colour, one.size].filter(Boolean).join(" ")}`}
                     value={one.price}
                     onChange={(price) => patch(index, { price })}
-                    placeholder={base === null ? "Base price" : money(base)}
                     className={TYPED}
                   />
                 </td>

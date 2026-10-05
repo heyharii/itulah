@@ -3,23 +3,23 @@
 /**
  * A destination as a screen reads it. The number is not here, and cannot be.
  */
-export type PaymentDestinationRow = { destination_id: string,
+export type PaymentDestinationRow = { destination_id: string, 
 /**
  * `SUPPLIER`, `EMPLOYEE` or `OTHER`.
  */
-party_type: string, party_id: string, party_name: string, bank_name: string, bank_code: string | null,
+party_type: string, party_id: string, party_name: string, bank_name: string, bank_code: string | null, 
 /**
  * `••••••7890`. The only form of the number that leaves this process.
  */
-account_number_mask: string, account_holder: string,
+account_number_mask: string, account_holder: string, 
 /**
  * `UNVERIFIED`, `VERIFIED` or `REJECTED`.
  */
-verification_status: string, verified_by: string | null, verified_at: string | null, verification_note: string | null, active: boolean, deactivated_reason: string | null,
+verification_status: string, verified_by: string | null, verified_at: string | null, verification_note: string | null, active: boolean, deactivated_reason: string | null, 
 /**
  * `SUPPLIER_MASTER`, `HR` or `FINANCE`.
  */
-owner_domain: string,
+owner_domain: string, 
 /**
  * Whether a Finance user may edit this one. Derived, so a screen does not
  * have to know the ownership rule to grey out a button.

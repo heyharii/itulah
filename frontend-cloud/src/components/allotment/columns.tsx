@@ -116,7 +116,7 @@ export const allotmentColumns: ColumnDef<DataTableFeatures, AllotmentRow>[] = [
     cell: ({ row }) => (
       <div className="flex flex-col gap-0.5">
         <AllotmentStatusDot status={row.original.status} />
-        {/* A cancellation the warehouse has not answered is not a cancelled
+        {/* A cancellation the Gudang has not answered is not a cancelled
             Allotment, and the two must not look alike. */}
         {row.original.edge_cancellation_status === "PENDING" && (
           <span className="text-[10.5px] text-amber-600">cancellation pending</span>

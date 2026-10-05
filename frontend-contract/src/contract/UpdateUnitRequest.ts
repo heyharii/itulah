@@ -11,4 +11,13 @@ export type UpdateUnitRequest = { label?: string | null,
  * Only `true` is an act: the base moves to this unit. Unmarking the base
  * without naming another would leave stock with no unit, and is refused.
  */
-is_base?: boolean | null, active?: boolean | null, };
+is_base?: boolean | null, active?: boolean | null, 
+/**
+ * Present replaces the unit's aliases; an empty list removes them.
+ */
+aliases?: Array<string> | null, 
+/**
+ * Refused while any conversion joins the unit: those were written for
+ * the kind it was.
+ */
+category?: string | null, whole_number?: boolean | null, };

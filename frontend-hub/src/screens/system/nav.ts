@@ -1,10 +1,11 @@
 import {
   Activity,
-  Building2,
   Printer,
+  RefreshCw,
   ScrollText,
   Server,
   Settings2,
+  UserCog,
   UserRound,
 } from "lucide-react"
 
@@ -56,13 +57,16 @@ export const systemNav: AppModule = {
           // Everyone who can sign in at the centre, their job role, and the
           // role list itself as a tab. See `screens/system/users.tsx`.
           path: "/system/users",
-          label: "Users & roles",
+          label: "Users",
           icon: UserRound,
           moved: ["/system/access", "/system/account"],
         },
-        // The organisation: head office and the stores, their premises and
-        // who is in charge of each (0600-0602).
-        { path: "/system/units", label: "Units", icon: Building2 },
+        // The organisation — head office and the stores, their premises and
+        // who is in charge of each (0600-0602) — left on 2026-10-04 for the
+        // Master menu, where a register of the company belongs; the screen
+        // answers at `/master/organisation`, the old path redirects (see
+        // `moved` on the item there). Its console half stays: whether a
+        // store's server is up is Store servers, beside it.
         {
           // The register, whether each is up, its incidents and its sync
           // lane — one page, four tabs. See `screens/system/servers.tsx`.
@@ -94,6 +98,10 @@ export const systemNav: AppModule = {
           icon: Activity,
         },
         { path: "/system/activity", label: "Activity", icon: ScrollText },
+        /// The Gudang server's own sync and sign-in. The screens live in
+        /// `screens/operations/node/` and keep their old paths.
+        { path: "/operations/node", label: "Sync", icon: RefreshCw },
+        { path: "/operations/node/account", label: "Account", icon: UserCog },
       ],
     },
   ],

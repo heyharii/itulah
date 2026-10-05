@@ -40,8 +40,8 @@ import type {
   PeriodView,
 } from "@itulah/contract"
 
-/// Payroll, for a shop — which is closing the month's attendance, and nothing
-/// else. The prototype's store Payroll (`pageClose`).
+/// Period close, for a shop — signing off the month's attendance, and nothing
+/// else. Payroll runs are built at head office from the closed period.
 ///
 /// "Store mengusulkan komponen dan menutup data waktu. HR HO menyusun
 /// payroll." (`menu-final.md`): a shop never sees a run, a slip or a salary
@@ -59,7 +59,6 @@ export function HrPeriod() {
   const [closing, setClosing] = useState(false)
   return (
     <HrWorkspace
-      sub="Close the month's attendance for payroll. Clear what is holding it, then close — every figure below is worked out by the system, not typed."
       actions={
         <Button variant="primary" onClick={() => setClosing(true)}>
           <Lock />
@@ -111,12 +110,12 @@ function Period({
 
   const team = useTeam(scope)
   const month = useQuery({
-    queryKey: hrKeys.period(scope.id, period),
-    queryFn: ({ signal }) => periodAt(scope.id, period, signal),
+    queryKey: hrKeys.period(scope.unit_id, period),
+    queryFn: ({ signal }) => periodAt(scope.unit_id, period, signal),
   })
   const punches = useQuery({
-    queryKey: hrKeys.punchReadiness(scope.id, period),
-    queryFn: ({ signal }) => punchReadinessAt(scope.id, period, signal),
+    queryKey: hrKeys.punchReadiness(scope.unit_id, period),
+    queryFn: ({ signal }) => punchReadinessAt(scope.unit_id, period, signal),
   })
 
   return (
@@ -126,7 +125,7 @@ function Period({
       </div>
 
       {centreState(month, {
-        loading: "Asking head office about this month…",
+        loading: "Loading…",
         what: `the ${readMonth(period)} period`,
         render: (view) => (
           <>
@@ -138,12 +137,6 @@ function Period({
               team={team.data}
               connected={punches.data?.punch_source_connected ?? null}
             />
-            <Banner tone="info" className="mt-4">
-              Days present decide meal and transport allowances; paid days
-              decide base pay; agreed overtime hours become the overtime
-              component. The rates are head office's, and so is the arithmetic —
-              nobody at the shop types a payroll figure.
-            </Banner>
 
             {closing && (
               <CloseSheet
@@ -258,12 +251,11 @@ function Blockers({ readiness }: { readiness: CloseReadinessView }) {
         </Banner>
       ) : readiness.can_close ? (
         <Banner tone="ok">
-          Nothing is holding it. The month is ready to close.
+          Ready to close.
         </Banner>
       ) : (
         <Banner tone="warn">
-          Head office says this month cannot close yet, though it named nothing
-          this screen knows how to show.
+          Head office says it can't close yet.
         </Banner>
       )}
 
@@ -271,9 +263,7 @@ function Blockers({ readiness }: { readiness: CloseReadinessView }) {
           looked and found none. Said in those words. */}
       {!readiness.punches_assessed && (
         <Banner tone="warn">
-          No punch source has reported for this shop, so attendance itself was
-          not assessed: closing signs off the rota and the decisions, and says
-          nothing about who was actually here.
+          No check-in source reported. Attendance not assessed.
         </Banner>
       )}
       {readiness.employees_without_roster > 0 && (
@@ -420,10 +410,10 @@ function CloseSheet({
   const [reason, setReason] = useState("")
   const close = useMutation({
     mutationFn: () =>
-      closePeriod({ place: scope.id, period: view.period, reason }),
+      closePeriod({ place: scope.unit_id, period: view.period, reason }),
     onSuccess: () => {
       client.invalidateQueries({
-        queryKey: hrKeys.period(scope.id, view.period),
+        queryKey: hrKeys.period(scope.unit_id, view.period),
       })
       onClose()
     },
@@ -437,7 +427,7 @@ function CloseSheet({
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      crumb="Payroll"
+      crumb="Period close"
       title={`Close ${readMonth(view.period)}`}
       sub={scope.label}
       status={
@@ -447,8 +437,7 @@ function CloseSheet({
         closed ? undefined : (
           <div className="flex flex-col gap-3">
             <Field
-              label="Why"
-              hint="Head office refuses a close with no reason on it."
+              label="Reason"
             >
               <Input
                 value={reason}
@@ -469,9 +458,7 @@ function CloseSheet({
     >
       {closed ? (
         <Banner tone="ok">
-          This month is closed and locked, and head office can already see it.
-          Reopening is head office's, not this shop's — a correction after this
-          goes to head office as a correction to next month's payroll.
+          Closed and locked.
         </Banner>
       ) : (
         <>
@@ -494,15 +481,9 @@ function CloseSheet({
           </SheetSection>
           {!readiness.can_close && (
             <Banner tone="warn" className="mb-4">
-              Head office will refuse this close while anything above is still
-              waiting on a decision.
+              Decide everything above first.
             </Banner>
           )}
-          <p className="text-meta text-body">
-            Closing hands this month's time data to head office, who build
-            payroll from it. It is not a payment and not an approval of one, and
-            this shop cannot reopen it.
-          </p>
         </>
       )}
     </PeopleSheet>

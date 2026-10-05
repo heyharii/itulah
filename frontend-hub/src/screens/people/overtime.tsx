@@ -368,7 +368,6 @@ function OrderSheet({
             <Input
               value={reason}
               onChange={(event) => setReason(event.target.value)}
-              placeholder="stok sudah selesai"
             />
           </Field>
           <div>
@@ -530,7 +529,6 @@ function OrderOvertimeSheet({
             onChange={(event) =>
               setDraft({ ...draft, reason: event.target.value })
             }
-            placeholder="stok opname akhir bulan"
           />
         </Field>
       </div>

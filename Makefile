@@ -1,4 +1,10 @@
-DATABASE_URL ?= postgresql:///inventory_edge_dev
+# The default is the database `make db` starts: `docker compose up -d postgres`
+# creates `inventory` owned by `inventory` on localhost:5432 (docker-compose.yml).
+# The old default, `postgresql:///inventory_edge_dev`, was a unix-socket URL for
+# a database the compose stack never creates, so `make run-cloud` without an
+# override could not connect to anything. `cloud.env.example` points at the same
+# database.
+DATABASE_URL ?= postgresql://inventory:inventory@localhost:5432/inventory
 
 .PHONY: db run run-cloud run-dc run-store check test test-unit test-integration invariants rfid-demo contract contract-check front front-check
 
@@ -79,17 +85,22 @@ contract-check: contract
 # Build every surface.
 #
 # Separate builds rather than one, because these are different products: a till
-# on a touch screen at arm's length, a warehouse console, head office, a phone
-# in an apron pocket, and a phone in a shopper's hand. What they share is
-# `frontend-contract` — the wire types generated from Rust and the one browser
-# transport — not the interface.
+# on a touch screen at arm's length, head office, a phone in an apron pocket,
+# and a phone in a shopper's hand. What they share is `frontend-contract` — the
+# wire types generated from Rust and the one browser transport — not the
+# interface.
+#
+# `frontend-hub` is the console that replaces `frontend-cloud`, and both stay in
+# this list until the migration finishes (frontend-hub/README.md). `frontend-dc`
+# was deleted with the warehouse console it built (9d182dd, 2026-09-24), so it
+# must not come back here: `cd frontend-dc` fails and takes `make front` with it.
 #
 # Each is its own static site that rewrites /api/* to its own node (see
-# render.yaml), so a browser sees one origin and the SameSite=Strict session
+# deploy/frontend/), so a browser sees one origin and the SameSite=Strict session
 # cookie is actually sent. `frontend-customer` is deployed too, but as a
 # preview rather than a shopper-facing product until customer sign-in exists
 # (frontend-customer/README.md).
-FRONTENDS := frontend-cloud frontend-dc frontend-store-new frontend-employee frontend-customer
+FRONTENDS := frontend-cloud frontend-hub frontend-store-new frontend-employee frontend-customer
 
 front:
 	@for app in $(FRONTENDS); do \

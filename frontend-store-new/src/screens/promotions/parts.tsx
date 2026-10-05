@@ -174,8 +174,11 @@ export function Countdown({
   startsAt,
   endsAt,
   verbs = { start: "Starts", end: "Ends" },
+  urgentHours,
   className,
 }: {
+  /// How close to the end it turns red. Six hours unless said otherwise.
+  urgentHours?: number
   state: string
   startsAt: string | null
   endsAt: string | null
@@ -190,7 +193,7 @@ export function Countdown({
         "inline-flex min-w-0 items-center gap-1.5 tabular-nums",
         upcoming
           ? "text-info-fg"
-          : urgent(endsAt, now)
+          : urgent(endsAt, now, urgentHours)
             ? "font-medium text-bad-fg"
             : "text-text",
         className,
@@ -211,6 +214,44 @@ export function Countdown({
             : `${verbs.end} in ${away(endsAt, now)}`}
       </span>
     </span>
+  )
+}
+
+/// How much of a campaign's run is behind it, as a hairline under the poster.
+///
+/// Filled by the clock, so a campaign near its end reads as nearly full at a
+/// glance, and red inside two days — the same threshold the countdown beside
+/// it turns on. Nothing is drawn without both dates: a run with no end has no
+/// fraction to show.
+export function TimeBar({
+  state,
+  startsAt,
+  endsAt,
+}: {
+  state: string
+  startsAt: string | null
+  endsAt: string | null
+}) {
+  const now = useNow(endsAt !== null)
+  if (state === "UPCOMING" || startsAt === null || endsAt === null) return null
+  const from = new Date(startsAt).getTime()
+  const to = new Date(endsAt).getTime()
+  const done = Math.min(1, Math.max(0, (now - from) / (to - from)))
+  const hot = urgent(endsAt, now, 48)
+  return (
+    <div
+      role="progressbar"
+      aria-label="Time used"
+      aria-valuenow={Math.round(done * 100)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      className="h-[3px] w-full bg-soft-3"
+    >
+      <div
+        className={cn("h-full", hot ? "bg-bad-fg" : "bg-accent")}
+        style={{ width: `${done * 100}%` }}
+      />
+    </div>
   )
 }
 
@@ -284,94 +325,96 @@ export function Facts({ children }: { children: React.ReactNode }) {
 /// "unknown".
 export function OfferDetail({ offer }: { offer: StoreOffer }) {
   const codes = scopeCodes(offer.applies_to)
+  const hours = slot(offer.weekdays, offer.time_window)
+  const when =
+    offer.starts_at === null
+      ? offer.ends_at === null
+        ? "No end date"
+        : `Until ${moment(offer.ends_at)}`
+      : offer.ends_at === null
+        ? `From ${moment(offer.starts_at)}`
+        : `${moment(offer.starts_at)} – ${moment(offer.ends_at)}`
+
   return (
-    <Facts>
-      <Fact term="Benefit">{describeEffect(offer.effect)}</Fact>
-      <Fact term="Applies to">{describeScope(offer.applies_to)}</Fact>
-      <Fact term="Who">
-        {offer.members_only ? "Identified members only" : "Anyone"}
-      </Fact>
-
-      <Fact term="Starts">
-        {offer.starts_at === null
-          ? offer.state === "UPCOMING"
-            ? "When its campaign starts"
-            : "Already running"
-          : moment(offer.starts_at)}
-      </Fact>
-      <Fact term="Ends">
-        {offer.ends_at === null ? "No end date" : moment(offer.ends_at)}
-      </Fact>
-      <Fact term="Runs">
-        {slot(offer.weekdays, offer.time_window) ?? "Every day, all day"}
-      </Fact>
-
-      <Fact term="Code">
-        {offer.coupon_code === null ? (
-          "None — the till applies it by itself"
-        ) : (
-          <CopyCode code={offer.coupon_code} />
-        )}
-      </Fact>
-      {offer.uses_remaining !== null && (
-        <Fact term="Uses left">
-          <span className={cn(offer.uses_remaining === 0 && "text-bad-fg")}>
-            {count(offer.uses_remaining)}
-          </span>
-        </Fact>
-      )}
-      {offer.budget_remaining_minor !== null && (
-        <Fact term="Budget left">
-          <span
-            className={cn(offer.budget_remaining_minor <= 0 && "text-bad-fg")}
-          >
-            {money(offer.budget_remaining_minor)}
-          </span>
-        </Fact>
-      )}
-
-      {offer.campaign_name !== null && (
-        <Fact term="Campaign">
-          <AppLink
-            to="/promotions/campaigns"
-            className="text-accent underline-offset-2 hover:underline"
-          >
-            {offer.campaign_name}
-          </AppLink>
-        </Fact>
-      )}
-
+    <div className="flex max-w-[46em] flex-col gap-2 pt-1">
+      <h4 className="text-cell font-semibold text-ink">Terms and conditions</h4>
+      <Bullets
+        lines={[
+          `${describeEffect(offer.effect)} · ${describeScope(offer.applies_to)}`,
+          `Valid ${when}${hours !== null ? `, ${hours}` : ""}`,
+          offer.members_only ? "Identified members only" : "For everyone",
+          offer.coupon_code !== null && (
+            <span className="inline-flex flex-wrap items-center gap-x-2">
+              Use code <CopyCode code={offer.coupon_code} />
+            </span>
+          ),
+          ...sentences(offer.campaign_terms),
+          offer.uses_remaining !== null && (
+            <span className={cn(offer.uses_remaining === 0 && "text-bad-fg")}>
+              {count(offer.uses_remaining)} uses left
+            </span>
+          ),
+          offer.budget_remaining_minor !== null && (
+            <span
+              className={cn(offer.budget_remaining_minor <= 0 && "text-bad-fg")}
+            >
+              {money(offer.budget_remaining_minor)} budget left
+            </span>
+          ),
+          // Counted at head office and as fresh as the last sync: a brake, not
+          // a gate, so nobody promises the last use to a customer.
+          (offer.uses_remaining !== null ||
+            offer.budget_remaining_minor !== null) && (
+            <span className="text-body">
+              Limits are counted at head office and may be a little behind.
+            </span>
+          ),
+        ]}
+      />
       {codes.length > 1 && (
-        <Fact term={`What it covers (${count(codes.length)})`} wide>
+        <div className="mt-1 flex flex-col gap-1.5">
+          <span className="text-meta text-mute">
+            Covers {count(codes.length)}
+          </span>
           <CodeList codes={codes} />
-        </Fact>
+        </div>
       )}
-
-      {(offer.uses_remaining !== null ||
-        offer.budget_remaining_minor !== null) && (
-        // A cap is counted at head office and reaches this shop with the
-        // sync, so the figure here is as old as the last one — a brake, not
-        // a gate. Said, so nobody promises the last use to a customer.
-        <Fact term="About the limits" wide>
-          <span className="text-body">
-            Counted at head office and only as fresh as this shop's last sync.
-            The till stops the offer once it is told the limit is reached.
-          </span>
-        </Fact>
+      {offer.campaign_name !== null && (
+        <AppLink
+          to="/promotions/campaigns"
+          className="text-cell font-medium text-accent underline-offset-2 hover:underline"
+        >
+          Part of {offer.campaign_name}
+        </AppLink>
       )}
+    </div>
+  )
+}
 
-      {offer.campaign_terms !== null && offer.campaign_terms !== "" && (
-        <Fact term="Terms" wide>
-          <span className="whitespace-pre-line text-body">
-            {offer.campaign_terms}
-          </span>
-        </Fact>
-      )}
+/// The centre writes its small print as running sentences; one bullet each
+/// reads faster across a counter.
+export function sentences(text: string | null): string[] {
+  return (text ?? "")
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((line) => line.trim())
+    .filter((line) => line !== "")
+}
 
-      <Fact term="Rule" wide>
-        <span className="font-mono text-id text-mute">{offer.rule_id}</span>
-      </Fact>
-    </Facts>
+/// A bulleted list that skips what is not there: a `false` entry is a line
+/// that does not apply.
+export function Bullets({
+  lines,
+}: {
+  lines: readonly (React.ReactNode | false | null)[]
+}) {
+  return (
+    <ul className="flex list-disc flex-col gap-1.5 pl-5 text-cell text-ink marker:text-line-ico">
+      {lines
+        .filter((line) => line !== false && line !== null)
+        .map((line, index) => (
+          <li key={index}>{line}</li>
+        ))}
+    </ul>
   )
 }
 

@@ -206,7 +206,6 @@ export function SourceIdPicker({
       <Input
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        placeholder={sourceType === "PARTY" ? "SUPPLIER:SUP-0012" : ""}
         list={listId}
       />
       <datalist id={listId}>

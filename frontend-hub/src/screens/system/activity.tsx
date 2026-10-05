@@ -281,7 +281,6 @@ export function ActivityLog() {
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search"
           className="h-8 w-56"
         />
       </Toolbar>

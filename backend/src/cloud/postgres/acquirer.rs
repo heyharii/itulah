@@ -55,10 +55,11 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
-/// A sale's trading day, in SQL, from `edge_sale e`: the date the shop's own
-/// clock showed (`site.timezone`, 0603), not London's. Dating by UTC moves
-/// everything rung after the shop's UTC midnight into tomorrow.
-const SALE_BUSINESS_DATE: &str = "site_local_date(e.occurred_at, e.site_id)";
+/// A sale's trading day, in SQL, from `edge_sale e`: its shift's day (0714),
+/// which the centre stamps on arrival — the shop's own date for a sale rung
+/// with no shift. A sale at half past midnight on an evening shift is the
+/// evening's; dating by the clock would move it into tomorrow.
+const SALE_BUSINESS_DATE: &str = "e.business_date";
 
 // ---------------------------------------------------------------------------
 // The shop's evening
@@ -435,7 +436,7 @@ const RECON_FROM: &str = "
           JOIN site s ON s.id = e.site_id
          WHERE s.unit_id = r.unit_id
            AND st.method = r.tender_kind
-           AND site_local_date(e.occurred_at, e.site_id) = r.business_date
+           AND e.business_date = r.business_date
     ) t ON true
     LEFT JOIN LATERAL (
         SELECT SUM(l.amount_minor)::bigint AS batch_minor,
@@ -1293,6 +1294,27 @@ pub async fn acq_settlement_create(
         return Err(AppError::Validation(
             "a settlement pays something; gross is above zero".into(),
         ));
+    }
+    // A bank whose card and QRIS takings post straight to Cash in Bank (0722)
+    // is never owed anything by its EDC: the day already put the money in the
+    // bank, and a settlement would put it there twice. Its MDR shows on the
+    // bank reconciliation, or is booked on the day at the method's rate.
+    let direct: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM payment_method
+                         WHERE upper(bank_code) = $1 AND is_active
+                           AND settlement_mode = 'DIRECT_TO_BANK')
+            AND NOT EXISTS (SELECT 1 FROM payment_method
+                             WHERE upper(bank_code) = $1 AND is_active
+                               AND settlement_mode = 'VIA_RECEIVABLE')",
+    )
+    .bind(&acquirer)
+    .fetch_one(pool)
+    .await?;
+    if direct {
+        return Err(AppError::Conflict(format!(
+            "{acquirer} takings go straight to Cash in Bank, so there is no EDC settlement \
+             to record; any fee the bank kept shows on the bank reconciliation"
+        )));
     }
     if request.mdr_minor < 0 || request.mdr_minor > request.gross_minor {
         return Err(AppError::Validation(

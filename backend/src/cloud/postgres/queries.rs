@@ -519,7 +519,7 @@ pub async fn list_pools(
     Ok(json!({
         "as_of":moment,"read_only":moment<Utc::now()-chrono::Duration::seconds(2),
         "observed_window_hours":observed_hours,"lost_risk_window_days":lost_days,
-        "inventory_equation":"Stock = On Hand + Allotted + Missing",
+        "inventory_equation":crate::cloud::domain::INVENTORY_EQUATION,
         "outbound_rollup_equation":"Stage total = sum of destination Store leaf pools",
         "lost_risk_formula":"confirmed Lost from pool during window / (opening operational balance + inbound movements during window)",
         "items":serde_json::to_value(&items)?
@@ -666,7 +666,7 @@ pub async fn pools_page(
         read_only: moment < Utc::now() - chrono::Duration::seconds(2),
         observed_window_hours: observed_hours,
         lost_risk_window_days: lost_days,
-        inventory_equation: "Stock = On Hand + Allotted + Missing".into(),
+        inventory_equation: crate::cloud::domain::INVENTORY_EQUATION.into(),
         outbound_rollup_equation: "Stage total = sum of destination Store leaf pools".into(),
         lost_risk_formula: "confirmed Lost from pool during window / (opening operational balance + inbound movements during window)".into(),
         rows: out,
@@ -803,8 +803,8 @@ fn edge_pool_metadata(
             ("REJECT", "STORE_REJECT", "Store Return", 100, None)
         }
         StoreFloor { .. } => ("STORE_INVENTORY", "FLOOR", "Floor", 20, None),
-        StoreReject { .. } if at_a_shop => ("REJECT", "REJECT", "Reject", 30, None),
-        StoreReject { .. } => ("REJECT", "DC_REJECT", "Reject", 90, None),
+        Reject { .. } if at_a_shop => ("REJECT", "REJECT", "Reject", 30, None),
+        Reject { .. } => ("REJECT", "DC_REJECT", "Reject", 90, None),
     }
 }
 
@@ -2014,7 +2014,7 @@ pub async fn list_fleet_pools(
         "read_only": false,
         "observed_window_hours": observed_hours,
         "lost_risk_window_days": lost_days,
-        "inventory_equation": "Stock = On Hand + Allotted + Missing",
+        "inventory_equation": crate::cloud::domain::INVENTORY_EQUATION,
         "aggregation_policy": "Exact-site Edge fact positions shadow Cloud rows once that origin has applied a fact; an Edge origin that has never reported shadows nothing and its own base pools are excluded; rollups are excluded; snapshots are reconciliation checkpoints; matched Store receipts deduct capped DC In Transit overlap",
         "fleet_total": fleet_total,
         "fleet_total_status": if certified { "CERTIFIED" } else { "UNCERTIFIED" },
@@ -2165,10 +2165,18 @@ pub struct MissingRow {
     pub epc: Option<String>,
     pub barcode: Option<String>,
     pub sku_code: Option<String>,
+    /// The article's name, for a list read by people rather than by SKU.
+    pub article_name: Option<String>,
     pub quantity: i64,
     pub site_id: String,
     pub origin_pool: String,
     pub pool_label: String,
+    /// What put it here: the cause and document of the movement that first
+    /// carried it into Missing — a pick, a pack, a receipt, a count. The
+    /// screen's "From" column.
+    pub missing_cause: Option<String>,
+    pub missing_reference_type: Option<String>,
+    pub missing_reference_id: Option<String>,
     /// When it first went missing. `None` where no movement into the missing
     /// place can be found — an adjustment posted straight into the projection,
     /// which is a row worth seeing rather than hiding.
@@ -2225,8 +2233,10 @@ struct MissingCursor {
 /// `NULLS FIRST` put them — except that this one a `WHERE` can seek against.
 const MISSING_ROWS: &str = r#"
 SELECT pr.subject_id,ip.pool_id,pr.quantity,s.subject_type,s.epc,s.barcode,sk.sku_code,
-       op.site_id,op.label,
-       first_missing.occurred_at missing_since,last_obs.last_seen_at,
+       art.name article_name,op.site_id,op.label,
+       first_missing.occurred_at missing_since,first_missing.cause missing_cause,
+       first_missing.reference_type missing_reference_type,first_missing.reference_id missing_reference_id,
+       last_obs.last_seen_at,
        last_count.id latest_count_id,last_count.status latest_count_status,
        pr.subject_id::text||'@'||ip.pool_id row_id,
        COALESCE(first_missing.occurred_at,TIMESTAMPTZ '-infinity') since_key,
@@ -2235,7 +2245,8 @@ SELECT pr.subject_id,ip.pool_id,pr.quantity,s.subject_type,s.epc,s.barcode,sk.sk
        CASE WHEN last_count.id IS NULL THEN 'NEVER' ELSE 'COUNTED' END counted_state
 FROM inventory_projection pr JOIN inventory_place ip ON ip.id=pr.place_id AND ip.state='MISSING'
 JOIN operational_pool op ON op.id=ip.pool_id JOIN inventory_subject s ON s.id=pr.subject_id LEFT JOIN sku sk ON sk.id=s.sku_id
-LEFT JOIN LATERAL (SELECT occurred_at FROM movement WHERE subject_id=pr.subject_id AND to_place_id=pr.place_id ORDER BY occurred_at ASC LIMIT 1) first_missing ON TRUE
+LEFT JOIN article art ON art.id=sk.article_id
+LEFT JOIN LATERAL (SELECT occurred_at,cause,reference_type,reference_id FROM movement WHERE subject_id=pr.subject_id AND to_place_id=pr.place_id ORDER BY occurred_at ASC LIMIT 1) first_missing ON TRUE
 LEFT JOIN LATERAL (SELECT last_seen_at FROM observation_sighting WHERE subject_id=pr.subject_id ORDER BY last_seen_at DESC LIMIT 1) last_obs ON TRUE
 LEFT JOIN LATERAL (SELECT c.id,c.status FROM official_count c JOIN count_snapshot cs ON cs.count_id=c.id WHERE cs.subject_id=pr.subject_id ORDER BY c.created_at DESC LIMIT 1) last_count ON TRUE
 WHERE ($1::text IS NULL OR s.epc ILIKE $1 OR s.barcode ILIKE $1
@@ -2261,10 +2272,14 @@ fn missing_row_from(
         epc: row.try_get("epc")?,
         barcode: row.try_get("barcode")?,
         sku_code: row.try_get("sku_code")?,
+        article_name: row.try_get("article_name")?,
         quantity: row.try_get("quantity")?,
         site_id: row.try_get("site_id")?,
         origin_pool: row.try_get("pool_id")?,
         pool_label: row.try_get("label")?,
+        missing_cause: row.try_get("missing_cause")?,
+        missing_reference_type: row.try_get("missing_reference_type")?,
+        missing_reference_id: row.try_get("missing_reference_id")?,
         missing_since: since,
         age_hours: since.map(|at| (now - at).num_hours()),
         last_observation: row.try_get("last_seen_at")?,

@@ -19,8 +19,8 @@ import { money } from "@itulah/contract/money"
 /// `.tsx` that exports a helper beside its components loses fast refresh for
 /// the whole file, and four screens import from here.
 ///
-/// **One read feeds the whole module.** Promotions, Campaigns, Price drops and
-/// Vouchers are four ways of looking at the same `GET /store/offers` answer,
+/// **One read feeds the whole module.** Promotions, Campaigns, Price
+/// changes and Vouchers are four ways of looking at the same `GET /store/offers` answer,
 /// under the same query key — so moving between them never asks the node again,
 /// and the four can never disagree about what this shop is running.
 
@@ -134,11 +134,16 @@ export function away(iso: string, now: number): string {
   return `${days} days`
 }
 
-/// Under six hours, and it is a thing somebody should act on today.
-export function urgent(iso: string | null, now: number): boolean {
+/// Under six hours, and it is a thing somebody should act on today. A
+/// campaign poster asks sooner — two days — so `hours` is the caller's.
+export function urgent(
+  iso: string | null,
+  now: number,
+  hours = 6,
+): boolean {
   if (iso === null) return false
   const left = new Date(iso).getTime() - now
-  return left > 0 && left < 6 * 60 * 60_000
+  return left > 0 && left < hours * 60 * 60_000
 }
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const
@@ -242,8 +247,8 @@ export function describeScope(scope: Applicability | null): string {
   switch (scope.on) {
     case "SKU":
       return scope.sku_codes.length === 1
-        ? `Product ${scope.sku_codes[0]}`
-        : `${count(scope.sku_codes.length)} products`
+        ? `Article ${scope.sku_codes[0]}`
+        : `${count(scope.sku_codes.length)} articles`
     case "ARTICLE":
       return scope.article_codes.length === 1
         ? `Every size and colour of ${scope.article_codes[0]}`
@@ -281,7 +286,7 @@ export function scopeCodes(scope: Applicability | null): readonly string[] {
 export function dropReach(window: PriceDropWindow): string {
   const parts = [
     window.product_count > 0
-      ? `${count(window.product_count)} ${window.product_count === 1 ? "product" : "products"}`
+      ? `${count(window.product_count)} ${window.product_count === 1 ? "article" : "articles"}`
       : null,
     window.range_count > 0
       ? `${count(window.range_count)} whole ${window.range_count === 1 ? "style" : "styles"}`

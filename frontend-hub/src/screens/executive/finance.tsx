@@ -158,9 +158,9 @@ export function ExecutiveFinance() {
                 <MiniTable
                   head={[
                     "Komponen",
-                    "Periode ini",
-                    "% penjualan",
-                    "Periode lalu",
+                    "Periode Ini",
+                    "% Penjualan",
+                    "Periode Lalu",
                   ]}
                   style={{ minWidth: "32rem" }}
                 >

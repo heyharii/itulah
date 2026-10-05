@@ -13,8 +13,7 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Day } from "@/components/ui/day"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardTitle } from "@/components/ui/card"
-import { BarSeries, type ChartSeries } from "@/components/ui/chart"
+import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Money, Textarea } from "@/components/ui/field"
 import { Switch } from "@/components/ui/form"
@@ -27,7 +26,7 @@ import {
   TotalsLadder,
 } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
@@ -48,14 +47,12 @@ import {
   holdBill,
   listBills,
   listPayments,
-  payablesAging,
   postBill,
   recordBill,
   releaseBill,
   returnBill,
   unbilledReceipts,
 } from "@/lib/queries/finance"
-import { useUnits } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
 import { useSheet, type SheetKey } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -78,7 +75,6 @@ import {
 } from "@/screens/finance/parts"
 import { ApiError } from "@itulah/contract/client"
 import type {
-  PayablesAgingRow,
   RecordBillLine,
   SupplierBill,
   SupplierBillLine,
@@ -106,75 +102,6 @@ import type {
 /// every read — a stored age would be wrong by morning.
 function isLate(bill: SupplierBill): boolean {
   return bill.status.toUpperCase() !== "POSTED" && bill.days_overdue > 0
-}
-
-/// How old the money is, in the buckets an accountant already thinks in.
-///
-/// # Why this is the server's report and no longer the browser's
-///
-/// The five bars used to be `listBills({})` bucketed here on `days_overdue`,
-/// and they were wrong in two ways that looked right. They aged the *whole
-/// invoice* rather than what is still outstanding on it, so a bill nine
-/// tenths paid stood as tall as one nobody had touched. And they could only
-/// ever report today: an ageing asked "as at the end of last month" has to
-/// un-count every payment made since, which needs a query over both sides and
-/// cannot be done from a list of bills alone.
-///
-/// `GET /payables-aging` answers both, and it answers them the same way the
-/// books do — the total agrees with `trade_payable` because both move only
-/// when a bill or a payment posts.
-///
-/// # Why it lives here and not in Reports
-///
-/// It is the list somebody works *from* when deciding who to pay this week,
-/// not a statement of the books. It is filed with the workflow that produces
-/// it, one screen away from the payment it leads to.
-const AGE_SERIES: readonly ChartSeries[] = [
-  { key: "total", label: "Outstanding", tone: "accent" },
-]
-
-/// The five buckets, in the order they are read, and where each one lives on
-/// the wire. Declared once so the bars, the table's columns and its cells
-/// cannot drift apart.
-const AGE_BUCKETS: readonly {
-  readonly key: keyof AgingBucketFigures
-  readonly label: string
-  readonly title: string
-}[] = [
-  { key: "not_due_minor", label: "Not due", title: "Not due yet" },
-  { key: "days_1_30_minor", label: "1–30", title: "1–30 days late" },
-  { key: "days_31_60_minor", label: "31–60", title: "31–60 days late" },
-  { key: "days_61_90_minor", label: "61–90", title: "61–90 days late" },
-  { key: "days_over_90_minor", label: "90+", title: "More than 90 days late" },
-]
-
-/// The bucket fields alone, so the table above can be indexed with a key the
-/// compiler has checked rather than with a string.
-type AgingBucketFigures = Omit<PayablesAgingRow["buckets"], "total_minor">
-
-/// How many suppliers the ageing card shows before it asks.
-///
-/// Five, because the point of the card is "who to pay this week" and nobody
-/// pays the fourteenth-heaviest supplier this week. The rest are one press
-/// away.
-const SUPPLIERS_SHOWN = 5
-
-/// How late a supplier's oldest open bill is.
-///
-/// Negative until the due date passes, exactly as `days_overdue` is on a bill
-/// — so "in 11 days" and "29 days late" are two readings of one number, and
-/// neither is drawn as the other.
-function OldestDays({ days }: { days: number }) {
-  if (days <= 0) {
-    return (
-      <span className="text-mute tabular-nums">
-        {days === 0 ? "due today" : `in ${-days}d`}
-      </span>
-    )
-  }
-  return (
-    <span className="font-medium text-bad-fg tabular-nums">{count(days)}d</span>
-  )
 }
 
 const billColumns: ColumnDef<TableSetup, SupplierBill>[] = [
@@ -221,7 +148,7 @@ const billColumns: ColumnDef<TableSetup, SupplierBill>[] = [
   },
   {
     accessorKey: "site_id",
-    header: "Location",
+    header: "Site",
     size: 130,
     // The client's own name for it. The id stays in `title`, because that is
     // what the account codes carry and what a support call will be about.
@@ -235,10 +162,17 @@ const billColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     enableSorting: false,
     meta: { filter: { kind: "option", format: label } },
     cell: ({ row }) => (
-      <Pill tone={toneFor(row.original.status)}>
+      <Status tone={toneFor(row.original.status)}>
         {label(row.original.status)}
-      </Pill>
+      </Status>
     ),
+  },
+  {
+    accessorKey: "invoice_date",
+    header: "Posting Date",
+    size: 120,
+    meta: { filter: { kind: "date" } },
+    cell: ({ row }) => day(row.original.invoice_date),
   },
   {
     accessorKey: "due_date",
@@ -393,7 +327,7 @@ function LineCount({ id }: { id: string }) {
 /// The two marks a bill can wear in a list, and nothing when it wears neither.
 ///
 /// **GA** is the handover: the draft was filed by Operations and is Finance's
-/// to inspect, not yet to pay. **Ditahan** is the hold — the bill is real but
+/// to inspect, not yet to pay. **On hold** is the hold — the bill is real but
 /// nothing may pay it. Both are facts about the row, so they sit under the
 /// invoice number rather than in a column a reader has to sort to find.
 function BillMarks({ bill }: { bill: SupplierBill }) {
@@ -402,7 +336,7 @@ function BillMarks({ bill }: { bill: SupplierBill }) {
   return (
     <span className="flex flex-wrap gap-1">
       {fromGa && <Pill tone="info">GA</Pill>}
-      {bill.on_hold && <Pill tone="warn">Ditahan</Pill>}
+      {bill.on_hold && <Pill tone="warn">On hold</Pill>}
     </span>
   )
 }
@@ -549,7 +483,7 @@ const unbilledColumns: ColumnDef<TableSetup, UnbilledReceipt>[] = [
   },
   {
     accessorKey: "site_id",
-    header: "Location",
+    header: "Site",
     size: 130,
     // The client's own name for it. The id stays in `title`, because that is
     // what the account codes carry and what a support call will be about.
@@ -571,7 +505,7 @@ const unbilledColumns: ColumnDef<TableSetup, UnbilledReceipt>[] = [
   },
   {
     accessorKey: "value_at_order_price_minor",
-    header: "At order price",
+    header: "At Order Price",
     size: 170,
     meta: {
       align: "right",
@@ -635,6 +569,7 @@ const PAGE = 100
 /// other column carries `enableSorting: false`.
 const BILL_SORTS: Record<string, { sort: string; flip?: boolean }> = {
   supplier: { sort: "supplier" },
+  invoice_date: { sort: "date" },
   due_date: { sort: "due" },
   total_minor: { sort: "total" },
   outstanding_minor: { sort: "outstanding" },
@@ -667,18 +602,11 @@ function billScope(
 }
 
 export function SupplierBills() {
+  const supplierName = useSupplierName()
   const [tab, setTab] = useState<BillTab>("merchandise")
   const [query, setQuery] = useState("")
   const [site, setSite] = useState("")
   const [recording, setRecording] = useState(false)
-  /// Whether the ageing's supplier table is showing all of them.
-  ///
-  /// It had an inner scroll region with a fixed height, which cut the fifth row
-  /// through the middle — a table that ends in half a row reads as broken
-  /// rather than as scrollable, and the scrollbar it depends on is invisible on
-  /// a Mac until somebody starts scrolling. Five whole rows and a count is the
-  /// same restraint without the lie.
-  const [allSuppliers, setAllSuppliers] = useState(false)
   const bill = useSheet("bill")
   const asOf = useAsOf()
   const [billSort, setBillSort] = useState<SortingState>([
@@ -775,37 +703,27 @@ export function SupplierBills() {
     queryKey: financeKeys.unbilled(),
     queryFn: ({ signal }) => unbilledReceipts(signal),
   })
-  /// The ageing reads the books, and books are a unit's (0605): a bill counts
-  /// in the unit owning the site it was received at. So the chosen site asks
-  /// for its unit's ageing, and waits for the register to say which that is.
-  const units = useUnits()
-  const agingUnit =
-    site === ""
-      ? null
-      : ((units.data ?? []).find((unit) =>
-          unit.sites.some((one) => one.id === site)
-        )?.id ?? null)
-  const aging = useQuery({
-    queryKey: financeKeys.payablesAging(asOf.value, agingUnit),
-    queryFn: ({ signal }) =>
-      payablesAging(
-        { as_of: asOf.value, unit: agingUnit ?? undefined },
-        signal
-      ),
-    enabled: site === "" || agingUnit !== null,
-  })
 
+  /// Each bill's supplier written in full, "Maju Jaya, UD" — the cell, the
+  /// search and the supplier facet all read the row's name.
+  const written = (row: SupplierBill): SupplierBill => ({
+    ...row,
+    supplier_name: supplierName(row.supplier_id, row.supplier_name),
+  })
   const billRows = useMemo(
-    () => bills.data?.pages.flatMap((page) => page.rows) ?? [],
-    [bills.data]
+    () => bills.data?.pages.flatMap((page) => page.rows.map(written)) ?? [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bills.data, supplierName]
   )
   const expenseRows = useMemo(
-    () => expenses.data?.pages.flatMap((page) => page.rows) ?? [],
-    [expenses.data]
+    () => expenses.data?.pages.flatMap((page) => page.rows.map(written)) ?? [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [expenses.data, supplierName]
   )
   const gaRows = useMemo(
-    () => gaBills.data?.pages.flatMap((page) => page.rows) ?? [],
-    [gaBills.data]
+    () => gaBills.data?.pages.flatMap((page) => page.rows.map(written)) ?? [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gaBills.data, supplierName]
   )
   /// The server's own counts — every bill each tab's request matches, never
   /// the length of the pages loaded so far.
@@ -949,37 +867,18 @@ export function SupplierBills() {
   // Five bars, and always all five: a gap at 61–90 is a fact about the
   // payables, not a reason to close the space up and let the eye read the
   // remaining bars as if they were adjacent ages.
-  const ageing = useMemo(() => {
-    const total = aging.data?.total
-    const suppliers = aging.data?.suppliers ?? []
-    return {
-      owed: total?.total_minor ?? 0,
-      suppliers,
-      // The server's own order — heaviest first — so the five that are shown
-      // are the five worth acting on.
-      shownSuppliers: allSuppliers
-        ? suppliers
-        : suppliers.slice(0, SUPPLIERS_SHOWN),
-      rows: AGE_BUCKETS.map((bucket) => ({
-        bucket: bucket.label,
-        total: total?.[bucket.key] ?? 0,
-      })),
-    }
-  }, [aging.data, allSuppliers])
 
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance"
-        title="Supplier bills"
-        sub="What has been invoiced, what has been posted, and what arrived with no invoice at all."
+        crumb="Finance · Payables"
+        title="Purchase Invoice"
         actions={
           <>
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search"
-              className="h-8 w-48"
+              className="h-control w-48"
             />
             <Button variant="primary" onClick={() => setRecording(true)}>
               Record bill
@@ -993,7 +892,7 @@ export function SupplierBills() {
         <SiteSelect
           value={site}
           onChange={setSite}
-          className="h-8 w-44"
+          className="h-control w-44"
           aria-label="Site"
         />
         {/* Whichever list is on screen. Location is not among the questions
@@ -1046,7 +945,7 @@ export function SupplierBills() {
           },
           {
             value: "ga",
-            label: `Dari GA${gaHeld > 0 ? ` · ${count(gaHeld)}` : ""}`,
+            label: `From GA${gaHeld > 0 ? ` · ${count(gaHeld)}` : ""}`,
           },
           {
             value: "unbilled",
@@ -1057,135 +956,6 @@ export function SupplierBills() {
 
       {tab === "merchandise" ? (
         <>
-          {/* Only when something is owed. With every bill settled the chart
-              would be five empty buckets announcing that there is nothing to
-              age, which the table below says on its own. */}
-          {ageing.owed > 0 && (
-            <Card className="mb-3">
-              <CardHeader>
-                <CardTitle>Ageing</CardTitle>
-                {/* Which population, said on the card. The sidebar badge
-                    beside "Supplier bills" counts something else — bills that
-                    are past due and *not posted* — and two numbers on one
-                    screen that disagree without saying why is how somebody
-                    stops trusting both. */}
-                <span className="text-[0.875rem] text-mute">
-                  Every bill with something still owed on it, posted and draft,
-                  across {count(ageing.suppliers.length)} suppliers ·{" "}
-                  <span className="font-medium text-ink tabular-nums">
-                    {money(ageing.owed)}
-                  </span>
-                </span>
-              </CardHeader>
-              <div className="px-4 pb-3.5">
-                <BarSeries
-                  rows={ageing.rows}
-                  series={AGE_SERIES}
-                  format={money}
-                  labelOf={(bucket) => bucket}
-                  titleOf={(bucket) =>
-                    AGE_BUCKETS.find((row) => row.label === bucket)?.title ??
-                    bucket
-                  }
-                  className="h-[9.5rem]"
-                />
-
-                {/* The same report, supplier by supplier — the half of an
-                    ageing somebody actually acts on. Heaviest first, which is
-                    the server's own order and the order it is read in. */}
-                <div className="mt-3 border-t border-hairline pt-3">
-                  <SubHead aside="Heaviest first">By supplier</SubHead>
-                  {/* Five rows, then a count. An ageing runs to as many rows
-                      as there are suppliers and a card that grows with the
-                      list pushes the bills table off the bottom of the screen
-                      — but the fix for that is to stop early on a row
-                      boundary, not to cut the list mid-row behind a scrollbar
-                      nobody can see until they scroll. */}
-                  <div>
-                    <MiniTable
-                      head={[
-                        "Supplier",
-                        "Oldest",
-                        ...AGE_BUCKETS.map((bucket) => bucket.label),
-                        "Total",
-                      ]}
-                    >
-                      {ageing.shownSuppliers.map((row) => (
-                        <MiniRow key={row.supplier_id}>
-                          <MiniCell>
-                            <SupplierName
-                              id={row.supplier_id}
-                              name={row.supplier_name}
-                              className="block truncate text-ink"
-                            />
-                            <span className="text-[0.875rem] text-mute">
-                              {count(row.open_document_count)}{" "}
-                              {row.open_document_count === 1
-                                ? "open item"
-                                : "open items"}
-                            </span>
-                          </MiniCell>
-                          <MiniCell align="right">
-                            <OldestDays days={row.oldest_days} />
-                          </MiniCell>
-                          {AGE_BUCKETS.map((bucket) => (
-                            <MiniCell key={bucket.key} align="right">
-                              {row.buckets[bucket.key] === 0 ? (
-                                <span className="text-faint">—</span>
-                              ) : (
-                                money(row.buckets[bucket.key])
-                              )}
-                            </MiniCell>
-                          ))}
-                          <MiniCell
-                            align="right"
-                            className="font-medium text-ink"
-                          >
-                            {money(row.buckets.total_minor)}
-                          </MiniCell>
-                        </MiniRow>
-                      ))}
-                    </MiniTable>
-                  </div>
-                  {ageing.suppliers.length > ageing.shownSuppliers.length && (
-                    <Button
-                      size="sm"
-                      variant="quiet"
-                      className="mt-1.5"
-                      onClick={() => setAllSuppliers(true)}
-                    >
-                      Show all {count(ageing.suppliers.length)} suppliers
-                    </Button>
-                  )}
-                  {allSuppliers &&
-                    ageing.suppliers.length > SUPPLIERS_SHOWN && (
-                      <Button
-                        size="sm"
-                        variant="quiet"
-                        className="mt-1.5"
-                        onClick={() => setAllSuppliers(false)}
-                      >
-                        Show the heaviest {count(SUPPLIERS_SHOWN)}
-                      </Button>
-                    )}
-                  <p className="mt-2 text-[0.875rem] text-mute">
-                    The server's own ageing, wound back to the date above: what
-                    is still outstanding on each bill, not what the invoice was
-                    for. It agrees with{" "}
-                    <AppLink
-                      to="/finance/setup/account-links"
-                      className="text-accent hover:underline"
-                    >
-                      trade payable
-                    </AppLink>{" "}
-                    in the books, because both move only when a bill or a
-                    payment posts.
-                  </p>
-                </div>
-              </div>
-            </Card>
-          )}
-
           <Card className="overflow-hidden">
             {queryState(bills, {
               loading: "Loading the bills…",
@@ -1209,14 +979,7 @@ export function SupplierBills() {
                     // only final once the list has been read to its end.
                     empty={<NoMatch what="bills" onClear={clearBills} />}
                     more={bills}
-                    // The ageing card takes the top of the page, so the
-                    // table's own scroll region gives it back rather than
-                    // running off the bottom of the window.
-                    className={
-                      ageing.owed > 0
-                        ? "max-h-[calc(100vh-38rem)]"
-                        : "max-h-[calc(100vh-21rem)]"
-                    }
+                    className="max-h-[calc(100vh-21rem)]"
                   />
                 ),
             })}
@@ -1345,8 +1108,8 @@ export function SupplierBills() {
                 waitRows.length === 0 ? (
                   <EmptyState>
                     {site === ""
-                      ? "Every delivery has a bill against it. Nothing is sitting in the warehouse that the books do not know about."
-                      : "Every delivery to this location has a bill against it. Widen the location filter to see the rest."}
+                      ? "Every delivery has a bill against it. Nothing is sitting in the Gudang that the books do not know about."
+                      : "Every delivery to this site has a bill against it. Widen the site filter to see the rest."}
                   </EmptyState>
                 ) : (
                   <DataTable<UnbilledReceipt>
@@ -1482,7 +1245,7 @@ function BillSheet({
       title={
         bill === undefined
           ? "Bill"
-          : (bill.supplier_name ?? supplierName(bill.supplier_id))
+          : supplierName(bill.supplier_id, bill.supplier_name)
       }
       footer={
         bill && !posted ? (
@@ -1528,8 +1291,10 @@ function BillSheet({
                 </Banner>
               )}
 
-              <div className="flex flex-wrap gap-1.5">
-                <Pill tone={toneFor(bill.status)}>{label(bill.status)}</Pill>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Status tone={toneFor(bill.status)}>
+                  {label(bill.status)}
+                </Status>
                 {/* Which kind, always — it decides what the posting debits,
                     and a bill that says nothing about it reads as merchandise
                     to anybody who has met only merchandise. */}
@@ -1539,7 +1304,7 @@ function BillSheet({
                 {/* Where it came from and whether it may be paid. Both are
                     properties of the document, so they sit with its state. */}
                 {fromGa && <Pill tone="info">GA</Pill>}
-                {held && <Pill tone="warn">Ditahan</Pill>}
+                {held && <Pill tone="warn">On hold</Pill>}
                 {isLate(bill) && (
                   <Pill tone="bad">
                     {count(bill.days_overdue)} days overdue
@@ -1582,7 +1347,7 @@ function BillSheet({
                           : "The lines could not be read."}
                     </p>
                   ) : (
-                    <MiniTable head={["Account", "Location", "Amount"]}>
+                    <MiniTable head={["Account", "Site", "Amount"]}>
                       {lines.map((line) => (
                         <MiniRow key={line.line_id}>
                           <MiniCell>
@@ -1657,7 +1422,7 @@ function BillSheet({
                     name={bill.supplier_name}
                   />
                 </Fact>
-                <Fact term="Location">
+                <Fact term="Site">
                   <SiteName id={bill.site_id} />
                 </Fact>
                 <Fact term="Invoice date">{day(bill.invoice_date)}</Fact>
@@ -1755,9 +1520,9 @@ function BillSheet({
                           </span>
                         </MiniCell>
                         <MiniCell>
-                          <Pill tone={toneFor(payment.status)}>
+                          <Status tone={toneFor(payment.status)}>
                             {label(payment.status)}
-                          </Pill>
+                          </Status>
                         </MiniCell>
                         <MiniCell align="right">
                           {money(allocation.amount_minor)}
@@ -1870,18 +1635,18 @@ function BillHandover({ id, bill }: { id: string; bill: SupplierBill }) {
         <div className="flex items-start justify-between gap-3">
           <span className="min-w-0">
             <span className="block text-[0.875rem] font-medium text-ink">
-              Tahan
+              Hold
             </span>
             <span className="mt-0.5 block text-[0.875rem] leading-relaxed text-body">
               {held
-                ? "Ditahan; tidak ada pembayaran yang bisa mengambilnya sampai dilepas."
-                : "Menahan menghentikan pembayaran tagihan ini sampai dilepas."}
+                ? "On hold; no payment can take it until it is released."
+                : "Holding stops any payment against this bill until it is released."}
             </span>
           </span>
           <Switch
             on={held || holdDraft}
             busy={hold.isPending || release.isPending}
-            label="Tahan tagihan ini"
+            label="Hold this bill"
             onToggle={() => {
               if (held) release.mutate()
               else setHoldDraft((open) => !open)
@@ -1893,25 +1658,24 @@ function BillHandover({ id, bill }: { id: string; bill: SupplierBill }) {
           <div className="mt-3 flex flex-col gap-1">
             <p className="text-[0.875rem] text-body">{bill.hold_reason}</p>
             <p className="text-[0.875rem] text-mute">
-              Rencana lepas:{" "}
+              Planned release:{" "}
               {bill.release_date === null
-                ? "belum ditentukan"
+                ? "not decided yet"
                 : day(bill.release_date)}
             </p>
             <Problem error={release.error} />
           </div>
         ) : holdDraft ? (
           <div className="mt-3 flex flex-col gap-3">
-            <Field label="Alasan ditahan" required>
+            <Field label="Reason for the hold" required>
               <Input
                 value={holdReason}
                 onChange={(event) => setHoldReason(event.target.value)}
-                placeholder="Mengapa tagihan ini ditahan"
               />
             </Field>
             {/* Optional, and it means what it says: an empty date is "held
                 until somebody decides", not "held forever". */}
-            <Field label="Rencana lepas">
+            <Field label="Planned release">
               <Day value={releaseDate} onChange={setReleaseDate} />
             </Field>
             <div className="flex justify-end">
@@ -1921,7 +1685,7 @@ function BillHandover({ id, bill }: { id: string; bill: SupplierBill }) {
                 disabled={holdReason.trim() === ""}
                 onClick={() => hold.mutate()}
               >
-                {hold.isPending ? "Menahan…" : "Tahan tagihan"}
+                {hold.isPending ? "Holding…" : "Hold this bill"}
               </Button>
             </div>
             <Problem error={hold.error} />
@@ -1936,19 +1700,18 @@ function BillHandover({ id, bill }: { id: string; bill: SupplierBill }) {
       {fromGa && !posted && (
         <div className="rounded-inner border border-hairline p-3.5">
           <span className="block text-[0.875rem] font-medium text-ink">
-            Kembalikan ke GA
+            Return to GA
           </span>
           <span className="mt-0.5 block text-[0.875rem] leading-relaxed text-body">
-            Draft kembali ke GA untuk diperbaiki. ID dan penanda GA tetap dan
-            statusnya tetap DRAFT — ini pengembalian, bukan penghapusan.
+            The draft goes back to GA to be fixed. Its id and GA mark stay, and
+            it stays DRAFT — this is a return, not a deletion.
           </span>
           <div className="mt-3 flex flex-col gap-3">
-            <Field label="Alasan dikembalikan" required>
+            <Field label="Reason for the return" required>
               <Textarea
                 rows={2}
                 value={returnReason}
                 onChange={(event) => setReturnReason(event.target.value)}
-                placeholder="Apa yang harus diperbaiki GA"
               />
             </Field>
             <div className="flex justify-end">
@@ -1958,7 +1721,7 @@ function BillHandover({ id, bill }: { id: string; bill: SupplierBill }) {
                 disabled={returnReason.trim() === ""}
                 onClick={() => sendBack.mutate()}
               >
-                {sendBack.isPending ? "Mengembalikan…" : "Kembalikan ke GA"}
+                {sendBack.isPending ? "Returning…" : "Return to GA"}
               </Button>
             </div>
             <Problem error={sendBack.error} />
@@ -1974,7 +1737,7 @@ function BillHandover({ id, bill }: { id: string; bill: SupplierBill }) {
       {checkable && (
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-3">
-            <SubHead>Sebelum posting</SubHead>
+            <SubHead>Before posting</SubHead>
             <Button
               size="sm"
               variant="soft"
@@ -1984,7 +1747,7 @@ function BillHandover({ id, bill }: { id: string; bill: SupplierBill }) {
                 if (warningsWanted) warnings.refetch()
               }}
             >
-              {warnings.isFetching ? "Memeriksa…" : "Periksa sebelum posting"}
+              {warnings.isFetching ? "Checking…" : "Check before posting"}
             </Button>
           </div>
           {warnings.isError ? (
@@ -1993,7 +1756,7 @@ function BillHandover({ id, bill }: { id: string; bill: SupplierBill }) {
             warnings.data.length === 0 ? (
               // A check that ran and found nothing has to say so: the reader
               // needs to know the check happened, not that it was skipped.
-              <p className="text-[0.875rem] text-body">Tidak ada peringatan.</p>
+              <p className="text-[0.875rem] text-body">No warnings.</p>
             ) : (
               warnings.data.map((warning) => (
                 <Banner key={`${warning.code}:${warning.message}`} tone="warn">
@@ -2011,7 +1774,7 @@ function BillHandover({ id, bill }: { id: string; bill: SupplierBill }) {
             )
           ) : (
             <p className="text-[0.875rem] text-mute">
-              Peringatan bukan blokir: posting tetap bisa dilakukan.
+              A warning is not a block: posting can still go ahead.
             </p>
           )}
         </div>
@@ -2278,7 +2041,7 @@ function RecordSheet({
                 disabled={!totals.ready}
                 onClick={() => form.handleSubmit()}
               >
-                {record.isPending ? "Recording…" : "Record"}
+                {record.isPending ? "Submitting…" : "Submit"}
               </Button>
             </div>
           )}
@@ -2413,7 +2176,6 @@ function RecordSheet({
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={field.handleChange}
-                  placeholder="0"
                 />
               </Field>
             )}
@@ -2425,7 +2187,6 @@ function RecordSheet({
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={field.handleChange}
-                  placeholder="0"
                 />
               </Field>
             )}
@@ -2444,7 +2205,6 @@ function RecordSheet({
                         value={field.state.value}
                         onBlur={field.handleBlur}
                         onChange={field.handleChange}
-                        placeholder="0"
                       />
                     </Field>
                   )}
@@ -2561,14 +2321,14 @@ function ExpenseLines({
       <p className="text-[0.875rem] text-mute">
         A cost — class 6 or 7 — or something that becomes one: prepaid expense,
         an advance, or a capital purchase under <code>10215</code>. Every line
-        sits at the bill's own location:{" "}
+        sits at the bill's own site:{" "}
         {site === "" ? (
-          <span className="text-warn-fg">choose a location above first.</span>
+          <span className="text-warn-fg">choose a site above first.</span>
         ) : (
           <>
-            <SiteName id={site} className="text-ink" />. A cost at another
-            location needs an inter-unit credit and no rule writes one yet, so
-            it is refused — record one bill per location instead.
+            <SiteName id={site} className="text-ink" />. A cost at another site
+            needs an inter-unit credit and no rule writes one yet, so it is
+            refused — record one bill per site instead.
           </>
         )}
       </p>
@@ -2581,7 +2341,6 @@ function ExpenseLines({
           <div className="flex items-start gap-2">
             <span className="min-w-0 flex-1">
               <AccountAndCategory
-                placeholder="Which account does this cost belong to"
                 // The chart is theirs and the refusals are the server's: an
                 // inactive account has been retired and cannot take new costs,
                 // and a class outside 1, 6 and 7 is not a cost at all. Both
@@ -2625,7 +2384,6 @@ function ExpenseLines({
               <Money
                 value={line.amount}
                 onChange={(next) => edit(index, { amount: next })}
-                placeholder="0"
               />
             </Field>
             <Field label="Memo" hint="What this line was.">

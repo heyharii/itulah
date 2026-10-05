@@ -149,7 +149,7 @@ export function FinancingOverview() {
         {items.length === 0 ? (
           <EmptyState>Nothing due and nothing drawn.</EmptyState>
         ) : (
-          <Table head={["Item", "Why it is here", ">Amount", ""]}>
+          <Table head={["Item", "Why It Is Here", ">Amount", ""]}>
             {items.map((i) => (
               <Row key={i.id} tone={i.tone}>
                 <Cell>
@@ -319,7 +319,7 @@ export function Loans() {
             <div>
               <SubHead>Next twelve instalments</SubHead>
               <Table
-                head={["#", "Due", ">Interest", ">Principal", ">Balance after"]}
+                head={["#", "Due", ">Interest", ">Principal", ">Balance After"]}
               >
                 {b.loanSchedule
                   .filter((p) => p.loan_id === chosen.loan_id && !p.paid_on)
@@ -472,7 +472,7 @@ export function Repayments() {
               ">Interest",
               ">Principal",
               ">Total",
-              ">Balance after",
+              ">Balance After",
             ]}
           >
             {rows.map((p) => (
@@ -812,9 +812,8 @@ export function Equity() {
             label: "Amount",
             kind: "money",
             required: true,
-            placeholder: "15000000",
           },
-          { name: "note", label: "Note", placeholder: "Setoran modal Agustus" },
+          { name: "note", label: "Note" },
         ]}
         onSubmit={(v, minor) =>
           b.recordEquity({

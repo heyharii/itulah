@@ -59,7 +59,7 @@ use super::payables::PayableFacet;
 use super::poster::{post, PostingIntent, PostingLine};
 use super::{decode_cursor, encode_cursor};
 use crate::cloud::application::AppError;
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -77,7 +77,12 @@ pub struct PaymentAllocation {
     /// What the whole bill is, so a screen can show "3,000,000 of 8,500,000"
     /// without fetching every bill again.
     pub invoice_total_minor: i64,
+    /// How much of the bill this settles, discount included.
     pub amount_minor: i64,
+    /// The part of `amount_minor` settled without money — the POTONGAN on a
+    /// BKK line (0704). The bill is settled by the whole `amount_minor`; the
+    /// bank pays `amount_minor - discount_minor` of it.
+    pub discount_minor: i64,
     /// The bill's kind — `MERCHANDISE` or `EXPENSE`. Carried because it decides
     /// which payable this allocation debits when the payment posts, and because
     /// a screen listing what a transfer settled should be able to say that one
@@ -128,7 +133,13 @@ pub struct SupplierPayment {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct AllocateToBill {
     pub invoice_id: Uuid,
+    /// How much of the bill this settles, discount included.
     pub amount_minor: i64,
+    /// Of that, how much is settled without money: a discount for paying, a
+    /// rounding difference (0704). Zero when absent.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub discount_minor: Option<i64>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -316,7 +327,7 @@ async fn attach_allocations(
     }
     let ids: Vec<Uuid> = payments.iter().map(|p| p.payment_id).collect();
     let rows = sqlx::query(
-        "SELECT al.payment_id, al.invoice_id, al.amount_minor,
+        "SELECT al.payment_id, al.invoice_id, al.amount_minor, al.discount_minor,
                 i.invoice_number, i.supplier_id, i.supplier_name, i.invoice_date,
                 i.due_date, i.total_minor AS invoice_total_minor, i.kind, i.site_id
            FROM supplier_payment_allocation al
@@ -339,6 +350,7 @@ async fn attach_allocations(
             due_date: row.try_get("due_date")?,
             invoice_total_minor: row.try_get("invoice_total_minor")?,
             amount_minor: row.try_get("amount_minor")?,
+            discount_minor: row.try_get("discount_minor")?,
             kind: row.try_get("kind")?,
             site_id: row.try_get("site_id")?,
         };
@@ -711,6 +723,13 @@ pub async fn record_payment(
                 "an allocation must be positive; a credit note is a separate document".into(),
             ));
         }
+        let discount = allocation.discount_minor.unwrap_or(0);
+        if discount < 0 || discount > allocation.amount_minor {
+            return Err(AppError::Validation(format!(
+                "the discount on bill {} is {discount}, which is not between nothing and the {}                  this line settles",
+                allocation.invoice_id, allocation.amount_minor
+            )));
+        }
         if seen.contains(&allocation.invoice_id) {
             return Err(AppError::Validation(format!(
                 "bill {} appears twice in one payment; add the two amounts together instead",
@@ -721,6 +740,17 @@ pub async fn record_payment(
         total = total
             .checked_add(allocation.amount_minor)
             .ok_or_else(|| AppError::Validation("the payment total overflows".into()))?;
+    }
+    let discounted: i64 = request
+        .allocations
+        .iter()
+        .map(|allocation| allocation.discount_minor.unwrap_or(0))
+        .sum();
+    if discounted >= total {
+        return Err(AppError::Validation(
+            "every rupiah of this payment is discount; a settlement that pays nothing is a              write-off, not a payment"
+                .into(),
+        ));
     }
     if let Some(stated) = request.total_minor {
         if stated != total {
@@ -751,10 +781,13 @@ pub async fn record_payment(
 
     let mut tx = pool.begin().await?;
     let payment_id = Uuid::new_v4();
-    let number: i64 = sqlx::query("SELECT nextval('supplier_payment_number_seq') AS n")
-        .fetch_one(&mut *tx)
-        .await?
-        .try_get("n")?;
+    let number = super::number_series::next_number(
+        &mut tx,
+        super::number_series::SUPPLIER_PAYMENT,
+        request.payment_date,
+        Some(unit_id),
+    )
+    .await?;
 
     sqlx::query(
         "INSERT INTO supplier_payment
@@ -764,7 +797,7 @@ pub async fn record_payment(
          VALUES ($1,$2,$3,$4,$5,$6,$7,'IDR',$8,$9,$10,$11,$12,$13)",
     )
     .bind(payment_id)
-    .bind(format!("PV-{number:08}"))
+    .bind(&number)
     .bind(unit_id)
     .bind(request.payment_date)
     .bind(&method)
@@ -781,12 +814,14 @@ pub async fn record_payment(
 
     for allocation in &request.allocations {
         sqlx::query(
-            "INSERT INTO supplier_payment_allocation (payment_id, invoice_id, amount_minor)
-             VALUES ($1,$2,$3)",
+            "INSERT INTO supplier_payment_allocation
+                 (payment_id, invoice_id, amount_minor, discount_minor)
+             VALUES ($1,$2,$3,$4)",
         )
         .bind(payment_id)
         .bind(allocation.invoice_id)
         .bind(allocation.amount_minor)
+        .bind(allocation.discount_minor.unwrap_or(0))
         .execute(&mut *tx)
         .await?;
     }
@@ -934,6 +969,11 @@ pub async fn post_payment(
     // is not yet a liability, and a giro board that counted drafts would show
     // money promised that nobody has approved.
     if existing.method == "GIRO" {
+        // The paper is written for what leaves the bank, not for what it
+        // settles: tax kept back and a settlement discount never reach it.
+        let leaving_the_bank = super::payables_flow::payment_deductions(pool, payment_id)
+            .await?
+            .leaving_the_bank_minor;
         let details = sqlx::query(
             "SELECT giro_number, giro_due_date FROM supplier_payment WHERE payment_id = $1",
         )
@@ -951,7 +991,7 @@ pub async fn post_payment(
                         number,
                         bank: existing.account_qualifier.clone(),
                         unit_id: existing.unit_id.clone(),
-                        amount_minor: existing.total_minor,
+                        amount_minor: leaving_the_bank,
                         issue_date: existing.payment_date,
                         due_date,
                         supplier_payment_id: Some(payment_id),
@@ -974,6 +1014,59 @@ pub async fn post_payment(
                 );
             }
         }
+    }
+
+    // The tax kept back is owed to the tax office from this moment, so it goes
+    // on the tax ledger in the same transaction (0721): PPh 4(2) for a
+    // final-rate template, PPh 23 otherwise, in the month the payment posted.
+    // Before this the payable account knew and Tax Payables did not.
+    let withheld = sqlx::query(
+        "SELECT p.withholding_minor,
+                CASE WHEN COALESCE(t.is_final, false) THEN 'PPH42' ELSE 'PPH23' END AS tax_type_code
+           FROM supplier_payment p
+           LEFT JOIN tax_template t ON t.code = p.withholding_key
+          WHERE p.payment_id = $1",
+    )
+    .bind(payment_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    let withholding_minor: i64 = withheld.try_get("withholding_minor")?;
+    if withholding_minor > 0 {
+        let tax_type_code: String = withheld.try_get("tax_type_code")?;
+        let posted_on = posting_date.unwrap_or(existing.payment_date);
+        let (year, month) = (posted_on.year() as i16, posted_on.month() as i16);
+        sqlx::query(
+            "INSERT INTO tax_period (period_id, tax_type_code, period_year, period_month)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (tax_type_code, period_year, period_month) DO NOTHING",
+        )
+        .bind(Uuid::new_v4())
+        .bind(&tax_type_code)
+        .bind(year)
+        .bind(month)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO tax_ledger_item
+                (item_id, period_id, unit_id, kind, amount_minor, source_kind, source_id,
+                 entry_id, note, created_by)
+             SELECT $1, period_id, $2, 'OBLIGATION', $3, 'PAYMENT', $4, $5,
+                    'Withheld on the supplier payment', $6
+               FROM tax_period
+              WHERE tax_type_code = $7 AND period_year = $8 AND period_month = $9
+             ON CONFLICT (period_id, kind, source_kind, source_id) DO NOTHING",
+        )
+        .bind(Uuid::new_v4())
+        .bind(&existing.unit_id)
+        .bind(withholding_minor)
+        .bind(payment_id.to_string())
+        .bind(posted.entry_id)
+        .bind(actor)
+        .bind(&tax_type_code)
+        .bind(year)
+        .bind(month)
+        .execute(&mut *tx)
+        .await?;
     }
 
     // One settlement per bill, not one per payment: a transfer answering four

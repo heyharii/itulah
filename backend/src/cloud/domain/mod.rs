@@ -43,6 +43,7 @@ mod interunit;
 mod inventory;
 pub mod job_role;
 mod leave;
+pub mod number_series;
 mod movement;
 mod observation;
 mod opening;
@@ -93,6 +94,7 @@ mod sync_generation;
 mod tender_recon;
 pub mod three_way;
 mod transaction_category;
+pub mod uom;
 mod voucher;
 pub mod withholding;
 

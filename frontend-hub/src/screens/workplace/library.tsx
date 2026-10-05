@@ -379,7 +379,6 @@ export function Library() {
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search the library"
               aria-label="Search the library"
               className="h-[2.125rem] w-56 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
             />

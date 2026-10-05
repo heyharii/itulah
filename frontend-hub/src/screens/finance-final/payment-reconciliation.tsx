@@ -171,8 +171,7 @@ export function PaymentReconciliation() {
   // beside a list narrowed in the browser, so the two can be compared.
   const aging = useQuery({
     queryKey: financeKeys.payablesAging(null, unit || null),
-    queryFn: ({ signal }) =>
-      payablesAging({ unit: unit || undefined }, signal),
+    queryFn: ({ signal }) => payablesAging({ unit: unit || undefined }, signal),
   })
 
   /// The money side. Posted only: a draft has moved nothing, and ERPNext's tool
@@ -196,7 +195,8 @@ export function PaymentReconciliation() {
   /// first — which is the order ERPNext's waterfall then runs down.
   const openInvoices = useMemo(() => {
     const text = invoiceNeedle.trim().toLowerCase()
-    const floor = minOutstanding.trim() === "" ? null : parseMinor(minOutstanding)
+    const floor =
+      minOutstanding.trim() === "" ? null : parseMinor(minOutstanding)
     const ceiling =
       maxOutstanding.trim() === "" ? null : parseMinor(maxOutstanding)
     return (bills.data ?? [])
@@ -333,7 +333,6 @@ export function PaymentReconciliation() {
             value={party}
             onPick={(supplier) => setParty(supplier?.supplier_id ?? "")}
             label="Party"
-            placeholder="Every supplier"
           />
         </span>
         <UnitSelect
@@ -394,22 +393,13 @@ export function PaymentReconciliation() {
             <Input
               value={invoiceNeedle}
               onChange={(event) => setInvoiceNeedle(event.target.value)}
-              placeholder="Number or supplier"
             />
           </Field>
           <Field label="Minimum outstanding">
-            <Money
-              value={minOutstanding}
-              onChange={setMinOutstanding}
-              placeholder="Any"
-            />
+            <Money value={minOutstanding} onChange={setMinOutstanding} />
           </Field>
           <Field label="Maximum outstanding">
-            <Money
-              value={maxOutstanding}
-              onChange={setMaxOutstanding}
-              placeholder="Any"
-            />
+            <Money value={maxOutstanding} onChange={setMaxOutstanding} />
           </Field>
           <Field label="Invoice limit" hint="ERPNext's default is 50.">
             <Select
@@ -427,7 +417,6 @@ export function PaymentReconciliation() {
             <Input
               value={paymentNeedle}
               onChange={(event) => setPaymentNeedle(event.target.value)}
-              placeholder="Number or reference"
             />
           </Field>
         </div>
@@ -829,8 +818,8 @@ export function PaymentReconciliation() {
         <Note>
           <b>What this screen stands on, and what it cannot do.</b> Both panels
           are real reads: <code>GET /finance/payments</code> carries every
-          payment with its allocations attached, so what is unallocated on one is
-          arithmetic on figures the document itself supplies;{" "}
+          payment with its allocations attached, so what is unallocated on one
+          is arithmetic on figures the document itself supplies;{" "}
           <code>GET /finance/bills</code> and{" "}
           <code>GET /finance/payables-aging</code> are what is still open, the
           second being the server&rsquo;s own ageing and the only unit filter on
@@ -843,18 +832,21 @@ export function PaymentReconciliation() {
         </Note>
 
         <Note>
-          <b>Why the money side is empty, before any endpoint is discussed.</b> A
-          payment here <i>must</i> name the bills it settles —{" "}
-          <i>&ldquo;a payment against no bill is a bank line, not a
-          payment&rdquo;</i> — and its total is computed from those allocations,
-          so <b>Unallocated amount</b> can never be anything but zero. There is
+          <b>Why the money side is empty, before any endpoint is discussed.</b>{" "}
+          A payment here <i>must</i> name the bills it settles —{" "}
+          <i>
+            &ldquo;a payment against no bill is a bank line, not a
+            payment&rdquo;
+          </i>{" "}
+          — and its total is computed from those allocations, so{" "}
+          <b>Unallocated amount</b> can never be anything but zero. There is
           also nobody for money on account to be on account <i>for</i>:{" "}
           <code>supplier_payment</code> has no party column at all, and the
           supplier is a property of each allocation. ERPNext&rsquo;s tool makes
           Party mandatory precisely because its open items carry one. So paying
-          a supplier in advance, or paying a round sum against &ldquo;whatever is
-          oldest&rdquo;, is not a thing this ledger can express yet — and that,
-          rather than a missing button, is why this tool has nothing to
+          a supplier in advance, or paying a round sum against &ldquo;whatever
+          is oldest&rdquo;, is not a thing this ledger can express yet — and
+          that, rather than a missing button, is why this tool has nothing to
           reconcile.
         </Note>
 
@@ -863,29 +855,29 @@ export function PaymentReconciliation() {
           here are <code>supplier_payment_allocation</code> (0084) and the view{" "}
           <code>supplier_invoice_standing</code> (0202), where a bill&rsquo;s{" "}
           <code>outstanding_minor</code> is its total less the allocations of{" "}
-          <i>posted</i> payments. Two things follow. It is <b>payable-side
-          only</b> and it is keyed on the <b>bill</b>: there is no open-item row
-          for money and no party on a payment, which is why the left panel has
-          nothing to read. And an allocation does not name an instalment — 0202
-          says so in as many words — so where ERPNext settles an invoice
-          schedule term by term, we settle the whole bill. ERPNext&rsquo;s
-          Payment Ledger is a separate table whose <i>sign</i> decides invoice
-          from payment, and that separation is exactly why its reconcile touches
-          no bank posting. A party-keyed sub-ledger of that shape is being built
-          in a parallel lane and is <b>not in this branch</b>; its tables have
-          already appeared in the shared development database, empty and read by
-          nothing here, so this screen deliberately stands on none of them.
+          <i>posted</i> payments. Two things follow. It is{" "}
+          <b>payable-side only</b> and it is keyed on the <b>bill</b>: there is
+          no open-item row for money and no party on a payment, which is why the
+          left panel has nothing to read. And an allocation does not name an
+          instalment — 0202 says so in as many words — so where ERPNext settles
+          an invoice schedule term by term, we settle the whole bill.
+          ERPNext&rsquo;s Payment Ledger is a separate table whose <i>sign</i>{" "}
+          decides invoice from payment, and that separation is exactly why its
+          reconcile touches no bank posting. A party-keyed sub-ledger of that
+          shape is being built in a parallel lane and is{" "}
+          <b>not in this branch</b>; its tables have already appeared in the
+          shared development database, empty and read by nothing here, so this
+          screen deliberately stands on none of them.
         </Note>
 
         <Note>
-          <b>What would have to exist to make the button work.</b> Two things, in
-          this order. First an open item for money: a payment that may be
+          <b>What would have to exist to make the button work.</b> Two things,
+          in this order. First an open item for money: a payment that may be
           recorded without naming a bill, carrying the party itself — which is
           the sub-ledger the other lane is building. Then one route — say{" "}
           <code>POST /api/v1/finance/payments/&#123;id&#125;/allocations</code>,
-          taking a list of{" "}
-          <code>&#123; invoice_id, amount_minor &#125;</code> and an{" "}
-          <code>Idempotency-Key</code>, writing the pairs in a single
+          taking a list of <code>&#123; invoice_id, amount_minor &#125;</code>{" "}
+          and an <code>Idempotency-Key</code>, writing the pairs in a single
           transaction and refusing over-allocation exactly as{" "}
           <code>assert_allocation_fits</code> already does. What makes that
           second step small rather than a rewrite is that outstanding here is
@@ -896,10 +888,10 @@ export function PaymentReconciliation() {
           <i>payable</i> — a merchandise bill and an expense bill sit in
           different accounts — or crosses a unit, which the database refuses
           outright. And the one thing genuinely in the way is a rule rather than
-          a table: <code>supplier_payment_allocation_is_evidence</code> raises on
-          any insert, update or delete of an allocation once its payment is
-          posted, so ERPNext&rsquo;s reconcile is not merely unimplemented here —
-          it is forbidden, on the argument that the journal entry quotes those
+          a table: <code>supplier_payment_allocation_is_evidence</code> raises
+          on any insert, update or delete of an allocation once its payment is
+          posted, so ERPNext&rsquo;s reconcile is not merely unimplemented here
+          — it is forbidden, on the argument that the journal entry quotes those
           amounts. Which of those two rules gives way is the owner&rsquo;s
           decision, and it is the whole decision.
         </Note>

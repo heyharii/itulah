@@ -1,0 +1,719 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Review count (prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Receiving: from a finished count to a decision, in one dialog.
+
+   Two places, two jobs. Ops → Receiving only COUNTS — blind, at the Gudang.
+   Buying → Purchase orders is where the count is REVIEWED, by the person who
+   raised the PO: the order's row and its sheet carry "Review count" once a
+   count is in. The dialog sets the count beside the order, line by line, and
+   the way out depends on what it shows:
+
+     · every line matches   → Receive
+     · something is short   → Receive and keep the rest open (partial),
+                              or Receive and close short
+     · something is over    → Receive what was ordered; the excess is raised
+                              as a return to the supplier — asked first
+     · any case, even a match → Recount: pick the lines, say why
+
+   A delivery can be short on one line and over on another; the dialog
+   handles both at once. Received value = matched quantity × price.
+
+   Hub tokens, 16px root, nothing under 14px, English copy.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f8f9; --soft-2:#f0f0f2; --soft-3:#f6f6f7;
+  --hairline:#e6e6e9; --hairline-2:#dadade; --hairline-strong:#c6c6cc;
+  --rail:#242526; --rail-3:#393b3d; --rail-text:#c3c4c7;
+  --scrim:rgba(246,246,247,.72);
+  --accent:#2563eb; --accent-bg:#eff5ff; --cta:#2563eb; --cta-hover:#1d4ed8;
+  --ok:#36b827; --ok-bg:#e8f6ee; --ok-fg:#15803d;
+  --warn:#c9892e; --warn-bg:#fdf1dd; --warn-fg:#b45309;
+  --bad:#d05151; --bad-fg:#be123c;
+  --info:#2f86d8; --info-bg:#edf3ff; --info-fg:#1d4ed8;
+  --r-card:.75rem; --r-inner:.4375rem; --r-dialog:1rem;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);
+  --shadow-float:0 2px 6px rgb(24 39 60/5%),0 24px 64px rgb(24 39 60/16%);
+}
+*{box-sizing:border-box}
+html{font-size:16px}
+html,body{height:100%;margin:0}
+body{font-family:Inter,system-ui,sans-serif;font-size:15px;color:var(--text);background:var(--soft-3);-webkit-font-smoothing:antialiased;font-feature-settings:"cv11","ss01"}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:left}
+input,textarea{font:inherit;color:var(--ink)}
+svg.lucide{width:17px;height:17px;stroke-width:1.7;flex-shrink:0}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px}
+.r{text-align:right;font-variant-numeric:tabular-nums}
+
+.shell{display:flex;height:100vh}
+.col{width:68px;background:var(--rail);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:6px;flex-shrink:0}
+.mark{width:30px;height:30px;border-radius:8px;background:#0b0b0b;box-shadow:inset 0 0 0 1px rgb(255 255 255/.12);color:#fff;display:grid;place-items:center;font-weight:600;position:relative;margin-bottom:10px}
+.mark::after{content:"";position:absolute;right:5px;bottom:5px;width:5px;height:5px;border-radius:50%;background:#3b82f6}
+.ci{width:40px;height:40px;border-radius:9px;display:grid;place-items:center;color:var(--rail-text)}
+.ci.on{background:var(--rail-3);color:#fff}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.bar{height:52px;display:flex;align-items:center;gap:8px;padding:0 32px;border-bottom:1px solid var(--hairline);color:var(--body);flex-shrink:0}
+.bar b{color:var(--ink);font-weight:500}
+.bar svg{width:15px;height:15px;color:var(--faint)}
+.page{flex:1;overflow-y:auto}
+.content{max-width:100rem;margin:0 auto;padding:28px 32px 120px}
+h1{margin:0;font-size:28px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+.sub{margin:6px 0 24px;color:var(--body)}
+.btn{height:40px;padding:0 16px;border-radius:var(--r-inner);box-shadow:inset 0 0 0 1px var(--hairline-2);background:var(--canvas);color:var(--ink);display:inline-flex;align-items:center;gap:8px;font-weight:500;white-space:nowrap}
+.btn:hover{background:var(--soft)}
+.btn.pri{background:var(--cta);color:#fff;box-shadow:none}
+.btn.pri:hover{background:var(--cta-hover)}
+.btn.ghost{box-shadow:none;background:none;color:var(--body)}
+.btn.ghost:hover{background:var(--soft-2);color:var(--ink)}
+.btn.sm{height:36px;padding:0 12px}
+.btn svg{width:16px;height:16px}
+.btn[disabled]{opacity:.5;cursor:default}
+.card{background:var(--canvas);border-radius:var(--r-card);box-shadow:0 0 0 1px var(--hairline);overflow:clip}
+/* the list table: heads stick, the totals float at the window's foot */
+.list thead th{position:sticky;top:0;z-index:3}
+.list th,.list td{padding:0 12px}
+.list td.n,.list th.n{padding-right:8px}
+.list tfoot td{position:sticky;bottom:0;z-index:3;height:52px;background:var(--soft);border-top:1px solid var(--hairline);font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.list tfoot td .lbl{font-weight:500;color:var(--body)}
+table{width:100%;border-collapse:collapse}
+th{height:44px;text-align:left;font-weight:500;color:var(--body);padding:0 16px;border-bottom:1px solid var(--hairline);background:var(--soft);font-size:14px;white-space:nowrap}
+td{height:52px;padding:0 16px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+td.n,th.n{width:56px;text-align:right;color:var(--mute);padding-right:8px}
+td.strong{color:var(--ink);font-weight:500}
+.st{display:inline-flex;align-items:center;gap:7px}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.list td .btn{margin-left:4px}
+
+/* ── dialog ────────────────────────────────────────────────────────────── */
+.veil{position:fixed;inset:0;background:var(--scrim);z-index:40;display:flex;align-items:center;justify-content:center;padding:24px;animation:fade 180ms}
+@keyframes fade{from{opacity:0}}
+.dlg{width:min(68rem,100%);max-height:calc(100vh - 48px);background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-dialog);box-shadow:var(--shadow-float);display:flex;flex-direction:column;overflow:hidden;animation:rise 240ms var(--ease-out)}
+@keyframes rise{from{opacity:0;transform:translateY(10px) scale(.985)}}
+.dh{display:flex;align-items:flex-start;gap:12px;padding:20px 16px 16px 28px;border-bottom:1px solid var(--hairline)}
+.dh h2{margin:0;font-size:20px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+.dh p{margin:4px 0 0;color:var(--body)}
+.dh .grow{flex:1}
+.ib{width:36px;height:36px;border-radius:var(--r-inner);display:grid;place-items:center;color:var(--line-ico)}
+.ib:hover{background:var(--soft-2);color:var(--ink)}
+.db{flex:1;min-height:0;overflow-y:auto;padding:24px 32px}
+.df{border-top:1px solid var(--hairline);padding:14px 20px 14px 28px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.df .grow{flex:1;min-width:8rem;color:var(--body)}
+.verdict{display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-radius:var(--r-card);margin-bottom:16px}
+.verdict svg{width:20px;height:20px;margin-top:1px}
+.verdict b{font-weight:600}
+.verdict.ok{background:var(--ok-bg);color:var(--ok-fg)}
+.verdict.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.verdict.info{background:var(--info-bg);color:var(--info-fg)}
+.verdict p{margin:2px 0 0;opacity:.9}
+.diff{display:inline-flex;align-items:center;gap:6px;font-weight:500;font-variant-numeric:tabular-nums}
+.diff.ok{color:var(--ok-fg)}
+.diff.short{color:var(--warn-fg)}
+.diff.over{color:var(--info-fg)}
+.diff svg{width:15px;height:15px}
+
+tfoot td{background:var(--soft);font-weight:600;color:var(--ink);border-top:1px solid var(--hairline);border-bottom:0}
+.box{width:18px;height:18px;border-radius:5px;box-shadow:inset 0 0 0 1.5px var(--hairline-strong);background:var(--canvas);display:inline-grid;place-items:center;color:#fff;vertical-align:middle}
+.box svg{width:13px;height:13px;stroke-width:2.6;display:none}
+.box.on{background:var(--accent);box-shadow:none}
+.box.on svg{display:block}
+h3{margin:22px 0 10px;font-size:15px;font-weight:600;color:var(--ink)}
+.opts{display:grid;gap:8px}
+.decide{display:grid;gap:24px;grid-template-columns:repeat(auto-fit,minmax(18rem,1fr));align-items:start}
+.decide h3{margin-top:22px}
+.opt{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:var(--r-card);box-shadow:inset 0 0 0 1px var(--hairline-2);width:100%}
+.opt:hover{background:var(--soft)}
+.opt.on{box-shadow:inset 0 0 0 1.5px var(--accent);background:var(--accent-bg)}
+.opt .rad{width:18px;height:18px;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--hairline-strong);flex-shrink:0;margin-top:2px;background:var(--canvas)}
+.opt.on .rad{box-shadow:inset 0 0 0 5px var(--accent)}
+.opt b{display:block;font-weight:500;color:var(--ink)}
+.opt span{display:block;color:var(--body);margin-top:2px;line-height:1.5}
+.ret{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:var(--r-card);box-shadow:inset 0 0 0 1px var(--hairline-2)}
+.ret b{font-weight:500;color:var(--ink)}
+.ret p{margin:2px 0 0;color:var(--body);line-height:1.5}
+.why{width:100%;min-height:84px;border:0;border-radius:var(--r-inner);box-shadow:inset 0 0 0 1px var(--hairline-2);padding:12px 14px;outline:none;resize:vertical}
+.why:focus{box-shadow:inset 0 0 0 1.5px var(--accent),0 0 0 4px rgb(37 99 235/.12)}
+.err{color:var(--bad-fg);margin-top:6px}
+.confirm{width:100%;display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--warn-bg);color:var(--warn-fg);margin:-14px -20px -14px -28px;padding:14px 20px 14px 28px}
+.confirm .grow{color:var(--warn-fg)}
+.sheet{position:fixed;z-index:30;top:20px;right:20px;bottom:20px;width:30rem;background:var(--canvas);border:1px solid var(--hairline);border-radius:1rem;box-shadow:var(--shadow-float);display:flex;flex-direction:column;overflow:hidden;animation:slide 280ms cubic-bezier(.32,.72,0,1)}
+@keyframes slide{from{transform:translateX(calc(100% + 20px))}}
+.sh{padding:12px 12px 14px 24px;border-bottom:1px solid var(--hairline)}
+.sh .top{display:flex;align-items:center;min-height:36px}
+.sh .top .mono{flex:1;color:var(--body)}
+.sh h2{margin:0;font-size:18px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+.sb{flex:1;overflow-y:auto;padding:20px 24px}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:16px 20px;margin:0 0 22px}
+.facts dt{color:var(--body);font-size:14px}
+.facts dd{margin:5px 0 0;color:var(--ink);font-variant-numeric:tabular-nums}
+.counted{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:var(--r-card);background:var(--info-bg);color:var(--info-fg);margin-bottom:20px}
+.counted .grow{flex:1}
+.counted b{font-weight:600}
+tbody tr.click{cursor:pointer}
+tbody tr.click:hover td{background:var(--soft)}
+tbody tr.sel td{background:var(--accent-bg)}
+.page.beside{padding-right:32rem}
+.beside .hv{display:none}
+.wait{color:var(--mute)}
+.q{font-weight:500;color:var(--ink)}
+.pc{display:block;color:var(--mute);font-size:14px;font-weight:400}
+td.r .pc{text-align:right}
+.tall td{height:64px}
+.ct{table-layout:fixed}
+.ct td{vertical-align:top;padding-top:12px;padding-bottom:12px;height:auto}
+.ct .tx{line-height:44px}
+.ct .art{padding-top:23px}
+.amt{display:flex;align-items:center;gap:4px}
+.amt+.amt{margin-top:8px}
+.fld{display:flex;height:44px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);overflow:hidden;transition:border-color 120ms,box-shadow 120ms}
+.fld:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgb(37 99 235/.12)}
+.fld.bad{border-color:var(--bad)}
+.fld.bad:focus-within{box-shadow:0 0 0 3px rgb(208 81 81/.14)}
+.fld input{width:7rem;border:0;outline:none;padding:0 12px;text-align:right;font-variant-numeric:tabular-nums;font-size:16px;background:none}
+.fld select{width:6.75rem;border:0;border-left:1px solid var(--hairline);outline:none;padding:0 32px 0 12px;font:inherit;color:var(--ink);cursor:pointer;-webkit-appearance:none;appearance:none;background:var(--soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23737c89' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 10px center}
+.fld select:hover{background-color:var(--soft-2)}
+.amt .rm{width:32px;height:32px;border-radius:var(--r-inner);display:grid;place-items:center;color:var(--faint);flex-shrink:0;margin-left:4px}
+.amt .rm svg{width:15px;height:15px}
+.amt .rm:hover{background:var(--bad-bg,#fbeaea);color:var(--bad-fg)}
+.amt .rm.off{visibility:hidden}
+.addu{color:var(--accent);font-weight:500;margin-top:6px;height:28px;display:inline-flex;align-items:center}
+.conv{color:var(--mute);font-size:14px}
+.meta{display:flex;align-items:center;gap:14px;margin-top:6px;min-height:24px}
+.meta .addu{margin-top:0}
+.sum{font-variant-numeric:tabular-nums;color:var(--ink);font-weight:500}
+.hint{color:var(--mute);font-size:14px}
+.cerr{color:var(--bad-fg);font-size:14px}
+/* ── tablet and phone ── */
+.act{text-align:right;width:1%;white-space:nowrap}
+.touch .btn{height:44px}
+.touch .btn.sm{height:40px}
+.touch .ib{width:44px;height:44px}
+@media (max-width:1100px){.list .hw{display:none}}
+.pcard{padding:14px 16px;border-bottom:1px solid var(--hairline);display:flex;flex-direction:column;gap:4px;cursor:pointer}
+.pcard:last-child{border-bottom:0}
+.row1{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.meta2{color:var(--body);font-size:14px}
+.pcard .act{width:auto;text-align:left;margin-top:8px}
+.phone .pcard .act .btn{width:100%;justify-content:center}
+.pcard .act{display:flex;justify-content:flex-start}
+.ptot{position:sticky;bottom:0;display:flex;justify-content:space-between;padding:14px 16px;background:var(--soft);border-top:1px solid var(--hairline);font-weight:500;color:var(--ink)}
+.pline{padding:14px 16px;border-bottom:1px solid var(--hairline)}
+.pline:last-child{border-bottom:0}
+.pline .amt{margin-top:10px}
+.pline .fld{flex:1}
+.pline .fld input{flex:1;width:auto}
+.pline .fld input{min-width:0}
+.fld select{flex:0 0 6.75rem}
+@media (max-width:1023px){.col{display:none}.bar{padding:0 20px}.content{padding:20px 20px 100px}}
+.phone .col{display:none}
+.phone .bar{padding:0 16px}
+.phone .content{padding:16px 16px 100px}
+.phone h1{font-size:24px}
+.phone .veil{padding:0;align-items:flex-end}
+.phone .dlg{width:100%;max-height:calc(100% - 12px);height:calc(100% - 12px);border-radius:16px 16px 0 0;border-width:1px 0 0}
+.phone .dh{padding:16px 8px 12px 16px}
+.phone .dh h2{font-size:18px}
+.phone .db{padding:16px}
+.phone .df{padding:12px 16px}
+.phone .df .btn{flex:1;justify-content:center}
+.phone .df .grow{flex-basis:100%}
+.phone .sheet{top:12px;left:0;right:0;bottom:0;width:auto;border-radius:16px 16px 0 0}
+.phone .decide{grid-template-columns:1fr;gap:0}
+.dev{position:fixed;inset:0;z-index:85;background:#e7e7ea;display:flex;justify-content:center;align-items:flex-start;padding-top:18px}
+.dev[hidden]{display:none}
+.frame{flex-shrink:0;border:10px solid #191b20;border-radius:46px;overflow:hidden;background:#fff;transform-origin:top center;box-shadow:0 30px 60px rgb(24 39 60/18%)}
+.frame.tablet{border-width:14px;border-radius:30px}
+.frame iframe{width:100%;height:100%;border:0;display:block}
+.embed .proto{display:none}
+body.devmode .proto{left:50%;transform:translateX(-50%)}
+.rtabs{display:flex;gap:4px;border-bottom:1px solid var(--hairline);margin:-8px 0 16px}
+.rtabs button{height:44px;padding:0 12px;color:var(--body);font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;align-items:center;gap:8px}
+.rtabs button.on{color:var(--ink);border-color:var(--ink)}
+.rtabs button span{font-weight:400;color:var(--mute);font-variant-numeric:tabular-nums}
+.kind{font-size:14px;color:var(--body);background:var(--soft-2);border-radius:6px;padding:2px 8px}
+.scan{display:flex;align-items:center;gap:12px;height:56px;border-radius:10px;border:1px solid var(--hairline-2);padding:0 16px;margin-bottom:12px;color:var(--mute)}
+.scan:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgb(37 99 235/.12)}
+.scan svg{width:22px;height:22px}
+.scan input{flex:1;border:0;outline:none;font-size:18px;background:none;min-width:0}
+.scan kbd{font-family:inherit;font-size:14px;color:var(--mute);border:1px solid var(--hairline-2);border-radius:6px;padding:1px 8px}
+.quick{display:flex;flex-wrap:wrap;gap:6px;align-items:center;color:var(--mute);font-size:14px;margin-bottom:16px}
+.quick button{font-family:"JetBrains Mono",monospace;font-size:14px;color:var(--accent);padding:2px 8px;border-radius:6px;background:var(--accent-bg)}
+.step{display:inline-flex;align-items:center;gap:10px}
+.rt td:last-child{width:1%;white-space:nowrap}
+@media (max-width:767px){.rt .n{display:none}.step{gap:6px}.step b{min-width:3.5rem!important}.dlg{max-width:100%}}
+.step b{min-width:4.5rem;text-align:center;font-weight:500;color:var(--ink)}
+.step button{width:36px;height:36px;border-radius:var(--r-inner);border:1px solid var(--hairline-2);display:grid;place-items:center;color:var(--body)}
+.step button:hover{background:var(--soft)}
+tr.hit td{animation:hit 900ms var(--ease-out)}
+@keyframes hit{from{background:var(--accent-bg)}}
+.empty{padding:28px;text-align:center;color:var(--mute);border:1px dashed var(--hairline-2);border-radius:var(--r-card)}
+.sfx{display:flex;align-items:center;padding:0 12px;border-left:1px solid var(--hairline);background:var(--soft);color:var(--body)}
+.nr{display:grid;grid-template-columns:17rem 1fr;gap:16px;align-items:start}
+.stores{padding:6px}
+.st-row{width:100%;display:flex;flex-direction:column;padding:10px 12px;border-radius:var(--r-inner)}
+.st-row:hover{background:var(--soft)}
+.st-row.on{background:var(--accent-bg)}
+.st-row.on .q{color:#1e40af}
+.nrfoot{position:sticky;bottom:0;margin-top:16px;display:flex;align-items:center;gap:12px;padding:14px 0;background:var(--soft-3);border-top:1px solid var(--hairline);color:var(--body)}
+.nrfoot .grow{flex:1}
+@media (max-width:1023px){.nr{grid-template-columns:1fr}.stores{display:flex;overflow-x:auto;gap:4px}.st-row{width:auto;min-width:11rem}}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#191b20;color:#fff;padding:12px 18px;border-radius:10px;z-index:80;box-shadow:var(--shadow-pop);animation:rise 200ms var(--ease-out)}
+
+.proto{position:fixed;left:84px;bottom:16px;z-index:90;background:#191b20;border-radius:12px;padding:4px;display:flex;gap:6px;align-items:center;box-shadow:var(--shadow-float);font-size:14px}
+.proto span{color:#8b8e95;padding:0 6px 0 8px}
+.seg{display:flex;background:#2a2c31;border-radius:9px;padding:3px}
+.seg button{height:30px;padding:0 12px;border-radius:6px;color:#a9abb1;white-space:nowrap}
+.seg button.on{background:#fff;color:#191b20;font-weight:500}
+
+/* spacious: every row breathes, and a two-line cell (name over SKU) gets room above and below */
+td{padding-top:14px!important;padding-bottom:14px!important;min-height:64px}
+tbody td{height:64px}
+.tree td{height:52px}
+.nm{line-height:1.4}
+.sk{line-height:1.4;margin-top:4px}
+h1{margin-bottom:20px}
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="col"><span class="mark">C</span><span class="ci"><i data-lucide="house"></i></span><span class="ci" id="navBuy"><i data-lucide="shopping-cart"></i></span><span class="ci" id="navOps"><i data-lucide="truck"></i></span><span class="ci"><i data-lucide="boxes"></i></span><span class="ci"><i data-lucide="landmark"></i></span></nav>
+  <div class="main">
+    <header class="bar" id="crumb"></header>
+    <div class="page" id="page"><div class="content" id="list"></div></div>
+  </div>
+</div>
+<div id="dlgRoot"></div>
+<div class="dev" id="dev" hidden><div class="frame" id="frame"><iframe id="ifr" title="Device preview"></iframe></div></div>
+<div class="proto"><div class="seg" id="devseg"></div><div class="seg" id="viewseg"></div><span>Count result</span><div class="seg" id="seg"></div></div>
+<div id="sheetRoot"></div>
+
+<script>
+/* [name, sku, ordered pcs, price per pc, order unit, its factor, units it may be counted in] */
+const UNITS={PCS:1,KODI:20,LUSIN:12};
+const LINES=[
+  ['Kemeja Oxford Slim','KMJ-OXF-SL',320,142000,'KODI',20,{PCS:1,KODI:20,LUSIN:12}],
+  ['Kemeja Linen Relaxed','KMJ-LNN-RX',280,156000,'PCS',1,{PCS:1,KODI:20,LUSIN:12}],
+  ['Celana Chino Tapered','CLN-CHN-TP',360,168000,'CARTON',24,{PCS:1,KODI:20,CARTON:24}],
+  ['Polo Pique Basic','PLO-PQ-BS',280,98000,'KODI',20,{PCS:1,KODI:20,LUSIN:12}],
+];
+/* A quantity in pieces, said in the line's order unit: 185 pcs of a KODI
+   line is "9 KODI 5 pcs". Pieces stay the truth; the unit is how people talk. */
+/* Units are said in lower case, like pcs: 16 kodi, 15 carton. Codes stay codes underneath. */
+const un=u=>u.toLowerCase();
+function inUnit(pcs,u,f){u=un(u);
+  if(f===1)return id(pcs)+' pcs';
+  const sign=pcs<0?'−':'', a=Math.abs(pcs), w=Math.floor(a/f), r=a-w*f;
+  return sign+((w?id(w)+' '+u:'')+(r?(w?' ':'')+r+' pcs':'')||'0 '+u);
+}
+const qty=(pcs,l)=>pcs===0?'<span class="hint">—</span>':l[5]===1?'<b class="q">'+id(pcs)+' pcs</b>':'<b class="q">'+inUnit(pcs,l[4],l[5])+'</b><span class="pc">'+id(pcs)+' pcs</span>';
+/* What the DC counted, per scenario, line by line. */
+const SCN={
+  none:{l:'Not counted',c:null},
+  match:{l:'All match',c:[320,280,360,280]},
+  short:{l:'Short',c:[320,200,360,0]},
+  over:{l:'Over',c:[370,280,360,280]},
+  mixed:{l:'Short + over',c:[370,280,280,280]},
+  custom:{l:'From the count',c:[0,0,0,0],hide:1},
+};
+const PSTAT={'Active':'var(--ok)','Partially received':'var(--info)','Short received':'var(--warn)','Fully received':'#4a5261','Cancelled':'var(--faint)'};
+const lineVal=LINES.reduce((t,l)=>t+l[2]*l[3],0), lineQty=LINES.reduce((t,l)=>t+l[2],0);
+/* The first PO is the one the DC has just counted. */
+const POS=[
+  {po:'290926-003',sup:'PT Sinar Garmen',del:'30 Sep',st:'Active',oq:lineQty,ov:lineVal,rq:0,rv:0,items:4,count:'waiting',by:'Agus',at:'09.40',raiser:'Rina'},
+  {po:'290926-001',sup:'CV Benang Mas',del:'2 Oct',st:'Active',oq:860,ov:92150000,rq:0,rv:0,items:2,raiser:'Rina'},
+  {po:'280926-007',sup:'Konveksi Anugerah',del:'1 Oct',st:'Partially received',oq:2100,ov:244800000,rq:1400,rv:163200000,items:6,raiser:'Dimas'},
+  {po:'220926-006',sup:'PT Denim Raya',del:'26 Sep',st:'Partially received',oq:900,ov:121500000,rq:540,rv:72900000,items:3,raiser:'Rina'},
+  {po:'300926-002',sup:'PT Kancing Mas',del:'8 Oct',st:'Active',oq:1200,ov:84000000,rq:0,rv:0,items:4,raiser:'Sari'},
+  {po:'270926-004',sup:'PT Tekstil Jaya',del:'29 Sep',st:'Active',oq:420,ov:51600000,rq:0,rv:0,items:3,count:'recount',why:'The polo carton was still on the truck',raiser:'Rina'},
+  {po:'250926-002',sup:'CV Kain Nusantara',del:'27 Sep',st:'Fully received',oq:1500,ov:168000000,rq:1500,rv:168000000,items:5,raiser:'Sari'},
+  {po:'240926-005',sup:'UD Rajut Bandung',del:'26 Sep',st:'Short received',oq:300,ov:33900000,rq:240,rv:27120000,items:2,raiser:'Rina'},
+  {po:'230926-001',sup:'PT Mega Jahit',del:'25 Sep',st:'Cancelled',oq:640,ov:77200000,rq:0,rv:0,items:3,raiser:'Dimas'},
+];
+const ORDERS=POS;
+/* Today in the prototype: 1 Oct 2026. */
+const MON={Sep:8,Oct:9};
+const dateOf=p=>{const [d,m]=p.del.split(' ');return new Date(2026,MON[m],+d)};
+const TODAY=new Date(2026,9,1);
+const isOpen=p=>p.st==='Active'||p.st==='Partially received';
+const lateBy=p=>isOpen(p)&&!p.count?Math.round((TODAY-dateOf(p))/864e5):0;
+/* The default order is the order of work, not of numbers:
+   1 a count to review, 2 owed and late, 3 owed and not due yet (soonest
+   first), 4 finished. A column the user sorts by overrides it. */
+const stage=p=>p.count==='waiting'?0:isOpen(p)?(lateBy(p)>0?1:2):3;
+const ordered=()=>POS.slice().sort((a,b)=>stage(a)-stage(b)||dateOf(a)-dateOf(b));
+const dueCell=p=>{const n=lateBy(p);return n>0?'<span style="color:var(--bad-fg)">'+p.del+' · '+n+' day'+(n>1?'s':'')+' late</span>':n===0&&isOpen(p)&&!p.count?p.del+' · <span style="color:var(--warn-fg)">today</span>':p.del};
+const QS=new URLSearchParams(location.search), EMBED=QS.get('embed');
+(function(){const c=document.documentElement.classList;if(EMBED)c.add('embed','touch',EMBED);else if(innerWidth<768)c.add('phone','touch');else if(matchMedia('(pointer:coarse)').matches)c.add('touch')})();
+const isPhone=()=>document.documentElement.classList.contains('phone');
+const wide=()=>innerWidth>=1380;
+const compact=()=>isPhone()||innerWidth<1024;
+const S={view:QS.get('view')||'ops',sheet:null,scn:'mixed',open:false,mode:'decide',short:'keep',confirm:false,pick:new Set(),why:'',err:''};
+const $=id=>document.getElementById(id);
+const icons=()=>lucide.createIcons({attrs:{'stroke-width':1.7}});
+const id=n=>n.toLocaleString('id-ID');
+function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),3200)}
+
+function rows(){
+  return LINES.map((l,i)=>{const c=(SCN[S.scn].c||[0,0,0,0])[i];return {i,l,name:l[0],sku:l[1],ord:l[2],price:l[3],cnt:c,d:c-l[2],match:Math.min(c,l[2])}});
+}
+function facts(){
+  const r=rows();
+  const short=r.filter(x=>x.d<0), over=r.filter(x=>x.d>0);
+  return {r,short,over,
+    shortQty:short.reduce((s,x)=>s-x.d,0), overQty:over.reduce((s,x)=>s+x.d,0),
+    ord:r.reduce((s,x)=>s+x.ord,0), cnt:r.reduce((s,x)=>s+x.cnt,0), match:r.reduce((s,x)=>s+x.match,0),
+    value:r.reduce((s,x)=>s+x.match*x.price,0)};
+}
+const stat=p=>'<span class="st"><span class="dot" style="background:'+PSTAT[p.st]+'"></span>'+p.st+'</span>';
+
+function renderList(){
+  $('navBuy').className='ci'+(S.view==='buy'?' on':'');$('navOps').className='ci'+(S.view==='ops'?' on':'');
+  $('crumb').innerHTML=S.view==='buy'?'Buying<i data-lucide="chevron-right"></i><b>Purchase orders</b>':S.view==='merch'||S.view==='newret'?'Merchandise<i data-lucide="chevron-right"></i><b>'+(S.view==='newret'?'New return':'Return to HO')+'</b>':'Ops<i data-lucide="chevron-right"></i><b>Receiving</b>';
+  S.view==='buy'?buyList():S.view==='merch'?merchList():S.view==='newret'?newRetPage():opsList();
+  $('page').className='page'+(S.sheet&&S.view==='buy'&&wide()?' beside':'');
+  icons();
+}
+/* Buying: where a count is reviewed. A PO with a count in carries the button. */
+function buyList(){
+  if(compact()){
+    $('list').innerHTML='<h1>Purchase orders</h1><div class="card">'
+      +ordered().map(p=>'<div class="pcard" onclick="openSheet(\''+p.po+'\')"><div class="row1"><span class="mono" style="color:var(--ink)">'+p.po+'</span>'+stat(p)+'</div><div class="q">'+p.sup+'</div><div class="meta2">'+dueCell(p)+' · '+id(p.rq)+' of '+id(p.oq)+' pcs</div>'
+        +(p.count==='waiting'?'<div class="act"><button class="btn pri" onclick="event.stopPropagation();openDlg()"><i data-lucide="clipboard-check"></i>Review count</button></div>':'')+'</div>').join('')
+      +'<div class="ptot"><span>Total · '+POS.length+' POs</span><b>'+id(sum('rq'))+' of '+id(sum('oq'))+' pcs</b></div></div>';
+    return;
+  }
+  $('list').innerHTML='<h1>Purchase orders</h1>'
+    +'<div class="card list"><table><thead><tr><th class="n">No.</th><th>PO</th><th>Supplier</th><th class="hv">Delivery date</th><th class="r">Ordered qty</th><th class="r hv hw">Ordered value</th><th class="r">Received qty</th><th class="r hv hw">Received value</th><th>Status</th><th class="hv"></th></tr></thead><tbody>'
+    +ordered().map((p,i)=>'<tr class="click'+(S.sheet===p.po?' sel':'')+'" onclick="openSheet(\''+p.po+'\')"><td class="n">'+(i+1)+'</td><td class="mono" style="color:var(--ink)">'+p.po+'</td><td class="strong">'+p.sup+'</td><td class="hv">'+dueCell(p)+'</td><td class="r">'+id(p.oq)+'</td><td class="r hv hw">'+id(p.ov)+'</td><td class="r">'+id(p.rq)+'</td><td class="r hv hw">'+id(p.rv)+'</td><td>'+stat(p)+'</td><td class="hv">'
+      +(p.count==='waiting'?'<button class="btn sm pri" onclick="event.stopPropagation();openDlg()"><i data-lucide="clipboard-check"></i>Review count</button>':p.count==='recount'?'<span class="wait">Recounting</span>':'')
+      +'</td></tr>').join('')+'</tbody>'
+    +'<tfoot><tr><td></td><td colspan="2"><span class="lbl">Total · <b style="color:var(--ink)">'+POS.length+'</b> POs</span></td><td class="hv"></td><td class="r">'+id(sum('oq'))+'</td><td class="r hv hw">'+id(sum('ov'))+'</td><td class="r">'+id(sum('rq'))+'</td><td class="r hv hw">'+id(sum('rv'))+'</td><td></td><td class="hv"></td></tr></tfoot></table></div>';
+}
+const sum=k=>POS.reduce((t,p)=>t+p[k],0);
+/* Ops: the Gudang only counts. After a count it says who the review is with. */
+function opsList(){
+  /* Two tabs, one count. POs and store returns are different documents with
+     different reviewers, so the Gudang sees them apart; counting is the same. */
+  const pos=ordered().filter(isOpen), rets=RETS.filter(r=>r.count!=='accepted'&&r.count!=='requested');
+  const tab=S.rtab||'po';
+  const poCount=()=>{const c=SCN[S.scn].c;return c?c.reduce((a,b)=>a+b,0):0};
+  const counted=n=>'<span class="wait">Counted '+id(n)+' pcs</span>';
+  const items=tab==='po'?pos.map(p=>({doc:p.po,from:p.sup,date:dueCell(p),n:p.items,p,
+      act:p.count==='waiting'?counted(p.po===POS[0].po?poCount():0)
+        :p.count==='recount'?'<button class="btn sm pri" onclick="toast(\'Recount opens the same count sheet\')"><i data-lucide="rotate-ccw"></i>Count again</button>'
+        :'<button class="btn sm" onclick="'+(p.po===POS[0].po?'openCount(null)':'toast(\'Try '+POS[0].po+' — it has lines in this prototype\')')+'"><i data-lucide="scan-line"></i>Count receive</button>'}))
+    :rets.map(r=>({doc:r.doc,from:r.from,date:r.sent,n:r.lines.length,
+      act:r.count==='waiting'?counted((r.counted||[]).reduce((a,b)=>a+b,0)):'<button class="btn sm" onclick="openCount(\''+r.doc+'\')"><i data-lucide="scan-line"></i>Count receive</button>'}));
+  let h='<h1>Receiving</h1>'
+    +'<div class="rtabs"><button class="'+(tab==='po'?'on':'')+'" onclick="S.rtab=\'po\';renderList()">Purchase orders<span>'+pos.length+'</span></button><button class="'+(tab==='ret'?'on':'')+'" onclick="S.rtab=\'ret\';renderList()">Store returns<span>'+rets.length+'</span></button></div>';
+  const from=tab==='po'?'Supplier':'Store', when=tab==='po'?'Delivery date':'Sent on', docH=tab==='po'?'PO':'Return';
+  if(!items.length)h+='<div class="card"><div class="empty" style="border:0">Nothing to count.</div></div>';
+  else if(compact()){
+    h+='<div class="card">'+items.map(x=>'<div class="pcard"><div class="row1"><span class="mono" style="color:var(--ink)">'+x.doc+'</span><span class="wait">'+x.n+' items</span></div><div class="q">'+x.from+'</div><div class="meta2">'+x.date+'</div>'+(x.p&&x.p.count==='recount'?'<div class="meta2">“'+x.p.why+'”</div>':'')+'<div class="act">'+x.act+'</div></div>').join('')+'</div>';
+  } else {
+    h+='<div class="card list"><table><thead><tr><th class="n">No.</th><th>'+docH+'</th><th>'+from+'</th><th>'+when+'</th><th class="r">Items</th><th class="act">Count</th></tr></thead><tbody>'
+      +items.map((x,i)=>'<tr><td class="n">'+(i+1)+'</td><td class="mono" style="color:var(--ink)">'+x.doc+'</td><td class="strong">'+x.from+(x.p&&x.p.count==='recount'?'<span class="pc">“'+x.p.why+'”</span>':'')+'</td><td>'+x.date+'</td><td class="r">'+x.n+'</td><td class="act">'+x.act+'</td></tr>').join('')+'</tbody></table></div>';
+  }
+  $('list').innerHTML=h;
+}
+/* ── store returns: same dock, same count, their own document and reviewer ── */
+/* A return is goods coming back from a store with its own note (surat
+   jalan retur). The Gudang counts it blind with the same Count receive as a
+   PO; Merchandise reviews it against the note; what passes goes to Inspect. */
+const RETS=[
+  {doc:'RT-BSD-0007',from:'Store BSD',sent:null,raiser:'Sari',count:'requested',lines:[['KMJ-LNN-RX-S','Kemeja Linen Relaxed · S',10]]},
+  {doc:'RT-KMG-0043',from:'Store Kemang',sent:'30 Sep',raiser:'Sari',count:null,lines:[['KMJ-OXF-SL-M','Kemeja Oxford Slim · M',6],['CLN-CHN-TP-32','Celana Chino Tapered · 32',4],['PLO-PQ-BS-L','Polo Pique Basic · L',8]]},
+  {doc:'RT-PIK-0018',from:'Store PIK',sent:'29 Sep',raiser:'Dimas',count:'waiting',counted:[5,3],lines:[['KAO-CRW-BS-M','Kaos Crew Basic · M',5],['JKT-BMB-LT-L','Jaket Bomber Light · L',4]]},
+];
+function retOf(doc){return RETS.find(r=>r.doc===doc)}
+/* Merchandise: the return against the store's note. */
+const RV={open:null,short:'ask'};
+function openRetReview(doc){RV.open=doc;RV.short='ask';renderRetReview()}
+function closeRetReview(){RV.open=null;$('dlgRoot').innerHTML=''}
+function renderRetReview(){
+  const r=retOf(RV.open);if(!r)return;
+  const rows=r.lines.map((l,i)=>({sku:l[0],name:l[1],sent:l[2],cnt:r.counted[i],d:r.counted[i]-l[2]})).concat((r.extra||[]).map(([c,n])=>({sku:c,name:'Not on the note',sent:0,cnt:n,d:n})));
+  const short=rows.filter(x=>x.d<0).reduce((s,x)=>s-x.d,0), over=rows.filter(x=>x.d>0).reduce((s,x)=>s+x.d,0);
+  const sent=rows.reduce((s,x)=>s+x.sent,0), cnt=rows.reduce((s,x)=>s+x.cnt,0);
+  let h='<div class="veil" onmousedown="if(event.target===this)closeRetReview()"><div class="dlg" role="dialog" aria-label="Review return">'
+    +'<div class="dh"><div class="grow"><h2>Review count</h2><p><span class="mono">'+r.doc+'</span> · from '+r.from+' · sent '+r.sent+'</p></div><button class="ib" onclick="closeRetReview()" aria-label="Close"><i data-lucide="x"></i></button></div><div class="db">'
+    +(!short&&!over?'<div class="verdict ok"><i data-lucide="circle-check"></i><div><b>The count matches the store\'s note.</b></div></div>':'<div class="verdict warn"><i data-lucide="circle-alert"></i><div><b>'+[short?short+' pcs missing':'',over?over+' pcs more than the note':''].filter(Boolean).join(' and ')+'.</b></div></div>')
+    +'<div class="card"><table><thead><tr><th class="n">No.</th><th>SKU</th><th class="r">Sent</th><th class="r">Counted</th><th class="r">Difference</th></tr></thead><tbody>'
+    +rows.map((x,i)=>'<tr><td class="n">'+(i+1)+'</td><td><span class="q">'+x.name+'</span><span class="pc">'+x.sku+'</span></td><td class="r">'+(x.sent?x.sent+' pcs':'<span class="hint">—</span>')+'</td><td class="r q">'+x.cnt+' pcs</td><td class="r">'+(x.d===0?'<span class="diff ok"><i data-lucide="check"></i>Matches</span>':x.d<0?'<span class="diff short">'+(-x.d)+' pcs missing</span>':'<span class="diff over">+'+x.d+' pcs</span>')+'</td></tr>').join('')
+    +'</tbody><tfoot><tr><td></td><td>Total</td><td class="r">'+sent+' pcs</td><td class="r">'+cnt+' pcs</td><td class="r">'+(cnt-sent===0?'—':(cnt-sent>0?'+':'')+(cnt-sent)+' pcs')+'</td></tr></tfoot></table></div><div class="decide">'
+    +(short?'<div><h3>The '+short+' pcs missing</h3><div class="opts"><button class="opt'+(RV.short==='ask'?' on':'')+'" onclick="RV.short=\'ask\';renderRetReview()"><span class="rad"></span><span><b>Ask '+r.from+' to check</b></span></button><button class="opt'+(RV.short==='lost'?' on':'')+'" onclick="RV.short=\'lost\';renderRetReview()"><span class="rad"></span><span><b>Record as lost in transit</b></span></button></div></div>':'')
+    +(over?'<div><h3>The '+over+' pcs more than the note</h3><div class="ret"><i data-lucide="package-plus" style="color:var(--info-fg);margin-top:2px"></i><div><b>Taken in from '+r.from+'</b></div></div></div>':'')
+    +'</div>'
+    +'</div><div class="df"><span class="grow"></span><button class="btn pri" onclick="acceptRet()"><i data-lucide="check"></i>Accept '+cnt+' pcs</button></div></div></div>';
+  $('dlgRoot').innerHTML=h;icons();
+}
+function acceptRet(){const r=retOf(RV.open);r.count='accepted';const n=r.counted.reduce((a,b)=>a+b,0);HO_RS[r.from]=(HO_RS[r.from]||0)+n;closeRetReview();renderList();toast(r.doc+' accepted · '+n+' pcs into '+r.from+'\'s return stock at HO')}
+/* ── return stock: what each store has set aside to send back, and what of
+   it has arrived at HO, kept per store. A return is raised FROM a store's
+   return stock, and lands in that store's return stock at HO. ── */
+const STORES=['Store Kemang','Store PIK','Store Senayan','Store BSD','Store Bintaro'];
+const RS={ /* at the store: [sku, name, reason, qty] */
+  'Store Kemang':[['KMJ-OXF-SL-XL','Kemeja Oxford Slim · XL','Slow moving',7],['CLN-CHN-TP-36','Celana Chino Tapered · 36','Slow moving',5],['PLO-PQ-BS-S','Polo Pique Basic · S','Damaged',2],['KAO-CRW-BS-XXL','Kaos Crew Basic · XXL','Slow moving',9]],
+  'Store PIK':[['JKT-BMB-LT-S','Jaket Bomber Light · S','Slow moving',4],['KMJ-LNN-RX-XL','Kemeja Linen Relaxed · XL','Damaged',1]],
+  'Store Senayan':[['PLO-PQ-BS-XXL','Polo Pique Basic · XXL','Slow moving',6],['KAO-CRW-BS-S','Kaos Crew Basic · S','Recall',12],['CLN-CHN-TP-28','Celana Chino Tapered · 28','Slow moving',3]],
+  'Store BSD':[],
+  'Store Bintaro':[['KMJ-OXF-SL-S','Kemeja Oxford Slim · S','Damaged',3]],
+};
+const HO_RS={'Store PIK':38,'Store Kemang':24}; /* pcs already back at HO, per store */
+const NR={store:'Store Kemang',send:{}};
+function openNewRet(){S.view='newret';NR.store=STORES.find(s=>RS[s].length)||STORES[0];NR.send={};paintProto();renderList()}
+function newRetPage(){
+  const lines=RS[NR.store], q=i=>NR.send[NR.store+i]??lines[i][3];
+  const total=lines.reduce((s,l,i)=>s+q(i),0);
+  let h='<div style="display:flex;align-items:center;gap:8px;color:var(--body);margin-bottom:6px"><button class="btn ghost sm" onclick="setView(\'merch\')"><i data-lucide="arrow-left"></i>Return to HO</button></div>'
+    +'<h1>New return</h1>'
+    +'<div class="nr"><div class="card stores">'+STORES.map(s=>{const n=RS[s].reduce((t,l)=>t+l[3],0);return '<button class="st-row'+(s===NR.store?' on':'')+'" onclick="NR.store=\''+s+'\';renderList()"><span class="q">'+s+'</span><span class="pc">'+(n?n+' pcs · '+RS[s].length+' SKU'+(RS[s].length>1?'s':''):'Nothing set aside')+'</span></button>'}).join('')+'</div>';
+  if(!lines.length)h+='<div class="card"><div class="empty" style="border:0">'+NR.store+' has nothing in its return stock.</div></div>';
+  else h+='<div class="card list"><table><thead><tr><th class="n">No.</th><th>SKU</th><th>Reason</th><th class="r">In return stock</th><th class="r" style="width:11rem">To send</th></tr></thead><tbody>'
+    +lines.map((l,i)=>'<tr><td class="n">'+(i+1)+'</td><td><span class="q">'+l[1]+'</span><span class="pc">'+l[0]+'</span></td><td>'+l[2]+'</td><td class="r">'+l[3]+' pcs</td><td class="r"><span class="fld" style="display:inline-flex;width:8.5rem"><input style="width:100%;min-width:0" inputmode="numeric" value="'+q(i)+'" oninput="NR.send[NR.store+'+i+']=Math.max(0,Math.min('+l[3]+',parseInt(this.value)||0));document.getElementById(\'nrTot\').textContent=nrTotal()+\' pcs\'" aria-label="Pieces to send"><span class="sfx">pcs</span></span></td></tr>').join('')
+    +'</tbody><tfoot><tr><td></td><td colspan="2"><span class="lbl">Total · '+lines.length+' SKUs</span></td><td class="r">'+lines.reduce((s,l)=>s+l[3],0)+' pcs</td><td class="r" id="nrTot">'+total+' pcs</td></tr></tfoot></table></div>';
+  h+='</div><div class="nrfoot"><span class="grow">Lands in <b style="color:var(--ink)">'+NR.store+'</b>\'s return stock at HO once the Gudang has counted it and you\'ve reviewed it.</span><button class="btn pri" onclick="createRet()"'+(lines.length?'':' disabled')+'><i data-lucide="check"></i>Create return</button></div>';
+  $('list').innerHTML=h;
+}
+function nrTotal(){const lines=RS[NR.store];return lines.reduce((s,l,i)=>s+(NR.send[NR.store+i]??l[3]),0)}
+function createRet(){
+  const lines=RS[NR.store].map((l,i)=>[l[0],l[1],NR.send[NR.store+i]??l[3]]).filter(l=>l[2]>0);
+  if(!lines.length){toast('Nothing to send');return}
+  const code={Kemang:'KMG',PIK:'PIK',Senayan:'SNY',BSD:'BSD',Bintaro:'BTR'}[NR.store.split(' ')[1]], doc='RT-'+code+'-00'+(50+RETS.length);
+  RETS.unshift({doc,from:NR.store,sent:null,raiser:'Rina',count:'requested',lines});
+  RS[NR.store]=RS[NR.store].map((l,i)=>[l[0],l[1],l[2],l[3]-(NR.send[NR.store+i]??l[3])]).filter(l=>l[3]>0);
+  S.view='merch';paintProto();renderList();toast(doc+' created · '+NR.store+' is asked to send it');
+}
+/* HO's return stock, per store — what accepted returns have added. */
+function hoStockCard(){
+  const rows=STORES.filter(s=>HO_RS[s]).map(s=>[s,HO_RS[s]]);
+  return '<h3 style="margin:28px 0 10px">Return stock at HO</h3><div class="card list"><table><thead><tr><th class="n">No.</th><th>Store</th><th class="r">Pieces</th><th class="act"></th></tr></thead><tbody>'
+    +rows.map((r,i)=>'<tr><td class="n">'+(i+1)+'</td><td class="strong">'+r[0]+'</td><td class="r">'+r[1]+' pcs</td><td class="act"><span class="wait">Kept apart by store</span></td></tr>').join('')
+    +'</tbody><tfoot><tr><td></td><td><span class="lbl">Total</span></td><td class="r">'+rows.reduce((s,r)=>s+r[1],0)+' pcs</td><td></td></tr></tfoot></table></div>';
+}
+
+function merchList(){
+  /* Merchandise raises a return; it follows it here until Inspect. */
+  const st=r=>r.count==='requested'?'<span class="st"><span class="dot" style="background:var(--faint)"></span>Waiting for the store to send</span>'
+    :r.count===null?'<span class="st"><span class="dot" style="background:var(--info)"></span>On the way to the Gudang</span>'
+    :r.count==='waiting'?'<span class="st"><span class="dot" style="background:var(--warn)"></span>Counted</span>'
+    :'<span class="st"><span class="dot" style="background:var(--ok)"></span>In HO return stock</span>';
+  const order=r=>({waiting:0,null:1,requested:2,accepted:3})[r.count];
+  const rows=RETS.slice().sort((a,b)=>order(a)-order(b));
+  let h='<div style="display:flex;align-items:flex-end;gap:16px"><div style="flex:1"><h1>Return to HO</h1></div><button class="btn pri" style="margin-bottom:24px" onclick="openNewRet()"><i data-lucide="plus"></i>New return</button></div>';
+  h+='<div class="card list"><table><thead><tr><th class="n">No.</th><th>Return</th><th>From</th><th>Raised by</th><th>Sent on</th><th class="r">Items</th><th>Status</th><th class="act"></th></tr></thead><tbody>'
+    +rows.map((r,i)=>'<tr><td class="n">'+(i+1)+'</td><td class="mono" style="color:var(--ink)">'+r.doc+'</td><td class="strong">'+r.from+'</td><td>'+r.raiser+'</td><td>'+(r.sent||'<span class="hint">—</span>')+'</td><td class="r">'+r.lines.length+'</td><td>'+st(r)+'</td><td class="act">'+(r.count==='waiting'?'<button class="btn sm pri" onclick="openRetReview(\''+r.doc+'\')"><i data-lucide="clipboard-check"></i>Review count</button>':'')+'</td></tr>').join('')
+    +'</tbody></table></div>';
+  h+=hoStockCard();
+  $('list').innerHTML=h;
+}
+
+/* The Gudang's count. Blind: no ordered quantity anywhere. Each line is
+   counted in whatever is in front of you — "9 KODI + 5 PCS", "9.5 KODI" —
+   and the line says what that comes to in pieces. A unit amount that isn't
+   a whole number of pieces (9.33 KODI) is refused on the spot. */
+const C={open:false,parts:[],err:'',doc:null,from:'',lines:[]};
+/* A store return is counted exactly like a PO: same blind sheet, same units. */
+const RET_UNITS={PCS:1,KODI:20,LUSIN:12};
+function openCount(doc){
+  const r=doc&&retOf(doc);
+  C.open=true;C.err='';C.doc=r?r.doc:POS[0].po;C.from=r?r.from:POS[0].sup;
+  C.lines=r?r.lines.map(l=>[l[1],l[0],l[2],0,'PCS',1,RET_UNITS]):C.lines;
+  C.parts=C.lines.map(l=>[{q:'',u:l[4]}]);renderCount();
+}
+function closeCount(){C.open=false;$('dlgRoot').innerHTML=''}
+const pcsOf=part=>{const q=parseFloat(String(part.q).replace(',','.'));return isNaN(q)?null:q*part.f};
+function lineTotal(i){
+  let t=0,bad=false,empty=true;
+  C.parts[i].forEach(p=>{if(p.q==='')return;empty=false;const f=C.lines[i][6][p.u],v=parseFloat(String(p.q).replace(',','.'))*f;if(isNaN(v)||v<0||Math.abs(v-Math.round(v))>1e-9)bad=true;else t+=Math.round(v)});
+  return {t,bad,empty};
+}
+function renderCount(){
+  if(!C.open)return;
+  const tots=C.lines.map((l,i)=>lineTotal(i)), done=tots.filter(x=>!x.empty&&!x.bad).length, all=tots.reduce((s,x)=>s+(x.bad?0:x.t),0);
+  let h='<div class="veil" onmousedown="if(event.target===this)closeCount()"><div class="dlg" role="dialog" aria-label="Count receive">'
+    +'<div class="dh"><div class="grow"><h2>Count receive</h2><p><span class="mono">'+C.doc+'</span> · '+C.from+'</p></div><button class="ib" onclick="closeCount()" aria-label="Close"><i data-lucide="x"></i></button></div><div class="db">'
+    +'<div class="card"><table class="ct"><colgroup><col style="width:56px"><col><col style="width:20rem"><col style="width:9rem"></colgroup><thead><tr><th class="n">No.</th><th>Article</th><th>Counted</th><th class="r">In pieces</th></tr></thead><tbody>';
+  if(isPhone()){
+    h=h.replace('<div class="card"><table class="ct"><colgroup><col style="width:56px"><col><col style="width:20rem"><col style="width:9rem"></colgroup><thead><tr><th class="n">No.</th><th>Article</th><th>Counted</th><th class="r">In pieces</th></tr></thead><tbody>','<div class="card">');
+    C.lines.forEach((l,i)=>{
+      const t=tots[i];
+      h+='<div class="pline"><div class="row1"><span><span class="q">'+(i+1)+'. '+l[0]+'</span><span class="pc">'+l[1]+'</span></span><span class="sum">'+(t.empty?'<span class="hint">—</span>':t.bad?'<span class="cerr" style="font-weight:400">Not whole pieces</span>':id(t.t)+' pcs')+'</span></div>'
+        +C.parts[i].map((p,j)=>'<div class="amt"><div class="fld'+(t.bad?' bad':'')+'"><input inputmode="decimal" value="'+p.q+'" data-i="'+i+'" data-j="'+j+'" placeholder="0" aria-label="Amount"><select data-i="'+i+'" data-j="'+j+'" aria-label="Unit">'+Object.keys(l[6]).map(u=>'<option value="'+u+'"'+(u===p.u?' selected':'')+'>'+un(u)+'</option>').join('')+'</select></div><button class="rm'+(C.parts[i].length>1?'':' off')+'" onclick="dropPart('+i+','+j+')" aria-label="Remove this amount"><i data-lucide="x"></i></button></div>').join('')
+        +(C.parts[i].length<Object.keys(l[6]).length?'<div class="meta"><button class="addu" onclick="addPart('+i+')">+ Another unit</button></div>':'')+'</div>';
+    });
+    h+='</div>';
+  } else C.lines.forEach((l,i)=>{
+    const t=tots[i];
+    const used=[...new Set(C.parts[i].map(p=>p.u))].filter(u=>u!=='PCS');
+    h+='<tr><td class="n tx">'+(i+1)+'</td><td class="art"><span class="q">'+l[0]+'</span><span class="pc">'+l[1]+'</span></td><td>'
+      +C.parts[i].map((p,j)=>'<div class="amt"><div class="fld'+(t.bad?' bad':'')+'"><input inputmode="decimal" value="'+p.q+'" data-i="'+i+'" data-j="'+j+'" placeholder="0" aria-label="Amount"><select data-i="'+i+'" data-j="'+j+'" aria-label="Unit" title="'+Object.entries(l[6]).filter(([u])=>u!=='PCS').map(([u,f])=>'1 '+un(u)+' = '+f+' pcs').join(', ')+'">'+Object.keys(l[6]).map(u=>'<option value="'+u+'"'+(u===p.u?' selected':'')+'>'+un(u)+'</option>').join('')+'</select></div>'+'<button class="rm'+(C.parts[i].length>1?'':' off')+'" onclick="dropPart('+i+','+j+')" aria-label="Remove this amount" title="Remove"'+(C.parts[i].length>1?'':' tabindex="-1"')+'><i data-lucide="x"></i></button>'+'</div>').join('')
+      +(C.parts[i].length<Object.keys(l[6]).length?'<div class="meta"><button class="addu" onclick="addPart('+i+')">+ Another unit</button></div>':'')
+      +'</td><td class="r sum tx">'+(t.empty?'<span class="hint">—</span>':t.bad?'<span class="cerr" style="font-weight:400">Not whole pieces</span>':id(t.t)+' pcs')+'</td></tr>';
+  });
+  if(!isPhone())h+='</tbody></table></div>';
+  h+='</div><div class="df"><span class="grow"><b style="color:var(--ink)">'+id(all)+' pcs</b> counted so far · '+done+' of '+C.lines.length+' lines'+(C.err?'<br><span class="cerr">'+C.err+'</span>':'')+'</span><button class="btn pri" onclick="sendCount()"><i data-lucide="check"></i>Submit count</button></div></div></div>';
+  const focus=document.activeElement&&document.activeElement.dataset?[document.activeElement.dataset.i,document.activeElement.dataset.j,document.activeElement.tagName]:null;
+  $('dlgRoot').innerHTML=h;
+  document.querySelectorAll('.fld input').forEach(el=>el.oninput=()=>{C.parts[el.dataset.i][el.dataset.j].q=el.value;C.err='';renderCount()});
+  document.querySelectorAll('.fld select').forEach(el=>el.onchange=()=>{C.parts[el.dataset.i][el.dataset.j].u=el.value;renderCount()});
+  if(focus&&focus[0]!==undefined){const el=document.querySelector((focus[2]==='SELECT'?'select':'input')+'[data-i="'+focus[0]+'"][data-j="'+focus[1]+'"]');if(el){el.focus();if(el.setSelectionRange&&el.type!=='select-one')el.setSelectionRange(el.value.length,el.value.length)}}
+  icons();
+}
+function addPart(i){const used=C.parts[i].map(p=>p.u);const u=Object.keys(C.lines[i][6]).find(x=>!used.includes(x));C.parts[i].push({q:'',u});renderCount()}
+function dropPart(i,j){C.parts[i].splice(j,1);renderCount()}
+function sendCount(){
+  const tots=C.lines.map((l,i)=>lineTotal(i));
+  if(tots.some(x=>x.bad)){C.err='Fix the amounts marked red first.';renderCount();return}
+  const empty=tots.filter(x=>x.empty).length;
+  if(empty){C.err=empty+' line'+(empty>1?'s are':' is')+' still empty. Type 0 if nothing came.';renderCount();return}
+  const r=retOf(C.doc);
+  if(r){r.counted=tots.map(x=>x.t);r.extra=[];r.count='waiting';closeCount();renderList();toast('Count sent. '+r.raiser+' reviews it in Merchandise.');return}
+  SCN.custom.c=tots.map(x=>x.t);
+  closeCount();setScn('custom');
+  Object.assign(POS[0],{by:'Agus',at:'now'});
+  renderList();toast('Count sent. '+POS[0].raiser+' reviews it in Buying.');
+}
+
+/* The PO's own sheet: the count waits here too, at the top. */
+function openSheet(po){S.sheet=po;renderSheet();renderList()}
+function closeSheet(){S.sheet=null;$('sheetRoot').innerHTML='';renderList()}
+function renderSheet(){
+  if(!S.sheet||S.view!=='buy'){$('sheetRoot').innerHTML='';return}
+  const p=POS.find(x=>x.po===S.sheet);
+  $('sheetRoot').innerHTML=(wide()?'':'<div class="veil" style="z-index:29;display:block;padding:0" onmousedown="closeSheet()"></div>')+'<aside class="sheet"><div class="sh"><div class="top"><span class="mono">'+p.po+'</span><button class="ib" onclick="closeSheet()" aria-label="Close"><i data-lucide="x"></i></button></div><h2>'+p.sup+'</h2><div style="margin-top:4px">'+stat(p)+'</div></div><div class="sb">'
+    +(p.count==='waiting'?'<div class="counted"><i data-lucide="clipboard-check"></i><span class="grow"><b>Counted at the Gudang</b><br>'+p.by+', today '+p.at+'</span><button class="btn sm pri" onclick="openDlg()">Review count</button></div>':'')
+    +(p.count==='recount'?'<div class="counted" style="background:var(--warn-bg);color:var(--warn-fg)"><i data-lucide="rotate-ccw"></i><span class="grow"><b>Sent back to count.</b><br>“'+p.why+'”</span></div>':'')
+    +'<dl class="facts"><div><dt>Delivery date</dt><dd>'+p.del+' 2026</dd></div><div><dt>Raised by</dt><dd>'+p.raiser+'</dd></div><div><dt>Ordered qty</dt><dd>'+id(p.oq)+' pcs</dd></div><div><dt>Ordered value</dt><dd>Rp '+id(p.ov)+'</dd></div><div><dt>Received qty</dt><dd>'+id(p.rq)+' pcs</dd></div><div><dt>Received value</dt><dd>Rp '+id(p.rv)+'</dd></div>'+(isOpen(p)&&p.rq>0?'<div><dt>Still to come</dt><dd>'+id(p.oq-p.rq)+' pcs'+(lateBy(p)>0?' · <span style="color:var(--bad-fg)">'+lateBy(p)+' days late</span>':'')+'</dd></div>':'')+'</dl>'
+    +(p.po===POS[0].po?'<div class="card"><table><thead><tr><th>Article</th><th class="r">Ordered qty</th><th class="r">Received qty</th></tr></thead><tbody>'+LINES.map((l,i)=>'<tr class="tall"><td class="strong">'+l[0]+'<span class="pc">'+(l[5]===1?'Ordered in pcs':'1 '+un(l[4])+' = '+l[5]+' pcs')+'</span></td><td class="r">'+qty(l[2],l)+'</td><td class="r">'+qty(p.rcvd?p.rcvd[i]:0,l)+'</td></tr>').join('')+'</tbody></table></div>':'')
+    +'</div></aside>';
+  icons();
+}
+
+/* ── the dialog ─────────────────────────────────────────────────────────── */
+function openDlg(){S.open=true;S.mode='decide';S.confirm=false;S.short='keep';S.why='';S.err='';S.pick=new Set(facts().r.filter(x=>x.d!==0).map(x=>x.i));renderDlg()}
+function closeDlg(){S.open=false;$('dlgRoot').innerHTML=''}
+function renderDlg(){
+  if(!S.open){$('dlgRoot').innerHTML='';return}
+  const F=facts(), o=ORDERS[0], recount=S.mode==='recount';
+  let h='<div class="veil" onmousedown="if(event.target===this)closeDlg()"><div class="dlg" role="dialog" aria-label="Review count">'
+    +'<div class="dh"><div class="grow"><h2>'+(recount?'Send back to count':'Review count')+'</h2><p><span class="mono">'+o.po+'</span> · '+o.sup+' · counted at Cikarang DC by '+o.by+', '+o.at+'</p></div><button class="ib" onclick="closeDlg()" aria-label="Close"><i data-lucide="x"></i></button></div><div class="db">';
+  if(!recount)h+=verdict(F);
+  h+=table(F,recount);
+  h+=recount?recountForm(F):choices(F);
+  h+='</div><div class="df">'+footer(F)+'</div></div></div>';
+  $('dlgRoot').innerHTML=h;
+  const w=$('why');if(w){w.oninput=()=>{S.why=w.value;if(S.err){S.err='';renderDlg();const w2=$('why');w2.focus();w2.setSelectionRange(w2.value.length,w2.value.length)}}}
+  icons();
+}
+/* One sentence that says what the count found, before any table. */
+function verdict(F){
+  if(!F.short.length&&!F.over.length)return '<div class="verdict ok"><i data-lucide="circle-check"></i><div><b>The count matches the order.</b></div></div>';
+  const parts=[];
+  if(F.short.length)parts.push(id(F.shortQty)+' pcs short on '+F.short.length+' line'+(F.short.length>1?'s':''));
+  if(F.over.length)parts.push(id(F.overQty)+' pcs over on '+F.over.length+' line'+(F.over.length>1?'s':''));
+  return '<div class="verdict warn"><i data-lucide="circle-alert"></i><div><b>'+parts.join(' and ')+'.</b></div></div>';
+}
+function table(F,recount){
+  if(isPhone()){
+    let h='<div class="card">';
+    F.r.forEach(x=>{
+      const diff=x.d===0?'<span class="diff ok"><i data-lucide="check"></i>Matches</span>':x.d<0?'<span class="diff short">'+inUnit(-x.d,x.l[4],x.l[5])+' short</span>':'<span class="diff over">+'+inUnit(x.d,x.l[4],x.l[5])+' over</span>';
+      h+='<div class="pline"'+(recount?' onclick="togPick('+x.i+')" style="cursor:pointer"':'')+'><div class="q">'+(recount?'<span class="box'+(S.pick.has(x.i)?' on':'')+'" style="margin-right:10px"><i data-lucide="check"></i></span>':'')+(x.i+1)+'. '+x.name+'</div><div class="meta2">Ordered '+inUnit(x.ord,x.l[4],x.l[5])+' · Counted '+inUnit(x.cnt,x.l[4],x.l[5])+'</div><div style="margin-top:4px">'+diff+'</div></div>';
+    });
+    return h+'<div class="pline row1"><span class="q">Total</span><span class="sum">'+id(F.cnt)+' of '+id(F.ord)+' pcs</span></div></div>';
+  }
+  let h='<div class="card"><table><thead><tr>'+(recount?'<th style="width:48px"></th>':'')+'<th class="n">No.</th><th>Article</th><th class="r">Ordered qty</th><th class="r">Counted qty</th><th class="r">Difference</th></tr></thead><tbody>';
+  F.r.forEach(x=>{
+    const cls=x.d<0?'short':x.d>0?'over':'';
+    const dpc='';
+    const diff=x.d===0?'<span class="diff ok"><i data-lucide="check"></i>Matches</span>':x.d<0?'<span class="diff short">'+inUnit(-x.d,x.l[4],x.l[5])+' short</span>'+dpc:'<span class="diff over">+'+inUnit(x.d,x.l[4],x.l[5])+' over</span>'+dpc;
+    h+='<tr class="tall '+cls+'"'+(recount?' style="cursor:pointer" onclick="togPick('+x.i+')"':'')+'>'
+      +(recount?'<td><span class="box'+(S.pick.has(x.i)?' on':'')+'"><i data-lucide="check"></i></span></td>':'')
+      +'<td class="n">'+(x.i+1)+'</td><td><span class="q">'+x.name+'</span><span class="pc">'+x.sku+'</span></td><td class="r">'+qty(x.ord,x.l)+'</td><td class="r">'+qty(x.cnt,x.l)+'</td><td class="r">'+diff+'</td></tr>';
+  });
+  const d=F.cnt-F.ord;
+  h+='</tbody><tfoot><tr>'+(recount?'<td></td>':'')+'<td></td><td>Total <span style="color:var(--mute);font-weight:400">in pieces</span></td><td class="r">'+id(F.ord)+' pcs</td><td class="r">'+id(F.cnt)+' pcs</td><td class="r">'+(d===0?'—':(d>0?'+':'')+id(d)+' pcs')+'</td></tr></tfoot></table></div>';
+  return h;
+}
+/* What to do about it — only the questions this count actually raises. */
+function choices(F){
+  let h='<div class="decide">';
+  if(F.short.length){
+    h+='<div><h3>The '+id(F.shortQty)+' pcs that didn\'t come</h3><div class="opts">'
+      +opt('keep','Keep them on order','The PO stays open for the rest.')
+      +opt('close','Close short','Nothing more is coming; the PO is finished.')
+      +'</div></div>';
+  }
+  if(F.over.length){
+    h+='<div><h3>The '+id(F.overQty)+' pcs extra</h3><div class="ret"><i data-lucide="undo-2" style="color:var(--info-fg);margin-top:2px"></i><div><b>Returned to the supplier</b></div></div></div>';
+  }
+  h+='</div><p style="color:var(--body);margin:20px 0 0">Received value: <b style="color:var(--ink)">Rp '+id(F.value)+'</b> · '+id(F.match)+' pcs at the PO price</p>';
+  return h;
+}
+function opt(k,t,s){return '<button class="opt'+(S.short===k?' on':'')+'" onclick="S.short=\''+k+'\';renderDlg()"><span class="rad"></span><span><b>'+t+'</b></span></button>'}
+function recountForm(F){
+  return '<h3>Why should it be counted again?</h3><textarea class="why" id="why" placeholder="'+(F.short.length||F.over.length?'The polo carton was still on the truck':'Spot-check the shirts before we receive')+'">'+S.why+'</textarea>'+(S.err?'<div class="err">'+S.err+'</div>':'');
+}
+function footer(F){
+  if(S.mode==='recount'){
+    const n=S.pick.size;
+    return '<button class="btn ghost" onclick="S.mode=\'decide\';S.err=\'\';renderDlg()"><i data-lucide="arrow-left"></i>Back</button><span class="grow">'+n+' of '+F.r.length+' lines ticked</span><button class="btn pri" onclick="sendRecount()">Send '+n+' line'+(n===1?'':'s')+' back to count</button>';
+  }
+  let label='Receive '+id(F.match)+' pcs';
+  if(isPhone())return '<button class="btn" onclick="startRecount()"><i data-lucide="rotate-ccw"></i>Recount</button><button class="btn pri" onclick="receive()"><i data-lucide="check"></i>'+label+'</button>';
+  if(F.short.length)label+=S.short==='close'?' and close short':' · keep '+id(F.shortQty)+' open';
+  if(F.over.length)label+=' · return '+id(F.overQty);
+  return '<button class="btn" onclick="startRecount()"><i data-lucide="rotate-ccw"></i>Recount</button><span class="grow"></span><button class="btn pri" onclick="receive()"><i data-lucide="check"></i>'+label+'</button>';
+}
+
+/* ── actions ────────────────────────────────────────────────────────────── */
+function startRecount(){S.mode='recount';const F=facts();S.pick=new Set(F.r.filter(x=>x.d!==0).map(x=>x.i));if(!S.pick.size)F.r.forEach(x=>S.pick.add(x.i));renderDlg();$('why').focus()}
+function togPick(i){S.pick.has(i)?S.pick.delete(i):S.pick.add(i);renderDlg()}
+function sendRecount(){
+  if(!S.pick.size){S.err='Tick at least one line to count again.';renderDlg();return}
+  if(!S.why.trim()){S.err='Say why, so the DC knows what to look for.';renderDlg();$('why').focus();return}
+  Object.assign(POS[0],{count:'recount',why:S.why.trim()});closeDlg();renderList();renderSheet();toast(S.pick.size+' line'+(S.pick.size>1?'s':'')+' sent back to the DC to count again');
+}
+function receive(){ /* POS[0] is the counted PO */
+  const F=facts();
+  let note='Received';
+  if(F.short.length)note=S.short==='close'?'Short received':'Partially received';
+  const p=POS[0];
+  p.rcvd=F.r.map(x=>x.match);p.rq=F.match;p.rv=F.value;p.count=null;
+  p.st=!F.short.length?'Fully received':S.short==='close'?'Short received':'Partially received';
+  closeDlg();renderList();renderSheet();
+  toast(id(F.match)+' pcs received'+(F.short.length?(S.short==='close'?', PO closed short':', '+id(F.shortQty)+' pcs still on order'):'')+(F.over.length?', '+id(F.overQty)+' pcs to return':''));
+}
+addEventListener('keydown',e=>{if(e.key==='Escape'&&S.open){closeDlg()}});
+
+let DEV='desktop';
+function send(m){if(!EMBED&&DEV!=='desktop')$('ifr').contentWindow?.postMessage(m,'*')}
+function setDev(d){
+  DEV=d;paintProto();document.body.classList.toggle('devmode',d!=='desktop');
+  if(d==='desktop'){$('dev').hidden=true;$('ifr').src='about:blank';return}
+  const f=$('frame'),[W,H]=d==='phone'?[390,844]:[820,1180];
+  f.className='frame '+d;f.style.width=W+'px';f.style.height=H+'px';$('dev').hidden=false;
+  $('ifr').src=location.pathname+'?embed='+d+'&view='+S.view+'&scn='+S.scn;fitDev();
+}
+function fitDev(){if(DEV==='desktop')return;const f=$('frame');f.style.transform='scale('+Math.min(1,(innerHeight-90)/f.offsetHeight,(innerWidth-40)/f.offsetWidth)+')'}
+addEventListener('resize',()=>{fitDev();renderList();renderSheet()});
+addEventListener('message',e=>{if(!EMBED||!e.data)return;if(e.data.view)setView(e.data.view);if(e.data.scn)setScn(e.data.scn)});
+function setView(v){S.view=v;send({view:v});paintProto();renderList();renderSheet()}
+function paintProto(){if(!EMBED)$('devseg').innerHTML=[['desktop','Desktop'],['tablet','Tablet'],['phone','Phone']].map(x=>'<button class="'+(DEV===x[0]?'on':'')+'" onclick="setDev(\''+x[0]+'\')">'+x[1]+'</button>').join('');$('viewseg').innerHTML=[['ops','Ops · Receiving'],['buy','Buying · PO'],['merch','Merch · Return to HO']].map(x=>'<button class="'+(S.view===x[0]?'on':'')+'" onclick="setView(\''+x[0]+'\')">'+x[1]+'</button>').join('')}
+function setScn(k){S.scn=k;send({scn:k});Object.assign(POS[0],{st:'Active',rq:0,rv:0,rcvd:null,count:k==='none'?null:'waiting'});paintProto();renderSheet();$('seg').innerHTML=Object.entries(SCN).filter(([key,s])=>!s.hide||key===k).map(([key,s])=>'<button class="'+(key===k?'on':'')+'" onclick="setScn(\''+key+'\')">'+s.l+'</button>').join('');renderList();if(S.open&&k!=='none')openDlg();else if(S.open)closeDlg()}
+setScn(QS.get('scn')||'mixed');if(!EMBED&&wide())openSheet(POS[0].po);
+</script>
+</body>
+</html>

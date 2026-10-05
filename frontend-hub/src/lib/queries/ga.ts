@@ -1,3 +1,5 @@
+import { useQuery } from "@tanstack/react-query"
+
 import { node } from "@/lib/api"
 import type {
   ApproveGaRepairRequest,
@@ -45,6 +47,9 @@ import type {
   UpdateGaAssetRequest,
   UpdateGaContractRequest,
   UpdateGaLocationRequest,
+  UpdateGaTaskRequest,
+  GaBillRequest,
+  SupplierBill,
 } from "@itulah/contract"
 
 /// GA's own namespace on the wire.
@@ -477,6 +482,20 @@ export function recordGaTask(
   )
 }
 
+/// Correcting a task in place, or moving its next date after the service was
+/// done. Every field the request leaves `null` stays as it is.
+export function updateGaMaintenanceTask(
+  taskId: string,
+  request: UpdateGaTaskRequest,
+  signal?: AbortSignal
+): Promise<GaMaintenanceTaskRow> {
+  return node.patch<GaMaintenanceTaskRow>(
+    `/api/v1/ga/maintenance-tasks/${encodeURIComponent(taskId)}`,
+    request,
+    { signal }
+  )
+}
+
 /// The inspections, newest first — the history the schedule is checked
 /// against, and the paper a repair-from-a-finding points back at.
 export function gaInspections(
@@ -700,6 +719,34 @@ export function gaLocations(
   )
 }
 
+/// One choice in a GA form's site dropdown.
+export type GaSiteOption = { value: string; label: string }
+
+/// Every place a GA record can name, for the forms' site dropdowns.
+///
+/// From GA's own list, not Finance's asset facet. That facet sits behind the
+/// finance section, which the GA role does not hold, and it only knows the
+/// sites that already hold an asset — a new store could not be picked on its
+/// first repair.
+export function useGaSites(enabled = true): {
+  sites: readonly GaSiteOption[]
+  isPending: boolean
+} {
+  const query = useQuery({
+    queryKey: gaKeys.locations({}),
+    queryFn: ({ signal }) => gaLocations({}, signal),
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  })
+  return {
+    sites: (query.data ?? []).map((one) => ({
+      value: one.site_id,
+      label: one.site_name,
+    })),
+    isPending: query.isPending,
+  }
+}
+
 /// One place and everything that points back at it: its detail, its assets,
 /// its contracts (with the Langganan ones split out as utilities), its repairs,
 /// its schedule, the supplies asked for from here.
@@ -820,4 +867,18 @@ export function moveGaSupplyRequest(
     request,
     { signal }
   )
+}
+
+// ── bills to Finance ────────────────────────────────────────────────────────
+
+/// Handing Finance the supplier's bill for a GA record: a repair, a supply
+/// request, a contract's month. The server files it as a DRAFT in Finance's GA
+/// inbox and suggests each line's account; posting stays Finance's act.
+export function recordGaBillRequest(
+  request: GaBillRequest,
+  signal?: AbortSignal
+): Promise<SupplierBill> {
+  return node.post<SupplierBill>("/api/v1/ga/bill-requests", request, {
+    signal,
+  })
 }

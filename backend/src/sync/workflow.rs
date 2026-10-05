@@ -31,6 +31,9 @@ pub const INVENTORY_FULFILLMENT_PROGRESS_V1: &str = "inventory.fulfillment.progr
 pub const INVENTORY_ALLOTMENT_CANCEL_V1: &str = "inventory.allotment.cancel.v1";
 pub const INVENTORY_ALLOTMENT_CANCELLATION_RESULT_V1: &str =
     "inventory.allotment.cancellation_result.v1";
+/// MD gives up on part of a store's share (allotment-v1 §7): taken off what
+/// the Gudang still has to pack, never off goods already in a carton.
+pub const INVENTORY_ALLOTMENT_CLOSE_SHORT_V1: &str = "inventory.allotment.close_short.v1";
 pub const INVENTORY_OFFICIAL_COUNT_ACTIVATE_V1: &str = "inventory.official_count.activate.v1";
 pub const INVENTORY_OFFICIAL_COUNT_RESULT_V1: &str = "inventory.official_count.result.v1";
 pub const INVENTORY_OFFICIAL_COUNT_ADJUST_V1: &str = "inventory.official_count.adjust.v1";
@@ -198,6 +201,12 @@ pub struct FulfillmentProgressPayload {
     /// travelled on; `destination_site_id` is read as the same field.
     #[serde(alias = "destination_site_id")]
     pub destination_store_id: String,
+    /// What the koli's label says — `KL-…` — so a surat jalan printed at the
+    /// centre can list the boxes by the number on them. Absent on facts
+    /// written before it travelled; skipped when absent, so those facts keep
+    /// the bytes they were written with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub koli_number: Option<String>,
     pub stage: FulfillmentStage,
     pub shipment_reference: Option<String>,
     pub movement_group_id: Uuid,
@@ -216,6 +225,21 @@ pub struct AllotmentCancellationLine {
 pub struct AllotmentCancellationPayload {
     pub schema_version: u32,
     pub cancellation_id: Uuid,
+    pub allotment_id: Uuid,
+    pub source_site_id: String,
+    pub reason: String,
+    pub requested_by: String,
+    pub requested_at: DateTime<Utc>,
+    pub lines: Vec<AllotmentCancellationLine>,
+}
+
+/// Close Short, line by line. Each quantity comes off `To Pack` at the
+/// Gudang; a line that no longer has that much to pack refuses the whole
+/// command, because the centre has already booked it as given up.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AllotmentCloseShortPayload {
+    pub schema_version: u32,
+    pub close_short_id: Uuid,
     pub allotment_id: Uuid,
     pub source_site_id: String,
     pub reason: String,
@@ -366,6 +390,7 @@ parser!(
 parser!(parse_pick, PickPayload);
 parser!(parse_fulfillment_progress, FulfillmentProgressPayload);
 parser!(parse_allotment_cancellation, AllotmentCancellationPayload);
+parser!(parse_allotment_close_short, AllotmentCloseShortPayload);
 parser!(
     parse_allotment_cancellation_result,
     AllotmentCancellationResultPayload
@@ -547,6 +572,23 @@ impl AllotmentCancellationPayload {
                 .iter()
                 .map(|line| (line.allotment_line_id, line.quantity)),
             "cancellation",
+        )
+    }
+}
+
+impl AllotmentCloseShortPayload {
+    pub fn validate(&self) -> Result<(), String> {
+        version(self.schema_version)?;
+        non_nil(self.close_short_id, "close_short_id")?;
+        non_nil(self.allotment_id, "allotment_id")?;
+        required(&self.source_site_id, "source_site_id")?;
+        required(&self.reason, "reason")?;
+        required(&self.requested_by, "requested_by")?;
+        validate_positive_lines(
+            self.lines
+                .iter()
+                .map(|line| (line.allotment_line_id, line.quantity)),
+            "close short",
         )
     }
 }
@@ -862,6 +904,15 @@ pub const STORE_INBOUND_CAPABILITY: &str = "store.inbound";
 /// Head office sends none of them to a node whose heartbeat does not say so:
 /// an unknown command blocks a node's whole stream.
 pub const GOODS_ROUTES_CAPABILITY: &str = "inventory.goods_routes.v1";
+
+/// What a node's heartbeat carries once its build takes
+/// `inventory.in_transit.short.v1` (a piece the destination did not find,
+/// booked Missing at the origin) and lets a release take a piece out of
+/// Missing. Head office sends neither to a node that does not say so.
+pub const TRANSIT_SHORT_CAPABILITY: &str = "inventory.transit_short.v1";
+
+/// A node that takes `inventory.allotment.close_short.v1`.
+pub const CLOSE_SHORT_CAPABILITY: &str = "inventory.allotment_close_short.v1";
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct StoreInboundAnnounceUnit {

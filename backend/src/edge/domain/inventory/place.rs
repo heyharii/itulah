@@ -111,9 +111,14 @@ pub enum OperationalPool {
     StoreFloor {
         store_id: SiteId,
     },
-    /// REJECT: `{site}.reject`.
-    StoreReject {
-        store_id: SiteId,
+    /// REJECT: `{site}.reject` — the canonical spelling, at ANY site: a shop's
+    /// damaged goods and a Gudang's are the same pool by the same grammar
+    /// (0610's template gives every site kind a `reject` suffix). The Gudang's
+    /// own reject was once `{site}.reject.dc` ([`DcRejectDc`], still read), and
+    /// the name of this variant said "store" long after the pool stopped
+    /// belonging to one.
+    Reject {
+        site_id: SiteId,
     },
 }
 
@@ -193,7 +198,7 @@ impl OperationalPool {
             Self::DcRejectStore { dc_id, store_id } => format!("{dc_id}.reject.{store_id}"),
             Self::Return { site_id, origin_id } => format!("{site_id}.return.{origin_id}"),
             Self::StoreFloor { store_id } => format!("{store_id}.floor"),
-            Self::StoreReject { store_id } => format!("{store_id}.reject"),
+            Self::Reject { site_id } => format!("{site_id}.reject"),
         }
     }
 
@@ -212,7 +217,8 @@ impl OperationalPool {
             Self::Stockroom { site_id }
             | Self::Outbound { site_id, .. }
             | Self::Return { site_id, .. } => site_id,
-            Self::StoreFloor { store_id } | Self::StoreReject { store_id } => store_id,
+            Self::StoreFloor { store_id } => store_id,
+            Self::Reject { site_id } => site_id,
         }
     }
 
@@ -229,7 +235,7 @@ impl OperationalPool {
             Self::DcOutboundLoaded { .. } => PoolRole::Loaded,
             Self::DcOutboundInTransit { .. } => PoolRole::InTransit,
             Self::Outbound { stage, .. } => stage.role(),
-            Self::DcRejectDc { .. } | Self::StoreReject { .. } => PoolRole::Reject,
+            Self::DcRejectDc { .. } | Self::Reject { .. } => PoolRole::Reject,
             Self::DcRejectStore { .. } | Self::Return { .. } => PoolRole::Return,
             Self::StoreFloor { .. } => PoolRole::Floor,
         }
@@ -317,7 +323,7 @@ impl FromStr for OperationalPool {
             ["pending", "untagged"] => Ok(Self::DcPendingUntagged { dc_id: site_id }),
             ["warehouse"] => Ok(Self::Stockroom { site_id }),
             ["floor"] => Ok(Self::StoreFloor { store_id: site_id }),
-            ["reject"] => Ok(Self::StoreReject { store_id: site_id }),
+            ["reject"] => Ok(Self::Reject { site_id }),
             // A fixed token of the pool grammar, not a site id: the first
             // Gudang's own reject was spelled this way.
             ["reject", "dc"] => Ok(Self::DcRejectDc { dc_id: site_id }),

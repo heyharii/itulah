@@ -6,6 +6,11 @@ import { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Day } from "@/components/ui/day"
 import { Input, Select } from "@/components/ui/field"
+import {
+  FORM_BOX,
+  FORM_HALO_WITHIN,
+  useInForm,
+} from "@/components/ui/field-state"
 import { Meter } from "@/components/ui/meter"
 import { Tag } from "@/components/ui/tag"
 import { ITEM, POPUP } from "@/lib/filter-chrome"
@@ -29,6 +34,7 @@ import {
   type AsOf,
   type DateWindow,
 } from "@/screens/finance/hooks"
+import { supplierDisplayName } from "@/screens/procurement/supplier-format"
 import type { LineCategory } from "@/lib/queries/finance"
 import type { LedgerAccount, Supplier } from "@itulah/contract"
 
@@ -313,19 +319,24 @@ export function SupplierName({
   }
   return (
     <span className={className} title={id}>
-      {name ?? lookup(id)}
+      {/* Some reads send the code back as the name when they have none of
+          their own; that is not a name, so the register is asked instead. */}
+      {lookup(id, name)}
     </span>
   )
 }
 
 /// The chrome a picker wears in a form: an `<Input>`, to the pixel.
 ///
-/// `ui/pick.tsx` draws its own combobox on a `bg-canvas` pill with a hairline,
-/// which is right in a table cell and wrong here — this one stands in a grid
-/// beside four `<Input>`s, and a control that is a different colour and two
-/// pixels shorter than the box above it reads as a different kind of thing.
+/// `ui/pick.tsx` draws its own combobox, which is right in a table cell and
+/// wrong here — this one stands in a grid beside four `<Input>`s, and a
+/// control that is a different colour and a few pixels shorter than the box
+/// above it reads as a different kind of thing. It had drifted into exactly
+/// that — a grey pill, from before the inputs became white boxes — until
+/// 2026-09-28, when the forms took the form's box (`FORM_BOX`) and this
+/// followed them.
 const PICKER_FIELD =
-  "flex h-9 w-full items-center gap-2 rounded-full border border-transparent bg-soft-2 px-3.5 text-[0.875rem] text-ink transition-colors hover:border-hairline-2 hover:bg-soft-3 has-[input:focus-visible]:border-line"
+  "flex h-10 w-full items-center gap-2 rounded-inner border border-hairline-2 bg-canvas px-3 text-[0.875rem] text-ink transition-[border-color,box-shadow] hover:border-hairline-strong has-[input:focus-visible]:border-accent"
 
 /// Choose one of the client's suppliers, by name or by code.
 ///
@@ -354,21 +365,29 @@ export function SupplierPicker({
   /// Both halves at once, or `null` when the field is cleared. A caller that
   /// stores only the id is storing half an answer.
   onPick,
-  placeholder = "Search by name or code",
   className,
   /// For the screen reader, when the visible label is not a `<label>` around
   /// this control.
   label,
 }: {
   value: string
-  onPick: (supplier: { supplier_id: string; name: string } | null) => void
-  placeholder?: string
+  /// `supplier_code` rides along because bills, advances and payments carry
+  /// the code the buying side gave the supplier, not the register's id.
+  onPick: (
+    supplier: {
+      supplier_id: string
+      name: string
+      legal_form: string | null
+      supplier_code: string
+    } | null
+  ) => void
   className?: string
   label?: string
 }) {
   const suppliers = useSuppliers()
   const [query, setQuery] = useState("")
   const [open, setOpen] = useState(false)
+  const form = useInForm() && [FORM_BOX, FORM_HALO_WITHIN]
 
   const all = useMemo(() => suppliers.data ?? [], [suppliers.data])
   // Name and code both, because the client's buyers quote both — "SUP26" on a
@@ -396,7 +415,12 @@ export function SupplierPicker({
         onPick(
           supplier === null
             ? null
-            : { supplier_id: supplier.supplier_id, name: supplier.name }
+            : {
+                supplier_id: supplier.supplier_id,
+                name: supplier.name,
+                legal_form: supplier.legal_form,
+                supplier_code: supplier.supplier_code,
+              }
         )
         setQuery("")
       }}
@@ -404,22 +428,21 @@ export function SupplierPicker({
       // open — `ui/pick.tsx`'s rule, and for its reason: showing the chosen name
       // as a placeholder instead draws it in the muted colour that means
       // "nothing here yet".
-      inputValue={open ? query : (chosen?.name ?? "")}
+      inputValue={open ? query : chosen ? supplierDisplayName(chosen) : ""}
       onInputValueChange={(next) => open && setQuery(next)}
       open={open}
       onOpenChange={(next) => {
         setOpen(next)
         if (next) setQuery("")
       }}
-      itemToStringLabel={(one) => (one ? (one as Supplier).name : "")}
+      itemToStringLabel={(one) =>
+        one ? supplierDisplayName(one as Supplier) : ""
+      }
       modal={false}
     >
-      <Combobox.InputGroup className={cn(PICKER_FIELD, className)}>
+      <Combobox.InputGroup className={cn(PICKER_FIELD, form, className)}>
         <Combobox.Input
           aria-label={label}
-          placeholder={
-            suppliers.isPending ? "Reading the supplier list…" : placeholder
-          }
           className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-mute"
         />
         {chosen !== null && (
@@ -468,7 +491,7 @@ export function SupplierPicker({
                 >
                   <Tag>{one.supplier_code}</Tag>
                   <span className="min-w-0 flex-1 truncate text-ink">
-                    {one.name}
+                    {supplierDisplayName(one)}
                   </span>
                   {one.supplier_id === value && (
                     <CheckIcon className="size-3.5 shrink-0 text-line-ico" />
@@ -662,7 +685,6 @@ export interface PickedAccount {
 export function AccountPicker({
   onPick,
   seed = "",
-  placeholder = "Search the chart by code or name",
   /// Headings cannot be posted to or mapped, so a picker feeding either shows
   /// them and refuses them rather than hiding them — an accountant who cannot
   /// find `10110` at all assumes the search is broken.
@@ -678,12 +700,15 @@ export function AccountPicker({
   /// read. The server refuses the same set and says the same thing; this is
   /// what stops anybody having to meet that refusal.
   accept,
+  /// In a filter row: a control-height box whose matches drop over the page
+  /// instead of pushing the row open.
+  floating = false,
 }: {
   onPick: (account: PickedAccount) => void
   seed?: string
-  placeholder?: string
   allowGroups?: boolean
   accept?: (account: LedgerAccount) => string | null
+  floating?: boolean
 }) {
   const [needle, setNeedle] = useState(seed)
   const trimmed = needle.trim()
@@ -704,19 +729,20 @@ export function AccountPicker({
   })
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className={cn("flex flex-col gap-2", floating && "relative")}>
       <Input
         value={needle}
         onChange={(event) => setNeedle(event.target.value)}
-        placeholder={placeholder}
+        className={floating ? "h-control" : undefined}
       />
-      {!ready ? (
-        <p className="text-[0.875rem] text-mute">
-          Two characters to search. Codes match from the start, names match
-          anywhere.
-        </p>
-      ) : (
-        <div className="max-h-56 overflow-y-auto rounded-inner border border-hairline">
+      {!ready ? null : (
+        <div
+          className={cn(
+            "max-h-56 overflow-y-auto rounded-inner border border-hairline",
+            floating &&
+              "absolute top-full right-0 left-0 z-30 mt-1 bg-canvas shadow-soft"
+          )}
+        >
           {queryState(results, {
             loading: "Searching the chart…",
             render: (accounts) =>
@@ -809,7 +835,6 @@ export function CategoryPicker({
   family,
   value,
   onPick,
-  placeholder = "Which category",
   className,
   label,
 }: {
@@ -819,13 +844,13 @@ export function CategoryPicker({
   /// The chosen `category_code`, or `""`.
   value: string
   onPick: (categoryCode: string | null) => void
-  placeholder?: string
   className?: string
   label?: string
 }) {
   const categories = useLineCategories(family)
   const [query, setQuery] = useState("")
   const [open, setOpen] = useState(false)
+  const form = useInForm() && [FORM_BOX, FORM_HALO_WITHIN]
 
   const offered = useMemo(
     () =>
@@ -859,7 +884,7 @@ export function CategoryPicker({
         onPick(category === null ? null : category.category_code)
         setQuery("")
       }}
-      inputValue={open ? query : (chosen?.name ?? "")}
+      inputValue={open ? query : chosen ? supplierDisplayName(chosen) : ""}
       onInputValueChange={(next) => open && setQuery(next)}
       open={open}
       onOpenChange={(next) => {
@@ -869,12 +894,9 @@ export function CategoryPicker({
       itemToStringLabel={(one) => (one ? (one as LineCategory).name : "")}
       modal={false}
     >
-      <Combobox.InputGroup className={cn(PICKER_FIELD, className)}>
+      <Combobox.InputGroup className={cn(PICKER_FIELD, form, className)}>
         <Combobox.Input
           aria-label={label}
-          placeholder={
-            categories.isPending ? "Reading the categories…" : placeholder
-          }
           className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-mute"
         />
         {chosen !== null && (
@@ -1009,7 +1031,6 @@ export function AccountAndCategory({
   value,
   onChange,
   seed,
-  placeholder,
   allowGroups,
   accept,
   /// What the category box is called to a screen reader, when the visible
@@ -1024,7 +1045,6 @@ export function AccountAndCategory({
   value: AccountChoice | null
   onChange: (next: AccountChoice | null) => void
   seed?: string
-  placeholder?: string
   allowGroups?: boolean
   accept?: (account: LedgerAccount) => string | null
   categoryLabel?: string
@@ -1034,7 +1054,6 @@ export function AccountAndCategory({
     return (
       <AccountPicker
         seed={seed}
-        placeholder={placeholder}
         allowGroups={allowGroups}
         accept={accept}
         onPick={(account) =>

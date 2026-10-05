@@ -136,6 +136,33 @@ pub struct StoreInboundReceiveRequest {
     pub idempotency_key: String,
 }
 
+/// Receive without a reader (owner, 29 Sep 2026: receiving needs no RFID).
+///
+/// Still blind: the shop counts what came off the lorry per SKU — scanned
+/// barcodes or typed — without being shown what was sent. The node turns
+/// each count into that many of the delivery's own manifest pieces of the SKU
+/// and books them exactly as a sweep would, so the comparison, the missing
+/// pieces and the cloud reconciliation all read the same either way.
+///
+/// A count above what was sent for a SKU books what was sent; the pieces
+/// beyond it carry no tag the node could book, so they are not stock here.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct StoreInboundCountRequest {
+    pub counts: Vec<StoreInboundCountLine>,
+    /// Replaced by the signed-in principal when the node enforces auth.
+    #[serde(default)]
+    pub actor_id: String,
+    pub idempotency_key: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct StoreInboundCountLine {
+    pub sku_code: String,
+    pub quantity: i64,
+}
+
 /// `?status=IN_TRANSIT|RECEIVED|ALL` → the status to filter on, `None` = all.
 pub fn parse_status_filter(value: Option<&str>) -> Result<Option<&'static str>, EdgeError> {
     match value.map(|value| value.trim().to_ascii_uppercase()).as_deref() {

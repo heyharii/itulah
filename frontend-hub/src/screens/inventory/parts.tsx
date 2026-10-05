@@ -31,15 +31,12 @@ export function Choice({
   value,
   onChange,
   options,
-  placeholder,
   disabled,
   className,
 }: {
   value: string
   onChange: (value: string) => void
   options: readonly { readonly value: string; readonly label: string }[]
-  /// The "no filter" row. Absent means the control always holds a value.
-  placeholder?: string
   disabled?: boolean
   className?: string
 }) {
@@ -50,7 +47,6 @@ export function Choice({
       onChange={onChange}
       className={cn("h-8 w-auto max-w-56 px-3 text-[0.875rem]", className)}
     >
-      {placeholder !== undefined && <option value="">{placeholder}</option>}
       {options.map((option) => (
         <option key={option.value} value={option.value}>
           {option.label}

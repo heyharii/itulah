@@ -343,10 +343,10 @@ function UnitTable({ units }: { units: readonly UnitResult[] }) {
             <th className="bg-muted/50 sticky left-0 px-3.5 py-1.5 text-left font-medium" />
             {units.map((unit) => (
               <th
-                key={unit.site_id}
+                key={unit.unit_id}
                 className="px-3 py-1.5 text-right font-mono text-[11px] font-medium"
               >
-                {unit.site_id}
+                {unit.unit_code}
               </th>
             ))}
             <th className="px-3 py-1.5 text-right text-[11px] font-medium">Konsolidasi</th>
@@ -365,7 +365,7 @@ function UnitTable({ units }: { units: readonly UnitResult[] }) {
                 </td>
                 {units.map((unit) => (
                   <td
-                    key={unit.site_id}
+                    key={unit.unit_id}
                     className="px-3 py-1 text-right font-mono whitespace-nowrap tabular-nums"
                   >
                     {money(row.value(unit))}

@@ -4,6 +4,7 @@ import type { DiscussionThread } from "./DiscussionThread";
 import type { Document } from "./Document";
 import type { RecordComment } from "./RecordComment";
 import type { RecordTag } from "./RecordTag";
+import type { RecordVersion } from "./RecordVersion";
 
 /**
  * Everything a sheet needs about the record it has open, in one answer.
@@ -27,4 +28,9 @@ documents: Array<Document>,
  * Threads arguing about it. A comment is a sentence on a record; a thread
  * is an argument about one, and both belong on the sheet.
  */
-threads: Array<DiscussionThread>, };
+threads: Array<DiscussionThread>, 
+/**
+ * What changed, field by field, newest first (0702). Empty for a kind
+ * whose table keeps no versions.
+ */
+versions: Array<RecordVersion>, };

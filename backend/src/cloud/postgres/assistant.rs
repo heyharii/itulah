@@ -620,8 +620,8 @@ pub async fn run_morning_brief_agent(pool: PgPool) {
     loop {
         interval.tick().await;
         let sent = send_morning_brief_if_due(&pool, chrono::Utc::now()).await;
-        // The fleet page's "morning brief" (`fleet_job_beat`, 0640).
-        super::fleet_status::fleet_job_beat(
+        // The fleet page's "morning brief" (`job_beat`, 0703).
+        super::jobs::job_beat(
             &pool,
             super::fleet_status::JOB_BRIEF,
             sent.as_ref().err().map(ToString::to_string).as_deref(),

@@ -22,15 +22,15 @@ use super::employment::{current_unit, reach_of, resolve};
 use crate::cloud::{
     application::{AppError, AppState},
     domain::{
-        actions, people::*, required_role_for_action, role_allows, AssignmentSpan,
-        AssignmentTimeline, Authorization, Contract, ContractKind, ContractTimeline, Employee,
-        EmployeeId, Grade, Position, UnitId,
+        AssignmentSpan, AssignmentTimeline, Authorization, Contract, ContractKind,
+        ContractTimeline, Employee, EmployeeId, Grade, Position, UnitId, actions, people::*,
+        required_role_for_action, role_allows,
     },
     postgres::{self as infrastructure, EmployeeRecord},
 };
 use axum::{
-    extract::{Path, Query, State},
     Extension, Json,
+    extract::{Path, Query, State},
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use pricing_engine::Money;
@@ -301,9 +301,10 @@ pub struct TrainingProgramView {
     pub title: String,
     pub on_date: String,
     pub place: String,
-    pub cost_minor: i64,
+    pub cost_minor: Option<i64>,
     pub state: String,
     pub participants: i64,
+    pub attendance_open: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -664,7 +665,7 @@ pub async fn file_change(
                 (None, None) => {
                     return Err(invalid(
                         "a change row carries to_minor (a figure) or to_text (a name)",
-                    ))
+                    ));
                 }
             };
             Ok(ChangeProp {
@@ -1040,7 +1041,7 @@ pub async fn list_tasks(
                     return Err(AppError::Forbidden(format!(
                         "{} is not posted anywhere, so nobody's reach covers them",
                         employee
-                    )))
+                    )));
                 }
             }
         }
@@ -2073,7 +2074,13 @@ pub async fn define_training(
     Json(body): Json<DefineTrainingBody>,
 ) -> Result<Json<Vec<TrainingProgramView>>, AppError> {
     require(&principal, actions::TRAINING_MANAGE)?;
-    let defined = authorize(&principal, actions::TRAINING_MANAGE, &body.reason)?;
+    let defined = Authorization::try_new(
+        &principal.username,
+        actions::TRAINING_MANAGE,
+        state.clock.now(),
+        &body.reason,
+    )
+    .map_err(invalid)?;
     let on_date: NaiveDate = body
         .on_date
         .parse()
@@ -2082,7 +2089,8 @@ pub async fn define_training(
         TrainingProgram::define(&body.title, on_date, &body.place, body.cost_minor, defined)
             .map_err(invalid)?;
     infrastructure::insert_program(&state.db, &program).await?;
-    training_list(&state).await
+    let reach = reach_of(&state, &principal).await?;
+    training_list(&state, &reach).await
 }
 
 pub async fn list_training(
@@ -2090,24 +2098,40 @@ pub async fn list_training(
     Extension(principal): Extension<Principal>,
 ) -> Result<Json<Vec<TrainingProgramView>>, AppError> {
     require(&principal, actions::EMPLOYEE_READ)?;
-    training_list(&state).await
+    let reach = reach_of(&state, &principal).await?;
+    training_list(&state, &reach).await
 }
 
-async fn training_list(state: &AppState) -> Result<Json<Vec<TrainingProgramView>>, AppError> {
+async fn training_list(
+    state: &AppState,
+    reach: &crate::cloud::domain::Reach,
+) -> Result<Json<Vec<TrainingProgramView>>, AppError> {
     let rows = infrastructure::list_programs(&state.db).await?;
+    let today = state.clock.now().date_naive();
     let mut views = Vec::new();
     for r in rows {
-        let participants = infrastructure::list_participants(&state.db, Some(&r.id), None)
+        let participants = if reach.is_nowhere() {
+            0
+        } else {
+            infrastructure::list_participants(
+                &state.db,
+                Some(&r.id),
+                None,
+                reach.sole_unit().map(|unit| unit.as_str()),
+            )
             .await?
-            .len() as i64;
+            .len() as i64
+        };
         views.push(TrainingProgramView {
             id: r.id,
             title: r.title,
             on_date: r.on_date.to_string(),
             place: r.place,
-            cost_minor: r.cost_minor,
+            cost_minor: matches!(reach, crate::cloud::domain::Reach::Everywhere)
+                .then_some(r.cost_minor),
             state: r.state,
             participants,
+            attendance_open: r.on_date <= today,
         });
     }
     Ok(Json(views))
@@ -2121,6 +2145,110 @@ pub struct NominateBody {
     pub reason: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+#[serde(deny_unknown_fields)]
+pub struct RecordTrainingAttendanceBody {
+    pub attended: bool,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct TrainingAttendanceRecordView {
+    pub attended: bool,
+    pub actor: String,
+    pub recorded_at: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct TrainingParticipantView {
+    pub program_id: String,
+    pub employee_id: String,
+    pub employee_code: String,
+    pub full_name: Option<String>,
+    pub unit_id: Option<String>,
+    pub unit_name: Option<String>,
+    pub certificate: bool,
+    pub attended: Option<bool>,
+    pub attendance_history: Vec<TrainingAttendanceRecordView>,
+}
+
+async fn training_participants(
+    state: &AppState,
+    reach: &crate::cloud::domain::Reach,
+    program_id: &str,
+) -> Result<Vec<TrainingParticipantView>, AppError> {
+    if infrastructure::program_by_id(&state.db, program_id)
+        .await?
+        .is_none()
+    {
+        return Err(AppError::NotFound(format!("training program {program_id}")));
+    }
+    if reach.is_nowhere() {
+        return Ok(Vec::new());
+    }
+    let rows = infrastructure::list_participants(
+        &state.db,
+        Some(program_id),
+        None,
+        reach.sole_unit().map(|unit| unit.as_str()),
+    )
+    .await?;
+    let mut views = Vec::with_capacity(rows.len());
+    for row in rows {
+        let record = infrastructure::load_employee(&state.db, &row.employee_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("employee {}", row.employee_id)))?;
+        let unit_id = current_unit(&record).map(str::to_owned);
+        // The SQL unit predicate is the privacy boundary for names. This
+        // second check guards against a stale/malformed assignment snapshot.
+        if !reach.covers(unit_id.as_deref()) {
+            continue;
+        }
+        let history: Vec<TrainingAttendance> = serde_json::from_value(row.attendance_history)?;
+        views.push(TrainingParticipantView {
+            program_id: row.program_id,
+            employee_id: row.employee_id,
+            employee_code: record.employee.code().as_str().to_owned(),
+            full_name: record
+                .profile
+                .as_ref()
+                .map(|profile| profile.name().as_str().to_owned()),
+            unit_name: unit_id
+                .as_ref()
+                .and_then(|unit| record.unit_names.get(unit).cloned()),
+            unit_id,
+            certificate: row.certificate,
+            attended: row.attended,
+            attendance_history: history
+                .into_iter()
+                .map(|entry| TrainingAttendanceRecordView {
+                    attended: entry.attended,
+                    actor: entry.recorded.actor().as_str().to_owned(),
+                    recorded_at: entry.recorded.at().to_rfc3339(),
+                    reason: entry.recorded.reason().as_str().to_owned(),
+                })
+                .collect(),
+        });
+    }
+    Ok(views)
+}
+
+pub async fn list_training_participants(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(program_id): Path<String>,
+) -> Result<Json<Vec<TrainingParticipantView>>, AppError> {
+    require(&principal, actions::EMPLOYEE_READ)?;
+    let reach = reach_of(&state, &principal).await?;
+    Ok(Json(
+        training_participants(&state, &reach, &program_id).await?,
+    ))
+}
+
 /// Nominate somebody. Head office, or the place's own people under reach.
 pub async fn nominate(
     State(state): State<AppState>,
@@ -2128,37 +2256,19 @@ pub async fn nominate(
     Path(program_id): Path<String>,
     Json(body): Json<NominateBody>,
 ) -> Result<Json<TrainingProgramView>, AppError> {
-    let supervisor_run = role_allows(
-        required_role_for_action(actions::TRAINING_NOMINATE),
-        principal.role,
-    );
-    let admin_run = role_allows(
-        required_role_for_action(actions::TRAINING_MANAGE),
-        principal.role,
-    );
-    if !supervisor_run && !admin_run {
-        return Err(AppError::Forbidden(format!(
-            "{} may not nominate anybody for training",
-            principal.username
-        )));
-    }
-    if !admin_run {
-        // Supervisor: bounded to their own places.
-        let reach = reach_of(&state, &principal).await?;
-        let record = infrastructure::load_employee(&state.db, &body.employee_id)
-            .await?
-            .ok_or_else(|| AppError::NotFound("employee not found".to_owned()))?;
-        access_unit_check(&record, &principal.username, &reach)?;
-    }
-    let nominated = authorize(
-        &principal,
-        if admin_run {
-            actions::TRAINING_MANAGE
-        } else {
-            actions::TRAINING_NOMINATE
-        },
+    require(&principal, actions::TRAINING_NOMINATE)?;
+    let reach = reach_of(&state, &principal).await?;
+    let record = infrastructure::load_employee(&state.db, &body.employee_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("employee not found".to_owned()))?;
+    access_unit_check(&record, &principal.username, &reach)?;
+    let nominated = Authorization::try_new(
+        &principal.username,
+        actions::TRAINING_NOMINATE,
+        state.clock.now(),
         &body.reason,
-    )?;
+    )
+    .map_err(invalid)?;
     infrastructure::add_participant(
         &state.db,
         &program_id,
@@ -2166,7 +2276,7 @@ pub async fn nominate(
         serde_json::to_value(&nominated)?,
     )
     .await?;
-    let programs = training_list(&state).await?;
+    let programs = training_list(&state, &reach).await?;
     programs
         .0
         .into_iter()
@@ -2175,14 +2285,53 @@ pub async fn nominate(
         .map(Json)
 }
 
+pub async fn record_training_attendance(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path((program_id, employee_id)): Path<(String, String)>,
+    Json(body): Json<RecordTrainingAttendanceBody>,
+) -> Result<Json<TrainingParticipantView>, AppError> {
+    require(&principal, actions::TRAINING_ATTENDANCE)?;
+    let reach = reach_of(&state, &principal).await?;
+    let program = infrastructure::program_by_id(&state.db, &program_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("training program {program_id}")))?;
+    if program.on_date > state.clock.now().date_naive() {
+        return Err(AppError::Conflict(
+            "attendance can be recorded on or after the programme date".to_owned(),
+        ));
+    }
+    let employee = infrastructure::load_employee(&state.db, &employee_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("employee {employee_id}")))?;
+    access_unit_check(&employee, &principal.username, &reach)?;
+    let recorded = Authorization::try_new(
+        &principal.username,
+        actions::TRAINING_ATTENDANCE,
+        state.clock.now(),
+        &body.reason,
+    )
+    .map_err(invalid)?;
+    let attendance = TrainingAttendance::record(body.attended, recorded);
+    infrastructure::record_training_attendance(&state.db, &program_id, &employee_id, &attendance)
+        .await?;
+    training_participants(&state, &reach, &program_id)
+        .await?
+        .into_iter()
+        .find(|participant| participant.employee_id == employee_id)
+        .map(Json)
+        .ok_or_else(|| AppError::NotFound("training participant not found".to_owned()))
+}
+
 pub async fn complete_training(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
     Path(program_id): Path<String>,
 ) -> Result<Json<Vec<TrainingProgramView>>, AppError> {
     require(&principal, actions::TRAINING_MANAGE)?;
+    let reach = reach_of(&state, &principal).await?;
     infrastructure::complete_program(&state.db, &program_id).await?;
-    training_list(&state).await
+    training_list(&state, &reach).await
 }
 
 // ── benefits ─────────────────────────────────────────────────────────────
@@ -2574,7 +2723,11 @@ pub fn lane_p_routes(router: axum::Router<AppState>) -> axum::Router<AppState> {
         )
         .route(
             "/api/v1/training-programs/{id}/participants",
-            post(nominate),
+            get(list_training_participants).post(nominate),
+        )
+        .route(
+            "/api/v1/training-programs/{id}/participants/{employee_id}/attendance",
+            post(record_training_attendance),
         )
         .route(
             "/api/v1/training-programs/{id}/completion",

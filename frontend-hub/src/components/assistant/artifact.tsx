@@ -1,6 +1,7 @@
 import { QueryCard } from "@/components/assistant/query-card"
 import { rowsShown, useArtifactSpace } from "@/components/assistant/space"
 import { BarSeries, type ChartRow } from "@/components/ui/chart"
+import { SHOW_MISSING } from "@/lib/features"
 import { count, day, money } from "@/lib/format"
 import { ReportCard } from "@/components/assistant/report-card"
 import type { ToolRun } from "@/lib/queries/assistant"
@@ -212,13 +213,13 @@ function Pools({ data }: { data: unknown }) {
   )
   return (
     <Table
-      head={["Pool", "On hand", "Missing"]}
+      head={SHOW_MISSING ? ["Pool", "On hand", "Missing"] : ["Pool", "On hand"]}
       rows={leaves
         .slice(0, limit)
         .map((pool) => [
           `${text(pool, "site_id")} · ${text(pool, "label")}`,
           count(num(pool, "on_hand")),
-          count(num(pool, "missing")),
+          ...(SHOW_MISSING ? [count(num(pool, "missing"))] : []),
         ])}
       empty="No pools hold stock."
     />
@@ -284,7 +285,7 @@ function Prices({ data }: { data: unknown }) {
   }
   return (
     <Table
-      head={["Style · shop", "Rung", "Price"]}
+      head={["Style · Shop", "Rung", "Price"]}
       rows={rows}
       empty="No style is priced at any shop."
     />
@@ -383,7 +384,7 @@ const RENDERERS: Record<string, (props: { data: unknown }) => React.ReactNode> =
     search_articles: Articles,
     article_prices: Prices,
     list_sales: Sales,
-    missing_stock: Missing,
+    ...(SHOW_MISSING ? { missing_stock: Missing } : {}),
     commercial_activation: Activation,
     trial_balance: TrialBalance,
     // The one renderer that knows nothing about what it is drawing. Every

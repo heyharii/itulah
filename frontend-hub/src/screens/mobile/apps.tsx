@@ -104,7 +104,11 @@ export function Apps() {
         // The grid stands on one white panel, the way a super-app gathers
         // its services — so the tiles read as one set, not fifteen things
         // floating on the page's grey.
-        <ul className="grid grid-cols-4 gap-x-1 gap-y-5 rounded-3xl border border-hairline bg-canvas px-2 py-5 shadow-soft sm:grid-cols-6 lg:grid-cols-8">
+        // Four across on a 375px phone leaves a tile about 83px, and
+        // "Merchandise" at 14px needs 89 — so no gap between the columns, a
+        // hair tighter tracking, and each name allowed 4px past its tile on
+        // either side, rather than a label cut to "Merchan…" (2026-09-28).
+        <ul className="grid grid-cols-4 gap-y-5 rounded-3xl border border-hairline bg-canvas px-1 py-5 shadow-soft sm:grid-cols-6 lg:grid-cols-8">
           {tiles.map((one) => {
             const only = onlyScreen(one)
             const face = (
@@ -114,7 +118,7 @@ export function Apps() {
                   icon={one.icon}
                   className="transition-[scale] duration-(--t-press) ease-(--ease-out) group-active:scale-[0.92]"
                 />
-                <span className="w-full truncate px-0.5 text-center text-[0.875rem] font-medium text-text">
+                <span className="-mx-1 w-[calc(100%+0.5rem)] truncate text-center text-[0.875rem] font-medium tracking-[-0.015em] text-text">
                   {one.label}
                 </span>
               </>

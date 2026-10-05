@@ -657,8 +657,8 @@ function Receipts({
   if (transactions.length === 0) {
     return (
       <Note>
-        No sale was completed at this site in this span, so there is no
-        receipt to show.
+        No sale was completed at this site in this span, so there is no receipt
+        to show.
       </Note>
     )
   }

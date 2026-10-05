@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ops home</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.453.0/dist/umd/lucide.min.js"></script>
+<style>
+:root{
+  /* black and white; blue only on the two primary buttons */
+  --ink:#111214;--text:#3e4146;--mute:#8b8e94;--faint:#c5c7cb;
+  --bg:#f6f6f7;--card:#fff;--fill:#f1f1f2;--line:#e7e7e9;--line-2:#f0f0f2;
+  --blue:#2f6fe4;--blue-hover:#255fcc;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --gap:12px;--pad:20px;--radius:18px;
+}
+@media (max-width:1180px){:root{--gap:10px;--pad:16px;--radius:16px}}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font:14px/1.45 Inter,system-ui,sans-serif;color:var(--text);background:var(--bg);overflow:hidden;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+a{color:inherit}
+svg.lucide{width:16px;height:16px;stroke-width:1.6;flex-shrink:0}
+.app{display:flex;height:100vh;height:100dvh}
+
+/* app shell */
+.rail{width:104px;flex-shrink:0;background:var(--card);border-right:1px solid var(--line-2);display:flex;flex-direction:column;align-items:center}
+.brand{height:64px;display:grid;place-items:center;flex-shrink:0}
+.mark{width:30px;height:30px;border-radius:9px;background:#354d6b;color:#fff;font-weight:600;display:grid;place-items:center;position:relative;font-size:16px}
+.mark::after{content:"";position:absolute;right:5px;bottom:5px;width:5px;height:5px;border-radius:50%;background:#a7c9f0}
+.nav{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px;flex:1;overflow:auto;scrollbar-width:none}
+.nav a{width:88px;min-height:54px;flex-shrink:0;border-radius:9px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;color:#68717d;text-decoration:none;font-size:11px;font-weight:500;line-height:14px}
+.nav a:hover{background:#f5f6f8}
+.nav a.on{background:#edf4ff;color:#2865cc;font-weight:600}
+.nav a svg{width:18px;height:18px}
+.nav .sep{width:28px;height:1px;background:var(--line-2);margin:7px 0;flex-shrink:0}
+.rail .foot{padding:10px 0 14px;display:flex;flex-direction:column;align-items:center;gap:4px}
+.rail .foot a{width:36px;height:30px;display:grid;place-items:center;border-radius:7px;color:#68717d}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.wsbar{height:52px;flex-shrink:0;display:flex;align-items:center;gap:6px;padding:0 16px;border-bottom:1px solid var(--line-2);background:var(--bg)}
+.wtab{height:32px;padding:0 10px 0 12px;border-radius:8px;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--mute);text-decoration:none;border:1px solid transparent}
+.wtab:hover{color:var(--ink);background:var(--fill)}
+.wtab.on{background:#fff;border-color:var(--line);color:var(--ink);font-weight:500}
+.wtab svg{width:13px;height:13px;color:var(--faint)}
+
+/* page: header, bento, note — one screen on desktop and tablet */
+.page{flex:1;min-height:0;overflow:auto;padding:20px 24px;display:flex;flex-direction:column}
+.head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px 16px;flex-wrap:wrap;margin-bottom:16px;flex-shrink:0}
+.head h1{font-size:22px;font-weight:600;color:var(--ink);letter-spacing:-.025em}
+.head p{color:var(--mute);margin-top:2px}
+.opts{display:flex;gap:2px;background:var(--fill);border-radius:10px;padding:3px;max-width:100%;overflow-x:auto;scrollbar-width:none}
+.opts button{height:30px;padding:0 12px;border-radius:8px;font-size:13px;color:var(--mute);white-space:nowrap;transition:color .15s}
+.opts button:hover{color:var(--ink)}
+.opts button[aria-pressed=true]{background:#fff;color:var(--ink);font-weight:500;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.bento{flex:1;min-height:0;display:grid;gap:var(--gap)}
+.note{margin-top:12px;flex-shrink:0;font-size:13px;color:var(--mute)}
+@media (max-width:1180px){.page{padding:16px}.head{margin-bottom:12px}.note{margin-top:10px}}
+
+/* ---- the card: name · illustration · big number · one line ---- */
+.card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:var(--pad);min-width:0;min-height:0;display:flex;flex-direction:column;text-decoration:none;color:inherit;container-type:size;overflow:hidden;transition:border-color .2s,box-shadow .25s var(--ease-out)}
+a.card:hover,.card.link:hover{border-color:#cfd0d4;box-shadow:0 10px 30px -12px rgba(17,18,20,.14)}
+a.card:active{box-shadow:none}
+.c-top{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:22px}
+.c-name{color:var(--ink);font-weight:500;display:flex;align-items:center;gap:8px;min-width:0}
+.c-lbl{color:var(--text);display:flex;align-items:center;gap:8px;min-width:0}
+.needs .c-lbl::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--ink);flex-shrink:0}
+.c-go{color:var(--faint);transition:color .15s,transform .2s var(--ease-out)}
+a.card:hover .c-go{color:var(--ink);transform:translate(2px,-2px)}
+.c-ic{color:var(--mute)}
+.illo{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:10px 0 6px}
+.illo svg,.mini svg{height:100%;max-height:150px;width:auto;max-width:100%;fill:none;stroke:var(--ink);stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+.illo .f1,.mini .f1{fill:#fff}.illo .f2,.mini .f2{fill:var(--fill)}.illo .g,.mini .g{stroke:var(--faint)}
+/* header switches */
+.switches{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:100%}
+/* flow card variants: B = active next to done today, C = graded stage bar */
+.flow .f-two .n2{font-size:clamp(22px,15cqh,40px)}
+.f-two{align-items:flex-end}
+@container (max-width:330px){
+  .f-two{align-items:flex-start;gap:6px}
+  .f-two>div+div{border-top:0;padding-top:0}
+  .flow .f-two .n2{font-size:20px}
+  .flow.xl .f-two .num:not(.n2){font-size:clamp(32px,22cqh,64px)}
+}
+.pbar{display:flex;gap:2px;height:10px;margin-top:14px}
+.pbar span{min-width:4px;border-radius:2px}
+.pbar span:first-child{border-radius:5px 2px 2px 5px}
+.pbar span:last-child{border-radius:2px 5px 5px 2px}
+.plegend{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:10px;font-size:13px;color:var(--mute)}
+.plegend span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.plegend i{width:8px;height:8px;border-radius:2px;display:inline-block}
+.plegend b{color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums}
+.f-done{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:13px;color:var(--text)}
+.f-done svg{width:14px;height:14px}
+@container (max-height:190px){.plegend{display:none}}
+@container (max-height:150px){.f-done{display:none}}
+/* flow card: number, then what sits in each stage of that board */
+.flow .c-top{align-items:flex-start}
+.flow .c-name svg{width:15px;height:15px;color:var(--faint);transition:color .15s,transform .2s var(--ease-out)}
+a.flow:hover .c-name svg{color:var(--ink);transform:translate(2px,-2px)}
+.mini{display:none;height:46px;flex-shrink:0;margin:-4px -2px 0 0}
+.mini svg{height:46px;stroke-width:1.6}
+.f-main{margin-top:auto}
+.stages{list-style:none;margin-top:14px;border-top:1px solid var(--line-2)}
+.stages li{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--line-2);font-size:13px;color:var(--text);white-space:nowrap}
+.stages li:last-child{border-bottom:0}
+.stages li b{color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums}
+.stages li.in,.stages li.in b{color:var(--mute);font-weight:400}
+.f-sub{display:none}
+@container (max-height:320px){.flow .illo{display:none}.flow .mini{display:block}}
+@container (max-height:280px){.stages{margin-top:10px}.stages li{padding:3px 0}}
+@container (max-height:280px) and (min-width:290px){
+  .stages{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:16px;border-top:0}
+  .stages li{border-bottom:0;border-top:1px solid var(--line-2)}
+}
+@container (max-height:180px){.stages{display:none}.f-sub{display:block}}
+@container (max-height:200px){.stages li.in{display:none}}
+@container (max-height:170px){.flow .mini{display:none!important}}
+@container (max-width:250px){.mini{display:none!important}}
+.c-foot{margin-top:auto;display:flex;align-items:flex-end;justify-content:space-between;gap:12px;min-width:0}
+.c-body{min-width:0;flex:1}
+.num{font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1;letter-spacing:-.045em;white-space:nowrap;font-size:clamp(30px,26cqh,64px)}
+.num small{font-size:14px;font-weight:400;color:var(--mute);letter-spacing:0;margin-left:6px}
+.xl .num{font-size:clamp(44px,30cqh,104px)}
+.sub{color:var(--mute);margin-top:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ss{display:none}
+@container (max-width:300px){.sl{display:none}.ss{display:inline}}
+@container (max-height:230px){.illo{display:none}}
+@container (max-height:110px){.sub{display:none}}
+
+/* buttons: outline everywhere, blue only for the two primary actions */
+.btn{height:34px;padding:0 12px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--line);background:#fff;color:var(--ink);font-weight:500;font-size:13px;white-space:nowrap;text-decoration:none;flex-shrink:0;transition:transform .16s var(--ease-out),background-color .15s,border-color .15s}
+.btn:hover{background:var(--fill)}
+.btn:active{transform:scale(.97)}
+.btn.blue{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.blue:hover{background:var(--blue-hover);border-color:var(--blue-hover)}
+@container (max-width:240px){.c-foot .btn{width:34px;padding:0}.c-foot .btn .bt{display:none}}
+
+/* printing: two numbers and the main print action */
+.p-stats{display:flex;gap:20px;min-width:0}
+.p-stats>div{min-width:0}
+.p-stats>div+div{padding-left:20px;border-left:1px solid var(--line)}
+.p-acts{display:flex;gap:8px;margin-top:16px}
+@container (max-width:330px){
+  .p-stats{flex-direction:column;gap:10px}
+  .p-stats>div+div{padding-left:0;border-left:0;padding-top:10px;border-top:1px solid var(--line)}
+  .p-acts{flex-direction:column}
+  .p-acts .btn{width:100%}
+}
+@container (max-height:260px){.p-acts{margin-top:10px}.print .sub{display:none}}
+
+/* today: four facts in one card, each one a link */
+.t-list{flex:1;min-height:0;display:grid;grid-template-rows:repeat(4,minmax(0,1fr));margin-top:6px}
+.t-row{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--line-2);text-decoration:none;min-height:0;min-width:0;padding:4px 0}
+.t-row:first-child{border-top:0}
+.t-row .c-lbl{font-size:14px}
+.t-row .sub{margin-top:2px;font-size:13px}
+.t-row .num{font-size:clamp(28px,9cqh,52px)}
+.t-row:hover .num{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:6px}
+.t-row>div{min-width:0}
+@container (min-aspect-ratio:5/2){
+  .t-list{grid-template-rows:none;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+  .t-row{flex-direction:column;align-items:flex-start;justify-content:flex-end;border-top:0;border-left:1px solid var(--line-2);padding:0 0 0 16px}
+  .t-row:first-child{border-left:0;padding-left:0}
+  .t-row .num{order:-1;font-size:clamp(28px,24cqh,56px);margin-bottom:8px}
+  .t-row .sl{display:none}.t-row .ss{display:inline}
+}
+
+/* other menus: quiet links */
+.links{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto;padding-top:12px;overflow:hidden;flex-shrink:0}
+.links a{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px;border-radius:9px;background:var(--fill);color:var(--ink);text-decoration:none;font-size:13px;white-space:nowrap;transition:background-color .15s}
+.links a:hover{background:#e7e7e9}
+.links svg{width:14px;height:14px;color:var(--mute)}
+@container (max-width:340px){.links{gap:4px}.links a{height:28px;padding:0 8px}.links svg{display:none}}
+/* short card: every menu stays visible as an icon button, name on hover */
+@container (max-height:150px) and (max-width:520px){
+  .links{gap:4px;flex-wrap:nowrap;padding-top:8px}
+  .links a{width:30px;height:30px;padding:0;justify-content:center}
+  .links a span{display:none}
+  .links svg{display:block;width:15px;height:15px;color:var(--ink)}
+}
+
+.toast{position:fixed;left:calc(50% + 52px);bottom:20px;transform:translate(-50%,16px);opacity:0;pointer-events:none;background:var(--ink);color:#fff;border-radius:12px;padding:10px 16px;box-shadow:0 12px 32px rgba(0,0,0,.2);transition:transform .22s var(--ease-out),opacity .22s var(--ease-out);z-index:31;max-width:calc(100vw - 32px)}
+.toast.show{transform:translate(-50%,0);opacity:1}
+
+@media (max-width:820px){
+  .rail{width:64px}
+  .nav{padding:8px 6px}
+  .nav a{width:48px;min-height:44px;font-size:0;gap:0}
+  .toast{left:calc(50% + 32px)}
+  .wtab:not(.on){display:none}
+}
+/* phone: stack by importance and scroll */
+.page.stack{display:block}
+.stack .bento{display:flex;flex-direction:column}
+.stack .card{container-type:inline-size;min-height:150px}
+.stack .illo{display:none}
+.stack .num{font-size:44px}.stack .xl .num{font-size:60px}
+.stack .t-list{grid-template-rows:none}
+@media (prefers-reduced-motion:reduce){.btn:active{transform:none}a.card:hover .c-go{transform:none}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail" aria-label="Aplikasi">
+    <div class="brand"><span class="mark">c</span></div>
+    <nav class="nav">
+      <a href="#"><i data-lucide="layout-dashboard"></i><span>Executive</span></a>
+      <span class="sep"></span>
+      <a href="#"><i data-lucide="shopping-cart"></i><span>Buying</span></a>
+      <a href="#"><i data-lucide="shirt"></i><span>Merchandise</span></a>
+      <a href="#" class="on" aria-current="page"><i data-lucide="truck"></i><span>Ops</span></a>
+      <a href="#"><i data-lucide="boxes"></i><span>Inventory</span></a>
+      <a href="#"><i data-lucide="megaphone"></i><span>Marketing</span></a>
+      <a href="#"><i data-lucide="store"></i><span>Sales</span></a>
+      <a href="#"><i data-lucide="landmark"></i><span>Finance</span></a>
+      <a href="#"><i data-lucide="users"></i><span>HR</span></a>
+      <a href="#"><i data-lucide="messages-square"></i><span>GA</span></a>
+    </nav>
+    <div class="foot"><a href="#" aria-label="Tanya AI"><i data-lucide="sparkles"></i></a><a href="#" aria-label="Pengaturan"><i data-lucide="settings"></i></a></div>
+  </aside>
+  <div class="main">
+    <div class="wsbar">
+      <a class="wtab" href="sidebar-types-prototype.html">In process<i data-lucide="x"></i></a>
+      <span class="wtab on">Ops<i data-lucide="x"></i></span>
+    </div>
+    <main class="page" id="page"></main>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* Ops home: shortcuts first, then what needs attention, workload last and small.
+   Numbers come from the ops boards, the dates on POs and returns, and HR. Nothing is estimated. */
+const MENU='sidebar-types-prototype.html';
+// big number = all active documents in that menu; rows = how many sit in each stage of its board
+const FLOWS=[
+  {id:'po',done:2,name:'PO receiving',n:16,unit:'PO aktif',stages:[['Receive list',6],['In review',2],['Received',3],['Tag list',5]],incoming:['Tiba hari ini','+4 PO'],sub:['6 receive · 2 review · 3 received · 5 tag','+4 tiba hari ini']},
+  {id:'dist',done:3,name:'Distribution',n:25,unit:'allotment aktif',stages:[['Pick list',14],['Picked',5],['Pack',4],['Dispatch',2]],sub:['14 pick · 5 picked · 4 pack · 2 dispatch','14 pick · 5 picked']},
+  {id:'str',done:1,name:'Return from store',n:7,unit:'retur aktif',stages:[['Pick list',3],['Receive count',3],['In review',1]],incoming:['Masuk hari ini','+2 retur'],sub:['3 pick · 3 count · 1 review','+2 masuk hari ini']},
+  {id:'rts',done:1,name:'Return to supplier',n:8,unit:'retur aktif',stages:[['Return list',3],['Dispatch',2],['Resolution',3]],sub:['3 return list · 2 dispatch · 3 resolution','3 list · 2 dispatch']}
+];
+const PRINT={tags:1416,tagPo:5,grn:3};
+const INFO=[
+  {id:'next',icon:'package-plus',label:'Akan masuk hari ini',n:6,sub:['4 PO · 2 retur toko · +1 PO telat','4 PO · 2 retur']},
+  {id:'block',icon:'package-x',label:'Tidak bisa dilanjutkan',n:4,sub:['Barang kurang 2 · hilang 1 · selisih 1','64 pcs kurang/hilang'],needs:true},
+  {id:'wait',icon:'hourglass',label:'Menunggu keputusan',n:6,sub:['MD 3 · Buyer 1 · Supplier 1 · Finance 1','MD 3 · 3 lainnya']},
+  {id:'cancel',icon:'ban',label:'Dibatalkan hari ini',n:3,sub:['1 perlu dikembalikan ke rak · 120 pcs','1 perlu dikembalikan'],needs:true}
+];
+const WORK={n:43,open:33};
+const MORE=[['Receiving','package-open'],['Picking','hand'],['Packing','package'],['Dispatch','truck'],['Stock','boxes'],['Count','list-checks'],['Stock ledger','scroll-text'],['Activity log','history']];
+
+/* line illustrations, black on white */
+const ILLO={
+  po:`<svg viewBox="0 0 160 100" aria-hidden="true"><path class="g" d="M6 92h148"/><path class="f2" d="M18 52h54v40H18z"/><path class="f1" d="M39 52v12h12V52"/><path class="f1" d="M26 26h38v26H26z"/><path d="M41 26v8h8v-8"/><rect class="f1" x="92" y="30" width="46" height="62" rx="5"/><rect class="f2" x="105" y="24" width="20" height="10" rx="3"/><path d="M102 48l3 3 6-6M117 48h13M102 62l3 3 6-6M117 62h13M102 76h7M117 76h13"/></svg>`,
+  dist:`<svg viewBox="0 0 160 100" aria-hidden="true"><path class="g" d="M6 92h148"/><rect class="f2" x="12" y="34" width="82" height="46" rx="4"/><path d="M26 50h30M26 60h18"/><path class="f1" d="M94 50h26l18 19v11H94z"/><path d="M100 56h17l11 12h-28z"/><circle class="f1" cx="36" cy="82" r="10"/><circle cx="36" cy="82" r="3.5"/><circle class="f1" cx="116" cy="82" r="10"/><circle cx="116" cy="82" r="3.5"/></svg>`,
+  str:`<svg viewBox="0 0 160 100" aria-hidden="true"><path class="g" d="M6 92h148"/><path class="f1" d="M14 44h70v48H14z"/><path class="f2" d="M10 30h78l-4 14H14z"/><path class="f1" d="M14 44c0 6 10 6 10 0 0 6 10 6 10 0 0 6 10 6 10 0 0 6 10 6 10 0 0 6 10 6 10 0 0 6 10 6 10 0 0 6 10 6 10 0"/><path class="f2" d="M24 60h16v14H24z"/><path class="f2" d="M52 62h20v30H52z"/><path d="M92 52c16 0 26 6 26 18"/><path d="M112 64l6 6 6-6"/><path class="f2" d="M104 76h28v16h-28z"/><path class="f1" d="M114 76v6h8v-6"/></svg>`,
+  rts:`<svg viewBox="0 0 160 100" aria-hidden="true"><path class="g" d="M6 92h148"/><path class="f2" d="M22 62V36h9v26"/><path class="f1" d="M14 92V58l16 10V58l16 10V58l16 10v24z"/><path d="M24 80h8M40 80h8"/><path class="f2" d="M102 56h40v36h-40z"/><path class="f1" d="M116 56v10h12V56"/><path d="M96 74H72"/><path d="M78 68l-6 6 6 6"/></svg>`,
+  print:`<svg viewBox="0 0 160 100" aria-hidden="true"><rect class="f2" x="46" y="10" width="68" height="24" rx="2"/><path d="M58 20h28"/><rect class="f1" x="26" y="30" width="108" height="40" rx="9"/><path d="M40 58h80"/><circle cx="118" cy="43" r="3"/><path class="f1" d="M66 58h28v22l-14 12-14-12z"/><circle cx="80" cy="69" r="2.5"/><path d="M73 79h14"/></svg>`
+};
+
+/* three options, same theme: one big card leads, the rest follow in a calm grid */
+const OPTIONS=[
+  {id:'o1',label:'1 · Print utama',
+   land:{cols:'repeat(4,minmax(0,1fr))',rows:'1fr 1fr .85fr .62fr',areas:['print print po dist','print print str rts','next block wait cancel','work work more more']},
+   port:{cols:'repeat(3,minmax(0,1fr))',rows:'1fr 1fr 1fr .9fr .7fr',areas:['print print po','print print dist','str rts next','block wait cancel','work more more']}},
+  {id:'o2',label:'2 · Flow utama',
+   land:{cols:'repeat(4,minmax(0,1fr))',rows:'1.4fr 1fr .8fr',areas:['po dist str rts','print print next block','work more wait cancel']},
+   port:{cols:'repeat(2,minmax(0,1fr))',rows:'1.2fr 1.2fr 1fr .85fr .85fr .78fr',areas:['po dist','str rts','print print','next block','wait cancel','work more']}},
+  {id:'o3',label:'3 · Hari ini',
+   land:{cols:'repeat(4,minmax(0,1fr))',rows:'1fr 1fr .62fr',areas:['today po dist print','today str rts print','work work more more']},
+   port:{cols:'repeat(2,minmax(0,1fr))',rows:'1.5fr 1fr 1fr 1fr .7fr',areas:['today today','po dist','str rts','print print','work more']}}
+];
+const [hOpt,hCard]=location.hash.slice(1).split('-');
+let opt=OPTIONS.find(o=>o.id===hOpt)||OPTIONS[0];
+// three ways to fill a flow card
+const CARDS=[['a','A · Tahap'],['b','B · Aktif & selesai'],['c','C · Bar progres']];
+let cv=CARDS.some(c=>c[0]===hCard)?hCard:'a';
+const setHash=()=>history.replaceState(null,'','#'+opt.id+'-'+cv);
+const screenMode=()=>innerWidth<600?'stack':(innerWidth<innerHeight||innerWidth<900)?'port':'land';
+
+const ic=n=>`<i data-lucide="${n}"></i>`;
+const nf=n=>n.toLocaleString('id-ID');
+const two=s=>`<span class="sl">${s[0]}</span><span class="ss">${s[1]}</span>`;
+const big=new Set();
+const cards={
+  flow:f=>{
+    const shade=i=>`color-mix(in srgb,var(--ink) ${Math.round(14+86*i/Math.max(1,f.stages.length-1))}%,#e4e4e7)`;
+    const doneLine=`<p class="f-done">${ic('check')}${f.done} selesai hari ini</p>`;
+    const body=cv==='b'
+      ?`<div class="p-stats f-two"><div><div class="num">${f.n}<small>${f.unit}</small></div></div><div><div class="num n2">${f.done}<small>selesai hari ini</small></div></div></div><p class="sub">${two(f.sub)}</p>`
+      :cv==='c'
+      ?`<div class="num">${f.n}<small>${f.unit}</small></div>
+        <div class="pbar" role="img" aria-label="${f.stages.map(([st,n])=>`${st} ${n}`).join(', ')}">${f.stages.map(([st,n],i)=>`<span style="flex:${n};background:${shade(i)}" title="${st} · ${n}"></span>`).join('')}</div>
+        <div class="plegend">${f.stages.map(([st,n],i)=>`<span><i style="background:${shade(i)}"></i>${st} <b>${n}</b></span>`).join('')}</div>${doneLine}`
+      :`<div class="num">${f.n}<small>${f.unit}</small></div><p class="sub f-sub">${two(f.sub)}</p>
+        <ul class="stages">${f.stages.map(([st,n])=>`<li><span>${st}</span><b>${n}</b></li>`).join('')}${f.incoming?`<li class="in"><span>${f.incoming[0]}</span><b>${f.incoming[1]}</b></li>`:''}</ul>`;
+    return `<a class="card flow cv-${cv} ${big.has(f.id)?'xl':''}" style="grid-area:${f.id}" href="${MENU}">
+    <div class="c-top"><span class="c-name">${f.name}${ic('arrow-up-right')}</span><span class="mini">${ILLO[f.id]}</span></div>
+    <div class="illo">${ILLO[f.id]}</div>
+    <div class="f-main">${body}</div></a>`},
+  print:()=>`<section class="card print link" style="grid-area:print">
+    <div class="c-top"><a class="c-name" href="${MENU}" style="text-decoration:none">Printing</a><a class="c-go" href="${MENU}" aria-label="Buka Printing">${ic('arrow-up-right')}</a></div>
+    <div class="illo">${ILLO.print}</div>
+    <div class="c-foot" style="flex-direction:column;align-items:stretch">
+      <div class="p-stats"><div><div class="num">${nf(PRINT.tags)}<small>tag</small></div><p class="sub">${PRINT.tagPo} PO siap cetak tag</p></div><div><div class="num">${PRINT.grn}<small>GRN</small></div><p class="sub">tanda terima siap cetak</p></div></div>
+      <div class="p-acts"><button class="btn blue" data-print="tag">${ic('printer')}Print tag</button><button class="btn" data-print="grn">${ic('file-text')}Print GRN</button></div></div></section>`,
+  info:i=>`<a class="card ${i.needs?'needs':''}" style="grid-area:${i.id}" href="${MENU}">
+    <div class="c-top"><span class="c-lbl">${i.label}</span><span class="c-ic">${ic(i.icon)}</span></div>
+    <div class="c-foot"><div class="c-body"><div class="num">${i.n}<small>dokumen</small></div><p class="sub">${two(i.sub)}</p></div>${i.id==='wait'?`<button class="btn" data-remind aria-label="Ingatkan semua">${ic('bell')}<span class="bt">Ingatkan</span></button>`:''}</div></a>`,
+  today:()=>`<section class="card" style="grid-area:today">
+    <div class="c-top"><span class="c-name">Hari ini</span><span class="c-ic">${ic('calendar')}</span></div>
+    <div class="t-list">${INFO.map(i=>`<a class="t-row ${i.needs?'needs':''}" href="${MENU}"><div><span class="c-lbl">${i.label}</span><p class="sub">${two(i.sub)}</p></div><div class="num">${i.n}</div></a>`).join('')}</div></section>`,
+  work:()=>`<section class="card" style="grid-area:work">
+    <div class="c-top"><span class="c-lbl">Bisa dikerjakan sekarang</span><span class="c-ic">${ic('list-todo')}</span></div>
+    <div class="c-foot"><div class="c-body"><div class="num">${WORK.n}<small>tugas</small></div><p class="sub">${WORK.open} belum dibagi</p></div><a class="btn blue" href="ops-workload-prototype.html">${ic('users')}<span class="bt">Bagi tugas</span></a></div></section>`,
+  more:()=>`<section class="card" style="grid-area:more">
+    <div class="c-top"><span class="c-lbl">Menu lain</span><span class="c-ic">${ic('layout-grid')}</span></div>
+    <nav class="links" aria-label="Menu Ops lainnya">${MORE.map(([n,icon])=>`<a href="${MENU}" title="${n}" aria-label="${n}">${ic(icon)}<span>${n}</span></a>`).join('')}</nav></section>`
+};
+
+function render(){
+  const page=document.getElementById('page'),mode=screenMode(),cfg=mode==='stack'?null:opt[mode];
+  const used=cfg?cfg.areas.join(' ').split(' '):['print','po','dist','str','rts','next','block','wait','cancel','work','more'];
+  big.clear();if(opt.id==='o2')FLOWS.forEach(f=>big.add(f.id));
+  const out=[];
+  if(used.includes('today'))out.push(cards.today());
+  if(used.includes('print'))out.push(cards.print());
+  FLOWS.filter(f=>used.includes(f.id)).forEach(f=>out.push(cards.flow(f)));
+  INFO.filter(i=>used.includes(i.id)).forEach(i=>out.push(cards.info(i)));
+  if(mode==='stack'&&opt.id==='o3')out.unshift(cards.today());
+  out.push(cards.work(),cards.more());
+  const grid=cfg?`grid-template-columns:${cfg.cols};grid-template-rows:${cfg.rows};grid-template-areas:${cfg.areas.map(r=>`'${r}'`).join(' ')}`:'';
+  page.className='page'+(mode==='stack'?' stack':'');
+  page.innerHTML=`<header class="head"><div><h1>Ops</h1><p>Sabtu, 3 Okt · 09:10</p></div>
+    <div class="switches"><div class="opts" role="group" aria-label="Opsi layout">${OPTIONS.map(o=>`<button data-opt="${o.id}" aria-pressed="${o===opt}">${o.label}</button>`).join('')}</div>
+    <div class="opts" role="group" aria-label="Isi kartu flow">${CARDS.map(([id,l])=>`<button data-cv="${id}" aria-pressed="${cv===id}">${l}</button>`).join('')}</div></div></header>
+    <div class="bento" style="${grid}">${out.join('')}</div>
+    <p class="note">Angka dari board ops, tanggal di PO dan retur. Tanpa estimasi.</p>`;
+  lucide.createIcons();
+}
+
+let toastT;
+function toast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>el.classList.remove('show'),3200)}
+document.addEventListener('click',e=>{
+  const o=e.target.closest('[data-opt]');if(o){opt=OPTIONS.find(x=>x.id===o.dataset.opt);setHash();render();return}
+  const c=e.target.closest('[data-cv]');if(c){cv=c.dataset.cv;setHash();render();return}
+  const p=e.target.closest('[data-print]');if(p){e.preventDefault();toast(p.dataset.print==='tag'?`${nf(PRINT.tags)} tag dari ${PRINT.tagPo} PO dikirim ke printer`:`${PRINT.grn} GRN dikirim ke printer`);return}
+  if(e.target.closest('[data-remind]')){e.preventDefault();toast('Pengingat terkirim · MD, Buyer, Supplier, Finance masing-masing dapat daftarnya')}
+});
+let lastMode=screenMode();
+addEventListener('resize',()=>{const m=screenMode();if(m!==lastMode){lastMode=m;render()}});
+render();
+</script>
+</body>
+</html>

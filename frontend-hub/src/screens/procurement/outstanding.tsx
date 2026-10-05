@@ -1,3 +1,4 @@
+import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
@@ -31,6 +32,10 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { LinkButton } from "@/screens/procurement/controls"
+import {
+  SupplierName,
+  useSupplierName,
+} from "@/screens/procurement/supplier-name"
 import { useActor } from "@/screens/procurement/shared"
 
 /// Outstanding — what a supplier still owes, and the one decision a buyer can
@@ -72,7 +77,10 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     meta: { filter: { kind: "option" } },
     cell: ({ row }) => (
       <span className="font-medium text-ink">
-        {row.original.supplier_name ?? row.original.supplier_id}
+        <SupplierName
+          code={row.original.supplier_id}
+          name={row.original.supplier_name}
+        />
       </span>
     ),
   },
@@ -239,8 +247,10 @@ function ChaseSheet({
   id: string | null
   onClose: () => void
 }) {
+  const nameOfLogin = useNameOfLogin()
   const client = useQueryClient()
   const actor = useActor()
+  const nameOf = useSupplierName()
   const [openLine, setOpenLine] = useState<string | null>(null)
   const [reason, setReason] = useState("")
 
@@ -270,7 +280,15 @@ function ChaseSheet({
       subject={id === null ? undefined : { kind: "purchase_order", id }}
       onOpenChange={(open) => !open && onClose()}
       id={detail.data?.po_number}
-      title={detail.data?.supplier_name ?? detail.data?.supplier_id ?? "Order"}
+      title={
+        detail.data === undefined
+          ? "Order"
+          : nameOf(
+              detail.data.supplier_id,
+              detail.data.supplier_name,
+              detail.data.supplier_ref_id
+            )
+      }
       actions={
         detail.data && (
           <LinkButton
@@ -310,7 +328,7 @@ function ChaseSheet({
                 <Fact term="Expected value">
                   {money(order.expected_value_minor)}
                 </Fact>
-                <Fact term="Raised by">{order.created_by}</Fact>
+                <Fact term="Created By">{nameOfLogin(order.created_by)}</Fact>
               </Facts>
 
               <div>
@@ -338,9 +356,23 @@ function ChaseSheet({
                                 {line.article_code}
                               </span>
                             </span>
-                            <span className="shrink-0 text-right text-[0.875rem] text-body tabular-nums">
-                              {count(line.received_quantity)} of{" "}
-                              {count(line.expected_stock_units)}
+                            <span className="flex shrink-0 flex-col items-end text-right text-[0.875rem] text-body tabular-nums">
+                              <span>
+                                {count(line.received_quantity)} of{" "}
+                                {count(line.expected_stock_units)}
+                              </span>
+                              {/* The pieces above are what receiving counts
+                                  against; the unit the order was placed in is
+                                  shown underneath, for the buyer's own memory
+                                  of what was typed. */}
+                              {line.order_unit_code &&
+                                line.order_unit_quantity && (
+                                  <span className="text-mute">
+                                    ordered{" "}
+                                    {line.order_unit_quantity.replace(".", ",")}{" "}
+                                    {line.order_unit_code}
+                                  </span>
+                                )}
                             </span>
                             <span className="w-14 shrink-0 text-right text-[0.875rem] font-medium text-warn-fg tabular-nums">
                               {count(line.outstanding_stock_units)}
@@ -354,7 +386,6 @@ function ChaseSheet({
                                 onChange={(event) =>
                                   setReason(event.target.value)
                                 }
-                                placeholder="Why the rest is not coming"
                                 className="h-8"
                                 autoFocus
                               />
@@ -365,7 +396,7 @@ function ChaseSheet({
                                 disabled={reason.trim() === "" || actor === ""}
                                 onClick={() => close.mutate(line)}
                               >
-                                {close.isPending ? "Closing…" : "Confirm"}
+                                {close.isPending ? "Submitting…" : "Submit"}
                               </Button>
                               <Button
                                 variant="quiet"

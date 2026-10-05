@@ -10,6 +10,7 @@ import type {
 } from "@itulah/contract"
 
 import { node } from "@/lib/api"
+import { count } from "@/lib/format"
 
 export type {
   CreateUnitConversionRequest,
@@ -202,21 +203,97 @@ export function toPieces(
   return Math.round(qty * per * 10_000) / 10_000
 }
 
-/// Pieces in one of a unit for one item, as the server works it out
-/// (`unit_pieces_per`, migration 0399): "1" for the base unit, else the
-/// item's own pack size, else the live global conversion straight to the
-/// base. Null when the unit has no conversion for this item.
+/// Pieces in one of a unit, from the GLOBAL master only (owner, 2026-09-28:
+/// the per-item pack-size override is gone — a LUSIN is 12 PCS everywhere).
+/// "1" for the base unit, else what the live conversions chain to. Null when
+/// no conversion reaches the base.
 export function unitFactor(
   unitCode: string,
-  itemUnits: readonly { readonly unit_code: string; readonly factor: string }[],
   conversions: readonly UnitConversion[],
   baseUnit: string = BASE_UNIT
 ): string | null {
-  if (unitCode === baseUnit) return "1"
-  const own = itemUnits.find((one) => one.unit_code === unitCode)
-  if (own !== undefined) return own.factor
-  const global = conversions.find(
-    (one) => one.active && one.from_unit === unitCode && one.to_unit === baseUnit
+  // Chained, as the server's `unit_pieces_per` is: KOLI = 10 LUSIN and
+  // LUSIN = 12 PCS make a KOLI 120 without a KOLI → PCS row.
+  const per = piecesPerUnit(unitCode, conversions, baseUnit)
+  return per === null ? null : String(Math.round(per * 10_000) / 10_000)
+}
+
+/// One of an article's own units — its ERPNext `UOM Conversion Detail` row —
+/// as read off `SupplierItem.article_units` or `ArticleDetail.units`.
+export interface ItemUnitFactor {
+  readonly unit_code: string
+  readonly factor: string
+}
+
+/// How many `stockUnit` one `unitCode` is worth for THIS article (ERPNext
+/// `get_conversion_factor`): "1" for the stock unit itself, the article's own
+/// row when it has one, else the global chain — the same order the server
+/// resolves a catalogue line in, so a composer that computes this and a
+/// server that checks it never disagree.
+///
+/// `null` when none of the three applies: the code is neither the stock unit
+/// nor one of the article's own units, and no global conversion reaches the
+/// stock unit either.
+///
+/// `ownOnly` is for goods that ARE an article: they are dealt in their stock
+/// unit and their own units and nothing else, as in 7Soft (migration 0657),
+/// so the global chain is not consulted. Goods with no article yet have no
+/// list to be held to and keep the global chain.
+export function itemUnitFactor(
+  unitCode: string,
+  articleUnits: readonly ItemUnitFactor[],
+  conversions: readonly UnitConversion[],
+  stockUnit: string = BASE_UNIT,
+  ownOnly: boolean = false
+): string | null {
+  const code = unitCode.trim().toUpperCase()
+  const stock = stockUnit.trim().toUpperCase()
+  if (code === stock) return "1"
+
+  const own = articleUnits.find(
+    (one) => one.unit_code.trim().toUpperCase() === code
   )
-  return global?.factor ?? null
+  if (own !== undefined) return own.factor
+  if (ownOnly) return null
+
+  return unitFactor(code, conversions, stock)
+}
+
+/// `pieces` split into whole `unitCode`s and a remainder, both in pieces
+/// terms translated back to a display: `inUnit(500, unit)` where `unit` is
+/// worth 12 pieces gives `{ whole: 41, rest: 8 }`. `null` when the unit's
+/// worth in pieces (`UnitOfMeasure.pieces`) is unknown or not a whole number
+/// — a fractional unit ("1.5 pcs") cannot be split into a clean remainder.
+///
+/// A negative stock quantity — a backorder, a correction gone the other way —
+/// keeps its sign on both parts: -13 in LUSIN is `{ whole: -1, rest: -1 }`.
+export function inUnit(
+  pieces: number,
+  unitPieces: string | null
+): { whole: number; rest: number } | null {
+  const per = unitPieces === null ? null : Number(unitPieces)
+  if (per === null || !Number.isFinite(per) || per <= 0) return null
+  if (!Number.isInteger(per)) return null
+  const negative = pieces < 0
+  const magnitude = Math.abs(pieces)
+  const whole = Math.floor(magnitude / per)
+  const rest = magnitude - whole * per
+  return negative ? { whole: -whole, rest: -rest } : { whole, rest }
+}
+
+/// `pieces` in a chosen display unit, formatted for a person: "41 lusin 8
+/// pcs" when the unit's worth doesn't divide evenly, "25 kodi" when it does,
+/// or plain pieces ("500 pcs") for the base unit or a unit whose worth is
+/// unknown. `unit.label` is used as printed; the base unit's own label is
+/// used for the remainder ("pcs" in the examples above).
+export function formatInUnit(
+  pieces: number,
+  unit: Pick<UnitOfMeasure, "code" | "label" | "pieces" | "is_base">,
+  baseLabel: string = "pcs"
+): string {
+  if (unit.is_base) return `${count(pieces)} ${unit.label}`
+  const split = inUnit(pieces, unit.pieces)
+  if (split === null) return `${count(pieces)} ${baseLabel}`
+  if (split.rest === 0) return `${count(split.whole)} ${unit.label}`
+  return `${count(split.whole)} ${unit.label} ${count(split.rest)} ${baseLabel}`
 }

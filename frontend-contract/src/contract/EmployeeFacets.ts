@@ -17,17 +17,17 @@ export type EmployeeFacets = { statuses: Array<EmployeeFacet>,
  * count. Only an unbounded caller ever sees such a row at all:
  * `Reach::covers(None)` is true for `Everywhere` alone.
  */
-units: Array<EmployeeFacet>,
+units: Array<EmployeeFacet>, 
 /**
  * The latest contract's kind — `PKWT`, `PKWTT`, or `NONE` for somebody
  * with no contract on file.
  */
-contract_kinds: Array<EmployeeFacet>,
+contract_kinds: Array<EmployeeFacet>, 
 /**
  * The latest contract's position. People with no contract have none and
  * are not counted here.
  */
-positions: Array<EmployeeFacet>,
+positions: Array<EmployeeFacet>, 
 /**
  * `1` with a bound login, `0` without.
  */

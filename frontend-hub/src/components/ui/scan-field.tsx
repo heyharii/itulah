@@ -25,7 +25,6 @@ import { cn } from "@/lib/utils"
 /// `autoCapitalize`/`autoCorrect`/`spellCheck` are off because a handheld
 /// keyboard "helpfully" capitalising a SKU is a scan that does not match.
 export function ScanField({
-  placeholder = "Scan",
   action = "Add",
   disabled = false,
   pending = false,
@@ -35,7 +34,6 @@ export function ScanField({
   onSubmit,
   className,
 }: {
-  placeholder?: string
   /// The label on the button beside it. There is always a button: a bay
   /// without a working gun is typed into, and that has to be possible.
   action?: string
@@ -85,7 +83,6 @@ export function ScanField({
           value={value}
           disabled={disabled}
           onChange={(event) => setValue(event.target.value)}
-          placeholder={placeholder}
           autoCapitalize="off"
           autoCorrect="off"
           autoComplete="off"

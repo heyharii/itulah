@@ -22,7 +22,7 @@ encashment: string, encashment_max_centidays: number | null, encashment_second_a
  */
 protected_leave: string, 
 /**
- * Months of service before annual leave is earned (0818); 0 is from the
+ * Months of service before annual leave is earned (service rule, 1 Oct 2026); 0 is from the
  * first day.
  */
 eligibility_months: number, 

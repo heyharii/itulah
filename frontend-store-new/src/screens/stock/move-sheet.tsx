@@ -20,7 +20,7 @@ import {
   type PlaceCode,
 } from "@/screens/stock/shared"
 
-/// Moving a garment between the shop's three places — the On hand screen's
+/// Moving a garment between the shop's three places — the Stock screen's
 /// one write, as a task in a sheet.
 ///
 /// A sheet rather than a panel on the page because the page is read and this
@@ -53,7 +53,7 @@ export function MoveSheet({ mover }: { mover: Mover }) {
       open={mover.open}
       onOpenChange={mover.setOpen}
       title="Move stock"
-      caption="Warehouse, floor or reject. One tag at a time."
+      caption="Stockroom, shop floor or return stock. One tag at a time."
       width="wide"
       footer={
         <div className="flex items-center gap-2 md:justify-end">

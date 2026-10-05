@@ -23,4 +23,13 @@ export type PackRequest = { destination_store_id: string, lines: Array<PackLine>
  * for nothing. False leaves it fillable, which is what a second pack into
  * the same carton would need.
  */
-seal: boolean, };
+seal: boolean, 
+/**
+ * Pack from these picklists: the pieces are the ones they moved into
+ * the pick area, and the destination is the shop they were walked for —
+ * all the same shop. A packer gathers a shop's picklists, one per
+ * allotment, into its cartons (owner, 29 Sep 2026). No reader involved:
+ * the picklists already say what the pieces are. Empty = pack from the
+ * whole pick area, as before.
+ */
+pick_session_ids: Array<string>, };

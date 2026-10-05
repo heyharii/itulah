@@ -118,7 +118,10 @@ pub fn required_role(method: &str, path: &str) -> Role {
     // they may read the page and acknowledge what they were told. Changing
     // who is told, and when, is the Admin's.
     if path.starts_with("/api/v1/fleet") {
-        return if path.starts_with("/api/v1/fleet/alert-settings")
+        // Pausing a background job, or asking it to run, is the Admin's too
+        // (0703); reading how the jobs are doing is the page's.
+        return if (path.starts_with("/api/v1/fleet/alert-settings")
+            || path.starts_with("/api/v1/fleet/jobs"))
             && !method.eq_ignore_ascii_case("GET")
         {
             Role::Admin
@@ -246,6 +249,8 @@ pub fn required_role(method: &str, path: &str) -> Role {
     if path.starts_with("/api/v1/purchase-")
         || path.starts_with("/api/v1/suppliers")
         || path.starts_with("/api/v1/supplier-items")
+        // What a supplier owes back on a return is money, like the order.
+        || path.starts_with("/api/v1/supplier-returns")
         || path.starts_with("/api/v1/sourcing-basket")
     {
         return Role::Supervisor;

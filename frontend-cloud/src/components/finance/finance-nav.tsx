@@ -217,7 +217,7 @@ const FINANCE_GROUPS: readonly FinanceGroup[] = [
     items: [
       { label: "Balance Sheet", accounts: "1 · 2 · 3", to: "/finance/reports/balance-sheet", ready: true },
       { label: "Profit & Loss", accounts: "4–8", to: "/finance/reports/profit-loss", ready: true },
-      { label: "P&L by Location", to: "/finance/reports/by-location", ready: true },
+      { label: "P&L by Unit", to: "/finance/reports/by-location", ready: true },
       { label: "Expense Report", accounts: "6 · 7", to: "/finance/reports/expenses", ready: true },
       { label: "Fixed Asset Report", accounts: "10215 · 10216", to: "/finance/reports/assets", ready: true },
     ],

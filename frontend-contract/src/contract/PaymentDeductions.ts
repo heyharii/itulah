@@ -13,7 +13,12 @@ total_minor: number, withholding_minor: number,
  */
 withholding_key: string | null, bank_charge_minor: number, 
 /**
- * `total_minor - withholding_minor + bank_charge_minor`.
+ * What the bills were settled for without money (0704): the POTONGAN on
+ * each allocation, summed. Booked to `settlement_discount`.
+ */
+settlement_discount_minor: number, 
+/**
+ * `total_minor - withholding_minor - settlement_discount_minor + bank_charge_minor`.
  */
 leaving_the_bank_minor: number, 
 /**

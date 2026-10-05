@@ -38,6 +38,7 @@ import { tableSetup, type TableSetup } from "@/lib/table"
 import { ItemDetail } from "@/screens/procurement/item-detail"
 import { ItemFormSheet } from "@/screens/procurement/item-form"
 import { termLabel, useIdempotencyKey } from "@/screens/procurement/shared"
+import { supplierDisplayName } from "@/screens/procurement/supplier-format"
 import type {
   CatalogueVocabulary,
   SupplierItem,
@@ -115,7 +116,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
   {
     id: "price",
     accessorFn: (row) => row.item.unit_price_minor,
-    header: "Unit price",
+    header: "Unit Price",
     size: 130,
     meta: {
       align: "right",
@@ -211,7 +212,7 @@ export function Catalogue() {
       (page.data?.pages ?? []).flatMap((each) =>
         each.items.map((sourced) => ({
           item: sourced.item,
-          supplierName: sourced.supplier.name,
+          supplierName: supplierDisplayName(sourced.supplier),
           divisionLabel:
             sourced.item.division_code === null
               ? ""
@@ -261,7 +262,6 @@ export function Catalogue() {
               <Input
                 value={needle}
                 onChange={(event) => setNeedle(event.target.value)}
-                placeholder="Item, code or supplier"
                 className="h-8 w-56"
               />
               {/* This screen is the only one that CREATES a supplier item —

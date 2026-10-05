@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Packing · New pack options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* Hub tokens (frontend-hub/src/styles/index.css, 28 Sep · E Quiet · airy charcoal). Inter 14, nothing under 14px. */
+:root{--ink:#20242c;--text:#394150;--body:#626b78;--mute:#737c89;--faint:#b9c0c9;--line-ico:#89919d;--canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--soft-3:#f6f6f7;
+  --hairline:#e6e6e9;--hairline-2:#dadade;--hairline-strong:#c6c6cc;--backdrop:#e0e0e4;
+  --accent:#2563eb;--accent-bg:#eff5ff;--ok:#36b827;--ok-fg:#15803d;--ok-bg:#e7f7e3;--warn:#c9892e;--warn-bg:#faeacd;--warn-fg:#b45309;--bad:#d05151;--bad-bg:#fbeaea;--bad-fg:#be123c;
+  --rail:#242526;--rail-2:#303234;--rail-text:#c3c4c7;--rail-mute:#a1a3a8;
+  --r-shell:16px;--r-card:10px;--r-inner:7px;
+  --shadow-soft:0 1px 3px rgb(24 39 60/4%);--shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);--shadow-shell:0 10px 34px rgb(24 39 60/8%);
+  --ease:cubic-bezier(.23,1,.32,1);--ease-drawer:cubic-bezier(.32,.72,0,1)}
+*{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px}
+body{font:14px/20px Inter,system-ui,sans-serif;color:var(--text);background:var(--backdrop);-webkit-font-smoothing:antialiased;padding:16px 16px 40px}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px;letter-spacing:-.02em}
+.num{font-variant-numeric:tabular-nums}
+.mute{color:var(--mute)}.faint{color:var(--faint)}.body{color:var(--body)}.ink{color:var(--ink)}
+.warnt{color:var(--warn-fg)}.badt{color:var(--bad-fg)}
+svg.i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer;flex:none}
+
+/* prototype chrome */
+.top{max-width:98rem;margin:0 auto 12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.top h1{font-size:15px;font-weight:600;color:var(--ink)}
+.top p{color:var(--body);max-width:52rem}
+.lenses{margin-left:auto;display:flex;gap:2px;background:var(--canvas);padding:3px;border-radius:999px;box-shadow:0 0 0 1px var(--hairline);flex-wrap:wrap}
+.lens{border:0;background:none;border-radius:999px;padding:5px 14px;color:var(--body)}
+.lens.on{background:var(--ink);color:#fff;font-weight:500}
+.why{max-width:98rem;margin:14px auto 0;display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.why div{background:var(--canvas);border-radius:var(--r-card);padding:14px 16px;box-shadow:var(--shadow-soft)}
+.why h5{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:4px}.why p{color:var(--body)}
+@media (max-width:900px){.why{grid-template-columns:1fr 1fr}}
+@media (max-width:560px){.why{grid-template-columns:1fr}}
+
+/* shell */
+.shell{max-width:98rem;margin:0 auto;display:flex;height:min(58rem,calc(100vh - 7rem));min-height:42rem;background:var(--canvas);border-radius:var(--r-shell);box-shadow:var(--shadow-shell);overflow:clip;position:relative}
+.nav{width:14.5rem;flex:none;background:var(--rail);color:var(--rail-text);padding:14px 10px;display:flex;flex-direction:column;gap:2px}
+.brand{display:flex;align-items:center;gap:9px;color:#fff;font-weight:600;padding:2px 8px 14px}
+.brand b{width:24px;height:24px;border-radius:7px;background:#fff;color:var(--rail);display:grid;place-items:center;font-weight:700;position:relative}
+.brand b::after{content:"";position:absolute;right:4px;bottom:4px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.nrow{display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;color:var(--rail-text)}
+.nrow.dept{color:#fff;font-weight:500}
+.nrow.sub{padding-left:34px;color:var(--rail-mute)}
+.nrow.sub.on{background:var(--rail-2);color:#fff}
+.nrow svg.i{color:var(--rail-mute)}
+@media (max-width:900px){.nav{display:none}}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}
+.bar{height:48px;flex:none;display:flex;align-items:center;gap:8px;padding:0 20px;border-bottom:1px solid var(--hairline);color:var(--body)}
+.bar b{color:var(--ink);font-weight:500}
+.scroll{flex:1;min-height:0;overflow:auto}
+.page{padding:26px 32px 32px}
+@media (max-width:700px){.page{padding:18px 16px 24px}}
+
+/* page parts */
+.ph{display:flex;align-items:flex-end;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+.ph h2{font-size:22px;line-height:28px;font-weight:600;color:var(--ink);letter-spacing:-.02em}
+.ph .sub{color:var(--body);margin-top:4px}
+.ph .act{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.btn{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 13px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);color:var(--ink);font-weight:500;white-space:nowrap;transition:background .12s,transform .1s}
+.btn:hover{background:var(--soft)}.btn:active{transform:scale(.97)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}.btn.pri:hover{background:#1d4ed8}
+.btn.ghost{border-color:transparent;background:none;color:var(--body)}.btn.ghost:hover{background:var(--soft-2);color:var(--ink)}
+.btn.sm{height:30px;padding:0 11px}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.btn svg.i{color:var(--line-ico)}.btn.pri svg.i{color:#fff}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+.kpi{border:1px solid var(--hairline);border-radius:var(--r-card);padding:12px 14px}
+.kpi span{color:var(--body)}.kpi b{display:block;font-size:22px;line-height:30px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+@media (max-width:700px){.kpis{grid-template-columns:1fr 1fr}}
+.card{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:clip;margin-bottom:18px}
+.chead{display:flex;align-items:center;gap:10px;padding:0 16px;height:52px;border-bottom:1px solid var(--hairline)}
+.chead h4{font-size:15px;font-weight:600;color:var(--ink)}
+table{border-collapse:collapse}
+table.list{width:100%}
+table.list th{font-weight:400;color:var(--body);text-align:left;padding:0 14px;height:40px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+table.list td{padding:0 14px;height:52px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+table.list tr:last-child td{border-bottom:0}
+table.list tbody tr.click{cursor:pointer;transition:background .12s}
+table.list tbody tr.click:hover{background:var(--soft)}
+.r{text-align:right!important}.c{text-align:center!important}
+.status{display:inline-flex;align-items:center;gap:7px;color:var(--ink)}
+.status i{width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.status.done i{background:var(--ok)}
+.shopc{display:flex;flex-direction:column;line-height:18px}
+.shopc .mono{color:var(--ink)}
+.shopc span+span{color:var(--mute)}
+.grid .shopc,.srow .shopc{text-align:left}
+
+/* sheet */
+.scrim{position:absolute;inset:0;background:rgb(246 246 247/.55);opacity:0;pointer-events:none;transition:opacity .2s;z-index:5}
+.scrim.on{opacity:1;pointer-events:auto}
+.sheet{position:absolute;top:10px;right:10px;bottom:10px;width:min(64rem,calc(100% - 20px));background:var(--canvas);border-radius:var(--r-shell);box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);display:flex;flex-direction:column;transform:translateX(calc(100% + 24px));transition:transform .42s var(--ease-drawer),width .3s var(--ease);z-index:6}
+.sheet.on{transform:none}
+.sheet.wide{width:min(86rem,calc(100% - 20px))}
+.sheet.mid{width:min(76rem,calc(100% - 20px))}
+.shead{padding:18px 22px 12px;display:flex;gap:12px;align-items:flex-start}
+.shead h3{font-size:20px;line-height:26px;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+.shead .cap{color:var(--body);margin-top:3px}
+.shead .x{margin-left:auto}
+.x{width:36px;height:36px;border:0;background:none;border-radius:8px;display:grid;place-items:center;color:var(--body);flex:none}.x:hover{background:var(--soft-2)}
+.stool{padding:0 22px 12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.sbody{flex:1;min-height:0;overflow:auto;padding:0 22px 18px}
+.sfoot{border-top:1px solid var(--hairline);padding:12px 22px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.search{position:relative;flex:0 1 15rem}
+.search svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--line-ico)}
+.search input{width:100%;height:36px;border:1px solid transparent;border-radius:999px;padding:0 12px 0 32px;background:var(--soft-2);outline:0}
+.search input:hover{border-color:var(--hairline-2)}.search input:focus{border-color:var(--hairline-strong);background:var(--canvas)}
+.sel{height:36px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 10px;background:var(--canvas);color:var(--ink)}
+.sp{flex:1}
+.menu{position:relative}
+.pop{position:absolute;left:0;top:42px;z-index:30;min-width:17rem;background:var(--canvas);border-radius:var(--r-card);box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);padding:5px;display:none;max-height:26rem;overflow:auto}
+.pop.right{left:auto;right:0}
+.pop.on{display:block;animation:pop .16s var(--ease)}
+.pop label,.pop button{display:flex;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:6px;gap:10px;align-items:center;cursor:pointer}
+.pop label:hover,.pop button:hover{background:var(--soft-2)}
+.pop label.off{cursor:default;color:var(--faint)}.pop label.off:hover{background:none}
+.pop label .n{margin-left:auto;color:var(--mute);font-variant-numeric:tabular-nums}
+.pop button span{color:var(--mute)}
+.pop hr{border:0;border-top:1px solid var(--hairline);margin:4px 0}
+@keyframes pop{from{opacity:0;transform:translateY(-4px) scale(.98)}}
+.banner{display:flex;gap:10px;align-items:flex-start;border-radius:var(--r-inner);padding:10px 12px;background:var(--soft);color:var(--text);margin-bottom:12px}
+.banner.warn{background:var(--warn-bg);color:#6b4410}
+.banner.ok{background:var(--ok-bg);color:#14532d}
+
+/* the sheet's table (DemandSheet look) */
+.grid{border:1px solid var(--hairline);border-radius:var(--r-inner);overflow:clip}
+.grid table{width:100%}
+.grid th{height:40px;padding:0 10px;font-weight:400;color:var(--body);text-align:right;border-bottom:1px solid var(--hairline);white-space:nowrap;background:var(--canvas)}
+.grid th:first-child{text-align:left;padding-left:12px}
+.grid td{padding:0 10px;height:44px;border-bottom:1px solid var(--hairline);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.grid td:first-child{text-align:left;padding-left:12px}
+.grid tr:last-child td{border-bottom:0}
+.grid tr.art td{background:var(--soft);height:56px}
+.grid tr.art td.num,.grid tr.art .tot{color:var(--ink);font-weight:500}
+.art1{display:flex;align-items:center;gap:10px;min-width:0}
+.art1 .nm{color:var(--ink);font-weight:500;overflow:hidden;text-overflow:ellipsis}
+.art1 .cd{color:var(--mute)}
+.th{width:36px;height:36px;border-radius:var(--r-inner);flex:none;position:relative;overflow:hidden}
+.th::after{content:"";position:absolute;inset:0;background:linear-gradient(160deg,rgb(255 255 255/.35),rgb(255 255 255/0) 60%)}
+.skuc{display:flex;align-items:center;gap:10px;padding-left:46px}
+.skuc .mono{color:var(--faint)}
+.shopsub{display:flex;align-items:center;gap:10px;padding-left:72px}
+.qty{width:52px;height:30px;border:1px solid transparent;border-radius:var(--r-inner);background:transparent;text-align:center;font-variant-numeric:tabular-nums;outline:0;transition:background .12s,border-color .12s}
+.qty:hover{border-color:var(--hairline-2);background:var(--soft-2)}
+.qty:focus{border-color:var(--hairline-strong);background:var(--canvas)}
+.qty.has{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.qty.over{background:var(--bad-bg);color:var(--bad-fg);font-weight:500}
+.qcell{display:inline-flex;align-items:center;gap:4px;justify-content:flex-end}
+.qcell .of{color:var(--mute);min-width:26px;text-align:left}
+td.z{color:var(--faint)}
+.left.bad{color:var(--bad-fg);font-weight:500}
+
+/* A · matrix */
+.mx{overflow:auto;max-height:100%;border:1px solid var(--hairline);border-radius:var(--r-inner)}
+.mx table{min-width:100%}
+.mx th,.mx td{padding:0 8px;height:44px;border-bottom:1px solid var(--hairline);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;background:var(--canvas)}
+.mx thead th{position:sticky;top:0;z-index:2;font-weight:400;color:var(--body);height:56px;vertical-align:middle}
+.mx thead th .shopc{align-items:flex-end}
+.mx th:first-child,.mx td:first-child{position:sticky;left:0;z-index:1;text-align:left;padding-left:12px;min-width:17rem;max-width:19rem;border-right:1px solid var(--hairline)}
+.mx thead th:first-child{z-index:3}
+.mx tr.art td{background:var(--soft);height:56px}
+.mx tr.art td .tot{color:var(--ink);font-weight:500}
+.mx td.shopcol{min-width:6.5rem}
+.mx tfoot td{position:sticky;bottom:0;z-index:2;background:var(--canvas);border-top:1px solid var(--hairline-strong);border-bottom:0;height:48px;color:var(--ink);font-weight:500}
+.mx tfoot td:first-child{z-index:3}
+.mx th.picked,.mx td.picked{border-right:1px solid var(--hairline)}
+.mx td.left,.mx th.left{border-left:1px solid var(--hairline)}
+.mx .skuc{padding-left:46px}
+
+/* B · shops list */
+.grid tr.shop td{height:56px}
+.grid tr.shop.off td{color:var(--faint)}
+.grid tr.shop.off .mono{color:var(--faint)}
+.grid tr.shop.clickable{cursor:pointer}
+.grid tr.shop.clickable:hover td{background:var(--soft)}
+.grid tr.shop.openrow td{background:var(--soft)}
+.chev{width:28px;height:28px;border:0;background:none;border-radius:6px;display:inline-grid;place-items:center;color:var(--line-ico);transition:transform .2s var(--ease)}
+.chev.on{transform:rotate(90deg)}
+.grid tr.detail>td{padding:0;background:var(--soft-3);height:auto}
+.inner{padding:8px 12px 12px 44px}
+.inner table{width:100%;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-inner);border-collapse:separate;border-spacing:0;overflow:hidden}
+.inner td{height:52px}
+.inner th{height:36px}
+
+/* D · two pane */
+.split{display:flex;gap:16px;height:100%;min-height:0}
+.shoplist{width:18rem;flex:none;border:1px solid var(--hairline);border-radius:var(--r-inner);display:flex;flex-direction:column;overflow:hidden}
+.shoplist .hd{display:flex;align-items:center;gap:10px;height:44px;padding:0 12px;border-bottom:1px solid var(--hairline);color:var(--body)}
+.shoplist .ls{flex:1;overflow:auto}
+.srow{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--hairline);cursor:pointer;transition:background .12s}
+.srow:hover{background:var(--soft)}
+.srow.on{background:var(--accent-bg);box-shadow:inset 3px 0 0 var(--accent)}
+.srow.off{cursor:default;color:var(--faint)}.srow.off .mono{color:var(--faint)}.srow.off:hover{background:none}
+.srow .shopc{flex:1;min-width:0}
+.srow .n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;align-self:center}
+.pane{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
+.pane .phd{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.pane .phd h4{font-size:15px;font-weight:600;color:var(--ink)}
+.pane .grid{overflow:auto}
+@media (max-width:760px){.split{flex-direction:column}.shoplist{width:auto;max-height:14rem}}
+
+.toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,20px);background:var(--ink);color:#fff;padding:10px 16px;border-radius:999px;opacity:0;transition:all .25s var(--ease);z-index:50}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <h1>Packing · New pack</h1>
+  <p>Four ways to pack for every shop at once, all still a table. Open <b>New pack</b> to start with every ready shop, or a row's <b>Pack</b> to start with one shop.</p>
+  <div class="lenses" id="lenses"></div>
+</div>
+
+<div class="shell">
+  <nav class="nav">
+    <div class="brand"><b>C</b>Central</div>
+    <div class="nrow dept"><svg class="i" viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4"/></svg>Operations</div>
+    <div class="nrow sub">Receiving</div>
+    <div class="nrow sub">Printing</div>
+    <div class="nrow sub">Picking</div>
+    <div class="nrow sub on">Packing</div>
+    <div class="nrow sub">Surat jalan</div>
+    <div class="nrow sub">Dispatch</div>
+    <div class="nrow dept" style="margin-top:10px"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18"/></svg>Inventory</div>
+    <div class="nrow dept"><svg class="i" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Sales</div>
+  </nav>
+  <div class="main">
+    <div class="bar">Operations <span class="faint">/</span> <b>Packing</b></div>
+    <div class="scroll"><div class="page" id="page"></div></div>
+    <div class="scrim" id="scrim"></div>
+    <aside class="sheet" id="sheet"></aside>
+  </div>
+</div>
+
+<div class="why" id="why"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s)
+const ico={
+  x:'<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  plus:'<svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  search:'<svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
+  down:'<svg class="i" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>',
+  right:'<svg class="i" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
+  print:'<svg class="i" viewBox="0 0 24 24"><path d="M6 9V3h12v6M6 18H4v-7h16v7h-2"/><rect x="6" y="14" width="12" height="7"/></svg>',
+  store:'<svg class="i" viewBox="0 0 24 24"><path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9h16"/></svg>',
+}
+const n=v=>Number(v).toLocaleString('en-US')
+
+/* ---------- data: shops, articles, what each shop is owed, what is picked ---------- */
+const SHOPS=[
+  {id:'BDG-01',name:'Bandung Dago'},{id:'BDG-02',name:'Bandung Buah Batu'},{id:'JKT-03',name:'Jakarta Kemang'},
+  {id:'JKT-07',name:'Jakarta Kelapa Gading'},{id:'SMG-01',name:'Semarang Pandanaran'},{id:'SBY-02',name:'Surabaya Tunjungan'},
+  {id:'YGY-01',name:'Yogyakarta Kaliurang'},{id:'MLG-01',name:'Malang Ijen'},{id:'BGR-01',name:'Bogor Pajajaran'}]
+const SHOP=Object.fromEntries(SHOPS.map(s=>[s.id,s]))
+const ARTS=[
+  {code:'KMJ-OXF',name:'Kemeja Oxford Slim',div:'PRIA',tint:'#3b4a66',cols:['Navy','White'],sizes:['M','L','XL']},
+  {code:'KOS-BSC',name:'Kaos Basic Crew',div:'PRIA',tint:'#2b2d31',cols:['Black','Grey'],sizes:['S','M','L']},
+  {code:'BLS-LNN',name:'Blus Linen Kerah',div:'WANITA',tint:'#9aa98a',cols:['Sage'],sizes:['S','M','L']},
+  {code:'CHN-TPR',name:'Celana Chino Tapered',div:'PRIA',tint:'#b89f78',cols:['Khaki'],sizes:['30','32','34']},
+  {code:'ROK-PLS',name:'Rok Plisket Midi',div:'WANITA',tint:'#6b5446',cols:['Black','Mocca'],sizes:['AS']},
+  {code:'HDA-ZIP',name:'Hoodie Anak Zip',div:'ANAK',tint:'#7a2f3a',cols:['Maroon'],sizes:['6','8','10']}]
+let seed=11;const rnd=()=>{seed=(seed*16807)%2147483647;return(seed-1)/2147483646}
+const SKUS=[];const OWED={}
+for(const a of ARTS)for(const c of a.cols)for(const s of a.sizes){
+  const code=`${a.code}-${c.slice(0,3).toUpperCase()}-${s}`
+  const sku={code,art:a.code,colour:c,size:s,picked:0};SKUS.push(sku)
+  let sum=0
+  for(const sh of SHOPS){
+    const hoodie=a.code==='HDA-ZIP'
+    if(sh.id==='BGR-01'&&!hoodie)continue
+    if(rnd()<(hoodie?.35:.5)){const q=1+Math.floor(rnd()*4);OWED[sh.id+'|'+code]=q;sum+=q}
+  }
+  sku.picked=a.code==='HDA-ZIP'?0:Math.max(0,Math.round(sum*(.6+rnd()*.75)))
+}
+const SKU=Object.fromEntries(SKUS.map(s=>[s.code,s]))
+const ART=Object.fromEntries(ARTS.map(a=>[a.code,a]))
+const owed=(s,c)=>OWED[s+'|'+c]||0
+const skusOf=s=>SKUS.filter(k=>owed(s,k.code)>0)
+const owedShop=s=>skusOf(s).reduce((t,k)=>t+owed(s,k.code),0)
+/// What one shop could take if it were the only shop — the queue's per-row "Ready".
+const readyAlone=s=>skusOf(s).reduce((t,k)=>t+Math.min(owed(s,k.code),k.picked),0)
+/// The honest floor-wide figure: shared picks counted once, never Σ of the rows.
+const readyAll=()=>SKUS.reduce((t,k)=>t+Math.min(SHOPS.reduce((u,s)=>u+owed(s.id,k.code),0),k.picked),0)
+let CARTONS=[
+  {no:'KL-260929-0140',shop:'SBY-02',pieces:36,sealed:'11:52',pos:'Waiting for a surat jalan'},
+  {no:'KL-260929-0139',shop:'JKT-03',pieces:41,sealed:'11:40',pos:'On a surat jalan'},
+  {no:'KL-260929-0138',shop:'BDG-01',pieces:28,sealed:'10:05',pos:'Dispatched'}]
+let nextKoli=141
+
+/* ---------- state ---------- */
+let opt=(()=>{try{return localStorage.getItem('np-opt')||'A'}catch{return'A'}})()
+let open=false,sel=new Set(),q={},focus=null,expanded=new Set(),needle='',show='all',pop=null,result=null
+
+const OPTS={
+  A:{name:'A · Matrix',size:'wide',sub:'Every shop side by side. Each column becomes one carton.',
+    why:[['Rows are articles, columns are shops','The same article and SKU grouping as today, with one Pack column per shop instead of one Pack column.'],
+      ['See where the picks go','Picked and Left sit either side of the shops. Left goes red the moment the shops ask for more than the picking area holds.'],
+      ['Shops ▾ picks the columns','All ready shops are selected when it opens. Untick a shop to drop its column, and the Pack on a queue row opens with that shop only.'],
+      ['Best for','Few shops (up to ~10) and a head packer who splits scarce SKUs by eye. With 30 shops it scrolls sideways.']]},
+  B:{name:'B · Shops list',size:'',sub:'Tick the shops to pack. Each ticked shop becomes one carton.',
+    why:[['Rows are shops','It reads like the Waiting to pack queue, with a tick box on each row and one at the top for every shop.'],
+      ['The plan is already filled','Pack is what each shop gets from the shared picks. "Short" says how much it gave up to the other shops.'],
+      ['Open a shop to adjust','The chevron expands the shop into its SKU lines, which you edit exactly as you do today.'],
+      ['Best for','Many shops, and "just pack everything that is ready". It scales to 50 shops without scrolling sideways.']]},
+  C:{name:'C · By SKU',size:'',sub:'Each SKU shows every shop that wants it, so a scarce SKU is split in one place.',
+    why:[['Article › SKU › shop','Today\'s article and SKU rows, with the shops that are owed each SKU nested underneath.'],
+      ['Short SKUs come first','A SKU whose shops want more than is picked is marked "short" in its row. Show ▾ can list only those.'],
+      ['Like a picker\'s walk','The packer takes one SKU off the picking table and puts it into several cartons. The list follows the pieces, not the cartons.'],
+      ['Best for','A packing table with open cartons for every shop, where the packer walks SKU by SKU.']]},
+  D:{name:'D · Shop rail',size:'mid',sub:'One shop at a time. Pack and seal its carton, then the next shop comes up.',
+    why:[['Today\'s sheet, plus a rail','The right side is the current New pack table for one shop. The For dropdown becomes the list of every shop on the left, with nothing to tick.'],
+      ['One carton, then the next','Pack and seal works on the shop you are looking at. The rail marks it Packed and the next shop opens, already filled.'],
+      ['Fair share by default','A short SKU is filled with this shop\'s share, so the first shop does not take everything. "Everything it can take" is one click away in Fill ▾.'],
+      ['Best for','A packer at one bench, one carton at a time. The smallest change from today, and still every shop in view.']]},
+}
+
+/* ---------- plan ---------- */
+const ordered=()=>SHOPS.filter(s=>sel.has(s.id)).map(s=>s.id)
+/// Fill every selected shop from the shared picks. When a SKU is short, share it
+/// by what each shop is owed (largest remainder), or hand it out in list order.
+function fill(rule){
+  const shops=ordered()
+  for(const k of SKUS){
+    const want=shops.filter(s=>owed(s,k.code)>0)
+    const total=want.reduce((t,s)=>t+owed(s,k.code),0)
+    if(total<=k.picked){want.forEach(s=>set(s,k.code,owed(s,k.code)));continue}
+    if(rule==='order'){let left=k.picked;for(const s of want){const g=Math.min(owed(s,k.code),left);set(s,k.code,g);left-=g}continue}
+    const raw=want.map(s=>({s,x:owed(s,k.code)*k.picked/total}))
+    let left=k.picked-raw.reduce((t,r)=>t+Math.floor(r.x),0)
+    raw.sort((a,b)=>(b.x%1)-(a.x%1))
+    for(const r of raw){let g=Math.floor(r.x);if(left>0&&g<owed(r.s,k.code)){g++;left--}set(r.s,k.code,g)}
+  }
+}
+/// A shop ticked late gets what the others have left, never what they already hold.
+function fillShop(s){const c=calc();for(const k of skusOf(s)){const free=k.picked-(c.sum[k.code]||0);set(s,k.code,Math.max(0,Math.min(owed(s,k.code),free)))}}
+/// D: this shop's share of each short SKU, leaving the rest for the shops still waiting.
+function fairShop(s,all){dropShop(s)
+  for(const k of skusOf(s)){const o=owed(s,k.code),T=SHOPS.reduce((t,x)=>t+owed(x.id,k.code),0)
+    set(s,k.code,all||T<=k.picked?Math.min(o,k.picked):Math.floor(o*k.picked/T))}}
+const draft=s=>Object.entries(q).reduce((t,[k,v])=>t+(k.startsWith(s+'|')?v:0),0)
+let done={}
+function set(s,c,v){const k=s+'|'+c;if(v>0)q[k]=v;else delete q[k]}
+function dropShop(s){for(const k of Object.keys(q))if(k.startsWith(s+'|'))delete q[k]}
+function calc(){
+  const sum={},shopT={},art={},artShop={};let lines=0,pieces=0
+  for(const[k,v]of Object.entries(q)){
+    const[s,c]=k.split('|');if(!sel.has(s)||!v)continue
+    const a=SKU[c].art
+    sum[c]=(sum[c]||0)+v;shopT[s]=(shopT[s]||0)+v;art[a]=(art[a]||0)+v;artShop[a+'|'+s]=(artShop[a+'|'+s]||0)+v;lines++;pieces+=v
+  }
+  const over=new Set(SKUS.filter(k=>(sum[k.code]||0)>k.picked).map(k=>k.code))
+  const cellOver=Object.entries(q).filter(([k,v])=>{const[s,c]=k.split('|');return sel.has(s)&&(v>owed(s,c)||(over.has(c)&&v>0))}).length
+  const cartons=ordered().filter(s=>shopT[s]>0)
+  return{sum,shopT,art,artShop,over,cellOver,lines,pieces,cartons}
+}
+const packable=s=>readyAlone(s)>0
+const matches=k=>{const w=needle.trim().toLowerCase();if(!w)return true;const a=ART[k.art];return k.code.toLowerCase().includes(w)||a.name.toLowerCase().includes(w)||a.code.toLowerCase().includes(w)}
+const shopMatches=s=>{const w=needle.trim().toLowerCase();return!w||s.id.toLowerCase().includes(w)||s.name.toLowerCase().includes(w)}
+
+/* ---------- page behind the sheet ---------- */
+function renderPage(){
+  const shops=SHOPS.filter(s=>owedShop(s.id)>0)
+  const loose=CARTONS.filter(c=>c.pos==='Waiting for a surat jalan').length
+  $('#page').innerHTML=`
+  <div class="ph"><div><h2>Packing</h2><div class="sub">Pack picked pieces into cartons for the shops. Each carton is sealed as it is packed.</div></div>
+    <div class="act"><button class="btn pri" data-new ${readyAll()?'':'disabled'}>${ico.plus}New pack</button></div></div>
+  <div class="kpis">
+    <div class="kpi"><span>Shops waiting</span><b>${n(shops.length)}</b></div>
+    <div class="kpi"><span>Ready to pack</span><b>${n(readyAll())}</b></div>
+    <div class="kpi"><span>Waiting for a surat jalan</span><b>${n(loose)}</b></div>
+    <div class="kpi"><span>Cartons</span><b>${n(CARTONS.length)}</b></div></div>
+  <div class="card"><div class="chead"><h4>Waiting to pack</h4><span class="mute">${n(shops.reduce((t,s)=>t+owedShop(s.id),0))} pieces owed</span></div>
+    <table class="list"><thead><tr><th>Shop</th><th class="r">SKUs</th><th class="r">Owed</th><th class="r">Ready to pack</th><th></th></tr></thead><tbody>
+    ${shops.map(s=>{const r=readyAlone(s.id);return`<tr class="${r?'click':''}" ${r?`data-pack="${s.id}"`:''}>
+      <td><div class="shopc"><span class="mono">${s.id}</span><span>${s.name}</span></div></td>
+      <td class="r num">${skusOf(s.id).length}</td><td class="r num">${n(owedShop(s.id))}</td>
+      <td class="r num ${r?'':'mute'}">${n(r)}</td>
+      <td class="r" style="width:120px">${r?`<button class="btn pri sm" data-pack="${s.id}">Pack</button>`:'<span class="mute">Pick first</span>'}</td></tr>`}).join('')}
+    </tbody></table></div>
+  <div class="card"><div class="chead"><h4>Cartons</h4><div class="sp"></div><select class="sel" style="width:15rem"><option>All cartons</option><option>Waiting for a surat jalan</option><option>Not sealed</option></select></div>
+    <table class="list"><thead><tr><th>Carton</th><th>Shop</th><th class="r">Pieces</th><th>Sealed</th><th>Status</th></tr></thead><tbody>
+    ${CARTONS.map(c=>`<tr class="click"><td class="mono ink">${c.no}</td><td class="mono">${c.shop}</td><td class="r num">${n(c.pieces)}</td><td class="num">${c.sealed}</td>
+      <td><span class="status ${c.pos==='Dispatched'?'done':''}"><i></i>${c.pos}</span></td></tr>`).join('')}
+    </tbody></table></div>`
+}
+
+/* ---------- sheet ---------- */
+function openSheet(shop){
+  if(opt==='D'){q={};done={};focus=(shop&&packable(shop))?shop:SHOPS.find(s=>packable(s.id))?.id||null;if(focus)fairShop(focus);needle='';pop=null;result=null;open=true;renderSheet();return}
+  sel=new Set(shop?[shop]:SHOPS.filter(s=>packable(s.id)).map(s=>s.id))
+  q={};fill('fair');focus=shop||ordered()[0]||null;expanded=new Set(shop?[shop]:[]);needle='';show='all';pop=null;result=null
+  open=true;renderSheet()
+}
+function closeSheet(){open=false;pop=null;renderSheet()}
+
+function thumb(a){return`<span class="th" style="background:${a.tint}"></span>`}
+function artCell(a){return`<div class="art1">${thumb(a)}<div style="min-width:0"><div class="nm">${a.name}</div><div class="cd">${a.code} · ${a.div}</div></div></div>`}
+function skuCell(k){return`<div class="skuc"><span class="ink">${k.colour} · ${k.size}</span><span class="mono">${k.code}</span></div>`}
+function qtyInput(s,c){const v=q[s+'|'+c]||0;return`<input class="qty" inputmode="numeric" data-k="${s}|${c}" value="${v||''}" title="Up to ${Math.min(owed(s,c),SKU[c].picked)}" aria-label="Pack ${c} for ${s}">`}
+
+function shopPicker(){
+  const ready=SHOPS.filter(s=>packable(s.id))
+  const all=ready.every(s=>sel.has(s.id))
+  return`<div class="menu"><button class="btn" data-pop="shops">${ico.store}${all?`All shops · ${ready.length}`:`${sel.size} of ${ready.length} shops`}${ico.down}</button>
+  <div class="pop ${pop==='shops'?'on':''}">
+    <label><input type="checkbox" data-allshops ${all?'checked':''}><span class="ink">All shops with picks ready</span></label><hr>
+    ${SHOPS.filter(s=>owedShop(s.id)>0).map(s=>packable(s.id)
+      ?`<label><input type="checkbox" data-shop="${s.id}" ${sel.has(s.id)?'checked':''}><span class="mono ink">${s.id}</span><span class="mute">${s.name}</span><span class="n">${n(readyAlone(s.id))}</span></label>`
+      :`<label class="off"><input type="checkbox" disabled><span class="mono">${s.id}</span><span>${s.name}</span><span class="n">Pick first</span></label>`).join('')}
+  </div></div>`
+}
+function fillMenu(){return`<div class="menu"><button class="btn ghost" data-pop="fill">Fill all${ico.down}</button>
+  <div class="pop right ${pop==='fill'?'on':''}" style="min-width:21rem">
+    <button data-fill="fair"><div><div class="ink">Share short SKUs fairly</div><span>Each shop gets its share of what it is owed</span></div></button>
+    <button data-fill="order"><div><div class="ink">Shops in list order</div><span>The first shop is filled first</span></div></button>
+  </div></div>`}
+const searchBox=ph=>`<div class="search">${ico.search}<input data-needle placeholder="${ph}" value="${needle}"></div>`
+
+function renderSheet(){
+  const sh=$('#sheet');$('#scrim').classList.toggle('on',open);sh.classList.toggle('on',open)
+  sh.classList.toggle('wide',OPTS[opt].size==='wide'&&!result);sh.classList.toggle('mid',OPTS[opt].size==='mid'&&!result)
+  if(!open)return
+  if(result)return renderResult()
+  const o=OPTS[opt]
+  let tool='',body=''
+  if(opt==='A'){tool=searchBox('Find an article or SKU')+shopPicker()+'<div class="sp"></div>'+fillMenu();body=bodyA()}
+  if(opt==='B'){tool=searchBox('Find a shop')+'<div class="sp"></div>'+fillMenu();body=bodyB()}
+  if(opt==='C'){tool=searchBox('Find an article or SKU')+shopPicker()+`<select class="sel" data-show><option value="all" ${show==='all'?'selected':''}>All SKUs</option><option value="short" ${show==='short'?'selected':''}>Short SKUs only</option></select><div class="sp"></div>`+fillMenu();body=bodyC()}
+  if(opt==='D'){tool='';body=bodyD()}
+  sh.innerHTML=`<div class="shead"><div><h3>New pack</h3><div class="cap">${o.sub}</div></div><button class="x" data-close>${ico.x}</button></div>
+    ${tool?`<div class="stool">${tool}</div>`:''}
+    <div class="sbody" ${opt==='D'?'style="padding-top:4px"':''}>${body}</div>
+    <div class="sfoot" id="foot"></div>`
+  sync()
+}
+
+/* A · matrix: article/SKU rows × shop columns */
+function bodyA(){
+  const shops=ordered()
+  if(!shops.length)return`<div class="banner">No shop is selected. Choose shops from Shops ▾.</div>`
+  const rows=ARTS.map(a=>{
+    const ks=SKUS.filter(k=>k.art===a.code&&matches(k)&&shops.some(s=>owed(s,k.code)>0))
+    if(!ks.length)return''
+    const picked=ks.reduce((t,k)=>t+k.picked,0)
+    return`<tr class="art"><td>${artCell(a)}</td><td class="picked"><span class="tot">${n(picked)}</span></td>
+      ${shops.map(s=>`<td class="shopcol"><span class="tot" data-t="as:${a.code}|${s}"></span></td>`).join('')}
+      <td class="left"><span class="tot" data-t="artleft:${a.code}"></span></td></tr>`+
+    ks.map(k=>`<tr><td>${skuCell(k)}</td><td class="picked ${k.picked?'':'z'}">${n(k.picked)}</td>
+      ${shops.map(s=>owed(s,k.code)?`<td class="shopcol">${qtyInput(s,k.code)}</td>`:'<td class="shopcol z">—</td>').join('')}
+      <td class="left" data-t="left:${k.code}"></td></tr>`).join('')
+  }).join('')
+  return`<div class="mx" style="height:100%"><table>
+    <thead><tr><th>Article</th><th class="picked">Picked</th>${shops.map(s=>`<th><div class="shopc"><span class="mono">${s}</span><span>${SHOP[s].name.split(' ').slice(1).join(' ')}</span></div></th>`).join('')}<th class="left">Left</th></tr></thead>
+    <tbody>${rows||`<tr><td colspan="${shops.length+3}" class="mute">Nothing matches the search.</td></tr>`}</tbody>
+    <tfoot><tr><td>Carton</td><td class="picked"></td>${shops.map(s=>`<td data-t="shop:${s}"></td>`).join('')}<td class="left"></td></tr></tfoot>
+  </table></div>`
+}
+
+/* B · shops list with expandable SKU lines */
+function bodyB(){
+  const list=SHOPS.filter(s=>owedShop(s.id)>0&&shopMatches(s))
+  const ready=SHOPS.filter(s=>packable(s.id)),all=ready.every(s=>sel.has(s.id))
+  return`<div class="grid"><table>
+    <thead><tr><th style="width:40px;padding-right:0"><input type="checkbox" data-allshops ${all?'checked':''} aria-label="All shops"></th><th style="text-align:left;padding-left:4px">Shop</th><th>SKUs</th><th>Picked</th><th>Pack</th><th style="text-align:left;width:11rem"></th><th style="width:44px"></th></tr></thead>
+    <tbody>${list.map(s=>{
+      const ok=packable(s.id),on=sel.has(s.id),ex=expanded.has(s.id)&&on
+      return`<tr class="shop ${ok?'clickable':'off'} ${ex?'openrow':''}" ${ok?`data-expand="${s.id}"`:''}>
+        <td style="padding-right:0">${ok?`<input type="checkbox" data-shop="${s.id}" ${on?'checked':''}>`:''}</td>
+        <td style="padding-left:4px"><div class="shopc"><span class="mono">${s.id}</span><span>${s.name}</span></div></td>
+        <td>${skusOf(s.id).length}</td><td>${ok?n(readyAlone(s.id)):'0'}</td>
+        <td class="ink" style="font-weight:500">${ok?`<span data-t="shop:${s.id}"></span>`:''}</td>
+        <td style="text-align:left">${ok?`<span data-t="short:${s.id}"></span>`:'<span>Pick first</span>'}</td>
+        <td>${ok&&on?`<button class="chev ${ex?'on':''}" aria-label="Open">${ico.right}</button>`:''}</td></tr>
+      ${ex?`<tr class="detail"><td colspan="7"><div class="inner"><table>
+        <thead><tr><th>Article</th><th>Picked</th><th style="text-align:center">Pack</th></tr></thead><tbody>
+        ${skusOf(s.id).map(k=>`<tr><td><div class="art1">${thumb(ART[k.art])}<div><div class="nm" style="font-weight:400">${ART[k.art].name} · ${k.colour} · ${k.size}</div><div class="cd mono" style="color:var(--faint)">${k.code}</div></div></div></td>
+          <td data-t="free:${s.id}|${k.code}"></td><td style="text-align:center">${qtyInput(s.id,k.code)}</td></tr>`).join('')}
+        </tbody></table></div></td></tr>`:''}`}).join('')}
+    </tbody></table></div>`
+}
+
+/* C · by article › SKU › shops */
+function bodyC(){
+  const shops=ordered()
+  if(!shops.length)return`<div class="banner">No shop is selected. Choose shops from Shops ▾.</div>`
+  const asked=k=>shops.reduce((t,s)=>t+owed(s,k.code),0)
+  const rows=ARTS.map(a=>{
+    let ks=SKUS.filter(k=>k.art===a.code&&matches(k)&&asked(k)>0)
+    if(show==='short')ks=ks.filter(k=>asked(k)>k.picked)
+    ks.sort((x,y)=>(asked(y)>y.picked)-(asked(x)>x.picked))
+    if(!ks.length)return''
+    return`<tr class="art"><td>${artCell(a)}</td><td class="num">${n(ks.reduce((t,k)=>t+k.picked,0))}</td><td class="c"><span class="tot" data-t="art:${a.code}"></span></td></tr>`+
+    ks.map(k=>{const short=asked(k)-k.picked
+      return`<tr><td><div class="skuc"><span class="ink" style="font-weight:500">${k.colour} · ${k.size}</span><span class="mono">${k.code}</span>${short>0?`<span class="warnt">${k.picked?`short ${short}`:'nothing picked'}</span>`:''}</div></td>
+        <td class="${k.picked?'':'z'}">${n(k.picked)}</td><td class="c ink" style="font-weight:500"><span data-t="sku:${k.code}"></span></td></tr>`+
+      shops.filter(s=>owed(s,k.code)>0).map(s=>`<tr><td><div class="shopsub"><span class="mono ink">${s}</span><span class="mute">${SHOP[s].name}</span></div></td>
+        <td></td><td class="c">${qtyInput(s,k.code)}</td></tr>`).join('')}).join('')
+  }).join('')
+  return`<div class="grid"><table>
+    <thead><tr><th>Article · SKU · shop</th><th style="width:6rem">Picked</th><th style="width:7rem;text-align:center">Pack</th></tr></thead>
+    <tbody>${rows||'<tr><td colspan="3" class="mute">Nothing matches.</td></tr>'}</tbody></table></div>`
+}
+
+/* D · shop rail, one shop at a time: nothing to tick */
+function bodyD(){
+  const list=SHOPS.filter(s=>owedShop(s.id)>0||done[s.id])
+  const ready=list.filter(s=>packable(s.id))
+  if(!focus||(!packable(focus)&&!done[focus]))focus=ready[0]?.id
+  sel=new Set(focus?[focus]:[])
+  const nDone=Object.keys(done).length
+  const rail=`<div class="shoplist"><div class="hd"><span class="ink" style="font-weight:500">Shops</span><span class="sp"></span><span class="mute num">${nDone?`${nDone} packed · `:''}${ready.filter(s=>!done[s.id]).length} to go</span></div>
+    <div class="ls">${list.map(s=>{const ok=packable(s.id),d=done[s.id]
+      const right=d?`<span class="status done"><i></i>Packed</span>`:ok?`<span data-t="rail:${s.id}"></span>`:'<span>Pick first</span>'
+      return`<div class="srow ${s.id===focus?'on':''} ${ok||d?'':'off'}" ${ok||d?`data-focus="${s.id}"`:''}>
+        <div class="shopc"><span class="mono">${s.id}</span><span>${s.name}</span></div><div class="n">${right}</div></div>`}).join('')}</div></div>`
+  if(!focus)return`<div class="split">${rail}<div class="pane"><div class="banner ok">Every shop with picks ready is packed.</div></div></div>`
+  const f=focus,ks=skusOf(f).filter(matches),d=done[f]
+  const others=k=>SHOPS.filter(x=>x.id!==f&&owed(x.id,k.code)>0).length
+  const short=k=>SHOPS.reduce((t,x)=>t+owed(x.id,k.code),0)>k.picked&&k.picked>0&&others(k)>0
+  const rows=ARTS.map(a=>{const mine=ks.filter(k=>k.art===a.code);if(!mine.length)return''
+    return`<tr class="art"><td>${artCell(a)}</td><td class="num">${n(mine.reduce((t,k)=>t+k.picked,0))}</td><td class="c"><span class="tot" data-t="as:${a.code}|${f}"></span></td></tr>`+
+    mine.map(k=>`<tr><td><div class="skuc"><span class="ink">${k.colour} · ${k.size}</span><span class="mono">${k.code}</span>${short(k)?`<span class="warnt">${others(k)} other ${others(k)===1?'shop wants':'shops want'} it</span>`:''}</div></td>
+      <td class="${k.picked?'':'z'}">${n(k.picked)}</td><td class="c">${qtyInput(f,k.code)}</td></tr>`).join('')}).join('')
+  return`<div class="split">${rail}
+    <div class="pane">
+      <div class="phd"><div><h4><span class="mono">${f}</span> · ${SHOP[f].name}</h4><div class="mute">${n(readyAlone(f))} pieces ready</div></div>
+        <div class="sp"></div>${searchBox('Find an article or SKU')}
+        <div class="menu"><button class="btn ghost" data-pop="fill">Fill${ico.down}</button>
+          <div class="pop right ${pop==='fill'?'on':''}" style="min-width:21rem">
+            <button data-dfill="fair"><div><div class="ink">Its fair share</div><span>Short SKUs leave room for the other shops</span></div></button>
+            <button data-dfill="all"><div><div class="ink">Everything it can take</div><span>Up to what is owed and picked</span></div></button>
+          </div></div></div>
+      ${d?`<div class="banner ok" style="align-items:center"><span>Packed as ${d.map(x=>`<span class="mono">${x.no}</span>`).join(', ')}.${owedShop(f)?' What is still owed can go in another carton.':''}</span><span class="sp"></span><button class="btn sm" data-print1="${f}">${ico.print}Print sticker</button></div>`:''}
+      ${ks.length||!d?`<div class="grid"><table>
+        <thead><tr><th>Article</th><th style="width:6rem">Picked</th><th style="width:7rem;text-align:center">Pack</th></tr></thead>
+        <tbody>${rows||'<tr><td colspan="3" class="mute">Nothing matches.</td></tr>'}</tbody></table></div>`:''}
+      <div class="mute" style="margin-top:10px">↑ ↓ moves between shops.</div>
+    </div></div>`
+}
+
+/// Update every derived number in place, so typing never re-renders under the cursor.
+function sync(){
+  if(!open||result)return
+  const c=calc(),sh=$('#sheet')
+  sh.querySelectorAll('input[data-k]').forEach(i=>{const k=i.dataset.k,[s,code]=k.split('|'),v=q[k]||0
+    i.classList.toggle('has',v>0);i.classList.toggle('over',v>0&&(v>owed(s,code)||c.over.has(code)))})
+  sh.querySelectorAll('[data-t]').forEach(e=>{
+    const[t,key]=e.dataset.t.split(/:(.*)/s)
+    let v,cls=''
+    if(t==='rail'){const d=draft(key),r=readyAlone(key)
+      e.innerHTML=d?`<span class="ink" style="font-weight:500">${n(d)}</span>${d<r?`<span class="mute"> / ${n(r)}</span>`:''}`:`<span class="mute">${n(r)}</span>`;return}
+    if(t==='draft')v=draft(key)
+    else if(t==='shop')v=c.shopT[key]||0
+    else if(t==='as')v=c.artShop[key]||0
+    else if(t==='art')v=c.art[key]||0
+    else if(t==='sku')v=c.sum[key]||0
+    else if(t==='left'){v=SKU[key].picked-(c.sum[key]||0);if(v<0)cls='bad'}
+    else if(t==='artleft'){v=SKUS.filter(k=>k.art===key).reduce((u,k)=>u+k.picked-(c.sum[k.code]||0),0)}
+    else if(t==='free'){const[s,code]=key.split('|');v=Math.max(0,SKU[code].picked-(c.sum[code]||0)+(q[key]||0))}
+    else if(t==='short'){
+      if(!sel.has(key)){e.className='mute';e.textContent='Not packing';return}
+      const gap=readyAlone(key)-(c.shopT[key]||0)
+      e.className=gap>0?'warnt':'';e.textContent=gap>0?`${n(gap)} short, shared`:'';return}
+    e.textContent=v===0&&t!=='left'&&t!=='free'?'—':n(v)
+    e.classList.toggle('faint',v===0&&t!=='left');e.classList.toggle('bad',cls==='bad');if(t==='left')e.classList.add('left')
+  })
+  const nC=c.cartons.length,bad=c.cellOver>0
+  $('#foot').innerHTML=`<span class="mute">${c.lines?`${opt==='D'?'':`${n(nC)} ${nC===1?'carton':'cartons'} · `}${n(c.lines)} lines · ${n(c.pieces)} pieces`:'Nothing entered yet'}
+      ${bad?`<span class="badt"> · ${c.over.size||c.cellOver} ${c.over.size===1?'SKU is':'SKUs are'} over what can go in</span>`:''}</span>
+    <div class="sp"></div>
+    ${c.lines?'<button class="btn ghost" data-clear>Clear</button>':''}
+    <button class="btn pri" data-submit ${!c.lines||bad?'disabled':''}>Pack and seal${opt==='D'&&focus?` ${focus}`:nC>1?` ${nC} cartons`:''}</button>`
+}
+
+function pack(){
+  if(opt==='D'){const f=focus,c=calc(),t=new Date(),hh=String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0')
+    const box={no:`KL-260929-0${nextKoli++}`,shop:f,pieces:c.shopT[f],sealed:hh,pos:'Waiting for a surat jalan'}
+    for(const[k,v]of Object.entries(q)){const[s,code]=k.split('|');if(s!==f)continue;OWED[k]=owed(s,code)-v;if(!OWED[k])delete OWED[k];SKU[code].picked-=v}
+    dropShop(f);(done[f]=done[f]||[]).push(box);CARTONS=[box,...CARTONS]
+    const next=SHOPS.map(s=>s.id).filter(s=>packable(s)&&!done[s]);const after=next.find(s=>SHOPS.findIndex(x=>x.id===s)>SHOPS.findIndex(x=>x.id===f))||next[0]
+    focus=after||f;if(after&&!draft(after))fairShop(after)
+    toast(`${f} packed as ${box.no} · ${n(box.pieces)} pieces`);renderPage();renderSheet();return}
+  const c=calc(),t=new Date(),hh=String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0')
+  result=c.cartons.map(s=>({no:`KL-260929-0${nextKoli++}`,shop:s,pieces:c.shopT[s],sealed:hh,pos:'Waiting for a surat jalan'}))
+  for(const[k,v]of Object.entries(q)){const[s,code]=k.split('|');if(!sel.has(s))continue;OWED[k]=owed(s,code)-v;if(!OWED[k])delete OWED[k];SKU[code].picked-=v}
+  CARTONS=[...result.slice().reverse(),...CARTONS];renderPage();renderSheet()
+}
+function renderResult(){
+  const pieces=result.reduce((t,r)=>t+r.pieces,0)
+  $('#sheet').innerHTML=`<div class="shead"><div><h3>${result.length===1?'Carton packed':`${result.length} cartons packed`}</h3>
+      <div class="cap">${n(pieces)} pieces, sealed at ${result[0].sealed}. Each shop scans its sticker to receive.</div></div>
+      <button class="x" data-close>${ico.x}</button></div>
+    <div class="stool"><button class="btn pri" data-print>${ico.print}Print ${result.length===1?'sticker':`${result.length} stickers`}</button><span class="mute">One sticker per carton, in this order.</span></div>
+    <div class="sbody"><div class="grid"><table><thead><tr><th>Carton</th><th style="text-align:left">Shop</th><th>Pieces</th><th style="text-align:left">Status</th></tr></thead><tbody>
+      ${result.map(r=>`<tr><td class="mono ink">${r.no}</td><td style="text-align:left"><span class="mono ink">${r.shop}</span> <span class="mute">${SHOP[r.shop].name}</span></td><td>${n(r.pieces)}</td><td style="text-align:left"><span class="status"><i></i>${r.pos}</span></td></tr>`).join('')}
+    </tbody></table></div></div>
+    <div class="sfoot"><div class="sp"></div><button class="btn" data-close>Done</button></div>`
+}
+
+/* ---------- events ---------- */
+function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('on');clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove('on'),2200)}
+document.addEventListener('click',e=>{
+  const t=e.target
+  const pk=t.closest('[data-pack]');if(pk&&!open){openSheet(pk.dataset.pack);return}
+  if(t.closest('[data-new]')){openSheet();return}
+  if(t.closest('[data-close]')||t.id==='scrim'){closeSheet();return}
+  const lens=t.closest('[data-opt]');if(lens){opt=lens.dataset.opt;try{localStorage.setItem('np-opt',opt)}catch{};renderLenses();if(open)openSheet();return}
+  const pb=t.closest('[data-pop]');if(pb){pop=pop===pb.dataset.pop?null:pb.dataset.pop;renderSheet();return}
+  const df=t.closest('[data-dfill]');if(df){fairShop(focus,df.dataset.dfill==='all');pop=null;renderSheet();return}
+  const p1=t.closest('[data-print1]');if(p1){toast(`Sticker for ${p1.dataset.print1} sent to the bench printer`);return}
+  const fb=t.closest('[data-fill]');if(fb){fill(fb.dataset.fill);pop=null;renderSheet();return}
+  if(t.closest('[data-clear]')){q={};renderSheet();return}
+  if(t.closest('[data-submit]')){pack();return}
+  if(t.closest('[data-print]')){toast(`${result.length} ${result.length===1?'sticker':'stickers'} sent to the bench printer`);return}
+  if(t.matches('input[type=checkbox]'))return
+  const ex=t.closest('[data-expand]');if(ex&&!t.closest('.qty')){const s=ex.dataset.expand;if(!sel.has(s))return;expanded.has(s)?expanded.delete(s):expanded.add(s);renderSheet();return}
+  const fo=t.closest('[data-focus]');if(fo){focus=fo.dataset.focus;if(opt==='D'&&packable(focus)&&!draft(focus)&&!done[focus])fairShop(focus);renderSheet();return}
+  if(pop&&!t.closest('.pop')){pop=null;renderSheet()}
+})
+document.addEventListener('change',e=>{
+  const t=e.target
+  if(t.matches('[data-allshops]')){const ready=SHOPS.filter(s=>packable(s.id)).map(s=>s.id)
+    if(t.checked){ready.filter(s=>!sel.has(s)).forEach(s=>{sel.add(s);fillShop(s)})}else{ready.forEach(dropShop);sel.clear()}
+    renderSheet();return}
+  if(t.matches('[data-shop]')){const s=t.dataset.shop;if(t.checked){sel.add(s);fillShop(s)}else{sel.delete(s);dropShop(s);expanded.delete(s)}renderSheet();return}
+  if(t.matches('[data-show]')){show=t.value;renderSheet()}
+})
+document.addEventListener('input',e=>{
+  const t=e.target
+  if(t.matches('input[data-k]')){const d=t.value.replace(/\D/g,'');t.value=d;const[s,c]=t.dataset.k.split('|');set(s,c,d===''?0:+d);sync();return}
+  if(t.matches('[data-needle]')){needle=t.value;const pos=t.selectionStart;renderSheet();const i=$('#sheet [data-needle]');if(i){i.focus();i.setSelectionRange(pos,pos)}}
+})
+document.addEventListener('focusin',e=>{if(e.target.matches('input[data-k]'))e.target.select()})
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&open){pop?(pop=null,renderSheet()):closeSheet();return}
+  if(open&&!result&&opt==='D'&&(e.key==='ArrowDown'||e.key==='ArrowUp')&&!e.target.matches('input[data-k],[data-needle]')){
+    const ready=SHOPS.filter(s=>packable(s.id)).map(s=>s.id),i=ready.indexOf(focus)
+    focus=ready[Math.max(0,Math.min(ready.length-1,i+(e.key==='ArrowDown'?1:-1)))];if(!draft(focus)&&!done[focus])fairShop(focus);e.preventDefault();renderSheet()}
+  // Enter in a quantity moves down the column, the way a sheet does.
+  if(e.key==='Enter'&&e.target.matches('input[data-k]')){const all=[...document.querySelectorAll('#sheet input[data-k]')];const nx=all[all.indexOf(e.target)+1];if(nx){nx.focus();e.preventDefault()}}
+})
+
+function renderLenses(){
+  $('#lenses').innerHTML=Object.entries(OPTS).map(([k,o])=>`<button class="lens ${k===opt?'on':''}" data-opt="${k}">${o.name}</button>`).join('')
+  $('#why').innerHTML=OPTS[opt].why.map(([h,p])=>`<div><h5>${h}</h5><p>${p}</p></div>`).join('')
+}
+renderLenses();renderPage()
+openSheet()
+</script>
+</body>
+</html>

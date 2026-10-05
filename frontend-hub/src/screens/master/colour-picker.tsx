@@ -262,7 +262,6 @@ export function ColourPicker({
                       autoFocus
                       value={needle}
                       onChange={(event) => setNeedle(event.target.value)}
-                      placeholder="Filter the colour master"
                       className="h-8"
                     />
                     <div className="mt-2 max-h-56 overflow-y-auto">

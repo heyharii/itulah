@@ -58,7 +58,7 @@ import type { GaContractRow } from "@itulah/contract"
 /// and is not.
 export function Contracts() {
   return (
-    <GaScreen sub="Rent, services, insurance, permits and utilities that keep this shop open. Head office signs and renews them.">
+    <GaScreen>
       {(site) => <ContractList site={site} />}
     </GaScreen>
   )
@@ -163,14 +163,12 @@ function ContractList({ site }: { site: string }) {
   return (
     <>
       {gaState(place, {
-        loading: "Reading this shop's contracts…",
+        loading: "Loading…",
         render: () =>
           all.length === 0 ? (
             <Card>
               <p className="mx-auto max-w-[30em] px-4 py-12 text-center text-meta text-body">
-                Head office has no contract on record for this shop — no lease,
-                no service, no insurance, no permit. If the shop is running
-                under one, GA has not entered it yet.
+                No contracts on record.
               </p>
             </Card>
           ) : (
@@ -179,15 +177,15 @@ function ContractList({ site }: { site: string }) {
                 <Banner tone="warn" className="mb-4">
                   <CalendarClock className="mr-1.5 inline size-4 align-[-3px]" />
                   {ending.length === 1
-                    ? "One contract is inside its reminder window: "
-                    : `${count(ending.length)} contracts are inside their reminder window: `}
+                    ? "Ending soon: "
+                    : `${count(ending.length)} ending soon: `}
                   {ending
                     .map(
                       (row) =>
                         `${contractTypeWords(row.contract_type, row.contract_type_name)} — ${standingOf(row).label.toLowerCase()}`,
                     )
                     .join("; ")}
-                  . Head office renews them; if the shop has heard nothing, ask.
+
                 </Banner>
               )}
 
@@ -255,8 +253,8 @@ function ContractList({ site }: { site: string }) {
                   }}
                   empty={
                     phase === "CURRENT"
-                      ? "Nothing current of this kind here. Drafts and terminated contracts are under All."
-                      : "No contract of this kind for this shop."
+                      ? "None current. See All."
+                      : "None of this kind."
                   }
                 />
               </Card>
@@ -352,13 +350,13 @@ function ContractSheet({
       </Facts>
 
       {gaState(hub, {
-        loading: "Reading its papers…",
+        loading: "Loading…",
         render: (answer) => (
           <>
             <SheetBlock title="Papers">
               {answer.documents.length === 0 ? (
                 <p className="text-meta text-mute">
-                  No paper filed against it at head office.
+                  No papers.
                 </p>
               ) : (
                 <ul className="flex flex-col">

@@ -299,18 +299,10 @@ export function StructuresCard() {
         <SubHead>Define or restate</SubHead>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <Field label="Code" required>
-            <Input
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="KASIR"
-            />
+            <Input value={code} onChange={(e) => setCode(e.target.value)} />
           </Field>
           <Field label="Name" required>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Kasir toko"
-            />
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
           <Field label="Base" aside="rupiah, optional">
             <Input
@@ -365,14 +357,12 @@ export function AllowanceLines({
           <Input
             value={line.code}
             onChange={(e) => set(index, { code: e.target.value })}
-            placeholder="MAKAN"
             className="w-40"
           />
           <Input
             inputMode="numeric"
             value={line.amount}
             onChange={(e) => set(index, { amount: e.target.value })}
-            placeholder="rupiah a month"
           />
           <Button
             variant="quiet"
@@ -614,18 +604,10 @@ export function ComponentsCard() {
         <SubHead>Define a component</SubHead>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <Field label="Code" required>
-            <Input
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="UANG_MAKAN"
-            />
+            <Input value={code} onChange={(e) => setCode(e.target.value)} />
           </Field>
           <Field label="Label" required>
-            <Input
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="Uang makan"
-            />
+            <Input value={label} onChange={(e) => setLabel(e.target.value)} />
           </Field>
           <Field label="Kind" required>
             <Select

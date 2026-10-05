@@ -3,12 +3,12 @@
 /**
  * Where the hub goes to fix it.
  */
-export type ExceptionLink = {
+export type ExceptionLink = { 
 /**
  * `store-money.shift`, `store-money.deposits`, `flows.document`,
  * `inventory.missing` or `checkout-exceptions`.
  */
-screen: string,
+screen: string, 
 /**
  * What that screen opens on: `shift_id`, `unit_id`, `day`,
  * `document_id`, `document_number`, `stage`, `site_id`, `checkout_id`.

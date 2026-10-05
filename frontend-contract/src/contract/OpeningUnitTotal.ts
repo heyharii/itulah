@@ -3,7 +3,7 @@
 /**
  * What one unit's opening balance adds up to.
  */
-export type OpeningUnitTotal = { unit_id: string, debit_minor: number, credit_minor: number,
+export type OpeningUnitTotal = { unit_id: string, debit_minor: number, credit_minor: number, 
 /**
  * Debits less credits. Signed, and not an absolute value: which way a
  * trial balance is out is half of finding out why.

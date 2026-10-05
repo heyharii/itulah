@@ -142,7 +142,7 @@ export function Sheet({
   /// row the eye can track.
   ///
   /// `workspace` is the fourth and widest, and it is not a record at all: a
-  /// panel whose body is a LIST AND THE WORK BESIDE IT. New items is the case
+  /// panel whose body is a LIST AND THE WORK BESIDE IT. New articles is the case
   /// it exists for — an order rail, a delivery rail and a form with a colour x
   /// size grid in it, three panes that each need their own room. At 64rem the
   /// two rails left the form 36rem and it kept collapsing to one column.
@@ -207,29 +207,34 @@ export function Sheet({
     <>
       <div
         className={cn(
-          "flex shrink-0 items-center gap-4 px-4 py-3 md:px-7 md:py-3.5",
-          !sections && "border-b border-hairline"
+          "flex shrink-0 flex-wrap items-center gap-x-4 gap-y-3 border-b border-hairline px-4 py-4 md:flex-nowrap md:px-7",
+          // A sheet with tabs gets a header of its own, with room: the title
+          // is not the first tab's lid (owner, 2 Oct 2026).
+          sections ? "md:py-5" : "md:py-3"
         )}
       >
         <div className="min-w-0 flex-1">
           {id && <div className="mb-0.5 font-mono text-id text-body">{id}</div>}
           <div className="flex min-w-0 items-center gap-2.5">
-            <Parts.Title className="truncate text-[1.125rem] leading-[1.5625rem] font-semibold tracking-[-0.02em] text-ink">
+            <Parts.Title className="truncate text-[1rem] leading-6 font-semibold tracking-[-0.01em] text-ink">
               {title}
             </Parts.Title>
-            {badge}
+            {badge && <span className="shrink-0">{badge}</span>}
           </div>
           {caption && (
             <div className="mt-0.5 truncate text-meta text-mute">{caption}</div>
           )}
         </div>
         {actions && (
-          <div className="flex shrink-0 items-center gap-1.5">
+          <div className="flex shrink-0 items-center gap-1.5 max-md:order-3 max-md:w-full max-md:flex-wrap">
             {actions}
-            <span aria-hidden className="mx-0.5 h-5 w-px bg-hairline" />
+            <span
+              aria-hidden
+              className="mx-0.5 h-5 w-px bg-hairline max-md:hidden"
+            />
           </div>
         )}
-        <Parts.Close className="grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-ink pointer-coarse:size-tap">
+        <Parts.Close className="grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-ink max-md:order-2 pointer-coarse:size-tap">
           <X className="size-4" />
         </Parts.Close>
       </div>
@@ -237,7 +242,7 @@ export function Sheet({
         <nav
           role="tablist"
           aria-label="Record sections"
-          className="flex shrink-0 [scrollbar-width:none] items-stretch gap-0.5 overflow-x-auto border-b border-hairline px-4 md:px-7 [&::-webkit-scrollbar]:hidden"
+          className="flex shrink-0 [scrollbar-width:none] items-stretch gap-2 overflow-x-auto border-b border-hairline px-4 md:px-7 [&::-webkit-scrollbar]:hidden"
         >
           {sections.map((section) => {
             const current = section.value === here.value
@@ -249,7 +254,7 @@ export function Sheet({
                 aria-selected={current}
                 onClick={() => setTab(section.value)}
                 className={cn(
-                  "-mb-px inline-flex h-[2.625rem] shrink-0 items-center gap-1.5 border-b-2 px-2.5 text-[0.875rem] font-medium whitespace-nowrap transition-colors",
+                  "-mb-px inline-flex h-12 shrink-0 items-center gap-1.5 border-b-2 px-3 text-[0.9375rem] font-medium whitespace-nowrap transition-colors",
                   current
                     ? "border-accent font-semibold text-accent"
                     : "border-transparent text-body hover:text-ink",
@@ -262,7 +267,7 @@ export function Sheet({
           })}
         </nav>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 md:px-7 md:py-6">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6 md:px-7 md:py-8">
         {sections && here ? here.content : children}
         {!sections && subject && <RecordPanel subject={subject} />}
       </div>

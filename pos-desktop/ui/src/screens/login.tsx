@@ -31,6 +31,7 @@
 import { useEffect, useState, type FormEvent } from "react"
 
 import { authMethods, pairTerminal, type StepUp } from "@/api"
+import { isWeb } from "@/edition"
 import { Icon } from "@/icons"
 import { siteTitle, useWaitingTills } from "@/joining"
 import { PinPad } from "@/pinpad"
@@ -143,7 +144,10 @@ export function LoginScreen({
           <Brand />
           <h3>Masuk ke konter</h3>
 
-          {stepUp === "PIN" && (
+          {/* A PIN is claimed over the pairing channel (`claimPin` →
+              `signedEdge`), which only the desktop shell can sign, so the web
+              till never draws the tab that would switch to it. */}
+          {!isWeb && stepUp === "PIN" && (
             <div className="segmented" style={{ width: "100%" }}>
               <button
                 type="button"
@@ -223,8 +227,10 @@ export function LoginScreen({
           </button>
 
           {/* Drawn only when the node said FINGERPRINT — on a node that takes
-              PINs instead the press would be refused there. */}
-          {stepUp === "FINGERPRINT" && (
+              PINs instead the press would be refused there. Never in web:
+              there is no scanner a browser tab can reach, so the press would
+              only ever refuse. */}
+          {!isWeb && stepUp === "FINGERPRINT" && (
             <>
               <button
                 className="btn lg"
@@ -371,17 +377,33 @@ export function SetupScreen({
             </button>
           </div>
 
-          <label className="field">
-            Alamat node toko
-            <input
-              value={baseUrl}
-              onChange={(event) => setBaseUrl(event.target.value)}
-              placeholder="http://192.168.1.20:8082"
-              autoComplete="off"
-              spellCheck={false}
-              inputMode="url"
-            />
-          </label>
+          {/* A web till can only ever reach the origin it was served from —
+              `webSetConfig` in `web.ts` does not even take a different one —
+              so there is nothing here to type. The address is said out loud
+              instead, the same way the sign-in card says it. */}
+          {isWeb ? (
+            <div className="field">
+              Alamat node toko
+              <p
+                className="num"
+                style={{ margin: "7px 0 0", fontSize: 14, color: "#303b4c" }}
+              >
+                {config?.base_url ?? ""}
+              </p>
+            </div>
+          ) : (
+            <label className="field">
+              Alamat node toko
+              <input
+                value={baseUrl}
+                onChange={(event) => setBaseUrl(event.target.value)}
+                placeholder="http://192.168.1.20:8082"
+                autoComplete="off"
+                spellCheck={false}
+                inputMode="url"
+              />
+            </label>
+          )}
 
           <label className="field">
             Nomor terminal
@@ -414,7 +436,9 @@ export function SetupScreen({
               Port printer
               <input
                 value={printerPort}
-                onChange={(event) => setPrinterPort(event.target.value)}
+                onChange={(event) =>
+                  setPrinterPort(event.target.value.replace(/\D/g, ""))
+                }
                 inputMode="numeric"
                 placeholder="9100"
               />
@@ -495,58 +519,66 @@ export function SetupScreen({
 
               The secret is handed over once and never again. It goes to the
               shell, not to this page. Kept beside joining for a node that
-              predates it, and for an admin who is already signed in here. */}
-          <div className="kv">
-            <span className="muted">Pasangan lama (akun admin)</span>
-            {config?.pairing_id != null ? (
-              <span className="badge ok">
-                Terpasang · <span className="num">{config.pairing_id}</span>
-              </span>
-            ) : (
-              <span className="badge plain">Belum</span>
-            )}
-          </div>
-          <div>
-            <div>
-              <button
-                className="btn"
-                type="button"
-                onClick={() => {
-                  void (async () => {
-                    setPairing("Meminta kredensial ke node…")
-                    const reply = await pairTerminal(terminalId || "POS")
-                    if (!reply.ok) {
-                      setPairing(reply.problem)
-                      return
-                    }
-                    const paired = reply.body
-                    const saved = await save({
-                      base_url: baseUrl,
-                      terminal_id: terminalId,
-                      printer_host:
-                        printerHost.trim() === "" ? null : printerHost,
-                      printer_port: Number(printerPort) || 9100,
-                      paper,
-                      pairing_id: paired?.terminal_id ?? null,
-                      pairing_secret: paired?.secret ?? null,
-                    })
-                    setPairing(
-                      saved ?? "Terminal dipasangkan.",
-                    )
-                  })()
-                }}
-              >
-                {config?.pairing_id != null
-                  ? "Pasangkan ulang"
-                  : "Pasangkan terminal ini"}
-              </button>
-            </div>
-            {pairing !== null && (
-              <p className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>
-                {pairing}
-              </p>
-            )}
-          </div>
+              predates it, and for an admin who is already signed in here.
+
+              None of this exists in web: the pairing secret behind a
+              fingerprint or a PIN lives in the shell's config file, which a
+              browser tab has no equivalent of — see `web.ts`. */}
+          {!isWeb && (
+            <>
+              <div className="kv">
+                <span className="muted">Pasangan lama (akun admin)</span>
+                {config?.pairing_id != null ? (
+                  <span className="badge ok">
+                    Terpasang · <span className="num">{config.pairing_id}</span>
+                  </span>
+                ) : (
+                  <span className="badge plain">Belum</span>
+                )}
+              </div>
+              <div>
+                <div>
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={() => {
+                      void (async () => {
+                        setPairing("Meminta kredensial ke node…")
+                        const reply = await pairTerminal(terminalId || "POS")
+                        if (!reply.ok) {
+                          setPairing(reply.problem)
+                          return
+                        }
+                        const paired = reply.body
+                        const saved = await save({
+                          base_url: baseUrl,
+                          terminal_id: terminalId,
+                          printer_host:
+                            printerHost.trim() === "" ? null : printerHost,
+                          printer_port: Number(printerPort) || 9100,
+                          paper,
+                          pairing_id: paired?.terminal_id ?? null,
+                          pairing_secret: paired?.secret ?? null,
+                        })
+                        setPairing(
+                          saved ?? "Terminal dipasangkan.",
+                        )
+                      })()
+                    }}
+                  >
+                    {config?.pairing_id != null
+                      ? "Pasangkan ulang"
+                      : "Pasangkan terminal ini"}
+                  </button>
+                </div>
+                {pairing !== null && (
+                  <p className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>
+                    {pairing}
+                  </p>
+                )}
+              </div>
+            </>
+          )}
 
           {/* A machine with no scanner can still be walked through the whole
               thing: the roster coming down, the claim being signed, the grant
@@ -554,17 +586,20 @@ export function SetupScreen({
               this — a release has no code to read it with — and every answer it
               produces says SIMULASI in the words the cashier sees, because a
               screen that cannot tell a rehearsal from the real thing is how a
-              rehearsal reaches a customer. */}
-          <label className="field">
-            Simulasi sidik jari (build pengembangan)
-            <input
-              value={pretend}
-              onChange={(event) => setPretend(event.target.value)}
-              placeholder="Nama pengguna — kosongkan untuk pemindai asli"
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </label>
+              rehearsal reaches a customer. Web has no fingerprint scanner to
+              rehearse against, so it is never drawn there either. */}
+          {!isWeb && (
+            <label className="field">
+              Simulasi sidik jari (build pengembangan)
+              <input
+                value={pretend}
+                onChange={(event) => setPretend(event.target.value)}
+                placeholder="Nama pengguna — kosongkan untuk pemindai asli"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+          )}
 
           {moved && (
             <div className="notice warn">

@@ -274,7 +274,6 @@ function AgreePay({ employeeId }: { employeeId: string }) {
         <Input
           value={reason}
           onChange={(event) => setReason(event.target.value)}
-          placeholder="annual raise"
         />
       </Field>
       <div>
@@ -333,11 +332,7 @@ function SetAccount({ employeeId }: { employeeId: string }) {
         payroll file.
       </Banner>
       <Field label="Bank" required>
-        <Input
-          value={bank}
-          onChange={(event) => setBank(event.target.value)}
-          placeholder="BCA"
-        />
+        <Input value={bank} onChange={(event) => setBank(event.target.value)} />
       </Field>
       <Field
         label="Account number"
@@ -363,7 +358,6 @@ function SetAccount({ employeeId }: { employeeId: string }) {
         <Input
           value={reason}
           onChange={(event) => setReason(event.target.value)}
-          placeholder="salary account"
         />
       </Field>
       <div>
@@ -476,7 +470,6 @@ function SetTaxIdentity({ employeeId }: { employeeId: string }) {
         <Input
           value={reason}
           onChange={(event) => setReason(event.target.value)}
-          placeholder="data dari karyawan"
         />
       </Field>
       {failed !== null && <Banner tone="bad">{failed}</Banner>}

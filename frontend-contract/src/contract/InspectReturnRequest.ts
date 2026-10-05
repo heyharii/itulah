@@ -3,16 +3,16 @@
 /**
  * What the inspector found.
  */
-export type InspectReturnRequest = {
+export type InspectReturnRequest = { 
 /**
  * Tags found unfit to sell: they go to reject. Every other unit this
  * inspection covers goes to the racks.
  */
-damaged_epcs: Array<string>,
+damaged_epcs: Array<string>, 
 /**
  * Which waiting units this inspection covers. Absent: all of them.
  */
-epcs: Array<string> | null,
+epcs: Array<string> | null, 
 /**
  * Replaced by the signed-in principal when the node enforces auth.
  */

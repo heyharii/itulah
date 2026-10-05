@@ -55,7 +55,12 @@ pub struct GaSupplyRequestRow {
     /// category and a copy here would be a second answer to the same question.
     pub account_code: String,
     pub item: String,
+    /// As the shop typed it: "2 rim", "5 dus".
     pub quantity: Option<String>,
+    /// The same, read against the units master (0655): "2" and RIM. Null
+    /// when the text is not a number and a unit the master knows.
+    pub quantity_value: Option<String>,
+    pub unit_code: Option<String>,
     pub needed_by: Option<NaiveDate>,
     pub estimated_cost_minor: Option<i64>,
     /// The purchase order number, present only once the request is ORDERED.
@@ -148,7 +153,8 @@ pub struct UpdateGaSupplyRequest {
 /// The request joined to the category it needs, named once so every read sees
 /// the same answer.
 const GA_SUPPLY_SELECT: &str = "SELECT q.request_id, q.site_id, q.requested_by, q.category_code,
-        c.name AS category_name, c.account_code, q.item, q.quantity, q.needed_by,
+        c.name AS category_name, c.account_code, q.item, q.quantity,
+        trim_scale(q.quantity_value)::text AS quantity_value, q.unit_code, q.needed_by,
         q.estimated_cost_minor, q.po_reference, q.status, q.rejected_reason, q.version,
         (SELECT COALESCE(SUM(bl.amount_minor), 0)::bigint
            FROM supplier_invoice_expense_line bl
@@ -156,6 +162,23 @@ const GA_SUPPLY_SELECT: &str = "SELECT q.request_id, q.site_id, q.requested_by, 
           WHERE bl.supply_request_id = q.request_id AND si.status = 'POSTED') AS billed_minor
    FROM ga_supply_request q
    JOIN ga_supply_category c ON c.category_code = q.category_code";
+
+/// The typed quantity read against the units master: "2 rim" is 2 and RIM.
+/// Anything else — no number, two parts, a word the master does not know —
+/// reads as nothing and the text alone is kept.
+async fn read_quantity(
+    pool: &PgPool,
+    text: Option<&str>,
+) -> Result<(Option<rust_decimal::Decimal>, Option<String>), AppError> {
+    let Some((value, Some(word))) = text.and_then(crate::cloud::domain::uom::split_quantity) else {
+        return Ok((None, None));
+    };
+    let units = super::units::unit_lookup(pool).await?;
+    Ok(match units.resolve(&word) {
+        Some(code) => (Some(value), Some(code.to_owned())),
+        None => (None, None),
+    })
+}
 
 /// Blank text is nothing, and nothing is stored as NULL rather than as "".
 fn nothing_if_blank(raw: Option<&str>) -> Option<&str> {
@@ -172,6 +195,8 @@ fn to_supply_row(row: &sqlx::postgres::PgRow) -> Result<GaSupplyRequestRow, AppE
         account_code: row.try_get("account_code")?,
         item: row.try_get("item")?,
         quantity: row.try_get("quantity")?,
+        quantity_value: row.try_get("quantity_value")?,
+        unit_code: row.try_get("unit_code")?,
         needed_by: row.try_get("needed_by")?,
         estimated_cost_minor: row.try_get("estimated_cost_minor")?,
         po_reference: row.try_get("po_reference")?,
@@ -483,6 +508,9 @@ pub async fn ga_supply_record(
         ));
     }
 
+    let quantity = nothing_if_blank(request.quantity.as_deref());
+    let (quantity_value, unit_code) = read_quantity(pool, quantity).await?;
+
     let mut tx = pool.begin().await?;
     require_site(&mut *tx, site_id).await?;
     require_supply_category(&mut *tx, &request.category_code).await?;
@@ -490,19 +518,21 @@ pub async fn ga_supply_record(
     let row = sqlx::query(
         "INSERT INTO ga_supply_request
            (site_id, requested_by, category_code, item, quantity, needed_by,
-            estimated_cost_minor, notes, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            estimated_cost_minor, notes, created_by, quantity_value, unit_code)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          RETURNING request_id",
     )
     .bind(site_id)
     .bind(request.requested_by.trim())
     .bind(request.category_code.trim())
     .bind(request.item.trim())
-    .bind(nothing_if_blank(request.quantity.as_deref()))
+    .bind(quantity)
     .bind(request.needed_by)
     .bind(request.estimated_cost_minor)
     .bind(nothing_if_blank(request.notes.as_deref()))
     .bind(actor)
+    .bind(quantity_value)
+    .bind(&unit_code)
     .fetch_one(&mut *tx)
     .await?;
     let request_id: Uuid = row.try_get("request_id")?;
@@ -703,6 +733,7 @@ pub async fn ga_supply_update(
         Some(raw) => nothing_if_blank(Some(raw)).map(str::to_string),
         None => current.try_get("notes")?,
     };
+    let (quantity_value, unit_code) = read_quantity(pool, quantity.as_deref()).await?;
 
     sqlx::query(
         "UPDATE ga_supply_request
@@ -714,6 +745,8 @@ pub async fn ga_supply_update(
                 estimated_cost_minor = $7,
                 notes                = $8,
                 updated_by           = $9,
+                quantity_value       = $10,
+                unit_code            = $11,
                 updated_at           = now(),
                 version              = version + 1
           WHERE request_id = $1",
@@ -727,6 +760,8 @@ pub async fn ga_supply_update(
     .bind(estimated_cost_minor)
     .bind(notes.as_deref())
     .bind(actor)
+    .bind(quantity_value)
+    .bind(&unit_code)
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;

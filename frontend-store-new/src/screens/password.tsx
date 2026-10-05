@@ -89,7 +89,7 @@ export function Password() {
     !change.isPending
 
   return (
-    <Screen sub="The password you sign in to this till with. Changing it signs you out here.">
+    <Screen>
       <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
         <Card>
           {/* A real form, so Enter submits — guarded by the same `ready` the
@@ -111,32 +111,24 @@ export function Password() {
                 <h2 className="text-card-title font-semibold text-ink">
                   Change your password
                 </h2>
-                <p className="text-meta text-mute">
-                  Asks for the current one, so it only ever changes your own.
-                </p>
               </div>
             </div>
 
             <div className="flex flex-col gap-4 px-4 py-4">
               {change.isSuccess && (
                 <Banner tone="ok">
-                  Your password has been changed, and this till has been signed
-                  out. Sign in again with the new one.
+                  Password changed. Sign in again.
                 </Banner>
               )}
               {signInOff && !change.isSuccess && (
                 <Banner tone="info">
-                  This node runs with sign-in switched off, so nobody is signed
-                  in here and there is no password to change.
+                  Sign-in is off on this server.
                 </Banner>
               )}
               {unsent > 0 && !change.isSuccess && !signInOff && (
                 <Banner tone="warn">
-                  Changing a password signs this till out. The{" "}
-                  {unsent === 1 ? "sale" : `${unsent} sales`} still waiting to
-                  reach head office {unsent === 1 ? "is" : "are"} saved in this
-                  browser and will carry on sending as soon as somebody signs in
-                  again — but nothing will send while nobody is.
+                  {unsent === 1 ? "1 sale" : `${unsent} sales`} not sent yet.
+                  They send again once someone signs in.
                 </Banner>
               )}
               {change.error !== null && (
@@ -213,11 +205,6 @@ export function Password() {
             </div>
           </Card>
 
-          <p className="px-1 text-meta leading-relaxed text-mute">
-            A manager resetting a password somebody has forgotten does it at
-            head office, not here — this screen asks for the current one, so it
-            can only ever change your own. Changing it signs this till out.
-          </p>
         </div>
       </div>
     </Screen>

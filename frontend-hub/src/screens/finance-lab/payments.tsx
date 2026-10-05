@@ -270,7 +270,6 @@ function NewPayment({ onDone }: { onDone: () => void }) {
               <Input
                 value={picked[i.item_id] ?? ""}
                 inputMode="numeric"
-                placeholder="0"
                 className="w-28 text-right"
                 onChange={(e) =>
                   setPicked({

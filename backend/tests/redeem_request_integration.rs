@@ -606,3 +606,211 @@ async fn only_the_registered_origins_own_key_may_relay(pool: PgPool) {
         wrong_key.body
     );
 }
+
+/// The direct staff endpoint follows the same loyalty scheme as confirmation:
+/// a caller cannot turn one point into an arbitrary amount of voucher money.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn direct_redemption_cannot_choose_its_own_exchange_rate(pool: PgPool) {
+    let (app, _) = shop(&pool).await;
+    const OPERATOR: &str = "points.supervisor";
+    const PASSWORD: &str = "points-supervisor-password-1";
+    cloud::create_user(
+        &pool,
+        CreateUserRequest {
+            username: OPERATOR.into(),
+            display_name: "Points Supervisor".into(),
+            password: PASSWORD.into(),
+            role: Role::Supervisor.into(),
+        },
+        "test",
+    )
+    .await
+    .unwrap_or_else(|error| panic!("create supervisor: {error}"));
+    let login = send(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/login",
+        vec![],
+        Some(json!({"username": OPERATOR, "password": PASSWORD})),
+    )
+    .await;
+    assert_eq!(login.status, StatusCode::OK, "login: {:?}", login.body);
+    let session = cookie(&login.set_cookies, "inventory_session");
+    let csrf = cookie(&login.set_cookies, "inventory_csrf");
+    let operator = Counter {
+        csrf: value_of(&csrf),
+        cookies: format!("{session}; {csrf}"),
+    };
+    cloud::enrol_member(&pool, "M-RATE", None)
+        .await
+        .unwrap_or_else(|error| panic!("enrol: {error}"));
+    seed_balance(&pool, "M-RATE", 100).await;
+    let path = "/api/v1/customers/M-RATE/points/redeem";
+    let body = |points, value, key: &str| {
+        json!({
+            "points": points, "voucher_value_minor": value,
+            "actor_id": OPERATOR, "idempotency_key": key,
+        })
+    };
+    let denied = send(
+        app.clone(),
+        "POST",
+        path,
+        operator.write(),
+        Some(body(1, 100_000_000, "rate-forged")),
+    )
+    .await;
+    assert_eq!(
+        denied.status,
+        StatusCode::BAD_REQUEST,
+        "forged rate: {:?}",
+        denied.body
+    );
+    let balance: i64 = sqlx::query_scalar(
+        "SELECT balance_points FROM points_account WHERE customer_id = 'M-RATE'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("balance: {error}"));
+    assert_eq!(balance, 100, "a rejected rate must not debit points");
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM loyalty_redemption WHERE customer_id = 'M-RATE'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("redemptions: {error}"));
+    assert_eq!(count, 0);
+    let accepted = send(
+        app.clone(),
+        "POST",
+        path,
+        operator.write(),
+        Some(body(30, 30, "rate-valid")),
+    )
+    .await;
+    assert_eq!(
+        accepted.status,
+        StatusCode::OK,
+        "valid rate: {:?}",
+        accepted.body
+    );
+    assert_eq!(accepted.body["voucher_value_minor"], json!(30));
+    assert_eq!(accepted.body["balance_points"], json!(70));
+    let issued_value: i64 = sqlx::query_scalar(
+        "SELECT v.issued_minor FROM voucher v JOIN loyalty_redemption r
+           ON r.voucher_id = v.voucher_id
+          WHERE r.customer_id = 'M-RATE' AND r.idempotency_key = 'rate-valid'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("issued value: {error}"));
+    assert_eq!(
+        issued_value, 30,
+        "the stored voucher follows the server rate"
+    );
+    let replay = send(
+        app.clone(),
+        "POST",
+        path,
+        operator.write(),
+        Some(body(30, 30, "rate-valid")),
+    )
+    .await;
+    assert_eq!(replay.status, StatusCode::OK, "replay: {:?}", replay.body);
+    assert_eq!(replay.body["voucher_id"], accepted.body["voucher_id"]);
+    assert_eq!(replay.body["replayed"], json!(true));
+    assert_eq!(replay.body["balance_points"], json!(70));
+    let changed = send(
+        app,
+        "POST",
+        path,
+        operator.write(),
+        Some(body(31, 31, "rate-valid")),
+    )
+    .await;
+    assert_eq!(
+        changed.status,
+        StatusCode::CONFLICT,
+        "changed retry: {:?}",
+        changed.body
+    );
+    let from_ledger: i64 = sqlx::query_scalar(
+        "SELECT SUM(points)::bigint FROM points_ledger WHERE customer_id = 'M-RATE'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("ledger: {error}"));
+    assert_eq!(from_ledger, 70);
+}
+
+/// Recorded conversions from before the new rate guard still replay exactly;
+/// replaying history never issues a second voucher or debits points again.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn historical_redemption_replays_its_recorded_value_without_new_issuance(pool: PgPool) {
+    use cloud::{IssueVoucherRequest, RedeemPointsRequest};
+    cloud::enrol_member(&pool, "M-HISTORY", None)
+        .await
+        .unwrap_or_else(|error| panic!("enrol: {error}"));
+    seed_balance(&pool, "M-HISTORY", 100).await;
+    let card = cloud::issue_voucher(
+        &pool,
+        IssueVoucherRequest {
+            code: Some("LEGACY-RATE".into()),
+            kind: "GOODWILL".into(),
+            currency: Some("IDR".into()),
+            value_minor: 5_000,
+            member_id: Some("M-HISTORY".into()),
+            expires_at: None,
+            site_id: None,
+            note: Some("Historical conversion".into()),
+        },
+        "test",
+        "historical-voucher",
+        "historical-voucher-digest",
+    )
+    .await
+    .unwrap_or_else(|error| panic!("legacy voucher: {error}"));
+    let redemption_id = uuid::Uuid::new_v4();
+    sqlx::query("INSERT INTO loyalty_redemption (redemption_id, customer_id, points_spent, voucher_value_minor, voucher_id, idempotency_key, actor)
+        VALUES ($1, 'M-HISTORY', 50, 5000, $2, 'historical-key', 'test')")
+        .bind(redemption_id).bind(card.voucher_id).execute(&pool).await
+        .unwrap_or_else(|error| panic!("historical redemption: {error}"));
+    // The member earned 100, spent 50 under the old scheme and has 50 left.
+    sqlx::query("INSERT INTO points_ledger (entry_id, customer_id, entry_type, points, redemption_id, actor)
+        VALUES (gen_random_uuid(), 'M-HISTORY', 'REDEEM_TO_VOUCHER', -50, $1, 'test')")
+        .bind(redemption_id).execute(&pool).await
+        .unwrap_or_else(|error| panic!("historical debit: {error}"));
+    sqlx::query("UPDATE points_account SET balance_points = 50 WHERE customer_id = 'M-HISTORY'")
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("historical balance: {error}"));
+    let request = || RedeemPointsRequest {
+        customer_id: "M-HISTORY".into(),
+        points: 50,
+        voucher_value_minor: 5_000,
+        actor_id: "test".into(),
+        idempotency_key: "historical-key".into(),
+        expires_at: None,
+    };
+    let replay = cloud::redeem_points_to_voucher(&pool, request())
+        .await
+        .unwrap_or_else(|error| panic!("historical replay: {error}"));
+    assert_eq!(replay["voucher_id"], json!(card.voucher_id));
+    assert_eq!(replay["voucher_value_minor"], json!(5_000));
+    assert_eq!(replay["balance_points"], json!(50));
+    assert_eq!(replay["replayed"], json!(true));
+    let mut changed = request();
+    changed.voucher_value_minor = 50;
+    assert!(cloud::redeem_points_to_voucher(&pool, changed)
+        .await
+        .is_err());
+    let issued: i64 =
+        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM voucher WHERE member_id = 'M-HISTORY'")
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("voucher count: {error}"));
+    assert_eq!(issued, 1);
+    let debits: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM points_ledger WHERE customer_id = 'M-HISTORY' AND entry_type = 'REDEEM_TO_VOUCHER'")
+        .fetch_one(&pool).await.unwrap_or_else(|error| panic!("debits: {error}"));
+    assert_eq!(debits, 1);
+}

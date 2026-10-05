@@ -182,7 +182,6 @@ export function Sales() {
       <Toolbar>
         <PickOne
           label="Shop"
-          placeholder="All shops"
           choices={fleet.rows.map((site) => ({
             value: site.site_id,
             label: site.site_name,

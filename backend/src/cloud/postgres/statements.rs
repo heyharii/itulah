@@ -296,6 +296,13 @@ pub async fn statement(
         }
     };
 
+    // A Period Closing Voucher empties every income and expense account into
+    // retained earnings. A balance sheet must see it — without it the closed
+    // profit would sit both in 3003 and in the unclosed result — and a profit
+    // and loss must not, or a window holding the year-end reads nil. The same
+    // rule `financial_statements::statement_lines` follows.
+    let with_closing = kind == "BALANCE_SHEET";
+
     // Every account down to the family rung, with its subtree summed. Rows that
     // moved nothing are dropped after the fact rather than in SQL, so a heading
     // whose children are all zero disappears with them instead of standing
@@ -314,6 +321,7 @@ pub async fn statement(
                        AND ($3::text IS NULL OR l.unit_id = $3)
                        AND ($4::date IS NULL OR e.posting_date >= $4)
                        AND e.posting_date <= $2
+                       AND ($5 OR NOT journal_entry_closes_books(e.source_kind, e.reversal_of))
                 ), 0)::bigint AS amount
           FROM ledger_account a
           WHERE a.root_class = ANY($1)
@@ -323,6 +331,7 @@ pub async fn statement(
     .bind(to)
     .bind(unit_id)
     .bind(from)
+    .bind(with_closing)
     .fetch_all(pool)
     .await?;
 
@@ -375,12 +384,14 @@ pub async fn statement(
           WHERE a.root_class = ANY($1)
             AND ($3::text IS NULL OR l.unit_id = $3)
             AND ($4::date IS NULL OR e.posting_date >= $4)
-            AND e.posting_date <= $2",
+            AND e.posting_date <= $2
+            AND ($5 OR NOT journal_entry_closes_books(e.source_kind, e.reversal_of))",
     )
     .bind(&PROFIT_LOSS[..])
     .bind(to)
     .bind(unit_id)
     .bind(from)
+    .bind(with_closing)
     .fetch_one(pool)
     .await?
     .try_get("result")?;
@@ -613,7 +624,7 @@ pub async fn cash_flow(
                     SELECT 1 FROM cash c
                      WHERE c.account_code = l.account_code
                        AND c.unit_id = l.unit_id)
-          GROUP BY l.account_code, a.name
+          GROUP BY l.account_code, a.name, a.depth
           ORDER BY l.account_code"
     ))
     .bind(&CASH_KEYS[..])

@@ -119,8 +119,12 @@ export function PrepaidsAndAccruals() {
         // sum of six, and `null` the moment any one of them is still in flight
         // — a partial sum is a third thing that is neither "asked" nor "not".
         const whole = mine.every((one) => one !== undefined)
-        const sum = (pick: (one: (typeof mine)[number]) => number | null | undefined) =>
-          whole ? mine.reduce((total, one) => total + (pick(one) ?? 0), 0) : null
+        const sum = (
+          pick: (one: (typeof mine)[number]) => number | null | undefined
+        ) =>
+          whole
+            ? mine.reduce((total, one) => total + (pick(one) ?? 0), 0)
+            : null
         const data = {
           account_name:
             mine
@@ -158,8 +162,12 @@ export function PrepaidsAndAccruals() {
   // A `find` over four entries rather than a memoised index. `FAMILIES` is a
   // module-level constant of fixed length, so the lookup is two comparisons and
   // a map keyed on it would be ceremony around an array anybody can read.
-  const prepaid = families.rows.find((row) => row.family.code === PREPAID_FAMILY)
-  const accrued = families.rows.find((row) => row.family.code === ACCRUED_FAMILY)
+  const prepaid = families.rows.find(
+    (row) => row.family.code === PREPAID_FAMILY
+  )
+  const accrued = families.rows.find(
+    (row) => row.family.code === ACCRUED_FAMILY
+  )
 
   return (
     <PageContent>
@@ -260,12 +268,16 @@ export function PrepaidsAndAccruals() {
             <SideBody
               label="Paid before its months"
               sub="An asset until the month it belongs to arrives"
-              rows={families.rows.filter((row) => row.family.side === "PREPAID")}
+              rows={families.rows.filter(
+                (row) => row.family.side === "PREPAID"
+              )}
             />
             <SideBody
               label="Ran before its cost"
               sub="A liability from the month it belongs to until the invoice lands"
-              rows={families.rows.filter((row) => row.family.side === "ACCRUED")}
+              rows={families.rows.filter(
+                (row) => row.family.side === "ACCRUED"
+              )}
             />
           </Grid>
 
@@ -275,15 +287,15 @@ export function PrepaidsAndAccruals() {
               half of the table they are on.
             </b>{" "}
             On the prepaid rows a debit adds to what is being held and a credit
-            releases it into an expense head, so the columns read as written.
-            On the accrual row they are the other way round — a credit is the
-            cost being taken and a debit is the invoice arriving and clearing
-            it — so <b>Added</b> there is the debit column and{" "}
-            <b>Released</b> the credit, which is why the row says so in its own
-            words rather than relying on the heading. Balances are the
-            ledger&rsquo;s own sign and are not flipped: an accrual is a credit
-            and reads negative, because a report decides how to present a
-            balance and a balance does not decide for itself.
+            releases it into an expense head, so the columns read as written. On
+            the accrual row they are the other way round — a credit is the cost
+            being taken and a debit is the invoice arriving and clearing it — so{" "}
+            <b>Added</b> there is the debit column and <b>Released</b> the
+            credit, which is why the row says so in its own words rather than
+            relying on the heading. Balances are the ledger&rsquo;s own sign and
+            are not flipped: an accrual is a credit and reads negative, because
+            a report decides how to present a balance and a balance does not
+            decide for itself.
           </Note>
 
           <Schedule to={range.to} unit={unit} />
@@ -620,7 +632,10 @@ function Schedule({ to, unit }: { to: string; unit: string }) {
             </thead>
             <tbody>
               {periods.data.map((period) => (
-                <PeriodRow key={`${period.year}-${period.month}`} period={period} />
+                <PeriodRow
+                  key={`${period.year}-${period.month}`}
+                  period={period}
+                />
               ))}
               <TotalRow>
                 <Td>{count(periods.data.length)} months</Td>
@@ -646,18 +661,19 @@ function Schedule({ to, unit }: { to: string; unit: string }) {
             </tbody>
           </Grid>
 
-          {attention.data !== undefined && attention.data.month_not_open > 0 && (
-            <Note>
-              <b>
-                The month this window ends in is not open, so nothing could be
-                released into it today.
-              </b>{" "}
-              A release entry posts on a date, and the database refuses a
-              posting into a month nobody has opened — which is the check that
-              stops a mistyped date filing a cost in 2062. Opening it is done on{" "}
-              <b>Period close</b>.
-            </Note>
-          )}
+          {attention.data !== undefined &&
+            attention.data.month_not_open > 0 && (
+              <Note>
+                <b>
+                  The month this window ends in is not open, so nothing could be
+                  released into it today.
+                </b>{" "}
+                A release entry posts on a date, and the database refuses a
+                posting into a month nobody has opened — which is the check that
+                stops a mistyped date filing a cost in 2062. Opening it is done
+                on <b>Period close</b>.
+              </Note>
+            )}
 
           <Note>
             <b>
@@ -673,11 +689,11 @@ function Schedule({ to, unit }: { to: string; unit: string }) {
             — an account and an amount, and no dates. ERPNext fills exactly
             these columns from three fields on the invoice item:{" "}
             <code>service_start_date</code>, <code>service_end_date</code> and
-            an optional <code>service_stop_date</code> for an early
-            termination, plus a company-wide switch deciding whether a month
-            gets an equal share or a day-count share. Add those three fields to
-            a bill line and a deferred-expense account to point the line at, and
-            this table fills itself.
+            an optional <code>service_stop_date</code> for an early termination,
+            plus a company-wide switch deciding whether a month gets an equal
+            share or a day-count share. Add those three fields to a bill line
+            and a deferred-expense account to point the line at, and this table
+            fills itself.
           </Note>
 
           <Note>
@@ -859,8 +875,8 @@ function ChartShape() {
 
       <Note>
         <b>A bucket with no meaning against it cannot be posted to by rule.</b>{" "}
-        Everything this system books automatically goes through an account
-        link — a role like <code>prepaid_expense</code> bound to one of the
+        Everything this system books automatically goes through an account link
+        — a role like <code>prepaid_expense</code> bound to one of the
         client&rsquo;s accounts, for every unit or for some —{" "}
         {map.isPending ? (
           <>and the ones that carry one are marked above.</>
@@ -878,8 +894,8 @@ function ChartShape() {
         <code>SEWA</code> and a third for <code>LISENSI</code> without any
         schema change at all. The unmapped buckets are not broken — a manual
         journal reaches any account in the chart — they are simply out of reach
-        of anything automatic, which for rent paid a year ahead is the case
-        that matters.
+        of anything automatic, which for rent paid a year ahead is the case that
+        matters.
       </Note>
     </>
   )

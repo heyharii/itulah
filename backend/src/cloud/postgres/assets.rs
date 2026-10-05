@@ -2886,10 +2886,16 @@ pub async fn asset_drafts_for_bill(
             _ => class_name,
         };
 
-        let number: i64 = sqlx::query("SELECT nextval('fixed_asset_number_seq') AS n")
-            .fetch_one(&mut **tx)
-            .await?
-            .try_get("n")?;
+        // In the books of the unit whose site the line was bought for (0701).
+        let site_id: String = row.try_get("site_id")?;
+        let unit = super::sites::unit_of_site(&mut **tx, &site_id).await?;
+        let number = super::number_series::next_number(
+            &mut **tx,
+            super::number_series::FIXED_ASSET,
+            row.try_get::<NaiveDate, _>("invoice_date")?,
+            Some(&unit),
+        )
+        .await?;
         let asset_id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO fixed_asset
@@ -2898,7 +2904,7 @@ pub async fn asset_drafts_for_bill(
              VALUES ($1,$2,$3,$4,$5,$6,'DRAFT',$7,$8,$9)",
         )
         .bind(asset_id)
-        .bind(format!("AST-{number:06}"))
+        .bind(&number)
         .bind(&name)
         .bind(&class_code)
         .bind(row.try_get::<String, _>("site_id")?)

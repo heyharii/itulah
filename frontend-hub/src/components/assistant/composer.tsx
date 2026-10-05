@@ -16,12 +16,10 @@ import { cn } from "@/lib/utils"
 /// on this machine uses; the alternative — a Send button and a plain textarea
 /// — makes the common act two gestures.
 export function Composer({
-  placeholder = "Ask about stock, prices, takings…",
   autoFocus = false,
   reveal = false,
   className,
 }: {
-  placeholder?: string
   autoFocus?: boolean
   /// Raise the panel on sending.
   ///
@@ -78,7 +76,6 @@ export function Composer({
         value={draft}
         autoFocus={autoFocus}
         rows={1}
-        placeholder={placeholder}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter" && !event.shiftKey) {

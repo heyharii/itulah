@@ -28,4 +28,13 @@ counted_quantity: number,
  * refuses a count whose pieces disagree with `counted_quantity`, or that
  * is not a whole number of pieces. Absent means pieces.
  */
-counted_unit_code?: string | null, counted_unit_quantity?: string | null, actor_id: string, idempotency_key: string, };
+counted_unit_code?: string | null, counted_unit_quantity?: string | null,
+/**
+ * Of the counted pieces, how many are NOT the article the line names —
+ * the supplier's picker put another colour, model or article in the
+ * carton. Part of the physical count, part of no acceptance: matching
+ * runs on `counted_quantity − wrong_quantity`, and the wrong pieces go
+ * back to the supplier on a purchase return (0710). Typed in pieces.
+ * Absent means none.
+ */
+wrong_quantity: number, actor_id: string, idempotency_key: string, };

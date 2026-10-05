@@ -158,7 +158,7 @@ function LevelSheet({
       title={row ? row.name : "New level"}
       id={row?.code}
       error={save.error ?? retire.error}
-      saveLabel="Save level"
+      saveLabel="Submit"
       saving={save.isPending}
       canSave={
         code.trim() !== "" &&
@@ -187,15 +187,10 @@ function LevelSheet({
           value={code}
           readOnly={row !== null}
           onChange={(e) => setCode(e.target.value.toUpperCase())}
-          placeholder="MGR"
         />
       </Field>
       <Field label="Name" required>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Manager"
-        />
+        <Input value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
       <Field label="Rank" aside="1 is the most senior" required>
         <Input
@@ -344,7 +339,7 @@ function GradeSheet({
       title={row ? row.name : "New grade"}
       id={row?.code}
       error={save.error ?? retire.error}
-      saveLabel="Save grade"
+      saveLabel="Submit"
       saving={save.isPending}
       canSave={code.trim() !== "" && name.trim() !== "" && reason.trim() !== ""}
       onSave={() => save.mutate()}
@@ -368,20 +363,14 @@ function GradeSheet({
           value={code}
           readOnly={row !== null}
           onChange={(e) => setCode(e.target.value.toUpperCase())}
-          placeholder="G3"
         />
       </Field>
       <Field label="Name" required>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Grade 3"
-        />
+        <Input value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
       <Field label="Level">
         <PickOne
           label="Level"
-          placeholder="Any level"
           choices={levels
             .filter((one) => !one.retired)
             .map((one) => ({ value: one.code, label: one.name }))}
@@ -393,7 +382,6 @@ function GradeSheet({
         <Input
           value={gradeClass}
           onChange={(e) => setGradeClass(e.target.value)}
-          placeholder="3A"
         />
       </Field>
       <Field label="Band from">

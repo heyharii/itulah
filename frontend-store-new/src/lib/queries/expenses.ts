@@ -57,12 +57,9 @@ function actorFrom(client: ReturnType<typeof useQueryClient>): string {
   return me?.username ?? ""
 }
 
-/// What is in the tin: handed over, spent, left, and the ceiling a store
-/// manager may sign for.
-///
-/// The limit arrives with the position rather than being written into this
-/// file. A screen that spelled the number itself would be a second copy of a
-/// company policy, and the copy nobody updates is the one a shop reads.
+/// What is in the tin: handed over, spent, left, and the line above which an
+/// expense needs Finance's code. The line arrives with the position (Finance's
+/// setting), never spelled here.
 export function usePettyCash() {
   return useQuery({
     queryKey: pettyCashKey(),
@@ -93,7 +90,8 @@ export interface ExpenseDraft {
   readonly amountMinor: number
   readonly payee: string
   readonly reason: string
-  readonly supervisor: Supervisor
+  /// Finance's one-time code; only needed above the line.
+  readonly approvalCode: string | null
 }
 
 /// Record what the shop spent.
@@ -115,7 +113,7 @@ export function useRecordExpense(): UseMutationResult<
         payee: draft.payee,
         reason: draft.reason,
         actor_id: actorFrom(client),
-        supervisor: draft.supervisor,
+        approval_code: draft.approvalCode,
         idempotency_key: commandKey("expense"),
       }
       return node.post<ExpenseRecorded>("/api/v1/store/expenses", request)

@@ -55,10 +55,10 @@ export function RelayRefusal({
   return (
     <Banner tone="bad">
       {access === "local"
-        ? `${what} is kept at head office, and this till is signed in with the shop's own emergency account — one head office has never heard of, so it will not answer for it. Sign out and sign in with your head-office account.`
+        ? `${what} needs a head-office account. Sign out and sign in with yours.`
         : access === "development"
-          ? `${what} is kept at head office, and this node is running with sign-in switched off, so there is nobody for head office to answer for. It needs a head-office account signed in at this till.`
-          : `${what} is kept at head office. Sign in at this till with your head-office account.`}
+          ? `${what} needs a head-office account. Sign-in is off on this server.`
+          : `${what} needs a head-office account. Sign in with yours.`}
     </Banner>
   )
 }

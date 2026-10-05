@@ -11,7 +11,7 @@ Yang sudah hidup di kode (bukan proposal lagi):
 
 - **Seam** `src/clock.rs`: `ClockHandle` dengan tiga sumber (`System`,
   `Controlled`, `Scaled`), monotonik, `rescale`/`pause`/`resume`/`advance_to`,
-  env bootstrap `ITULAH_CLOCK*` (lihat `.env.example`), 9 unit test.
+  env bootstrap `ITULAH_CLOCK*` (lihat `cloud.env.example`), 9 unit test.
 - **Cloud**: `AppState.clock` (Arc dibagi), `GET/POST
   /api/v1/inventory/control/clock` (fail-closed 403 tanpa
   `INVENTORY_ENABLE_TEST_CONTROLS`; mundur → 409; validasi → 400), header
@@ -27,10 +27,14 @@ Yang sudah hidup di kode (bukan proposal lagi):
   bisnis (occurred_at, checkout/tender, count, GRN, reject, tagging, punch,
   business_date, `PricingContext.at`) membaca jam; endpoint kontrol yang sama
   di `common_router`; auth/sync/outbound/printing tetap jam nyata.
-- **Hub**: chip jam virtual di top bar + popover kendali
-  (`frontend-hub/src/components/shell/clock-chip.tsx`, klien
-  `frontend-contract/src/client/clock.ts`, hook `lib/queries/clock.ts`),
-  polling 5 detik, 403 → chip menghilang.
+- **Hub** (2 Okt): tombol "Time" di kaki kolom menu (desk) dan di top bar
+  (tablet/HP) → popover "Time travel" (+1/+7/+30 hari, bulan depan, Go to,
+  Back to real time, Advanced: speed/pause) —
+  `frontend-hub/src/components/shell/time-travel*.tsx`,
+  `lib/time-travel.ts`, klien `frontend-contract/src/client/clock.ts`, hook
+  `lib/queries/clock.ts` (`useBusinessNow`, invalidasi semua query setelah
+  ubah jam). Lompatan pertama dari `system` = `set_mode scaled` faktor 1;
+  balik = `set_mode system`. Polling 5 detik, 403 → tombol menghilang.
 - **Gate**: `tests/clock_authority.rs` — allowlist wajib-reason untuk setiap
   `Utc::now()` di `src/`; `tests/clock_control_integration.rs` 6/6.
 - Belum (fase lanjut): `VirtualScheduler` (fase 0d), threading sisa titik

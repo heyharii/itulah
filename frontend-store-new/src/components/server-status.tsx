@@ -125,8 +125,8 @@ export function ServerStatus() {
           <strong className="font-medium">
             Reconnecting to the store server…
           </strong>{" "}
-          This basket is safe on this device; carry on once it is back (
-          {Math.round((Date.now() - status.since) / 1000)} s so far).
+          The basket is safe ({Math.round((Date.now() - status.since) / 1000)}{" "}
+          s).
         </span>
       </Banner>
     ) : status.kind === "holding" ? (
@@ -142,8 +142,7 @@ export function ServerStatus() {
           <strong className="font-medium">
             UPS battery almost flat — finish the sale now.
           </strong>{" "}
-          The server will shut down cleanly soon and start again on its own when
-          the power is back.
+          The server restarts when power is back.
         </span>
       </Banner>
     ) : (

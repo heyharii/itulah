@@ -21,11 +21,15 @@ import { Sheet } from "@/components/ui/sheet"
 import { Banner } from "@/components/ui/states"
 import {
   financeKeys,
-  listAssets,
   unitAccounts,
   type UnitAccount,
 } from "@/lib/queries/finance"
-import { gaKeys, gaContractTypes, recordGaContract } from "@/lib/queries/ga"
+import {
+  gaContractTypes,
+  gaKeys,
+  recordGaContract,
+  useGaSites,
+} from "@/lib/queries/ga"
 import { useUnits } from "@/lib/queries/organisation"
 import { procurementKeys, supplierPage } from "@/lib/queries/procurement"
 import { CONTRACT_GROUPS } from "@/screens/contracts/groups"
@@ -82,14 +86,9 @@ export function ContractComposer({
   const langganan = groupCode === "LANGGANAN"
   const scope = form.scope ?? "SITE"
 
-  // The site list, from the register's facets — the same cached answer the
-  // asset register asks, because a site is a site in both forms.
-  const shape = useQuery({
-    queryKey: financeKeys.assets(false, null),
-    queryFn: ({ signal }) => listAssets({ limit: 1 }, signal),
-    enabled: open,
-    staleTime: 5 * 60 * 1000,
-  })
+  // The site list, from GA's own locations — the same cached answer every GA
+  // form asks, because a site is a site in all of them.
+  const { sites: siteOptions } = useGaSites(open)
   const site = form.site || null
 
   // The types, with their proposed accounts, resolved for the chosen site —
@@ -286,7 +285,7 @@ export function ContractComposer({
               Cancel
             </Button>
             <Button variant="primary" pending={save.isPending} onClick={submit}>
-              {save.isPending ? "Saving…" : "Save contract"}
+              {save.isPending ? "Submitting…" : "Submit"}
             </Button>
           </div>
         </div>
@@ -321,7 +320,10 @@ export function ContractComposer({
           />
         </Section>
 
-        <Section title="Contract type" aside="the card carries its proposed accounts">
+        <Section
+          title="Contract type"
+          aside="the card carries its proposed accounts"
+        >
           {typeOptions.length === 0 ? (
             <p className="text-meta text-mute">
               {/* Opened from the whole register rather than from one group,
@@ -357,7 +359,10 @@ export function ContractComposer({
         </Section>
 
         {typeCode === "JASA_MAINTENANCE" && (
-          <Section title="Object being maintained" aside="expense follows the object">
+          <Section
+            title="Object being maintained"
+            aside="expense follows the object"
+          >
             <Choices
               label="Object being maintained"
               columns={3}
@@ -379,7 +384,6 @@ export function ContractComposer({
               <Input
                 value={form.tenant ?? ""}
                 onChange={(event) => set("tenant", event.target.value)}
-                placeholder="Employee Cooperative"
               />
             </Field>
           ) : (
@@ -422,7 +426,7 @@ export function ContractComposer({
               {scope === "SITE" && (
                 <Field label="Site" problem={problems.site || undefined}>
                   <SiteSelect
-                    sites={shape.data?.facets.sites ?? []}
+                    sites={siteOptions}
                     site={form.site ?? ""}
                     onChange={(next) => set("site", next)}
                   />
@@ -432,7 +436,7 @@ export function ContractComposer({
           ) : (
             <Field label="Site" problem={problems.site || undefined} required>
               <SiteSelect
-                sites={shape.data?.facets.sites ?? []}
+                sites={siteOptions}
                 site={form.site ?? ""}
                 onChange={(next) => set("site", next)}
               />
@@ -447,7 +451,6 @@ export function ContractComposer({
               <Input
                 value={form.customer_number ?? ""}
                 onChange={(event) => set("customer_number", event.target.value)}
-                placeholder="5381 2294 0017"
               />
             </Field>
           )}
@@ -462,14 +465,15 @@ export function ContractComposer({
               <Input
                 value={form.contract_number ?? ""}
                 onChange={(event) => set("contract_number", event.target.value)}
-                placeholder="e.g. 01/C007-PTS/2026"
               />
             </Field>
-            <Field label="Notes" aside="appears below the party in the register">
+            <Field
+              label="Notes"
+              aside="appears below the party in the register"
+            >
               <Input
                 value={form.notes ?? ""}
                 onChange={(event) => set("notes", event.target.value)}
-                placeholder="Store C009 · unit 1-04"
               />
             </Field>
           </div>
@@ -504,7 +508,6 @@ export function ContractComposer({
             <Money
               value={form.value ?? ""}
               onChange={(next) => set("value", next)}
-              placeholder="360000000"
             />
           </Field>
         </Section>
@@ -520,9 +523,7 @@ export function ContractComposer({
             }
             label="Signed"
             note={
-              form.signed === "yes"
-                ? "Yes — say who signed"
-                : "Not signed yet"
+              form.signed === "yes" ? "Yes — say who signed" : "Not signed yet"
             }
           />
           {form.signed === "yes" && (
@@ -530,7 +531,6 @@ export function ContractComposer({
               <Input
                 value={form.signed_by ?? ""}
                 onChange={(event) => set("signed_by", event.target.value)}
-                placeholder="e.g. GA Manager"
               />
             </Field>
           )}
@@ -542,8 +542,8 @@ export function ContractComposer({
         >
           {proposed.length === 0 ? (
             <p className="text-meta text-mute">
-              Choose the type first — proposed accounts follow the contract
-              type and site.
+              Choose the type first — proposed accounts follow the contract type
+              and site.
             </p>
           ) : (
             <div className="flex flex-col">
@@ -566,9 +566,9 @@ export function ContractComposer({
             </div>
           )}
           <p className="flex items-center gap-1.5 text-pill text-mute">
-            <FinanceMark className="align-[0.0625rem]" /> Set by Finance in
-            the Account map; proposed on the bill line, and Finance can still
-            change it.
+            <FinanceMark className="align-[0.0625rem]" /> Set by Finance in the
+            Account map; proposed on the bill line, and Finance can still change
+            it.
           </p>
         </Section>
       </div>

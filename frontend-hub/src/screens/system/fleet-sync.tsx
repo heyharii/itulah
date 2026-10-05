@@ -1,10 +1,18 @@
 import { Card } from "@/components/ui/card"
 import { Pill } from "@/components/ui/pill"
-import { Banner } from "@/components/ui/states"
-import { ago, count } from "@/lib/format"
-import { useFleetSync, type FleetSyncRow } from "@/lib/queries/fleet"
+import {
+  useFleetStatusOf,
+  useFleetSync,
+  type FleetDayBar,
+  type FleetSyncRow,
+} from "@/lib/queries/fleet"
 import { queryState } from "@/lib/query-state"
-import { FLEET_PILL_TONE, FleetDot, fleetKindWord } from "@/screens/system/fleet-shared"
+import {
+  FLEET_PILL_TONE,
+  FleetDot,
+  fleetKindWord,
+} from "@/screens/system/fleet-shared"
+import { cn } from "@/lib/utils"
 
 const STATE_WORD: Readonly<Record<FleetSyncRow["state"], string>> = {
   SYNCED: "Synced",
@@ -41,6 +49,11 @@ export function FleetSync() {
             </div>
 
             <Card className="overflow-hidden">
+              <div className="hidden grid-cols-[minmax(0,14rem)_minmax(0,1fr)_8rem] gap-4 bg-soft px-4 py-2.5 text-meta text-body md:grid">
+                <span>Store server</span>
+                <span>Sync, last 90 days</span>
+                <span className="text-right">Now</span>
+              </div>
               <ul className="divide-y divide-hairline">
                 {page.stores.map((row) => (
                   <SyncRow key={row.key} row={row} />
@@ -54,61 +67,96 @@ export function FleetSync() {
   )
 }
 
-function SyncRow({ row }: { row: FleetSyncRow }) {
+const SYNC_FILL: Readonly<Record<FleetDayBar["colour"], string>> = {
+  green: "bg-ok",
+  yellow: "bg-warn",
+  red: "bg-bad",
+  grey: "bg-hairline-strong",
+  none: "bg-hairline-2",
+}
+
+/// How long a stretch lasted, in the words the tooltip needs.
+function lasted(seconds: number): string {
+  if (seconds < 60) return `${seconds} s`
+  if (seconds < 3600) return `${Math.round(seconds / 60)} min`
+  return `${Math.round((seconds / 3600) * 10) / 10} h`
+}
+
+/// Ninety days of the store's `sync` part, stretched like the Servers
+/// board. Said as time behind and time offline, never a percentage.
+function SyncBars({ days }: { days: readonly FleetDayBar[] | undefined }) {
+  const bars: readonly (FleetDayBar | null)[] =
+    days ?? Array.from({ length: 90 }, () => null)
   return (
-    <li className="flex flex-col gap-2 px-4 py-3.5">
-      <div className="flex items-center gap-3">
-        <FleetDot colour={row.colour} />
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2">
-            <b className="truncate text-[0.9375rem] font-semibold text-ink">
+    <span
+      className="flex h-6 items-stretch gap-[2px]"
+      role="img"
+      aria-label="Sync per day, last 90 days"
+    >
+      {bars.map((bar, index) => (
+        <span
+          key={bar?.day ?? index}
+          title={
+            bar === null
+              ? undefined
+              : bar.state === "NONE"
+                ? `${bar.day} · no history`
+                : [
+                    bar.day,
+                    bar.warn_seconds > 0
+                      ? `behind ${lasted(bar.warn_seconds)}`
+                      : null,
+                    bar.bad_seconds > 0
+                      ? `offline ${lasted(bar.bad_seconds)}`
+                      : null,
+                    bar.warn_seconds === 0 && bar.bad_seconds === 0
+                      ? "in sync"
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+          }
+          className={cn(
+            "min-w-[2px] flex-1 rounded-[1px]",
+            SYNC_FILL[bar?.colour ?? "none"]
+          )}
+        />
+      ))}
+    </span>
+  )
+}
+
+function SyncRow({ row }: { row: FleetSyncRow }) {
+  const detail = useFleetStatusOf(row.key, true)
+  const days = detail.data?.row.components.find(
+    (one) => one.kind === "SYNC"
+  )?.days
+  return (
+    <li className="px-4 py-3.5">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2.5 md:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_8rem]">
+        <span className="flex min-w-0 items-center gap-2.5">
+          <FleetDot colour={row.colour} />
+          <span className="min-w-0">
+            <span className="block truncate font-medium text-ink">
               {row.name}
-            </b>
-            {row.unit_code && (
-              <span className="shrink-0 font-mono text-pill text-mute">
-                {row.unit_code}
-              </span>
-            )}
-            <span className="shrink-0 text-meta text-mute">
+            </span>
+            <span className="block truncate text-meta text-mute">
+              {row.unit_code && (
+                <span className="font-mono">{row.unit_code} · </span>
+              )}
               {fleetKindWord(row.kind)}
             </span>
           </span>
         </span>
-        <Pill tone={FLEET_PILL_TONE[row.colour]}>{STATE_WORD[row.state]}</Pill>
+        <span className="col-span-2 md:order-none md:col-span-1">
+          <SyncBars days={days} />
+        </span>
+        <span className="md:text-right">
+          <Pill tone={FLEET_PILL_TONE[row.colour]}>
+            {STATE_WORD[row.state]}
+          </Pill>
+        </span>
       </div>
-
-      <p className="pl-[1.375rem] text-[0.875rem] text-body">{row.sentence}</p>
-
-      {row.sales_complete_up_to_local && (
-        <p className="pl-[1.375rem] text-meta text-mute">
-          Today&rsquo;s sales complete up to {row.sales_complete_up_to_local}
-          {row.sales_complete_today ? "" : " (not yet today)"}.
-        </p>
-      )}
-
-      {row.down.pending > 0 && (
-        <ul className="flex flex-col gap-1 pl-[1.375rem]">
-          {row.down.commands.map((command) => (
-            <li key={`${command.command_type}-${command.oldest_sent_at}`} className="text-meta text-mute">
-              ↓ {count(command.count)} pending: {command.label}, sent{" "}
-              {ago(command.oldest_sent_at)}
-              {command.expired > 0 && ` · ${command.expired} expired`}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {row.last_outage && (
-        <p className="pl-[1.375rem] text-meta text-mute">
-          Last outage: {row.last_outage.sentence}
-        </p>
-      )}
-
-      {row.down.blocked !== null && row.down.blocked !== undefined && (
-        <Banner tone="bad" className="ml-[1.375rem]">
-          Stuck on a command it will not apply — a developer needs to look.
-        </Banner>
-      )}
     </li>
   )
 }

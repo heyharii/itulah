@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Allotments · before and now</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* Hub tokens (frontend-hub/src/styles/index.css, 28 Sep · airy charcoal). Nothing under 14px. */
+:root{--ink:#20242c;--text:#394150;--body:#626b78;--mute:#737c89;--faint:#b9c0c9;--line-ico:#89919d;--canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--soft-3:#f6f6f7;
+  --hairline:#e6e6e9;--hairline-2:#dadade;--hairline-strong:#c6c6cc;--backdrop:#e0e0e4;--tooltip:#101012;
+  --accent:#2563eb;--accent-bg:#eff5ff;--info:#2f86d8;--info-bg:#ddebfa;--ok:#36b827;--ok-fg:#15803d;--ok-bg:#e7f7e3;--warn-bg:#faeacd;--warn-fg:#b45309;--bad:#d05151;--bad-bg:#fbeaea;--bad-fg:#be123c;
+  --rail:#242526;--rail-2:#303234;--rail-text:#c3c4c7;--rail-mute:#a1a3a8;
+  --r-shell:16px;--r-card:10px;--r-inner:7px;
+  --shadow-soft:0 1px 3px rgb(24 39 60/4%);--shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);--shadow-shell:0 10px 34px rgb(24 39 60/8%);
+  --ease:cubic-bezier(.23,1,.32,1);--ease-drawer:cubic-bezier(.32,.72,0,1)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:14px/20px Inter,system-ui,sans-serif;color:var(--text);background:var(--backdrop);-webkit-font-smoothing:antialiased;padding:16px 16px 40px}
+button,input,select{font:inherit;color:inherit}button{cursor:pointer}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px;letter-spacing:-.02em}
+.num{font-variant-numeric:tabular-nums}.mute{color:var(--mute)}.faint{color:var(--faint)}.body{color:var(--body)}
+svg.i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* prototype chrome */
+.top{max-width:98rem;margin:0 auto 12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.top h1{font-size:15px;font-weight:600;color:var(--ink)}.top p{color:var(--body);max-width:58rem}
+.lenses{display:flex;gap:2px;background:var(--canvas);padding:3px;border-radius:999px;box-shadow:0 0 0 1px var(--hairline)}
+.lens{border:0;background:none;border-radius:999px;padding:5px 14px;color:var(--body)}.lens.on{background:var(--ink);color:#fff;font-weight:500}
+.chrome{margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.sw{display:inline-flex;align-items:center;gap:8px;background:var(--canvas);border-radius:999px;padding:5px 12px 5px 6px;box-shadow:0 0 0 1px var(--hairline);color:var(--body)}
+.sw i{width:30px;height:18px;border-radius:999px;background:var(--hairline-2);position:relative;transition:background .15s}
+.sw i::after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgb(0 0 0/.2);transition:transform .2s var(--ease)}
+.sw.on i{background:var(--ink)}.sw.on i::after{transform:translateX(12px)}
+.sw[hidden]{display:none}
+.notes{max-width:98rem;margin:14px auto 0;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.notes div{background:var(--canvas);border-radius:var(--r-card);padding:14px 16px;box-shadow:var(--shadow-soft)}
+.notes h5{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:6px}
+.notes ul{padding-left:18px;color:var(--body);display:flex;flex-direction:column;gap:3px}
+@media (max-width:760px){.notes{grid-template-columns:1fr}}
+
+/* shell */
+.shell{max-width:98rem;margin:0 auto;display:flex;height:min(52rem,calc(100vh - 7rem));min-height:38rem;background:var(--canvas);border-radius:var(--r-shell);box-shadow:var(--shadow-shell);overflow:clip;position:relative}
+.nav{width:14.5rem;flex:none;background:var(--rail);color:var(--rail-text);padding:14px 10px;display:flex;flex-direction:column;gap:2px}
+.brand{display:flex;align-items:center;gap:9px;color:#fff;font-weight:600;padding:2px 8px 14px}
+.brand b{width:24px;height:24px;border-radius:7px;background:#fff;color:var(--rail);display:grid;place-items:center;font-weight:700;position:relative}
+.brand b::after{content:"";position:absolute;right:4px;bottom:4px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.nrow{display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px}
+.nrow.dept{color:#fff;font-weight:500}.nrow.sub{padding-left:34px;color:var(--rail-mute)}.nrow.sub.on{background:var(--rail-2);color:#fff}
+@media (max-width:900px){.nav{display:none}}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}
+.bar{height:48px;flex:none;display:flex;align-items:center;gap:8px;padding:0 20px;border-bottom:1px solid var(--hairline);color:var(--body)}.bar b{color:var(--ink);font-weight:500}
+.scroll{flex:1;min-height:0;overflow:auto}
+.page{padding:26px 32px 32px}
+@media (max-width:700px){.page{padding:18px 16px}}
+
+/* shared page bits */
+.crumb{color:var(--body);margin-bottom:2px}
+.ph{margin-bottom:16px}.ph h2{font-size:22px;line-height:28px;font-weight:600;color:var(--ink);letter-spacing:-.02em}.ph .sub{color:var(--body);margin-top:4px}
+.btn{height:34px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);color:var(--ink);font-weight:500;white-space:nowrap}
+.btn:hover{background:var(--soft)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}.btn.pri svg.i{color:#fff}
+.btn.danger{background:var(--bad-bg);border-color:transparent;color:var(--bad-fg);width:100%;justify-content:center;opacity:.6}
+.btn.quietd{border-color:transparent;background:none;color:var(--bad-fg)}.btn.quietd:hover{background:var(--bad-bg)}
+.sel{height:34px;display:inline-flex;align-items:center;gap:8px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 10px;background:var(--canvas);color:var(--ink);white-space:nowrap}
+.sel.ph0{color:var(--mute)}
+.sel svg{color:var(--line-ico);width:14px;height:14px}
+.search{position:relative;flex:0 1 16rem}
+.search svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--line-ico)}
+.search input{width:100%;height:34px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 10px 0 32px;box-shadow:var(--shadow-soft);outline:0;background:var(--canvas)}
+.search.old input{padding-left:10px;box-shadow:none}
+.toolbar{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.sp{flex:1}
+.card{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:clip;background:var(--canvas)}
+table.list{width:100%;border-collapse:collapse}
+table.list th{font-weight:500;color:var(--mute);text-align:left;padding:0 14px;height:40px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+table.list td{padding:0 14px;height:52px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+table.list tbody tr{cursor:pointer;transition:background .12s}
+table.list tbody tr:hover{background:var(--soft)}
+table.list tbody tr.sel{background:var(--accent-bg)}
+table.list tfoot td{height:48px;font-weight:600;color:var(--ink);border-bottom:0;background:var(--soft)}
+table.list tfoot td span{font-weight:400;color:var(--body)}
+.r{text-align:right!important}
+
+/* before */
+.pill{display:inline-flex;align-items:center;height:24px;padding:0 9px;border-radius:999px;border:1px solid var(--hairline-2);color:var(--text);background:var(--canvas)}
+.pill.ok{border-color:#bfe5b6;color:var(--ok-fg)}.pill.bad{border-color:#f3c6c6;color:var(--bad-fg)}.pill.info{border-color:#bfd3fb;color:var(--accent);background:var(--accent-bg)}
+.tag{display:inline-flex;align-items:center;height:22px;padding:0 7px;border-radius:5px;background:var(--soft-2);color:var(--body)}
+.tag.mono{font-size:14px}
+.ticks{display:flex;align-items:center;gap:8px;min-width:12rem}
+.ticks span.t{display:flex;gap:1px;flex:1}
+.ticks span.t i{flex:1;height:8px;border-radius:999px;background:var(--soft-2)}
+.ticks b{width:36px;text-align:right;font-weight:500;color:var(--body);font-variant-numeric:tabular-nums}
+.dock{display:grid;grid-template-columns:minmax(0,1fr) 16rem;gap:20px;align-items:start}
+.panel{border:1px solid var(--hairline);border-radius:var(--r-card);padding:12px;display:flex;flex-direction:column;gap:8px}
+.kp{display:flex;gap:18px;padding-bottom:10px;border-bottom:1px solid var(--hairline)}
+.kp div{display:flex;flex-direction:column}
+.kp span{color:var(--mute);text-transform:uppercase;letter-spacing:.04em}
+.kp b{color:var(--ink);font-weight:600}
+.panel .lab{color:var(--body);margin-top:4px}
+.panel .f{height:34px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);display:flex;align-items:center;justify-content:space-between;padding:0 10px;color:var(--body)}
+.panel .row{display:flex;gap:14px;color:var(--body);padding:4px 0}
+.panel .sv{display:flex;gap:6px;border-top:1px solid var(--hairline);padding-top:10px}
+.panel .sv input{flex:1;min-width:0;height:34px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 10px}
+.clipbox{max-height:21rem;overflow:auto}
+@media (max-width:1100px){.dock{grid-template-columns:1fr}.panel{display:none}}
+
+/* now */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.kpi{border:1px solid var(--hairline);border-radius:var(--r-card);padding:12px 14px}
+.kpi span{color:var(--body)}.kpi b{display:block;font-size:22px;line-height:30px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+@media (max-width:700px){.kpis{grid-template-columns:1fr 1fr}}
+.tabs{display:flex;gap:18px;border-bottom:1px solid var(--hairline);margin-bottom:12px}
+.tabs button{border:0;background:none;padding:8px 0;color:var(--body);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs button.on{color:var(--ink);font-weight:500;border-color:var(--ink)}
+.status{display:inline-flex;align-items:center;gap:7px;color:var(--ink)}
+.status i{width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.status.done i{background:var(--ok)}.status.closed i{background:var(--mute)}
+.att{color:var(--warn-fg)}
+.banner{border-radius:var(--r-inner);padding:10px 12px;background:var(--warn-bg);color:#6b4410;display:flex;gap:10px;justify-content:space-between;margin-bottom:14px}
+.banner u{cursor:pointer;font-weight:500}
+
+/* sheet */
+.scrim{position:absolute;inset:0;background:rgb(246 246 247/.55);opacity:0;pointer-events:none;transition:opacity .2s}.scrim.on{opacity:1;pointer-events:auto}
+.sheet{position:absolute;top:10px;right:10px;bottom:10px;background:var(--canvas);border-radius:var(--r-shell);box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);display:flex;flex-direction:column;transform:translateX(calc(100% + 24px));transition:transform .42s var(--ease-drawer)}
+.sheet.on{transform:none}
+.sheet.rail{width:min(47.5rem,calc(100% - 20px))}.sheet.table{width:min(64rem,calc(100% - 20px))}
+.shead{padding:16px 22px 14px;border-bottom:1px solid var(--hairline);display:flex;gap:12px;align-items:flex-start}
+.shead h3{font-size:20px;line-height:26px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.shead .cap{color:var(--body);margin-top:3px}
+.shead .act{margin-left:auto;display:flex;gap:8px;align-items:center}
+.x{width:36px;height:36px;border:0;background:none;border-radius:8px;display:grid;place-items:center;color:var(--body)}.x:hover{background:var(--soft-2)}
+.sbody{flex:1;min-height:0;overflow:auto;padding:18px 22px 26px;display:flex;flex-direction:column;gap:20px}
+h4{font-size:15px;font-weight:600;color:var(--ink);margin-bottom:8px}
+.stepper{display:flex;align-items:center;flex-wrap:wrap;gap:6px 0}
+.stepper span{display:inline-flex;align-items:center;gap:6px;color:var(--ink);font-weight:500}
+.stepper span i{width:16px;height:16px;border-radius:50%;background:var(--ok);display:grid;place-items:center}
+.stepper span i::after{content:"";width:6px;height:3px;border-left:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg) translate(1px,-1px)}
+.stepper em{width:28px;height:2px;background:var(--ok);margin:0 8px}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:12px 20px}
+.facts dt{color:var(--body)}.facts dd{color:var(--ink)}
+.mini{width:100%;border-collapse:collapse}
+.mini th{font-weight:600;color:var(--mute);text-transform:uppercase;letter-spacing:.04em;text-align:left;padding:6px 8px 6px 0}
+.mini td{padding:8px 8px 8px 0;border-top:1px solid var(--hairline)}
+.ladder{border-top:1px solid var(--hairline);margin-top:10px;padding-top:10px;display:flex;flex-direction:column;gap:3px}
+.ladder div{display:flex;justify-content:space-between;color:var(--body)}.ladder div.t{color:var(--ink);font-weight:600}
+.hist div{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--hairline)}.hist div:first-child{border-top:0}
+.hist b{font-weight:500;color:var(--ink)}.hist time{margin-left:auto;color:var(--mute)}
+.hist .n{width:22px;height:22px;border-radius:50%;background:var(--ok-bg);color:var(--ok-fg);display:grid;place-items:center;flex:none}
+.field{display:flex;flex-direction:column;gap:6px}.field label{color:var(--ink);font-weight:500}.field label em{color:var(--bad);font-style:normal}
+.field input{height:40px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 12px}
+.pipe{display:grid;grid-template-columns:repeat(5,1fr) 1.3fr;border:1px solid var(--hairline);border-radius:var(--r-card)}
+.pipe>div{padding:12px 14px;border-left:1px solid var(--hairline)}.pipe>div:first-child{border-left:0}
+.pipe span{color:var(--body)}.pipe b{display:block;font-size:22px;line-height:30px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.pipe b.z{color:var(--faint)}.pipe .tot{background:var(--soft)}.pipe small{display:block;font-size:14px;color:var(--body)}
+@media (max-width:760px){.pipe{grid-template-columns:repeat(3,1fr)}.pipe>div:nth-child(4){border-left:0}.pipe>div:nth-child(n+4){border-top:1px solid var(--hairline)}}
+.mx{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:auto}
+.mx table{border-collapse:separate;border-spacing:0;min-width:100%}
+.mx th,.mx td{height:38px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+.mx thead th{background:var(--canvas);font-weight:500;color:var(--mute);padding:8px 6px;height:auto}
+.mx .id{position:sticky;left:0;z-index:2;background:var(--canvas);text-align:left;padding:0 12px;min-width:14rem;border-right:1px solid var(--hairline)}
+.mx .c{min-width:5rem;text-align:center;border-left:1px solid var(--hairline)}
+.mx .t{min-width:5rem;text-align:right;padding:0 12px;border-left:1px solid var(--hairline)}
+.mx tr.art td{background:var(--soft);height:48px}.mx tr.art .id{background:var(--soft)}
+.mx tbody tr:last-child td{border-bottom:0}
+.colh{display:flex;flex-direction:column;align-items:center}.colh b{color:var(--ink);font-weight:600}.colh .ok{color:var(--ok-fg)}
+.artid{display:flex;align-items:center;gap:10px}.artid b{display:block;font-weight:500;color:var(--ink)}
+.thumb{width:30px;height:30px;border-radius:var(--r-inner);display:grid;place-items:center;color:#fff;font-weight:600;flex:none}
+.skuid{padding-left:52px!important;color:var(--ink)}
+.v{font-variant-numeric:tabular-nums;color:var(--ink)}.v.ok{color:var(--ok-fg);font-weight:500}.v.part{color:var(--accent);font-weight:500}.v.sub{color:var(--body)}
+.legend{color:var(--mute);display:flex;gap:14px;flex-wrap:wrap;margin-top:8px}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px}
+.tip{position:fixed;z-index:80;pointer-events:none;background:var(--tooltip);color:#fff;border-radius:7px;padding:7px 10px;max-width:24rem;opacity:0;transition:opacity .12s}.tip.on{opacity:1}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div>
+    <h1>Allotments · before and now</h1>
+    <p>The same seven allotments drawn the way the list looked until 28 Sep, and the way it looks now. Click ALT-00000411 in either to open its record.</p>
+  </div>
+  <div class="chrome">
+    <label class="sw" id="barsw" hidden><i></i>Progress column</label>
+    <div class="lenses" id="lenses"><button class="lens" data-v="before">Before</button><button class="lens on" data-v="now">Now</button></div>
+  </div>
+</div>
+
+<div class="shell">
+  <aside class="nav">
+    <div class="brand"><b>C</b>Central</div>
+    <div class="nrow">Home</div><div class="nrow">Buying</div>
+    <div class="nrow dept">Merchandise</div>
+    <div class="nrow sub">Articles</div><div class="nrow sub">Divisions</div><div class="nrow sub">Tags</div><div class="nrow sub">Sizes</div><div class="nrow sub">Colours</div>
+    <div class="nrow sub on">Allotments</div><div class="nrow sub">Return to HO</div>
+    <div class="nrow">Ops</div><div class="nrow">Inventory</div>
+  </aside>
+  <div class="main">
+    <div class="bar"><span>Merchandise</span><span class="faint">/</span><b>Allotments</b></div>
+    <div class="scroll"><div class="page" id="page"></div></div>
+    <div class="scrim" id="scrim"></div>
+    <section class="sheet" id="sheet"><div class="shead" id="shead"></div><div class="sbody" id="sbody"></div></section>
+  </div>
+</div>
+
+<div class="notes">
+  <div><h5>Before (until 28 Sep)</h5><ul>
+    <li>Type and Status pickers read "Choose…" (a Select bug, fixed since).</li>
+    <li>Six stored statuses as coloured pills — In progress and DC completed included.</li>
+    <li>Progress: 24 ticks coloured by stage, and a % that means "arrived".</li>
+    <li>"960 Piece" in every cell; returns mixed in with a tag.</li>
+    <li>Filter panel docked on the right; the table scrolled inside its own box, and Progress got cut at 1440px.</li>
+    <li>Record: a stepper with Picked and Dispatched, lines without the store, pool ids, a Pick form and an always-open Cancel.</li>
+  </ul></div>
+  <div><h5>Now</h5><ul>
+    <li>Figures on top, Active · Completed · Closed tabs, one toolbar line — the Purchase orders layout.</li>
+    <li>Three statuses as a dot and a word; Waiting for DC beside it, not in it.</li>
+    <li>No progress bar: Allotted, Received and To receive side by side. (Switch "Progress column" on to see the old bar in the new list.)</li>
+    <li>Only To store here; returns live under Return to HO / Return to supplier.</li>
+    <li>Record: five stage figures, lines as SKU × store, Close short in a dialog.</li>
+  </ul></div>
+</div>
+
+<div class="tip" id="tip"></div>
+
+<script>
+const ROWS=[
+  {n:'ALT-00000412',type:'TO_STORE',st:'ACTIVE',day:'27 Sep 2026',skus:40,arts:6,q:960,stores:13,picked:0,disp:0,rc:0,cx:0,edge:'PENDING',note:'PO-2291 · Batik restock'},
+  {n:'ALT-00000411',type:'TO_STORE',st:'IN_PROGRESS',day:'25 Sep 2026',skus:24,arts:3,q:640,stores:9,picked:420,disp:300,rc:120,cx:0,edge:'ACCEPTED',note:'PO-2284 · Linen drop',me:1},
+  {n:'ALT-00000410',type:'TO_STORE',st:'DC_COMPLETED',day:'22 Sep 2026',skus:12,arts:5,q:300,stores:5,picked:300,disp:300,rc:180,cx:0,edge:'ACCEPTED',note:''},
+  {n:'ALT-00000409',type:'RETURN_TO_DC',st:'ACTIVE',day:'21 Sep 2026',skus:3,arts:2,q:18,stores:1,picked:0,disp:0,rc:0,cx:0,edge:'ACCEPTED',note:'Damaged, Kemang'},
+  {n:'ALT-00000408',type:'TO_STORE',st:'COMPLETED',day:'18 Sep 2026',skus:18,arts:4,q:420,stores:6,picked:420,disp:420,rc:420,cx:0,edge:'ACCEPTED',note:'Weekend top-up'},
+  {n:'ALT-00000407',type:'TO_STORE',st:'CANCELLED',day:'15 Sep 2026',skus:8,arts:2,q:200,stores:4,picked:40,disp:40,rc:40,cx:160,edge:'ACCEPTED',note:''},
+  {n:'ALT-00000406',type:'TO_STORE',st:'ACTIVE',day:'27 Sep 2026',skus:10,arts:3,q:300,stores:4,picked:0,disp:0,rc:0,cx:0,edge:'PENDING',note:''},
+];
+const fmt=n=>n.toLocaleString('id-ID');
+const HUMAN={ACTIVE:'Active',IN_PROGRESS:'In progress',DC_COMPLETED:'Dc completed',COMPLETED:'Completed',CANCELLED:'Cancelled'};
+const NOWST=s=>s==='COMPLETED'?'COMPLETED':s==='CANCELLED'||s==='REJECTED'?'CLOSED':'ACTIVE';
+let view='now', bars=false, tab='ACTIVE';
+
+function ticks(r){
+  const T=24,marks=[];
+  const bands=[[r.rc,'var(--ok)'],[Math.max(0,r.disp-r.rc),'var(--accent)'],[Math.max(0,r.picked-r.disp),'var(--info)'],[r.cx,'var(--line-ico)']];
+  for(const [p,c] of bands){const n=r.q?Math.round(p/r.q*T):0;for(let k=0;k<n&&marks.length<T;k++)marks.push(c)}
+  while(marks.length<T)marks.push('var(--soft-2)');
+  return `<span class="ticks" data-tip="${fmt(r.q)} promised · ${fmt(Math.max(0,r.picked-r.disp))} picked · ${fmt(Math.max(0,r.disp-r.rc))} in transit · ${fmt(r.rc)} received${r.cx?` · ${fmt(r.cx)} cancelled`:''}"><span class="t">${marks.map(c=>`<i style="background:${c}"></i>`).join('')}</span><b>${r.q?Math.round(r.rc/r.q*100):0}%</b></span>`;
+}
+const chev='<svg class="i" viewBox="0 0 24 24"><path d="M8 9l4 4 4-4"/></svg>';
+const updown='<svg class="i" viewBox="0 0 24 24"><path d="M8 10l4-4 4 4M8 14l4 4 4-4"/></svg>';
+
+/* ------------------------------------------------------------ before */
+function before(){
+  const pill=s=>`<span class="pill ${s==='ACTIVE'||s==='COMPLETED'?'ok':s==='CANCELLED'?'bad':''}">${HUMAN[s]}</span>`;
+  return `
+  <div class="crumb">Allotment</div>
+  <div class="ph"><h2>Allotments</h2><div class="sub">What has been promised out of a pool, and how far it has actually travelled.</div></div>
+  <div class="toolbar">
+    <span class="sel"><svg class="i" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M6 4h12v17l-6-4-6 4z"/></svg>Every allotment ${updown}</span>
+    <span class="sel ph0">Choose… ${chev}</span><span class="sel ph0">Choose… ${chev}</span>
+    <label class="search old"><input placeholder="Search"></label>
+    <span class="sp"></span><span class="body">Show in</span><span class="sel">Piece ${chev}</span>
+    <button class="btn pri"><svg class="i" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M4 15h16M10 4v16M15 4v16"/></svg>New allotment</button>
+  </div>
+  <div class="dock">
+    <div class="card"><div class="clipbox"><table class="list" style="min-width:59rem"><thead><tr><th>Allotment</th><th>Status</th><th>Raised</th><th class="r">Items</th><th class="r">Qty</th><th class="r">Stores</th><th>Progress</th></tr></thead><tbody>
+    ${ROWS.map(r=>`<tr class="${r.me?'sel':''}" ${r.me?'data-open':''}><td><span class="mono body">${r.n}</span>${r.type!=='TO_STORE'?` <span class="tag mono">Return to dc</span>`:''}</td><td>${pill(r.st)}</td><td>${r.day}</td><td class="r num">${r.skus}</td><td class="r num">${fmt(r.q)} Piece</td><td class="r num">${r.stores}</td><td>${ticks(r)}</td></tr>`).join('')}
+    </tbody></table></div></div>
+    <aside class="panel">
+      <div class="kp"><div><span>Allotments</span><b>7</b></div><div><span>Short</span><b>0</b></div></div>
+      <div class="lab">Filter by</div>
+      ${['Allotment','Status','Raised','Items','Qty','Stores','Progress'].map(f=>`<div class="f">${f}${updown}</div>`).join('')}
+      <div class="row"><span>☰ Edit filters</span><span>✓ Fields</span></div>
+      <div class="kp" style="border:0;padding:0"><div><span>Saved views</span></div></div>
+      <div class="sv"><input placeholder="View name"><button class="btn">Save</button></div>
+    </aside>
+  </div>`;
+}
+
+/* ------------------------------------------------------------ now */
+function now(){
+  const rows=ROWS.filter(r=>r.type==='TO_STORE');
+  const act=rows.filter(r=>NOWST(r.st)==='ACTIVE');
+  const shown=tab==='ALL'?rows:rows.filter(r=>NOWST(r.st)===tab);
+  const toPack=act.reduce((n,r)=>n+(r.q-r.cx-r.picked),0), way=act.reduce((n,r)=>n+(r.picked-r.rc),0);
+  const sw=r=>{const s=NOWST(r.st);return `<span class="status ${s==='COMPLETED'?'done':s==='CLOSED'?'closed':''}"><i></i>${s[0]+s.slice(1).toLowerCase()}</span>${r.edge==='PENDING'?' <span class="att">· Waiting for DC</span>':''}`};
+  const tr=r=>r.q-r.rc-r.cx;
+  return `
+  <div class="ph"><h2>Allotments</h2><div class="sub">What each store has been promised, and how much of it has arrived.</div></div>
+  <div class="kpis">
+    <div class="kpi"><span>Active</span><b>${act.length}</b></div>
+    <div class="kpi"><span>To pack</span><b>${fmt(toPack)}</b></div>
+    <div class="kpi"><span>On the way</span><b>${fmt(way)}</b></div>
+    <div class="kpi"><span>To receive</span><b>${fmt(act.reduce((n,r)=>n+tr(r),0))}</b></div>
+  </div>
+  <div class="tabs">${[['ACTIVE','Active'],['COMPLETED','Completed'],['CLOSED','Closed'],['ALL','All']].map(([v,l])=>`<button class="${tab===v?'on':''}" data-tab="${v}">${l}</button>`).join('')}</div>
+  <div class="toolbar">
+    <span class="sel">Allotments ${chev}</span>
+    <label class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input placeholder="Search allotments"></label>
+    <button class="btn">Filter</button><span class="sp"></span>
+    <span class="body">Show in</span><span class="sel">Piece ${chev}</span><button class="btn">Columns</button>
+    <button class="btn pri">New allotment</button>
+  </div>
+  <div class="banner"><span>1 SKU is promised past what the warehouse holds.</span><u>Show</u></div>
+  <div class="card"><table class="list"><thead><tr><th>Allotment</th><th>Created</th><th>Note</th><th class="r">Articles</th><th class="r">Stores</th><th class="r">Allotted</th><th class="r">Received</th><th class="r">To receive</th>${bars?'<th>Progress</th>':''}<th>Status</th></tr></thead><tbody>
+  ${shown.map(r=>`<tr class="${r.me?'sel':''}" ${r.me?'data-open':''}><td class="mono">${r.n}</td><td>${r.day}</td><td class="mute" style="max-width:13rem;overflow:hidden;text-overflow:ellipsis">${r.note||'—'}</td><td class="r num">${r.arts}</td><td class="r num">${r.stores}</td><td class="r num">${fmt(r.q)}</td><td class="r num">${fmt(r.rc)}</td><td class="r num" style="${tr(r)>0?'color:var(--ink);font-weight:500':'color:var(--faint)'}">${fmt(tr(r))}</td>${bars?`<td>${ticks(r)}</td>`:''}<td>${sw(r)}</td></tr>`).join('')}
+  </tbody><tfoot><tr><td>${shown.length} <span>${shown.length===1?'allotment':'allotments'}</span></td><td></td><td></td><td></td><td></td><td class="r num">${fmt(shown.reduce((n,r)=>n+r.q,0))}</td><td class="r num">${fmt(shown.reduce((n,r)=>n+r.rc,0))}</td><td class="r num">${fmt(shown.reduce((n,r)=>n+tr(r),0))}</td>${bars?'<td></td>':''}<td></td></tr></tfoot></table></div>`;
+}
+
+/* ------------------------------------------------------------ sheets */
+const LINES=[['Linen Overshirt','LNO-01-NAV-S',20,12,6],['Linen Overshirt','LNO-01-NAV-M',30,20,10],['Linen Overshirt','LNO-01-NAV-L',24,24,24],['Chino Relaxed','CHR-02-KHK-30',16,0,0],['Chino Relaxed','CHR-02-KHK-32',18,8,0]];
+function sheetBefore(){
+  const steps=['Accepted','Picked','Packed','Shipment','Dispatched','In transit','Received'];
+  const mini=(q,moved,rc)=>{const T=24,m=[];const add=(n,c)=>{for(let k=0;k<Math.round(n/q*T)&&m.length<T;k++)m.push(c)};add(rc,'var(--ok)');add(moved-rc,'var(--accent)');while(m.length<T)m.push('var(--soft-2)');return `<span class="ticks" style="min-width:10rem"><span class="t">${m.map(c=>`<i style="background:${c}"></i>`).join('')}</span><b>${Math.round(rc/q*100)}%</b></span>`};
+  return {head:`<div><h3>ALT-00000411</h3></div><div class="act"><button class="x" data-close>✕</button></div>`,
+  body:`
+    <div class="stepper">${steps.map((s,i)=>`${i?'<em></em>':''}<span><i></i>${s}</span>`).join('')}</div>
+    <div style="display:flex;gap:6px"><span class="pill">In progress</span><span class="pill info">Accepted by the DC</span></div>
+    <dl class="facts"><div><dt>Raised by</dt><dd>admin</dd></div><div><dt>Raised</dt><dd>25 Sep, 10.10</dd></div><div><dt>Notes</dt><dd>—</dd></div></dl>
+    <section><h4>Lines</h4><table class="mini"><thead><tr><th>SKU</th><th style="text-align:right">Qty</th><th>Progress</th><th style="text-align:right">Still owed</th></tr></thead><tbody>
+      ${LINES.map(([a,c,q,m,r])=>`<tr><td><div style="color:var(--ink)">${a}</div><div class="mono mute">${c}</div></td><td class="r num">${q} Piece</td><td>${mini(q,m,r)}</td><td class="r num">${q-r} Piece</td></tr>`).join('')}
+    </tbody></table>
+    <div class="ladder"><div><span>Ordered</span><span>640 Piece</span></div><div><span>Received</span><span>120 Piece</span></div><div><span>Cancelled</span><span>0 Piece</span></div><div class="t"><span>Still owed</span><span>520 Piece</span></div></div></section>
+    <section><h4>Ledger movements</h4><table class="mini"><thead><tr><th>Route</th><th style="text-align:right">Cause</th><th style="text-align:right">Qty</th></tr></thead><tbody><tr><td class="mono body">dc.warehouse:LNO-01 → dc.picked:LNO-01</td><td class="r"><span class="tag mono">ALLOTMENT_PICKED</span></td><td class="r num">120 Piece</td></tr></tbody></table></section>
+    <section><h4>History</h4><div class="hist"><div><span class="n">1</span><div><b>Allotment created</b><div class="body">admin · 640 Piece · reserve +640</div></div><time>25 Sep, 10.10</time></div><div><span class="n">2</span><div><b>Allotment partially picked</b><div class="body">dc-01-edge · 420 Piece · reserve -420</div></div><time>26 Sep, 10.10</time></div></div></section>
+    <section style="border-top:1px solid var(--hairline);padding-top:16px;display:flex;flex-direction:column;gap:10px"><div class="field"><label>Cancel what is still reserved <em>*</em></label><input placeholder="Why it is being released"></div><button class="btn danger">Cancel allotment</button></section>`};
+}
+function sheetNow(){
+  const stores=[['01','Kemang'],['02','Pondok Indah'],['03','Senayan City'],['04','Kelapa Gading'],['05','Bandung PVJ'],['06','Surabaya']];
+  const stage=['Arrived','Arrived','On the way','Shipment','Packing','To pack'];
+  const arts=[['Linen Overshirt','LNO-01','#34507a',[['Navy · S',3],['Navy · M',5],['Navy · L',4]]],['Chino Relaxed','CHR-02','#a08455',[['Khaki · 30',3],['Khaki · 32',4]]]];
+  let body='';
+  for(const [a,c,hue,skus] of arts){
+    body+=`<tr class="art"><td class="id"><div class="artid"><span class="thumb" style="background:${hue}">${a[0]}</span><div><b>${a}</b><span class="mono mute">${c}</span></div></div></td>${stores.map((s,i)=>`<td class="c"><span class="v sub">${skus.reduce((n,[,q])=>n+q+(i%3===0?1:0),0)}</span></td>`).join('')}<td class="t"><span class="v sub">${stores.reduce((t,s,i)=>t+skus.reduce((n,[,q])=>n+q+(i%3===0?1:0),0),0)}</span></td></tr>`;
+    for(const [l,q] of skus){let t=0;body+=`<tr><td class="id skuid">${l}</td>${stores.map((s,i)=>{const v=q+(i%3===0?1:0);t+=v;const cls=i<2?'ok':'';return `<td class="c" data-tip="${s[1]}: allotted ${v} · ${stage[i].toLowerCase()}"><span class="v ${cls}">${v}</span></td>`}).join('')}<td class="t"><span class="v">${t}</span></td></tr>`}
+  }
+  return {head:`<div style="min-width:0"><h3><span class="mono" style="font-size:20px">ALT-00000411</span><span class="status" style="font-size:14px;font-weight:400"><i></i>Active</span></h3><div class="cap">Created 25 Sep 2026 by admin · 9 stores · 3 articles</div></div><div class="act"><button class="btn quietd">Close short</button><button class="x" data-close>✕</button></div>`,
+  body:`
+    <div class="pipe">${[['To pack',109],['Packed',17],['Shipment',39],['In transit',42],['Received',120]].map(([l,v])=>`<div><span>${l}</span><b class="${v?'':'z'}">${v}</b></div>`).join('')}<div class="tot"><span>To receive</span><b>520</b><small>of 640 allotted</small></div></div>
+    <section><h4>Lines</h4><div class="mx"><table><thead><tr><th class="id">Article / SKU</th>${stores.map((s,i)=>`<th class="c" data-tip="${s[1]}"><div class="colh"><b>${s[0]}</b><span class="${i<2?'ok':''}">${stage[i]}</span></div></th>`).join('')}<th class="t">Total</th></tr></thead><tbody>${body}</tbody></table></div>
+    <div class="legend"><span><i style="background:var(--ok)"></i>Arrived in full</span><span><i style="background:var(--accent)"></i>Partly arrived</span><span><i style="background:var(--faint)"></i>Struck through: closed short</span></div></section>
+    <section><h4>History</h4><div class="hist"><div><div><b>Created</b> <span class="body">640</span></div><time>25 Sep, 10.10</time></div></div></section>`};
+}
+
+/* ------------------------------------------------------------ wiring */
+const page=document.getElementById('page'),sheet=document.getElementById('sheet'),scrim=document.getElementById('scrim');
+function render(){
+  page.innerHTML=view==='before'?before():now();
+  document.getElementById('barsw').hidden=view!=='now';
+  document.querySelectorAll('[data-open]').forEach(el=>el.onclick=openSheet);
+  document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;render()});
+  tips();
+}
+function openSheet(){const s=view==='before'?sheetBefore():sheetNow();sheet.className='sheet '+(view==='before'?'rail':'table');
+  document.getElementById('shead').innerHTML=s.head;document.getElementById('sbody').innerHTML=s.body;
+  document.querySelector('[data-close]').onclick=closeSheet;tips();
+  requestAnimationFrame(()=>{sheet.classList.add('on');scrim.classList.add('on')})}
+function closeSheet(){sheet.classList.remove('on');scrim.classList.remove('on')}
+scrim.onclick=closeSheet;document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSheet()});
+document.querySelectorAll('.lens').forEach(b=>b.onclick=()=>{document.querySelectorAll('.lens').forEach(x=>x.classList.toggle('on',x===b));view=b.dataset.v;closeSheet();render()});
+const sw=document.getElementById('barsw');sw.onclick=()=>{bars=!bars;sw.classList.toggle('on',bars);render()};
+const tip=document.getElementById('tip');
+function tips(){document.querySelectorAll('[data-tip]').forEach(el=>{el.onmouseenter=()=>{tip.textContent=el.dataset.tip;tip.classList.add('on')};el.onmousemove=e=>{tip.style.left=Math.min(e.clientX+12,innerWidth-tip.offsetWidth-8)+'px';tip.style.top=(e.clientY+16)+'px'};el.onmouseleave=()=>tip.classList.remove('on')})}
+render();
+</script>
+</body>
+</html>

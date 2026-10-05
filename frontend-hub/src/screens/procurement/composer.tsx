@@ -1,33 +1,45 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ChevronLeft, PackageSearch, Plus, Trash2 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { ChevronLeft, PackageSearch, Pencil, Plus, Trash2 } from "lucide-react"
+import { useMemo, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Day } from "@/components/ui/day"
+import { Dialog, SavedDialog } from "@/components/ui/dialog"
 import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
-import { PickMany, PickOne, type Choice } from "@/components/ui/pick"
-import { Section, TotalsLadder } from "@/components/ui/rows"
+import { PickOne, type Choice } from "@/components/ui/pick"
+import { Section } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { today as todayIso } from "@/lib/calendar"
 import { count, day, money } from "@/lib/format"
 import { wholeProduct } from "@/lib/decimal"
-import { unitFactor, useUnits } from "@/lib/queries/units"
-import { PricingFields, VariantGrid } from "@/screens/procurement/line-pricing"
 import {
+  itemUnitFactor,
+  useUnits,
+  type ItemUnitFactor,
+} from "@/lib/queries/units"
+import {
+  cleanPercent,
+  discountFromPercent,
+  lineTotal,
   markupBps,
+  percentFromDiscount,
+  percentText,
+  percentToBps,
   variantPieces,
-  variantRows,
   variantsForWire,
   type VariantDraft,
 } from "@/screens/procurement/line-pricing-model"
+import { toast } from "@/lib/toast"
 import { cn } from "@/lib/utils"
 import {
   catalogueVocabulary,
   createCatalogPurchaseOrder,
   createSupplierItemWithPhoto,
   listSuppliers,
+  paymentTermsBook,
+  cancelPurchaseOrder,
   procurementKeys,
   removeFromBasket,
   purchaseDestinations,
@@ -36,13 +48,19 @@ import {
   type CatalogPurchaseOrderReceipt,
   type PurchaseOrderDetail,
 } from "@/lib/queries/procurement"
-import { ItemFormSheet } from "@/screens/procurement/item-form"
+import {
+  ItemFormSheet,
+  type LineResult,
+  type LineSeed,
+} from "@/screens/procurement/item-form"
 import { CataloguePicker } from "@/screens/procurement/pick-items"
 import { supplierDisplayName } from "@/screens/procurement/supplier-format"
 import { SupplierComposer } from "@/screens/procurement/suppliers"
 import {
   GRID_CELL,
+  DEFAULT_TERMS,
   GRID_HEAD,
+  pcs,
   useIdempotencyKey,
   type PendingItem,
 } from "@/screens/procurement/shared"
@@ -110,13 +128,29 @@ interface DraftLine {
     readonly tags: readonly string[]
   }
   name: string
+  /// What the item is, in words: the supplier item's, or what was typed on a
+  /// new one. A PO line does not carry it, so only a new item's is changed.
+  readonly description: string
   division: string | null
   tags: readonly string[]
   quantity: string
   /// The unit the quantity is typed in — PCS, LUSIN, KODI — from the units
-  /// master. The order is still in pieces: the quantity is converted when it
-  /// is sent (see `piecesOf`), and the price is per piece.
+  /// master. The order is still in the article's STOCK unit: the quantity is
+  /// converted when it is sent (see `piecesOf`), and the price is per stock
+  /// unit.
   unit: string
+  /// What the linked article counts its stock in (ERPNext `stock_uom`). The
+  /// base unit for a line with no article yet — a brand-new item typed onto
+  /// this order — since there is nothing else to convert against (0653).
+  readonly stockUnitCode: string
+  /// The article's own units — a CARTON of THIS item may be 24 while the
+  /// global master says something else — read once off the supplier item and
+  /// carried on the line so `unitsFor`/`factorFor` never have to ask again.
+  readonly articleUnits: readonly ItemUnitFactor[]
+  /// True when the line's goods are an article: then only its stock unit and
+  /// its own units may be used, as in 7Soft (0657) — the server refuses any
+  /// other, so this screen never offers one.
+  readonly ownUnitsOnly: boolean
   price: string
   /// The photograph, copied off the supplier item and sent with the line.
   ///
@@ -134,8 +168,13 @@ interface DraftLine {
   /// The pending item's photograph, as a local URL for the thumbnail — the
   /// real one does not exist until the item does.
   readonly preview?: string
-  /// The item's own pack sizes, which override the global conversions.
-  readonly itemUnits: readonly { unit_code: string; factor: string }[]
+  /// The factor an EXISTING order line was placed at, frozen — so re-opening
+  /// an order to edit it does not quietly re-price a carton because the
+  /// units master moved since it was raised. Only meaningful while `unit`
+  /// still names this same unit; choosing a different one falls back to
+  /// whatever the master says today. Absent for a line that has not been
+  /// raised yet, which has nothing to freeze.
+  readonly pinnedUnit?: { readonly code: string; readonly factor: string }
   /// The colours and sizes the item comes in — what the SKU grid is made of.
   readonly offered: {
     readonly colours: readonly { code: string; label: string }[]
@@ -146,6 +185,26 @@ interface DraftLine {
   markup: string
   /// How many of each colour and size; empty for a line ordered as a whole.
   variants: readonly VariantDraft[]
+  /// How the quantity was said when the same item was added more than once in
+  /// different units — "10 kodi + 2 pcs". The line itself then holds the
+  /// pieces they come to (the server takes one line per item).
+  said?: string
+  /// Why an existing order line can no longer be edited — goods received,
+  /// or the line closed — or absent when it can. The server also refuses a
+  /// line billed or re-priced since; its message lands in the banner.
+  readonly locked?: string
+}
+
+/// Why an order line is no longer the buyer's to change, read off what the
+/// order detail carries — the server's own rule, as far as the detail says it.
+function lockOf(
+  line: PurchaseOrderDetail["lines"][number]
+): string | undefined {
+  if (line.line_status !== "OPEN" || line.cancelled_quantity > 0)
+    return "This line is closed, so it can no longer be edited."
+  if (line.received_quantity > 0 || (line.receipts?.length ?? 0) > 0)
+    return "Goods were received against this line, so it can no longer be edited."
+  return undefined
 }
 
 /// A line for an item that does not exist yet. Its id is local and never
@@ -162,15 +221,25 @@ function fromPending(pending: PendingItem): DraftLine {
       tags: request.tags,
     },
     name: request.name,
+    description: request.description ?? "",
     division: request.division_code,
     tags: request.tags,
     // What the buyer typed on the item form — the owner asked for the new
     // item's quantity to be entered with it, beside its price.
-    quantity: pending.unitQuantity ?? String(pending.quantity ?? 1),
+    quantity:
+      pending.unitQuantity ??
+      (pending.quantity === undefined ? "" : String(pending.quantity)),
     unit: pending.unitCode ?? BASE_UNIT,
-    price: String(request.unit_price_minor),
+    // A pending item has no article yet, so nothing but the global master to
+    // convert against (0653 §3) — the same as the base unit having no units
+    // of its own.
+    stockUnitCode: BASE_UNIT,
+    articleUnits: [],
+    ownUnitsOnly: false,
+    // Per the unit it was typed in, when that is not pieces; the request
+    // beside it carries the per-piece figure that comes to.
+    price: pending.unitPrice ?? String(request.unit_price_minor),
     image: null,
-    itemUnits: request.units ?? [],
     offered: {
       colours: request.colour_codes.map((code) => ({ code, label: code })),
       sizes: request.size_codes,
@@ -205,13 +274,19 @@ function fromItem(item: SupplierItem, quantity: string): DraftLine {
       tags: item.tags,
     },
     name: item.name,
+    description: item.description ?? "",
     division: item.division_code,
     tags: item.tags,
     quantity,
-    unit: BASE_UNIT,
+    // A new line starts in what this item is bought in by default (ERPNext
+    // `purchase_uom`), else its stock unit, else the base — never a unit
+    // nobody asked for.
+    unit: item.purchase_unit_code ?? item.stock_unit_code ?? BASE_UNIT,
+    stockUnitCode: item.stock_unit_code ?? BASE_UNIT,
+    articleUnits: item.article_units,
+    ownUnitsOnly: item.stock_unit_code !== null,
     price: String(item.unit_price_minor),
     image: item.image_url,
-    itemUnits: item.units ?? [],
     offered: {
       colours: item.colours.map((one) => ({
         code: one.colour_code,
@@ -240,18 +315,46 @@ function fromOrderLine(line: PurchaseOrderDetail["lines"][number]): DraftLine {
       tags: line.tags,
     },
     name: line.article_name,
+    description: "",
     division: line.division_code,
     tags: line.tags,
     quantity: line.order_unit_quantity ?? String(line.ordered_quantity),
     unit: line.order_unit_code ?? BASE_UNIT,
-    price: String(line.unit_price_minor),
+    // An order line does not carry the article's stock unit or its own units
+    // — only what it was raised in, frozen below as `pinnedUnit`. The base
+    // unit is the same fallback a line with no article uses; picking a
+    // different unit here falls through to the global master.
+    stockUnitCode: BASE_UNIT,
+    articleUnits: [],
+    ownUnitsOnly: false,
+    // Per unit when the order was priced that way (0656) — straight off
+    // `order_unit_price_minor`, exactly as agreed, rather than the
+    // per-piece figure the server derived from it. A line raised before
+    // 0656 (or still in its stock unit) has none, and the box holds
+    // `unit_price_minor` — per piece — as it always did, converted to the
+    // unit it was raised in only for display, at the factor it was raised
+    // at, so re-opening the order to edit it does not requote the box in a
+    // unit the buyer never priced it in.
+    price:
+      line.order_unit_price_minor !== null &&
+      line.order_unit_price_minor !== undefined
+        ? String(line.order_unit_price_minor)
+        : (() => {
+            const factor =
+              line.order_unit_code && line.unit_factor
+                ? factorNumber(line.unit_factor)
+                : null
+            return factor === null
+              ? String(line.unit_price_minor)
+              : String(Math.round(line.unit_price_minor * factor))
+          })(),
     image: line.image_url,
     // The factor the order was placed at, kept as this line's own: an edit
     // must not quietly re-price a carton because the master moved.
-    itemUnits:
+    pinnedUnit:
       line.order_unit_code && line.unit_factor
-        ? [{ unit_code: line.order_unit_code, factor: line.unit_factor }]
-        : [],
+        ? { code: line.order_unit_code, factor: line.unit_factor }
+        : undefined,
     offered: {
       colours: [
         ...new Set(
@@ -282,6 +385,7 @@ function fromOrderLine(line: PurchaseOrderDetail["lines"][number]): DraftLine {
       quantity: String(one.quantity),
       price: one.base_price_minor === null ? "" : String(one.base_price_minor),
     })),
+    locked: lockOf(line),
   }
 }
 
@@ -306,24 +410,6 @@ function fromOrderLine(line: PurchaseOrderDetail["lines"][number]): DraftLine {
 /// sheet import — see `shared.ts` for why it is not written here.
 const HEAD = GRID_HEAD
 
-/// A cell. `p-0` — its control fills it.
-///
-/// No focus ring. It used to draw a blue box round whichever square was live,
-/// because the control inside has `outline-none` and a caret alone does not
-/// say which cell of a grid you are in. Removed on the owner's instruction:
-/// on a grid this narrow the ring lands on every cell you tab or click
-/// through, and a table being filled in flickered blue under the hand.
-const CELL = "border-l border-hairline p-0 align-middle first:border-l-0"
-
-/// A box somebody types a number into, inside a grid cell.
-///
-/// Drawn as a box — border, white, a caret on hover — and not as the bare
-/// cell `BOX` makes. The owner's note (2026-09-26): the quantity did not look
-/// like something that could be typed into, and on a purchase order it is
-/// the one figure that always is.
-const TYPED =
-  "h-9 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-right text-[0.875rem] tabular-nums hover:border-hairline-strong focus:border-accent"
-
 /// The unit a line starts in, and the one an order is kept in.
 const BASE_UNIT = "PCS"
 
@@ -336,6 +422,46 @@ type PiecesOf = (line: DraftLine) => number
 function whole(text: string, fallback: number): number {
   const parsed = Number.parseInt(text, 10)
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
+}
+
+/// A decimal factor string, read as a number — or null when it does not
+/// resolve to a usable multiplier. Shared by every place that turns a
+/// per-piece price into a per-order-unit one, or back.
+function factorNumber(factor: string | null): number | null {
+  if (factor === null) return null
+  const parsed = Number(factor.trim().replace(",", "."))
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+/// A line's price, resolved to what its box currently means (0656).
+///
+/// A stock-unit line's box is per piece, exactly as before. A line ordered
+/// in LUSIN or KODI prices the UNIT — "Rp 250.000 per LUSIN", not a piece
+/// price nobody quoted — so the box there holds that figure instead, and
+/// `perPiece` is derived by dividing out the factor, the same way the
+/// server derives it, for the markup math and the catalogue comparison
+/// that still work in pieces. `basis` is what the catalogue's own
+/// per-piece price comes to at this factor — the box's starting point, and
+/// how a fresh line is told from a negotiated one on create.
+///
+/// Variant lines and lines still in their stock unit have no order-unit
+/// price at all: `orderUnit`/`basis` are null and `perPiece` is the box
+/// itself, unchanged from before 0656.
+function unitPricing(
+  line: DraftLine,
+  factor: string | null
+): { orderUnit: number | null; perPiece: number; basis: number | null } {
+  const f = line.variants.length > 0 ? null : factorNumber(factor)
+  if (line.unit === line.stockUnitCode || f === null) {
+    return {
+      orderUnit: null,
+      perPiece: whole(line.price, line.catalogue.price),
+      basis: null,
+    }
+  }
+  const basis = Math.round(line.catalogue.price * f)
+  const orderUnit = whole(line.price, basis)
+  return { orderUnit, perPiece: Math.round(orderUnit / f), basis }
 }
 
 /// Two tag selections that say the same thing. Order is not part of the
@@ -367,6 +493,34 @@ function labelled(
   return choices.find((one) => one.value === value)?.label ?? value
 }
 
+/// Two sets of SKU rows as one: the same colour and size add up.
+function joinVariants(
+  first: readonly VariantDraft[],
+  more: readonly VariantDraft[]
+): VariantDraft[] {
+  let joined: VariantDraft[] = [...first]
+  for (const add of more) {
+    const at = joined.findIndex(
+      (one) => one.colour === add.colour && one.size === add.size
+    )
+    joined =
+      at < 0
+        ? [...joined, add]
+        : joined.map((one, index) =>
+            index === at
+              ? {
+                  ...one,
+                  quantity: String(
+                    (Number.parseInt(one.quantity, 10) || 0) +
+                      (Number.parseInt(add.quantity, 10) || 0)
+                  ),
+                }
+              : one
+          )
+  }
+  return joined
+}
+
 /// A read-only cell in the review. `CELL` is `p-0` because an editable grid's
 /// padding belongs to the input filling the square; this one has to draw it.
 const READ = GRID_CELL
@@ -387,17 +541,36 @@ const READ = GRID_CELL
 function OrderReview({
   supplier,
   arrival,
+  paymentTerms,
+  paymentMethod,
   lines,
   divisions,
   tags,
   gross,
   discountMinor,
   notes,
+  conditions,
   piecesOf,
+  pricingOf,
+  amountOf,
 }: {
   piecesOf: PiecesOf
+  /// A line's price, resolved to what its box means — per order unit, with
+  /// the per-piece figure beside it, or per piece alone. See `unitPricing`.
+  pricingOf: (line: DraftLine) => {
+    orderUnit: number | null
+    perPiece: number
+    basis: number | null
+  }
+  /// What one line comes to — see `lineAmount`, which sums `gross` too, so
+  /// the review's own total and each row's own total never disagree.
+  amountOf: (line: DraftLine) => number
   supplier: string
   arrival: string
+  /// The chosen payment terms template's name; null when none is chosen.
+  paymentTerms: string | null
+  /// How the order is paid, as a person reads it.
+  paymentMethod: string
   lines: readonly DraftLine[]
   /// The vocabulary the line pickers were filled from.
   ///
@@ -411,6 +584,7 @@ function OrderReview({
   gross: number
   discountMinor: number
   notes: string
+  conditions: string
 }) {
   const pieces = lines.reduce((sum, line) => sum + piecesOf(line), 0)
   return (
@@ -418,34 +592,44 @@ function OrderReview({
       <Facts>
         <Fact term="Supplier">{supplier === "" ? "—" : supplier}</Fact>
         <Fact term="Delivery date">{arrival === "" ? "—" : day(arrival)}</Fact>
+        {paymentTerms !== null && (
+          <Fact term="Payment terms">{paymentTerms}</Fact>
+        )}
+        <Fact term="Payment method">{paymentMethod}</Fact>
       </Facts>
 
-      <Section title={`Lines (${lines.length})`} rule={false}>
+      <Section title={`Items (${lines.length})`} rule={false}>
         <div className="overflow-hidden rounded-inner border border-hairline">
           <table className="w-full border-collapse text-[0.875rem]">
             <thead>
               <tr>
                 <th className={HEAD}>Item</th>
-                <th className={cn(HEAD, "w-[5.5rem] text-right")}>Qty</th>
-                <th className={cn(HEAD, "w-[9rem] text-right")}>Price</th>
-                <th className={cn(HEAD, "w-[9.5rem] text-right")}>Amount</th>
+                <th className={cn(HEAD, "w-[8rem] text-right")}>Quantity</th>
+                <th className={cn(HEAD, "w-[10rem] text-right")}>Unit Price</th>
+                <th className={cn(HEAD, "w-[10rem] text-right")}>Amount</th>
               </tr>
             </thead>
             <tbody>
               {lines.map((line) => {
                 const quantity = piecesOf(line)
                 const typed = whole(line.quantity, 0)
-                const price = whole(line.price, line.catalogue.price)
+                const { orderUnit, perPiece } = pricingOf(line)
                 const filed = [
                   labelled(divisions, line.division) ?? "Unclassified",
                   ...line.tags.map((one) => labelled(tags, one) ?? one),
                 ].join(" · ")
                 return (
                   <tr key={line.supplierItemId}>
-                    <td className={READ}>
+                    <td className={cn(READ, "py-4")}>
                       <div className="flex items-center gap-2.5">
                         <Thumbnail
                           url={line.image ?? line.preview ?? null}
+                          name={
+                            line.name.trim() === ""
+                              ? line.catalogue.name
+                              : line.name
+                          }
+                          division={line.division}
                           className="size-9 shrink-0 rounded-inner"
                         />
                         <div className="min-w-0">
@@ -460,50 +644,103 @@ function OrderReview({
                         </div>
                       </div>
                     </td>
-                    <td className={cn(READ, "text-right tabular-nums")}>
-                      {line.unit === BASE_UNIT ? (
-                        quantity
-                      ) : (
-                        <span className="flex flex-col items-end leading-tight">
-                          {`${typed} ${line.unit}`}
-                          <span className="text-mute">{`${quantity} pcs`}</span>
-                        </span>
+                    <td className={cn(READ, "py-4 text-right tabular-nums")}>
+                      <span className="flex flex-col items-end gap-0.5">
+                        {pcs(quantity)}
+                        {(line.said !== undefined ||
+                          line.unit !== line.stockUnitCode) && (
+                          <span className="text-mute">
+                            {line.said ?? `${typed} ${line.unit.toLowerCase()}`}
+                          </span>
+                        )}
+                      </span>
+                    </td>
+                    <td className={cn(READ, "py-4 text-right tabular-nums")}>
+                      {orderUnit === null
+                        ? `${money(perPiece)} / pc`
+                        : `${money(orderUnit)} / ${line.unit.toLowerCase()}`}
+                    </td>
+                    <td
+                      className={cn(
+                        READ,
+                        "py-4 text-right font-medium text-ink tabular-nums"
                       )}
-                    </td>
-                    <td className={cn(READ, "text-right tabular-nums")}>
-                      {money(price)}
-                    </td>
-                    <td className={cn(READ, "text-right tabular-nums")}>
-                      {money(quantity * price)}
+                    >
+                      <span className="flex flex-col items-end gap-0.5">
+                        {money(amountOf(line))}
+                      </span>
                     </td>
                   </tr>
                 )
               })}
             </tbody>
+            {/* The totals stand under the columns they add up, in the table
+                itself: pieces under Qty, rupiah under Amount, then what comes
+                off and what the supplier will invoice. */}
+            <tfoot>
+              <tr className="border-t border-hairline bg-soft">
+                <td className="px-3 py-3 text-[0.875rem] font-medium text-body">
+                  Total
+                </td>
+                <td className="px-3 py-3 text-right text-[0.875rem] font-medium text-ink tabular-nums">
+                  {pcs(pieces)}
+                </td>
+                <td />
+                <td className="px-3 py-3 text-right text-[0.875rem] font-medium text-ink tabular-nums">
+                  {money(gross)}
+                </td>
+              </tr>
+              {discountMinor !== 0 && (
+                <tr className="border-t border-hairline">
+                  <td
+                    colSpan={3}
+                    className="px-3 py-3 text-[0.875rem] text-body"
+                  >
+                    Discount
+                  </td>
+                  <td className="px-3 py-3 text-right text-[0.875rem] text-ink tabular-nums">
+                    {`− ${money(discountMinor)}`}
+                  </td>
+                </tr>
+              )}
+              {discountMinor !== 0 && pieces > 0 && (
+                <tr className="border-t border-hairline">
+                  <td
+                    colSpan={4}
+                    className="px-3 py-2 text-[0.875rem] text-mute"
+                  >
+                    {`Discount per Item: − ${money(Math.floor(discountMinor / pieces))} / pc`}
+                  </td>
+                </tr>
+              )}
+              <tr className="border-t border-hairline">
+                <td
+                  colSpan={3}
+                  className="px-3 py-3.5 text-[0.9375rem] font-medium text-ink"
+                >
+                  The supplier will invoice
+                </td>
+                <td className="px-3 py-3.5 text-right text-[0.9375rem] font-semibold text-ink tabular-nums">
+                  {money(gross - discountMinor)}
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </div>
-
-        <TotalsLadder
-          className="ml-auto w-full max-w-[26rem] border-t-0 pt-0"
-          rows={[
-            { label: "Total qty", value: `${count(pieces)} pcs` },
-            { label: "Lines", value: money(gross) },
-            {
-              label: "Discount",
-              value: discountMinor === 0 ? "—" : `− ${money(discountMinor)}`,
-            },
-          ]}
-          total={{
-            label: "The supplier will invoice",
-            value: money(gross - discountMinor),
-          }}
-        />
       </Section>
 
       {notes.trim() !== "" && (
-        <Section title="Notes">
+        <Section title="Notes" rule={false}>
           <p className="text-[0.875rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
             {notes.trim()}
+          </p>
+        </Section>
+      )}
+
+      {conditions.trim() !== "" && (
+        <Section title="Terms and conditions" rule={false}>
+          <p className="text-[0.875rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
+            {conditions.trim()}
           </p>
         </Section>
       )}
@@ -511,170 +748,127 @@ function OrderReview({
   )
 }
 
-/// One line's wording, on its own sheet.
+/// Bring the first problem on a form into view, and put the caret in it.
 ///
-/// What is edited here is THE LINE, not the supplier's item. The catalogue is
-/// scraped, often wrong about the name and frequently unclassified, and
-/// raising the order is the moment somebody has the quote and the goods in
-/// mind at once — so a buyer corrects what THIS order says and the supplier's
-/// own record is left alone. That is why `CatalogPurchaseLineRequest` carries
-/// these three fields at all; see the note at the top of this file.
+/// A frame late on purpose: a field marks itself invalid through its own
+/// context, a render after the problem it was handed.
+function showFirstProblem(root: HTMLElement | null) {
+  requestAnimationFrame(() => {
+    const first = root?.querySelector<HTMLElement>(
+      '[id$="-problem"], [data-problem]'
+    )
+    if (!first) return
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    first.scrollIntoView({
+      block: "center",
+      behavior: still ? "auto" : "smooth",
+    })
+    first
+      .closest("label")
+      ?.querySelector<HTMLElement>("input, textarea, select, button")
+      ?.focus({ preventScroll: true })
+  })
+}
+
+/// What a line still needs before it can be on an order, in the words the
+/// Add item sheet says them — empty when it is complete.
 ///
-/// Keyed on the line by its caller, so opening a second one starts from that
-/// line's values rather than the last one's.
-function LineEditor({
-  line,
-  divisions,
-  tags,
-  onSave,
-  onClose,
-}: {
-  /// The line being edited, or nothing when the sheet is shut.
-  line: DraftLine | null
-  divisions: readonly Choice[]
-  tags: readonly Choice[]
-  onSave: (change: Partial<DraftLine>) => void
-  onClose: () => void
-}) {
-  if (line === null) return null
+/// Every one is required (the owner, 2026-09-28): the name, the unit price,
+/// the unit and the quantity, the division and at least one tag. A line is
+/// only ever added whole, and cannot be changed once it is on the order.
+function lineGaps(line: DraftLine, pieces: number, perPiece: number) {
+  return {
+    name: line.name.trim() === "" ? "Give it a name." : null,
+    division: line.division === null ? "Choose a division." : null,
+    tags: line.tags.length === 0 ? "Choose at least one tag." : null,
+    price: perPiece > 0 ? null : "Fill in the purchase price.",
+    quantity: pieces > 0 ? null : "Fill in how many.",
+  }
+}
+
+type Gaps = ReturnType<typeof lineGaps>
+
+/// Each gap as a word in "Missing division, tags".
+const GAP_WORDS: Record<keyof Gaps, string> = {
+  name: "name",
+  division: "division",
+  tags: "tags",
+  price: "purchase price",
+  quantity: "quantity",
+}
+
+/// A line as the order's grid and cards read it.
+interface LineView {
+  readonly name: string
+  /// Division and tags, as one line of words.
+  readonly filed: string
+  readonly skus: number
+  readonly quantity: string
+  readonly price: string
+  readonly amount: string
+  /// What was typed when it was not pieces — "20 lusin" — under the pieces.
+  readonly entered: string | null
+  /// What the quantity box counts: "kodi", or "pcs".
+  readonly unitWord: string
+  /// What the price box is per: "kodi", or "pc".
+  readonly priceUnit: string
+  readonly missing: readonly string[]
+  /// Open the Add item sheet on this line, to finish it.
+  readonly complete: () => void
+}
+
+/// What a line is, read: its name, what it is filed under, and — for a line
+/// that arrived unfinished, from a basket — what it is still missing, with
+/// the way to finish it. The only way a line on the order is opened again.
+function LineWords({ shown }: { shown: LineView }) {
   return (
-    <LineEditorForm
-      key={line.supplierItemId}
-      line={line}
-      divisions={divisions}
-      tags={tags}
-      onSave={onSave}
-      onClose={onClose}
-    />
+    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <span className="line-clamp-2 text-[0.875rem] text-ink">
+        {shown.name}
+      </span>
+      <span className="truncate text-[0.875rem] text-body">{shown.filed}</span>
+      {shown.skus > 0 && (
+        <span className="text-[0.875rem] text-body">{`${shown.skus} SKUs`}</span>
+      )}
+      {shown.missing.length > 0 && (
+        <span
+          data-problem
+          className="flex flex-wrap items-center gap-x-2 text-[0.875rem] text-bad"
+        >
+          {`Missing ${shown.missing.join(", ")}`}
+          <button
+            type="button"
+            onClick={shown.complete}
+            className="font-medium text-accent hover:underline"
+          >
+            Complete
+          </button>
+        </span>
+      )}
+    </span>
   )
 }
 
-function LineEditorForm({
-  line,
-  divisions,
-  tags,
-  onSave,
-  onClose,
-}: {
-  line: DraftLine
-  divisions: readonly Choice[]
-  tags: readonly Choice[]
-  onSave: (change: Partial<DraftLine>) => void
-  onClose: () => void
-}) {
-  const [name, setName] = useState(line.name)
-  const [division, setDivision] = useState(line.division)
-  const [chosen, setChosen] = useState<readonly string[]>(line.tags)
-  const [pricing, setPricing] = useState({
-    purchase: line.price,
-    markup: line.markup,
-    base: line.basePrice,
-  })
-  /// The SKU grid, when the item comes in colours or sizes: every SKU they
-  /// make, keeping what was already typed.
-  const [variants, setVariants] = useState<readonly VariantDraft[]>(() =>
-    variantRows(
-      line.offered.colours.map((one) => one.code),
-      line.offered.sizes,
-      line.variants
-    )
-  )
-  const colourLabel = (code: string) =>
-    line.offered.colours.find((one) => one.code === code)?.label ?? code
+function gapCount(gaps: Gaps): number {
+  return Object.values(gaps).filter((one) => one !== null).length
+}
 
-  return (
-    <Sheet
-      open
-      onOpenChange={(next) => !next && onClose()}
-      title="Edit item"
-      // The supplier's own name for it, which is what this line started as and
-      // what a buyer is correcting away from.
-      id={line.catalogue.name}
-      footer={
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            onClick={() =>
-              onSave({
-                name,
-                division,
-                tags: chosen,
-                price: pricing.purchase,
-                markup: pricing.markup,
-                basePrice: pricing.base,
-                // Only the SKUs with a quantity; none at all orders the line
-                // as a whole again.
-                variants: variants.filter(
-                  (one) => Number.parseInt(one.quantity, 10) > 0
-                ),
-              })
-            }
-          >
-            Save the item
-          </Button>
-        </div>
-      }
-    >
-      <div className="flex flex-col gap-4">
-        <div className="grid gap-4 md:grid-cols-[9rem_1fr]">
-          <Thumbnail
-            url={line.image ?? line.preview ?? null}
-            fallback="No picture"
-            className="aspect-square w-full rounded-card border border-hairline"
-          />
-          <div className="flex flex-col gap-4">
-            <Field label="Name">
-              <Input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                aria-label="Name on this order"
-              />
-            </Field>
+/// The red Cancel PO on the receipt dialog is built and kept, and hidden for now
+/// (the owner, 2026-10-05: "hide dulu"). Turn this on to bring it back.
+const SHOW_CANCEL_AFTER_CREATE = false
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Division">
-                <PickOne
-                  label="Division"
-                  choices={divisions}
-                  value={division}
-                  onChange={setDivision}
-                />
-              </Field>
-
-              <Field label="Tags">
-                <PickMany
-                  label="Tags"
-                  choices={tags}
-                  values={chosen}
-                  onChange={setChosen}
-                />
-              </Field>
-            </div>
-          </div>
-        </div>
-
-        <Section title="Price">
-          <PricingFields pricing={pricing} onChange={setPricing} />
-        </Section>
-
-        {/* Per SKU, when the item comes in colours or sizes: how many of
-            each, and a SKU's own price where it is not the base price. */}
-        {variants.length > 0 && (
-          <Section title="Per SKU">
-            <VariantGrid
-              variants={variants}
-              onChange={setVariants}
-              colourLabel={colourLabel}
-              basePrice={pricing.base}
-            />
-          </Section>
-        )}
-      </div>
-    </Sheet>
-  )
+/// What a sent order's form held, for putting it back.
+interface Draft {
+  readonly lines: readonly DraftLine[]
+  readonly arrival: string
+  readonly terms: string
+  readonly termsChosenFor: string | null
+  readonly method: string
+  readonly notes: string
+  readonly conditions: string
+  readonly discount: string
+  readonly discountPct: string
+  readonly discountBy: "amount" | "percent"
 }
 
 export function OrderComposer({
@@ -683,6 +877,7 @@ export function OrderComposer({
   editing,
   onClose,
   onRaised,
+  onReopen,
 }: {
   open: boolean
   /// An issued order being rewritten. Present, and the composer opens seeded
@@ -695,31 +890,57 @@ export function OrderComposer({
   basket?: readonly Group[]
   onClose: () => void
   onRaised: (receipt: CatalogPurchaseOrderReceipt) => void
+  /// Opens the sheet again, for the one place this component asks to be: a
+  /// new order called back from its receipt comes back as the form it was.
+  onReopen?: () => void
 }) {
   const client = useQueryClient()
   const idempotency = useIdempotencyKey()
 
   const [supplierId, setSupplierId] = useState<string | null>(null)
+  /// The order whose figures were last poured into the form, and the
+  /// supplier whose basket last was — both set during render, see below.
+  const [pouredFor, setPouredFor] = useState<string | undefined>(undefined)
+  const [basketFor, setBasketFor] = useState<string | null>(null)
   const [lines, setLines] = useState<readonly DraftLine[]>([])
   const [arrival, setArrival] = useState("")
+  /// Optional payment terms: a template code, "" for none. Pre-filled from the
+  /// supplier's standing terms until the buyer has chosen for this supplier.
+  const [terms, setTerms] = useState("")
+  const [termsChosenFor, setTermsChosenFor] = useState<string | null>(null)
+  /// How the order is paid. Open — "—" — until the buyer says, the way the
+  /// supplier form's Legal Form opens (owner, 2026-10-04): a method chosen
+  /// for them is a method nobody confirmed.
+  const [method, setMethod] = useState("")
   const [notes, setNotes] = useState("")
+  /// Terms and conditions, printed on the order. Starts as the default text
+  /// and is the buyer's to change for this order.
+  const [conditions, setConditions] = useState(DEFAULT_TERMS)
   const [discount, setDiscount] = useState("")
   /// The same discount said as a share of the lines. Held beside the rupiah
   /// rather than derived from it on every render, so a half-typed "1" in the
   /// percent box does not rewrite itself as "1.0" under the cursor.
   const [discountPct, setDiscountPct] = useState("")
+  /// Which of the two was typed last: that one is the fact, the other is read
+  /// off it — so a percentage keeps meaning the same share when lines change.
+  const [discountBy, setDiscountBy] = useState<"amount" | "percent">("amount")
   /// Which half of this sheet is showing — the form, or the order it makes.
   const [step, setStep] = useState<"edit" | "review">("edit")
   /// The two ways to put a line on this order, each its own sheet over this
   /// one. Transient by nature — nobody links to a half-open picker — which is
   /// why they are `useState` and not URL state.
-  /// The line whose wording is being edited, by supplier item id.
-  ///
-  /// A sheet rather than the cell it came from: what a line is CALLED, what
-  /// part of the range it is and what it is filed under are three answers, and
-  /// three live controls stacked inside one table square is a form pretending
-  /// to be a row.
-  const [editingLine, setEditingLine] = useState<string | null>(null)
+  /// Lines waiting on the Add item sheet: items picked from the catalogue —
+  /// several at once come through one after another, `of` counting them —
+  /// or one line already on the order that is not whole yet (a basket line
+  /// with no division, say), which `replaces` puts back where it was.
+  const [toAdd, setToAdd] = useState<{
+    readonly lines: readonly DraftLine[]
+    readonly of: number
+    readonly replaces: string | null
+  } | null>(null)
+  /// Review was pressed on an order that is not ready: say every gap.
+  const [tried, setTried] = useState(false)
+  const form = useRef<HTMLDivElement>(null)
   const [browsing, setBrowsing] = useState(false)
   const [creating, setCreating] = useState(false)
   /// Registering a supplier without abandoning the order.
@@ -730,12 +951,28 @@ export function OrderComposer({
   /// what it creates is selected here the moment it exists — so the detour
   /// ends where it started, with the answer already filled in.
   const [addingSupplier, setAddingSupplier] = useState(false)
+  /// Closing was asked of an order that holds something typed.
+  const [discarding, setDiscarding] = useState(false)
+  /// The order the save minted, held in the receipt dialog until it is read.
+  /// The sheet itself closes without waiting for the button — the number
+  /// outlives it because the dialog portals over the list (or over the order,
+  /// when this was an edit).
+  const [raised, setRaised] = useState<{
+    readonly receipt: CatalogPurchaseOrderReceipt
+    /// The form as it was sent, kept for a new order only: the receipt's
+    /// Cancel PO puts it back (2026-10-04). Gone with the dialog.
+    readonly draft?: Draft
+    /// Said at save time, not read from `editing` at render time: by the
+    /// time the dialog is up, an edit has already navigated back to the
+    /// order and `editing` is gone.
+    readonly verb: "created" | "updated"
+  } | null>(null)
 
   // No number here. The server gives the order its number in the same
   // transaction that writes it (`next_po_number`, migration 0385): this
   // screen used to read the book and show the next one, and two buyers with
   // New PO open at once were shown the same number and one was refused. The
-  // number arrives on the receipt and is said in the toast.
+  // number arrives on the receipt and is said in the dialog.
 
   /// Every supplier, for the blank order's picker. Not fetched while raising
   /// from a basket, where the choice is between the baskets that exist.
@@ -786,16 +1023,59 @@ export function OrderComposer({
   )
   /// Active suppliers only: a non-active supplier cannot have an order raised
   /// against it (the owner, 2026-09-26), and the server refuses one anyway.
+  /// And only the merchandise ones, the suppliers that have a catalogue — the
+  /// utilities and services in the book are paid, not ordered from.
   const supplierChoices = useMemo<Choice[]>(
     () =>
       (suppliers.data ?? [])
-        .filter((one) => one.status === "ACTIVE")
+        .filter(
+          (one) => one.status === "ACTIVE" && one.category === "MERCHANDISE"
+        )
         .map((one) => ({
           value: one.supplier_id,
           label: supplierDisplayName(one),
         })),
     [suppliers.data]
   )
+
+  /// Templates are master data; only active ones are offered, plus the one
+  /// already on an order being edited even if it has since been retired.
+  const termsBook = useQuery({
+    queryKey: procurementKeys.paymentTerms(),
+    queryFn: ({ signal }) => paymentTermsBook(signal),
+    staleTime: 5 * 60 * 1000,
+    enabled: open,
+  })
+  const termChoices = (termsBook.data?.templates ?? []).filter(
+    (one) => one.active || one.code === terms
+  )
+  const termsName =
+    terms === ""
+      ? null
+      : (termChoices.find((one) => one.code === terms)?.label ??
+        editing?.payment_terms_name ??
+        terms)
+
+  /// The chosen supplier's standing terms, to pre-select. Read from the
+  /// supplier's own record so it works for a basket too, where the supplier
+  /// list is not fetched.
+  const supplierRecord = useQuery({
+    queryKey: procurementKeys.supplier(supplierId ?? ""),
+    queryFn: ({ signal }) => supplierDetail(supplierId!, signal),
+    staleTime: 5 * 60 * 1000,
+    enabled: open && supplierId !== null && editing === undefined,
+  })
+  const supplierTerms = supplierRecord.data?.default_payment_terms_code ?? ""
+  // Pre-selected while the buyer has not chosen for this supplier. Set during
+  // render, which React settles before painting, rather than in an effect.
+  if (
+    open &&
+    editing === undefined &&
+    supplierId !== null &&
+    termsChosenFor !== supplierId &&
+    terms !== supplierTerms
+  )
+    setTerms(supplierTerms)
 
   const group = basket?.find((one) => one.supplierId === supplierId)
   const supplierName =
@@ -808,82 +1088,158 @@ export function OrderComposer({
   /// A basket with one supplier in it is not a choice, and neither is the
   /// first of several — somebody has to start somewhere. Only set while it is
   /// still unset, so reopening the sheet does not undo a deliberate switch.
-  useEffect(() => {
-    if (!open || supplierId !== null) return
-    if (basket !== undefined && basket.length > 0)
-      setSupplierId(basket[0].supplierId)
-  }, [open, basket, supplierId])
+  if (open && supplierId === null && basket !== undefined && basket.length > 0)
+    setSupplierId(basket[0].supplierId)
 
   /// The order being edited, poured into the form once per order. Keyed on
   /// the id rather than the object, so the detail refetching behind the sheet
   /// does not throw away what somebody has typed.
-  const editingId = editing?.purchase_order_id
-  useEffect(() => {
-    if (!open || editing === undefined) return
-    setSupplierId(editing.supplier_ref_id)
-    setLines(editing.lines.map(fromOrderLine))
-    setArrival(editing.expected_arrival ?? "")
-    setNotes(editing.notes ?? "")
-    setDiscount(
-      editing.discount_minor === 0 ? "" : String(editing.discount_minor)
-    )
-    setDiscountPct("")
-    setStep("edit")
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId])
+  const editingId = open ? editing?.purchase_order_id : undefined
+  if (editingId !== pouredFor) {
+    setPouredFor(editingId)
+    if (editing !== undefined && editingId !== undefined) {
+      setSupplierId(editing.supplier_ref_id)
+      setLines(editing.lines.map(fromOrderLine))
+      setArrival(editing.expected_arrival ?? "")
+      setTerms(editing.payment_terms_code ?? "")
+      setMethod(editing.payment_method ?? "")
+      setNotes(editing.notes ?? "")
+      setConditions(editing.terms_and_conditions?.trim() || DEFAULT_TERMS)
+      setDiscount(
+        editing.discount_minor === 0 ? "" : String(editing.discount_minor)
+      )
+      setDiscountPct("")
+      setDiscountBy("amount")
+      setStep("edit")
+    }
+  }
 
   /// The basket's lines, whenever the basket being ordered from changes.
   ///
   /// Keyed on the supplier rather than on the array, because the basket query
   /// refetches and hands back a new array of the same lines — reseeding on
   /// that would throw away every edit each time the window regained focus.
-  useEffect(() => {
-    if (basket === undefined || supplierId === null) return
-    const chosen = basket.find((one) => one.supplierId === supplierId)
-    setLines(chosen === undefined ? [] : chosen.lines.map(fromBasket))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supplierId, basket === undefined])
-
   const drop = (id: string) =>
     setLines((was) => was.filter((one) => one.supplierItemId !== id))
-  const patch = (id: string, change: Partial<DraftLine>) =>
-    setLines((was) =>
-      was.map((one) =>
-        one.supplierItemId === id ? { ...one, ...change } : one
-      )
-    )
 
-  /// The units master, for ordering by the dozen or the kodi.
+  /// The units master, for ordering by the dozen or the kodi. A line may also
+  /// carry its OWN units (`articleUnits`, from the linked article — 0653),
+  /// which `factorFor`/`unitsFor` below check before falling back to this.
   const units = useUnits()
   const unitChoices = units.units.filter((one) => one.active)
+  /// The factor a line's chosen unit converts at, in STOCK units: its
+  /// `pinnedUnit`, when the unit chosen is still the one an existing order
+  /// line was raised in, else the ERPNext-style lookup — the article's own
+  /// unit row first, else the global chain to its stock unit (0653 §3).
+  const factorFor = (line: DraftLine) =>
+    line.pinnedUnit && line.pinnedUnit.code === line.unit
+      ? line.pinnedUnit.factor
+      : itemUnitFactor(
+          line.unit,
+          line.articleUnits,
+          units.conversions,
+          line.stockUnitCode,
+          line.ownUnitsOnly
+        )
   /// Pieces a line comes to: its SKU rows added up, or the quantity typed
-  /// in its unit times that unit's factor for this item — exactly, so 9.5
-  /// KODI is 190 and never 189.99. Zero when it is not a whole number.
+  /// in its unit times that unit's factor — exactly, so 9.5 KODI is 190 and
+  /// never 189.99. Zero when it is not a whole number.
   const piecesOf: PiecesOf = (line) => {
     if (line.variants.length > 0) return variantPieces(line.variants)
-    const factor = unitFactor(
-      line.unit,
-      line.itemUnits,
-      units.conversions,
-      units.baseUnit
-    )
+    const factor = factorFor(line)
     return factor === null ? 0 : (wholeProduct(line.quantity, factor) ?? 0)
   }
-  /// The units one line may be ordered in.
+  /// The units one line may be ordered in: its stock unit, its own units, and
+  /// every active global unit that chains to that stock unit — computed the
+  /// same way the server resolves a catalogue line, so this screen never
+  /// offers a unit the server would then refuse.
   const unitsFor = (line: DraftLine) =>
     unitChoices.filter(
       (one) =>
-        unitFactor(
+        itemUnitFactor(
           one.code,
-          line.itemUnits,
+          line.articleUnits,
           units.conversions,
-          units.baseUnit
+          line.stockUnitCode,
+          line.ownUnitsOnly
         ) !== null
     )
+  /// A line's quantity as it was said: "10 kodi", "2 pcs", or both.
+  const wordsOf = (line: DraftLine) => {
+    if (line.said !== undefined) return line.said
+    if (line.variants.length > 0 || line.unit === line.stockUnitCode)
+      return pcs(piecesOf(line))
+    const unit = (
+      units.units.find((one) => one.code === line.unit)?.label ?? line.unit
+    ).toLowerCase()
+    return `${line.quantity} ${unit}`
+  }
+  /// The line's own words, for an item picked again: what the first one was
+  /// named, filed under and priced to sell at carries over, so the second
+  /// amount is only a quantity.
+  const carried = (line: DraftLine): DraftLine => {
+    const was = lines.find((one) => one.supplierItemId === line.supplierItemId)
+    return was === undefined
+      ? line
+      : {
+          ...line,
+          name: was.name,
+          division: was.division,
+          tags: was.tags,
+          markup: was.markup,
+          basePrice: was.basePrice,
+        }
+  }
+  /// Putting a line on the order. The server takes one line per item, so an
+  /// item that is already on it takes the new amount in: 10 kodi and 2 pcs
+  /// become one line of 202 pcs that still says "10 kodi + 2 pcs".
+  const put = (was: readonly DraftLine[], added: DraftLine): DraftLine[] => {
+    const at = was.findIndex(
+      (one) => one.supplierItemId === added.supplierItemId
+    )
+    if (at < 0) return [...was, added]
+    const first = was[at]
+    if (first.variants.length > 0 || added.variants.length > 0) {
+      if (first.variants.length === 0 || added.variants.length === 0) {
+        toast.error("Add it by colour and size, as the first one was.")
+        return [...was]
+      }
+      return was.map((one, index) =>
+        index === at
+          ? { ...one, variants: joinVariants(one.variants, added.variants) }
+          : one
+      )
+    }
+    const total = piecesOf(first) + piecesOf(added)
+    const { orderUnit, perPiece } = unitPricing(first, factorFor(first))
+    const perUnit = Number(factorFor(first))
+    // Whole units of the first line's own unit keep its agreed price as it
+    // is; only a remainder falls back to pieces at the per-piece price.
+    const wholeUnits =
+      orderUnit !== null &&
+      Number.isInteger(perUnit) &&
+      perUnit > 0 &&
+      total % perUnit === 0
+    const joined: DraftLine = wholeUnits
+      ? {
+          ...first,
+          quantity: String(total / perUnit),
+          said: `${wordsOf(first)} + ${wordsOf(added)}`,
+        }
+      : {
+          ...first,
+          quantity: String(total),
+          unit: first.stockUnitCode,
+          price: String(perPiece),
+          pinnedUnit: undefined,
+          said: `${wordsOf(first)} + ${wordsOf(added)}`,
+        }
+    return was.map((one, index) => (index === at ? joined : one))
+  }
   /// What a line tells the server about its unit, price and SKUs.
   const lineExtras = (line: DraftLine) => {
     const byVariant = line.variants.length > 0
-    const inUnit = !byVariant && line.unit !== units.baseUnit
+    const inUnit = !byVariant && line.unit !== line.stockUnitCode
     const base = Number.parseInt(line.basePrice, 10)
     return {
       unit_code: inUnit ? line.unit : null,
@@ -894,21 +1250,181 @@ export function OrderComposer({
     }
   }
 
-  const gross = lines.reduce(
-    (sum, line) =>
-      sum + piecesOf(line) * whole(line.price, line.catalogue.price),
-    0
+  /// A freshly built line, priced for the unit it starts in.
+  ///
+  /// `fromItem`/`fromPending` know only the catalogue's per-piece figure —
+  /// they have no factor to convert with, being plain functions with no
+  /// units master to ask. A line that starts in something other than its
+  /// stock unit (an item's own `purchase_unit_code`, or a unit typed on a
+  /// brand-new item) is re-priced here the moment there is a factor to do
+  /// it with, so the box a buyer sees opens already saying "per LUSIN"
+  /// rather than quoting the piece price as if it were the carton's.
+  const seeded = (line: DraftLine): DraftLine => {
+    if (line.unit === line.stockUnitCode) return line
+    const f = factorNumber(factorFor(line))
+    if (f === null) return line
+    return { ...line, price: String(Math.round(line.catalogue.price * f)) }
+  }
+
+  // The basket's lines, once per supplier chosen. Keyed on the supplier rather
+  // than on the array: the basket query refetches and hands back a new array
+  // of the same lines, and reseeding on that would throw away every edit.
+  const basketKey =
+    basket !== undefined && supplierId !== null ? supplierId : null
+  if (basketKey !== basketFor) {
+    setBasketFor(basketKey)
+    if (basketKey !== null) {
+      const chosen = basket?.find((one) => one.supplierId === basketKey)
+      setLines(
+        chosen === undefined ? [] : chosen.lines.map(fromBasket).map(seeded)
+      )
+    }
+  }
+
+  /// The factor one unit converts at for a line, as the Add item sheet asks
+  /// it: the line's pinned factor when that is the unit it was raised in,
+  /// else the article's own unit row, else the global chain (0653 §3).
+  const factorOf = (line: DraftLine, unit: string) =>
+    line.pinnedUnit && line.pinnedUnit.code === unit
+      ? line.pinnedUnit.factor
+      : itemUnitFactor(
+          unit,
+          line.articleUnits,
+          units.conversions,
+          line.stockUnitCode,
+          line.ownUnitsOnly
+        )
+
+  /// What a line still needs, with its own figures.
+  const gapsOf = (line: DraftLine) =>
+    lineGaps(line, piecesOf(line), unitPricing(line, factorFor(line)).perPiece)
+
+  /// A line as the grid reads it — every figure already set, nothing to type.
+  const lineView = (line: DraftLine): LineView => {
+    const { orderUnit, perPiece } = unitPricing(line, factorFor(line))
+    const unit = (
+      units.units.find((one) => one.code === line.unit)?.label ?? line.unit
+    ).toLowerCase()
+    const inUnit =
+      line.variants.length === 0 && line.unit !== line.stockUnitCode
+    return {
+      name: line.name.trim() === "" ? line.catalogue.name : line.name,
+      filed: [
+        labelled(divisionChoices, line.division) ?? "No division",
+        ...line.tags.map((one) => labelled(tagChoices, one) ?? one),
+      ].join(" · "),
+      skus: line.variants.length,
+      // The quantity of a PO is always pieces. A line typed in dozens or kodi
+      // keeps what was typed as a quiet second line.
+      quantity: pcs(piecesOf(line)),
+      price:
+        orderUnit === null
+          ? `${money(perPiece)} / pc`
+          : `${money(orderUnit)} / ${unit}`,
+      amount: money(lineAmount(line)),
+      entered: line.said ?? (inUnit ? `${line.quantity} ${unit}` : null),
+      unitWord: inUnit ? unit : line.stockUnitCode.toLowerCase(),
+      priceUnit: orderUnit === null ? "pc" : unit,
+      missing: (Object.entries(gapsOf(line)) as [keyof Gaps, string | null][])
+        .filter(([, gap]) => gap !== null)
+        .map(([key]) => GAP_WORDS[key]),
+      complete: () =>
+        setToAdd({ lines: [line], of: 1, replaces: line.supplierItemId }),
+    }
+  }
+
+  /// What one line comes to: pieces times the price of the unit it was
+  /// agreed in, divided by the pieces in that unit, rounded once to the
+  /// rupiah — never by way of a rounded per-piece price. See `lineTotal`.
+  const lineAmount = (line: DraftLine): number => {
+    const { orderUnit, perPiece } = unitPricing(line, factorFor(line))
+    return orderUnit === null
+      ? lineTotal(piecesOf(line), perPiece)
+      : lineTotal(piecesOf(line), orderUnit, factorFor(line))
+  }
+
+  /// A line's quantity, read only in the grid. Everything a line says is set
+  /// on the Add item sheet; the pencil beside the bin opens that same sheet
+  /// on the line (owner, 2026-10-02: "disini harusnya bisa edit") and Submit
+  /// puts it back where it stood.
+  const qtyBox = (_line: DraftLine, shown: LineView) => (
+    <span className="flex flex-col items-end gap-0.5">
+      <span>{shown.quantity}</span>
+      {shown.entered !== null && (
+        <span className="text-mute">{shown.entered}</span>
+      )}
+    </span>
   )
-  const discountMinor = discountOf(discount)
+  /// A line's price, read only, per the unit the line is in.
+  const priceBox = (line: DraftLine, shown: LineView) => {
+    const { orderUnit, perPiece } = unitPricing(line, factorFor(line))
+    return (
+      <span className="whitespace-nowrap">
+        {`${money(orderUnit ?? perPiece)} / ${shown.priceUnit}`}
+      </span>
+    )
+  }
+
+  /// The pencil: the line's own sheet, pre-filled. A line goods or a close
+  /// already stand against is the server's to keep, and says why.
+  const editButton = (
+    _line: DraftLine,
+    shown: LineView,
+    className?: string
+  ) => (
+    <Button
+      variant="quiet"
+      aria-label={`Edit ${shown.name}`}
+      title={`Edit ${shown.name}`}
+      onClick={shown.complete}
+      className={className}
+    >
+      <Pencil />
+    </Button>
+  )
+
+  const gross = lines.reduce((sum, line) => sum + lineAmount(line), 0)
+  /// One discount for the whole order. A percentage is of the lines' total,
+  /// to two decimals, and comes to whole rupiah once, here; it never takes
+  /// more than the order is worth.
+  const discountMinor = Math.min(
+    gross,
+    discountBy === "percent"
+      ? discountFromPercent(gross, percentToBps(discountPct) ?? 0)
+      : discountOf(discount)
+  )
   const pieces = lines.reduce((sum, line) => sum + piecesOf(line), 0)
+
+  /// Puts a sent order's form back, for the receipt's Cancel PO.
+  const restore = (draft: Draft) => {
+    setLines(draft.lines)
+    setArrival(draft.arrival)
+    setTerms(draft.terms)
+    setTermsChosenFor(draft.termsChosenFor)
+    setMethod(draft.method)
+    setNotes(draft.notes)
+    setConditions(draft.conditions)
+    setDiscount(draft.discount)
+    setDiscountPct(draft.discountPct)
+    setDiscountBy(draft.discountBy)
+    setStep("edit")
+    onReopen?.()
+  }
 
   const reset = () => {
     setArrival("")
+    setTerms("")
+    setTermsChosenFor(null)
+    setMethod("")
     setNotes("")
+    setConditions(DEFAULT_TERMS)
     setDiscount("")
     setDiscountPct("")
+    setDiscountBy("amount")
     setStep("edit")
     setLines([])
+    setTried(false)
+    setToAdd(null)
   }
 
   /// Shutting the sheet, from the × or from Cancel.
@@ -918,6 +1434,8 @@ export function OrderComposer({
   /// the confirmation page of a document with nothing on it.
   const close = () => {
     setStep("edit")
+    setTried(false)
+    setToAdd(null)
     if (editing !== undefined) {
       // An edit abandoned is not a draft to come back to: the next Edit
       // should read the order as it stands, not this half-rewrite of it.
@@ -925,6 +1443,25 @@ export function OrderComposer({
       reset()
     }
     onClose()
+  }
+
+  /// Something has been typed that closing would lose. An edit is not a draft
+  /// (see `close`), and a basket's lines were never typed.
+  const dirty =
+    editing === undefined &&
+    (arrival !== "" ||
+      notes.trim() !== "" ||
+      discount !== "" ||
+      discountPct !== "" ||
+      (basket === undefined && lines.length > 0))
+  /// Closing, from the ×, Cancel, Escape or the veil: asked first when it
+  /// would lose something.
+  const askClose = () => (dirty ? setDiscarding(true) : close())
+  const discard = () => {
+    setDiscarding(false)
+    reset()
+    if (basket === undefined) setSupplierId(null)
+    close()
   }
 
   const raise = useMutation({
@@ -988,15 +1525,31 @@ export function OrderComposer({
           editing.purchase_order_id,
           {
             notes: notes.trim() === "" ? null : notes.trim(),
+            terms_and_conditions:
+              conditions.trim() === "" ? null : conditions.trim(),
             discount_minor: discountMinor === 0 ? null : discountMinor,
+            // Absent leaves it as it was; null only to take away terms the
+            // order had.
+            payment_method: method,
+            ...(terms !== ""
+              ? { payment_terms_code: terms }
+              : editing.payment_terms_code
+                ? { payment_terms_code: null }
+                : {}),
             lines: sent.map((line) => {
               const name = line.name.trim()
+              // Per unit, exactly as agreed, when this line has one (0656);
+              // `unit_price_minor` still goes along beside it — the
+              // per-piece figure it derives to — but the server prices the
+              // line by `order_unit_price_minor` and ignores it.
+              const { orderUnit, perPiece } = unitPricing(line, factorFor(line))
               return {
                 ...lineExtras(line),
                 supplier_item_id: line.supplierItemId,
                 quantity: Math.max(1, piecesOf(line)),
                 promised_date: arrival === "" ? null : arrival,
-                unit_price_minor: whole(line.price, line.catalogue.price),
+                unit_price_minor: perPiece,
+                order_unit_price_minor: orderUnit,
                 article_name: name === "" ? line.catalogue.name : name,
                 image_url: line.image,
                 division_code: line.division,
@@ -1012,11 +1565,30 @@ export function OrderComposer({
           po_number: null,
           supplier_id: supplierId!,
           destination_site_id: landing,
+          payment_terms_code: terms === "" ? null : terms,
+          payment_method: method,
           notes: notes.trim() === "" ? null : notes.trim(),
+          terms_and_conditions:
+            conditions.trim() === "" ? null : conditions.trim(),
           discount_minor: discountMinor === 0 ? null : discountMinor,
           lines: sent.map((line) => {
             const name = line.name.trim()
-            const price = whole(line.price, line.catalogue.price)
+            // Per unit, when this line has one (0656) — and, since there is
+            // no catalogue price to compare a NEW order unit figure
+            // against, "unchanged" here means "still what the catalogue's
+            // own per-piece price comes to at this factor" (`basis`), the
+            // same test the per-piece branch makes against
+            // `line.catalogue.price`. Either way, unchanged is sent absent,
+            // so a line nobody touched does not get an "agreed price"
+            // stamped on it.
+            const { orderUnit, perPiece, basis } = unitPricing(
+              line,
+              factorFor(line)
+            )
+            const unchanged =
+              orderUnit === null
+                ? perPiece === line.catalogue.price
+                : orderUnit === basis
             return {
               ...lineExtras(line),
               supplier_item_id: line.supplierItemId,
@@ -1032,7 +1604,9 @@ export function OrderComposer({
               // sent. Echoing the catalogue's own figure back would record an
               // agreed price on every line of every order and make the column
               // that exists to flag negotiated prices meaningless.
-              unit_price_minor: price === line.catalogue.price ? null : price,
+              unit_price_minor: unchanged ? null : perPiece,
+              order_unit_price_minor:
+                unchanged || orderUnit === null ? null : orderUnit,
               article_name:
                 name === "" || name === line.catalogue.name ? null : name,
               image_url: line.image,
@@ -1084,6 +1658,28 @@ export function OrderComposer({
         setSupplierId(null)
       }
       idempotency.rotate()
+      // The number is said in the middle of the screen and stays until it is
+      // read (the owner, 2026-10-04), and the sheet hands over to the list or
+      // the order without waiting for the button.
+      setRaised({
+        receipt,
+        verb: editing !== undefined ? "updated" : "created",
+        draft:
+          editing === undefined
+            ? {
+                lines,
+                arrival,
+                terms,
+                termsChosenFor,
+                method,
+                notes,
+                conditions,
+                discount,
+                discountPct,
+                discountBy,
+              }
+            : undefined,
+      })
       reset()
       onRaised(receipt)
     },
@@ -1099,19 +1695,145 @@ export function OrderComposer({
   const ready =
     supplierId !== null &&
     arrival !== "" &&
+    method !== "" &&
     lines.length > 0 &&
-    lines.every((line) => piecesOf(line) > 0)
+    lines.every((line) => gapCount(gapsOf(line)) === 0)
+
+  /// Review is never greyed out (the owner, 2026-09-28): pressed on an order
+  /// that is not ready, it says every gap where it is and brings the first
+  /// one into view.
+  const review = () => {
+    if (ready) {
+      setStep("review")
+      return
+    }
+    setTried(true)
+    showFirstProblem(form.current)
+  }
 
   /// Everything a sheet opened over this one needs, and the one thing that
   /// stops it opening: an order with no supplier has no catalogue to browse
   /// and no catalogue to add to.
   const supplierChosen = supplierId !== null
 
+  /// The line open in the Add item sheet — the first still waiting.
+  const adding = toAdd?.lines[0] ?? null
+  /// Past the one showing: add it, or leave it out, and go on to the next.
+  const advance = () =>
+    setToAdd((was) =>
+      was === null || was.lines.length <= 1
+        ? null
+        : { ...was, lines: was.lines.slice(1) }
+    )
+
+  /// A line as the Add item form opens on it: everything it already says,
+  /// the price per the unit it is in.
+  const seedOf = (line: DraftLine): LineSeed => {
+    const index = toAdd === null ? 1 : toAdd.of - toAdd.lines.length + 1
+    const priced = unitPricing(line, factorFor(line))
+    const price = priced.orderUnit ?? priced.perPiece
+    return {
+      key: `${line.supplierItemId}:${index}`,
+      title:
+        toAdd !== null && toAdd.replaces !== null ? "Edit line" : "Add item",
+      caption:
+        toAdd !== null && toAdd.of > 1
+          ? `${line.catalogue.name} · ${index} of ${toAdd.of}`
+          : line.catalogue.name,
+      name: line.name,
+      description: line.description,
+      division: line.division,
+      tags: line.tags,
+      colours: line.offered.colours.map((one) => one.code),
+      sizes: line.offered.sizes,
+      quantity: line.quantity,
+      unit: line.unit,
+      price: price > 0 ? String(price) : "",
+      markup: line.markup,
+      basePrice: line.basePrice,
+      variants: line.variants,
+      image: line.image,
+      draftItem: line.pending !== undefined,
+      photo: line.pending?.photo ?? null,
+      units: unitsFor(line),
+      stockUnit: line.stockUnitCode,
+      factorOf: (unit) => factorOf(line, unit),
+    }
+  }
+
+  /// The line as the form handed it back. A new item's own record follows
+  /// what was set on it; a catalogue item keeps its link and its record.
+  const edited = (line: DraftLine, got: LineResult): DraftLine => {
+    const next: DraftLine = {
+      ...line,
+      name: got.name,
+      division: got.division,
+      tags: got.tags,
+      quantity: got.quantity,
+      unit: got.unit,
+      price: got.price,
+      markup: got.markup,
+      basePrice: got.basePrice,
+      variants: got.variants,
+      // "10 kodi + 2 pcs" only while it is still what the line says.
+      said:
+        got.variants.length === 0 &&
+        got.quantity === line.quantity &&
+        got.unit === line.unit
+          ? line.said
+          : undefined,
+    }
+    if (line.pending === undefined) return next
+    const label = (code: string) =>
+      line.offered.colours.find((one) => one.code === code)?.label ?? code
+    const photoChanged = got.photo !== line.pending.photo
+    return {
+      ...next,
+      description: got.description,
+      offered: {
+        colours: got.colours.map((code) => ({ code, label: label(code) })),
+        sizes: got.sizes,
+      },
+      pending: {
+        ...line.pending,
+        photo: got.photo,
+        request: {
+          ...line.pending.request,
+          name: got.name,
+          description: got.description === "" ? null : got.description,
+          unit_price_minor: unitPricing(next, factorFor(next)).perPiece,
+          division_code: got.division,
+          tags: [...got.tags],
+          colour_codes: [...got.colours],
+          size_codes: [...got.sizes],
+        },
+      },
+      preview: !photoChanged
+        ? line.preview
+        : got.photo === null
+          ? undefined
+          : URL.createObjectURL(got.photo),
+    }
+  }
+
   return (
     <>
       <Sheet
         open={open}
-        onOpenChange={(next) => !next && close()}
+        onOpenChange={(next) => {
+          if (next) return
+          // Escape and the veil reach every sheet that is open, not only the
+          // one on top: while another one stands over this, it alone closes.
+          if (
+            browsing ||
+            creating ||
+            toAdd !== null ||
+            addingSupplier ||
+            discarding
+          )
+            return
+          askClose()
+        }}
         title={
           editing !== undefined
             ? step === "edit"
@@ -1124,13 +1846,6 @@ export function OrderComposer({
         // Said on the review, which is where somebody checks what they are
         // about to issue: there is no number yet, and a guessed one shown
         // here would be a promise the server may not keep.
-        caption={
-          editing !== undefined
-            ? "The warehouse is sent the order as it now reads."
-            : step === "review"
-              ? "The PO number is given when the order is issued."
-              : undefined
-        }
         // Wide, because the lines ARE the order. Five editable columns — what it
         // is called, what it is, what part of the range it belongs to, how many
         // and at what price — do not fit in a rail, and this is the screen where
@@ -1154,14 +1869,10 @@ export function OrderComposer({
         footer={
           step === "edit" ? (
             <div className="flex items-center justify-end gap-2">
-              <Button variant="ghost" onClick={close}>
+              <Button variant="ghost" onClick={askClose}>
                 Cancel
               </Button>
-              <Button
-                variant="primary"
-                disabled={!ready}
-                onClick={() => setStep("review")}
-              >
+              <Button variant="primary" onClick={review}>
                 Review order
               </Button>
             </div>
@@ -1180,19 +1891,13 @@ export function OrderComposer({
                 pending={raise.isPending}
                 onClick={() => raise.mutate()}
               >
-                {editing !== undefined
-                  ? raise.isPending
-                    ? "Saving…"
-                    : "Save changes"
-                  : raise.isPending
-                    ? "Creating…"
-                    : "Create order"}
+                {raise.isPending ? "Submitting…" : "Submit"}
               </Button>
             </div>
           )
         }
       >
-        <div className="flex flex-col gap-5">
+        <div ref={form} className="flex flex-col gap-5">
           {raise.isError && (
             <Banner tone="bad">{(raise.error as Error).message}</Banner>
           )}
@@ -1201,13 +1906,26 @@ export function OrderComposer({
             <OrderReview
               supplier={supplierName}
               arrival={arrival}
+              paymentTerms={termsName}
+              paymentMethod={
+                method === "TRANSFER"
+                  ? "Transfer"
+                  : method === "CASH"
+                    ? "Cash"
+                    : method === "GIRO"
+                      ? "Giro"
+                      : "—"
+              }
               lines={lines}
               divisions={divisionChoices}
               tags={tagChoices}
               gross={gross}
               discountMinor={discountMinor}
               notes={notes}
+              conditions={conditions}
               piecesOf={piecesOf}
+              pricingOf={(line) => unitPricing(line, factorFor(line))}
+              amountOf={lineAmount}
             />
           ) : (
             <>
@@ -1215,7 +1933,13 @@ export function OrderComposer({
             down the middle of a 78rem sheet leaves the right half empty and
             pushes the table — the thing this screen is for — below the fold. */}
               <div className="grid gap-4 md:grid-cols-2">
-                <Field label="Supplier" required={editing === undefined}>
+                <Field
+                  label="Supplier"
+                  required={editing === undefined}
+                  problem={
+                    tried && supplierId === null ? "Choose a supplier." : null
+                  }
+                >
                   {/* Registering one is a row at the foot of the list, not a
                       button beside the box: the moment somebody discovers
                       their supplier is not in the book happens while they are
@@ -1244,7 +1968,6 @@ export function OrderComposer({
                       }
                       value={supplierId}
                       onChange={setSupplierId}
-                      placeholder="Choose a supplier"
                       action={
                         basket === undefined
                           ? {
@@ -1260,7 +1983,13 @@ export function OrderComposer({
                 {/* When it is due. An order with no promised date is one nobody
                 can chase, and Outstanding — the screen whose whole job is
                 "what has not arrived" — has nothing to measure late against. */}
-                <Field label="Delivery date" required>
+                <Field
+                  label="Delivery date"
+                  required
+                  problem={
+                    tried && arrival === "" ? "Choose the delivery date." : null
+                  }
+                >
                   {/* `<Day>`, not `<input type="date">`. The native box was
                   tried here on 2026-09-13 and reversed the same day, by the
                   owner who asked for it, on the two counts its own note had
@@ -1279,11 +2008,41 @@ export function OrderComposer({
                   <Day
                     value={arrival}
                     onChange={setArrival}
-                    placeholder="Choose a date"
                     label="Delivery date"
                     // Nothing arrives yesterday.
                     notBefore={todayIso()}
                   />
+                </Field>
+
+                <Field label="Payment terms">
+                  <Select
+                    aria-label="Payment terms"
+                    value={terms}
+                    onChange={(code) => {
+                      setTerms(code)
+                      setTermsChosenFor(supplierId)
+                    }}
+                  >
+                    <option value="">None</option>
+                    {termChoices.map((one) => (
+                      <option key={one.code} value={one.code}>
+                        {one.label}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+
+                <Field label="Payment method">
+                  <Select
+                    aria-label="Payment method"
+                    value={method}
+                    onChange={setMethod}
+                  >
+                    <option value="">—</option>
+                    <option value="GIRO">Giro</option>
+                    <option value="TRANSFER">Transfer</option>
+                    <option value="CASH">Cash</option>
+                  </Select>
                 </Field>
               </div>
 
@@ -1296,7 +2055,8 @@ export function OrderComposer({
               absent, so the two ways in are visible from the moment the sheet
               opens. */}
               <Section
-                title="Lines"
+                title="Items"
+                rule={false}
                 actions={
                   <div className="flex items-center gap-2">
                     <Button
@@ -1317,11 +2077,18 @@ export function OrderComposer({
                 }
               >
                 {lines.length === 0 ? (
-                  <EmptyState>
-                    {supplierId === null
-                      ? "Choose a supplier, then add what is being ordered."
-                      : "Nothing on this order yet. Add what is being bought."}
-                  </EmptyState>
+                  <>
+                    <EmptyState>
+                      {supplierId === null
+                        ? "Choose a supplier, then add what is being ordered."
+                        : "Nothing on this order yet. Add what is being bought."}
+                    </EmptyState>
+                    {tried && (
+                      <span data-problem className="text-[0.875rem] text-bad">
+                        Add at least one item.
+                      </span>
+                    )}
+                  </>
                 ) : (
                   <>
                     {/* The phone: one card per line, read down rather than
@@ -1331,12 +2098,12 @@ export function OrderComposer({
                     thumb, typing the quantity they just said out loud. The
                     card keeps the grid's order: what it is, then how many at
                     what price, then what that line comes to. */}
+                    {/* The phone: one card per line, read down rather than
+                        across, in the grid's order — what it is, then how
+                        many at what price, then what the line comes to. */}
                     <ul className="flex flex-col gap-2.5 md:hidden">
                       {lines.map((line) => {
-                        const name =
-                          line.name.trim() === ""
-                            ? line.catalogue.name
-                            : line.name
+                        const shown = lineView(line)
                         return (
                           <li
                             key={line.supplierItemId}
@@ -1346,331 +2113,172 @@ export function OrderComposer({
                             // mount — the cards already there do not move.
                             className="overflow-hidden rounded-inner border border-hairline transition-[opacity,translate] duration-200 ease-(--ease-out) starting:translate-y-1 starting:opacity-0 motion-reduce:starting:translate-none"
                           >
-                            <div className="flex items-start gap-1">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setEditingLine(line.supplierItemId)
+                            <div className="flex items-start gap-2.5 p-2.5">
+                              <Thumbnail
+                                url={line.image ?? line.preview ?? null}
+                                name={
+                                  line.name.trim() === ""
+                                    ? line.catalogue.name
+                                    : line.name
                                 }
-                                aria-label={`Edit ${line.catalogue.name} on this order`}
-                                className="flex min-w-0 flex-1 items-start gap-2.5 p-2.5 text-left transition-colors hover:bg-soft-2"
-                              >
-                                <Thumbnail
-                                  url={line.image ?? line.preview ?? null}
-                                  fallback="—"
-                                  className="size-11 shrink-0 rounded-inner"
-                                />
-                                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                                  <span className="line-clamp-2 text-[0.875rem] text-ink">
-                                    {name}
-                                  </span>
-                                  <span className="truncate text-[0.875rem] text-body">
-                                    {[
-                                      labelled(
-                                        divisionChoices,
-                                        line.division
-                                      ) ?? "Unclassified",
-                                      ...line.tags.map(
-                                        (one) =>
-                                          labelled(tagChoices, one) ?? one
-                                      ),
-                                    ].join(" · ")}
-                                  </span>
-                                </span>
-                              </button>
+                                division={line.division}
+                                fallback="—"
+                                className="size-11 shrink-0 rounded-inner"
+                              />
+                              <LineWords shown={shown} />
+                              {editButton(line, shown, "size-tap shrink-0")}
                               <Button
                                 variant="quiet"
-                                aria-label={`Take ${line.catalogue.name} off this order`}
+                                aria-label={`Take ${shown.name} off this order`}
                                 onClick={() => drop(line.supplierItemId)}
-                                className="mt-1.5 mr-1.5 size-tap shrink-0"
+                                className="size-tap shrink-0"
                               >
                                 <Trash2 />
                               </Button>
                             </div>
-                            <div className="grid grid-cols-[5rem_6.5rem_1fr] gap-2.5 border-t border-hairline p-2.5">
-                              <Field label="Qty">
-                                <Input
-                                  inputMode="decimal"
-                                  value={
-                                    line.variants.length > 0
-                                      ? String(piecesOf(line))
-                                      : line.quantity
-                                  }
-                                  readOnly={line.variants.length > 0}
-                                  onChange={(event) =>
-                                    patch(line.supplierItemId, {
-                                      quantity: event.target.value,
-                                    })
-                                  }
-                                  className="text-right tabular-nums"
-                                  aria-label={`Quantity of ${line.catalogue.name}`}
-                                />
-                              </Field>
-                              <Field label="Unit">
-                                <Select
-                                  aria-label={`Unit of ${line.catalogue.name}`}
-                                  value={line.unit}
-                                  disabled={line.variants.length > 0}
-                                  onChange={(unit) =>
-                                    patch(line.supplierItemId, { unit })
-                                  }
-                                >
-                                  {unitsFor(line).map((one) => (
-                                    <option key={one.code} value={one.code}>
-                                      {one.label}
-                                    </option>
-                                  ))}
-                                </Select>
-                              </Field>
-                              <Field label="Price / pc">
-                                <Money
-                                  label={`Unit price of ${line.catalogue.name}`}
-                                  value={line.price}
-                                  onChange={(price) =>
-                                    patch(line.supplierItemId, { price })
-                                  }
-                                  prefix="Rp"
-                                  className="text-right"
-                                />
-                              </Field>
-                            </div>
-                            <div className="flex items-center justify-between border-t border-hairline bg-soft px-2.5 py-2 text-[0.875rem]">
-                              <span className="text-body">Amount</span>
-                              <span className="font-medium text-ink tabular-nums">
-                                {money(
-                                  piecesOf(line) *
-                                    whole(line.price, line.catalogue.price)
-                                )}
-                              </span>
-                            </div>
+                            <dl className="grid grid-cols-3 gap-2.5 border-t border-hairline p-2.5 text-[0.875rem]">
+                              <div>
+                                <dt className="text-body">Quantity</dt>
+                                <dd className="text-ink tabular-nums">
+                                  {qtyBox(line, shown)}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt className="text-body">Unit price</dt>
+                                <dd className="text-ink tabular-nums">
+                                  {priceBox(line, shown)}
+                                </dd>
+                              </div>
+                              <div className="text-right">
+                                <dt className="text-body">Amount</dt>
+                                <dd className="font-medium text-ink tabular-nums">
+                                  {shown.amount}
+                                </dd>
+                              </div>
+                            </dl>
                           </li>
                         )
                       })}
                     </ul>
-                    {/* The supplier's own item code is not a column. Eleven digits
-                  nobody recognises, repeated down the left of the one table
-                  where every other cell is something to read or change. */}
-                    {/* Division before Tags: what the thing IS comes before what
-                    it is filed under, and the two were the other way round.
-                    Division is also narrower now — a picker holding one short
-                    word was taking 12rem from the column people actually
-                    read. */}
+                    {/* A line's quantity and price are typed here; everything
+                        else about it was set on the Add item sheet. The
+                        supplier's own item code is not a column: eleven digits
+                        nobody recognises. */}
                     <div className="overflow-hidden rounded-inner border border-hairline max-md:hidden">
-                      {/* The grid scrolls sideways inside its own box rather than
-                      squeezing. Six of these columns hold a control with a
-                      floor under its width, and below about 62rem the seventh
-                      — the item's own name, the one column somebody READS —
-                      was the only one that could give, so it collapsed to a
-                      couple of characters on a laptop with the sheet narrower
-                      than its `md:` width. */}
-                      <div className="overflow-x-auto">
-                        {/* `table-fixed`, so a long item name widens nothing: the
-                        columns are decided by what they hold — a picker, four
-                        digits of quantity, a rupiah figure — and a grid whose
-                        columns move as you type is a grid nobody can aim at. */}
-                        <table className="w-full min-w-[62rem] table-fixed border-collapse">
-                          <colgroup>
-                            <col />
-                            <col className="w-[6rem]" />
-                            <col className="w-[7.5rem]" />
-                            <col className="w-[9rem]" />
-                            <col className="w-[9.5rem]" />
-                            <col className="w-[3rem]" />
-                          </colgroup>
-                          <thead>
-                            <tr>
-                              <th className={HEAD}>Item</th>
-                              <th className={cn(HEAD, "text-right")}>Qty</th>
-                              <th className={HEAD}>Unit</th>
-                              <th className={cn(HEAD, "text-right")}>
-                                Price / pc
-                              </th>
-                              <th className={cn(HEAD, "text-right")}>Amount</th>
-                              <th className={HEAD}>
-                                <span className="sr-only">Remove</span>
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {lines.map((line) => (
+                      <table className="w-full table-fixed border-collapse">
+                        <colgroup>
+                          <col />
+                          <col className="w-[10rem]" />
+                          <col className="w-[13rem]" />
+                          <col className="w-[10rem]" />
+                          <col className="w-[6rem]" />
+                        </colgroup>
+                        <thead>
+                          <tr>
+                            <th className={HEAD}>Item</th>
+                            <th className={cn(HEAD, "text-right")}>Quantity</th>
+                            {/* Per the line's own unit: a line ordered in
+                                LUSIN or KODI prices the unit (0656), and the
+                                per-piece figure stands under it. */}
+                            <th className={cn(HEAD, "text-right")}>
+                              Unit price
+                            </th>
+                            <th className={cn(HEAD, "text-right")}>Amount</th>
+                            <th className={HEAD}>
+                              <span className="sr-only">Edit or remove</span>
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lines.map((line) => {
+                            const shown = lineView(line)
+                            return (
                               <tr
                                 key={line.supplierItemId}
-                                className="border-t border-hairline transition-[background-color,opacity] duration-200 ease-(--ease-out) hover:bg-soft starting:opacity-0"
+                                className="border-t border-hairline transition-opacity duration-200 ease-(--ease-out) starting:opacity-0"
                               >
-                                <td className={CELL}>
-                                  {/* What the thing IS, read rather than
-                                  typed into. The cell used to hold three live
-                                  controls — a name box, a division picker and
-                                  a tag picker — stacked in a column 30rem
-                                  wide, which put five × buttons and two
-                                  chevrons in the one square somebody is trying
-                                  to READ. Editing moved to a sheet; this is
-                                  now a row you look at and press.
-
-                                  The picture is 36px. At 24 it was a smudge,
-                                  and a photograph nobody can make out is not
-                                  doing the job a photograph is for. */}
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setEditingLine(line.supplierItemId)
-                                    }
-                                    aria-label={`Edit ${line.catalogue.name} on this order`}
-                                    className="flex w-full items-start gap-2.5 py-2 pr-2 pl-2.5 text-left transition-colors hover:bg-soft-2"
-                                  >
+                                <td className={cn(GRID_CELL, "py-4")}>
+                                  <span className="flex items-start gap-2.5">
+                                    {/* 36px: at 24 the picture was a smudge,
+                                        and a photograph nobody can make out
+                                        is not doing its job. */}
                                     <Thumbnail
                                       url={line.image ?? line.preview ?? null}
+                                      name={
+                                        line.name.trim() === ""
+                                          ? line.catalogue.name
+                                          : line.name
+                                      }
+                                      division={line.division}
                                       fallback="—"
                                       className="size-9 shrink-0 rounded-inner"
                                     />
-                                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                                      <span className="truncate text-[0.875rem] text-ink">
-                                        {line.name.trim() === ""
-                                          ? line.catalogue.name
-                                          : line.name}
-                                      </span>
-                                      <span className="truncate text-[0.875rem] text-body">
-                                        {[
-                                          labelled(
-                                            divisionChoices,
-                                            line.division
-                                          ) ?? "Unclassified",
-                                          ...line.tags.map(
-                                            (one) =>
-                                              labelled(tagChoices, one) ?? one
-                                          ),
-                                        ].join(" · ")}
-                                      </span>
-                                      {line.variants.length > 0 && (
-                                        <span className="truncate text-[0.875rem] text-accent">
-                                          {`${line.variants.filter((one) => Number.parseInt(one.quantity, 10) > 0).length} SKUs · edit to change`}
-                                        </span>
-                                      )}
-                                    </span>
-                                  </button>
-                                </td>
-                                <td className={cn(CELL, "px-1.5")}>
-                                  {/* A line broken down by SKU is counted by
-                                      its grid; the total stands here, and the
-                                      line's editor changes it. */}
-                                  <Input
-                                    inputMode="decimal"
-                                    value={
-                                      line.variants.length > 0
-                                        ? String(piecesOf(line))
-                                        : line.quantity
-                                    }
-                                    readOnly={line.variants.length > 0}
-                                    onChange={(event) =>
-                                      patch(line.supplierItemId, {
-                                        quantity: event.target.value,
-                                      })
-                                    }
-                                    invalid={
-                                      line.variants.length === 0 &&
-                                      piecesOf(line) === 0 &&
-                                      line.quantity.trim() !== ""
-                                    }
-                                    className={cn(
-                                      TYPED,
-                                      line.variants.length > 0 &&
-                                        "bg-soft text-body"
-                                    )}
-                                    aria-label={`Quantity of ${line.catalogue.name}`}
-                                  />
-                                </td>
-                                {/* The unit the quantity is typed in. A dozen
-                                    is sent as twelve pieces; the grid says so
-                                    under the amount. */}
-                                <td className={cn(CELL, "px-1.5")}>
-                                  <Select
-                                    aria-label={`Unit of ${line.catalogue.name}`}
-                                    value={line.unit}
-                                    disabled={line.variants.length > 0}
-                                    onChange={(unit) =>
-                                      patch(line.supplierItemId, { unit })
-                                    }
-                                    className="h-9"
-                                  >
-                                    {unitsFor(line).map((one) => (
-                                      <option key={one.code} value={one.code}>
-                                        {one.label}
-                                      </option>
-                                    ))}
-                                  </Select>
-                                </td>
-                                <td className={cn(CELL, "px-1.5")}>
-                                  <Money
-                                    label={`Unit price of ${line.catalogue.name}`}
-                                    value={line.price}
-                                    onChange={(price) =>
-                                      patch(line.supplierItemId, { price })
-                                    }
-                                    className={TYPED}
-                                  />
-                                </td>
-                                {/* Qty times price, per line. The ladder underneath
-                              has always said what the whole order comes to;
-                              this says what each line contributes, which is
-                              the figure a buyer checks a quote against row by
-                              row. Read-only — it is the product of two boxes
-                              that are not, so it takes no cell chrome and no
-                              focus: the one column in this grid you cannot put
-                              a caret in. */}
-                                <td
-                                  className={cn(
-                                    CELL,
-                                    "px-3 text-right text-[0.875rem] font-medium text-ink tabular-nums"
-                                  )}
-                                >
-                                  <span className="flex flex-col items-end leading-tight">
-                                    {money(
-                                      piecesOf(line) *
-                                        whole(line.price, line.catalogue.price)
-                                    )}
-                                    {line.unit !== units.baseUnit && (
-                                      <span className="font-normal text-mute">
-                                        {`${count(piecesOf(line))} pcs`}
-                                      </span>
-                                    )}
+                                    <LineWords shown={shown} />
                                   </span>
                                 </td>
-                                <td className={cn(CELL, "text-center")}>
-                                  <Button
-                                    variant="quiet"
-                                    size="sm"
-                                    aria-label={`Take ${line.catalogue.name} off this order`}
-                                    onClick={() => drop(line.supplierItemId)}
-                                  >
-                                    <Trash2 />
-                                  </Button>
+                                <td
+                                  className={cn(
+                                    GRID_CELL,
+                                    "py-4 text-right text-[0.875rem] text-ink tabular-nums"
+                                  )}
+                                >
+                                  {qtyBox(line, shown)}
+                                </td>
+                                <td
+                                  className={cn(
+                                    GRID_CELL,
+                                    "py-4 text-right text-[0.875rem] text-ink tabular-nums"
+                                  )}
+                                >
+                                  {priceBox(line, shown)}
+                                </td>
+                                <td
+                                  className={cn(
+                                    GRID_CELL,
+                                    "py-4 text-right text-[0.875rem] font-medium text-ink tabular-nums"
+                                  )}
+                                >
+                                  {shown.amount}
+                                </td>
+                                <td
+                                  className={cn(
+                                    GRID_CELL,
+                                    "px-1 py-4 text-center"
+                                  )}
+                                >
+                                  <span className="inline-flex items-center justify-center gap-0.5">
+                                    {editButton(line, shown)}
+                                    <Button
+                                      variant="quiet"
+                                      aria-label={`Take ${shown.name} off this order`}
+                                      onClick={() => drop(line.supplierItemId)}
+                                    >
+                                      <Trash2 />
+                                    </Button>
+                                  </span>
                                 </td>
                               </tr>
-                            ))}
-                          </tbody>
-                          {/* The two totals the owner asked to see while the
-                              order is being written, under the columns they
-                              add up. */}
-                          <tfoot>
-                            <tr className="border-t border-hairline bg-soft">
-                              <td className="px-3 py-2.5 text-[0.875rem] font-medium text-body">
-                                Total
-                              </td>
-                              <td className="px-3 py-2.5 text-right text-[0.875rem] font-medium text-ink tabular-nums">
-                                {count(pieces)}
-                              </td>
-                              <td className="px-3 py-2.5 text-[0.875rem] text-body">
-                                pcs
-                              </td>
-                              <td />
-                              <td className="px-3 py-2.5 text-right text-[0.875rem] font-medium text-ink tabular-nums">
-                                {money(gross)}
-                              </td>
-                              <td />
-                            </tr>
-                          </tfoot>
-                        </table>
-                      </div>
+                            )
+                          })}
+                        </tbody>
+                        {/* The two totals the owner asked for, under the
+                            columns they add up: total qty and total rupiah. */}
+                        <tfoot>
+                          <tr className="border-t border-hairline bg-soft">
+                            <td className="px-3 py-2.5 text-[0.875rem] font-medium text-body">
+                              Total
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-[0.875rem] font-medium text-ink tabular-nums">
+                              {pcs(pieces)}
+                            </td>
+                            <td />
+                            <td className="px-3 py-2.5 text-right text-[0.875rem] font-medium text-ink tabular-nums">
+                              {money(gross)}
+                            </td>
+                            <td />
+                          </tr>
+                        </tfoot>
+                      </table>
                     </div>
                     {/* The phone's cards carry no footer row, so the same two
                         figures stand under them. */}
@@ -1705,25 +2313,23 @@ export function OrderComposer({
               in changed shape depending on whether anything had been added
               yet, so a buyer who opened a blank order saw a document with a
               different set of questions in it. */}
-              <Section title="Discount">
+              <Section title="Discount" rule={false}>
                 <div className="grid gap-4 md:grid-cols-2">
                   <Field label="Discount amount">
                     <Money
                       label="Discount agreed off the whole order"
-                      value={discount}
-                      onChange={(next) => {
-                        setDiscount(next)
-                        const minor = discountOf(next)
-                        setDiscountPct(
-                          minor > 0 && gross > 0
-                            ? ((minor / gross) * 100)
-                                .toFixed(1)
-                                .replace(/\.0$/, "")
+                      value={
+                        discountBy === "percent"
+                          ? discountMinor > 0
+                            ? String(discountMinor)
                             : ""
-                        )
+                          : discount
+                      }
+                      onChange={(next) => {
+                        setDiscountBy("amount")
+                        setDiscount(next)
                       }}
                       prefix="Rp"
-                      placeholder="0"
                     />
                   </Field>
 
@@ -1732,18 +2338,19 @@ export function OrderComposer({
                       <Input
                         aria-label="Discount percentage"
                         inputMode="decimal"
-                        value={discountPct}
-                        placeholder="0"
-                        className="pr-8"
-                        onChange={(event) => {
-                          const next = event.target.value
-                          setDiscountPct(next)
-                          const share = Number(next.replace(",", "."))
-                          setDiscount(
-                            Number.isFinite(share) && share > 0 && gross > 0
-                              ? String(Math.round((gross * share) / 100))
+                        value={
+                          discountBy === "amount"
+                            ? discountMinor > 0
+                              ? percentText(
+                                  percentFromDiscount(discountMinor, gross)
+                                ).replace(".", ",")
                               : ""
-                          )
+                            : discountPct
+                        }
+                        className="pr-8 text-right tabular-nums"
+                        onChange={(event) => {
+                          setDiscountBy("percent")
+                          setDiscountPct(cleanPercent(event.target.value))
                         }}
                       />
                       <span className="pointer-events-none absolute right-3.5 text-[0.875rem] text-mute">
@@ -1762,27 +2369,49 @@ export function OrderComposer({
                     it is committed, which is the step the review exists for. */}
               </Section>
 
-              {/* No payment terms and no terms & conditions here. Payment is
-                  Finance's to arrange on the order (the owner, 2026-09-26),
-                  and the templates it chooses from are master data. */}
+              {/* Payment terms are an optional choice at the top of the form
+                  (a template from master data, pre-filled from the supplier's
+                  standing terms). No terms & conditions here. */}
 
               {/* Last, under everything. A note is what somebody writes once the
               order is written — "call the warehouse before the truck leaves" —
               and asking for it above the goods put a free-text box between the
               supplier and the thing being bought. */}
-              <Section title="Notes">
+              <Section title="Notes" rule={false}>
                 <Textarea
                   rows={2}
                   aria-label="Notes"
                   value={notes}
                   onChange={(event) => setNotes(event.target.value)}
-                  placeholder="Anything the warehouse should know."
+                />
+              </Section>
+
+              {/* Printed under the notes on the order. The default is the
+                  receiving hours; change it for this order only. */}
+              <Section title="Terms and conditions" rule={false}>
+                <Textarea
+                  rows={3}
+                  aria-label="Terms and conditions"
+                  value={conditions}
+                  onChange={(event) => setConditions(event.target.value)}
                 />
               </Section>
             </>
           )}
         </div>
       </Sheet>
+
+      <Dialog
+        open={discarding}
+        onOpenChange={setDiscarding}
+        title="Discard this draft?"
+        confirm="Discard"
+        cancel="Keep editing"
+        tone="danger"
+        onConfirm={discard}
+      >
+        Nothing has been saved.
+      </Dialog>
 
       {/* Both open OVER the order, and neither replaces it: the half-written
           document is still there underneath, which is what makes adding a
@@ -1795,21 +2424,43 @@ export function OrderComposer({
             supplierName={supplierName}
             already={lines.map((one) => one.supplierItemId)}
             onClose={() => setBrowsing(false)}
+            // Nothing goes straight onto the order: every item picked comes
+            // through Add item, one after another, to be given its quantity,
+            // unit, price, division and tags.
             onPick={(rows) =>
-              setLines((was) => [...was, ...rows.map(fromSourced)])
+              rows.length > 0 &&
+              setToAdd({
+                lines: rows.map(fromSourced).map(seeded).map(carried),
+                of: rows.length,
+                replaces: null,
+              })
             }
           />
-          <LineEditor
-            line={
-              lines.find((one) => one.supplierItemId === editingLine) ?? null
-            }
-            divisions={divisionChoices}
-            tags={tagChoices}
-            onSave={(change) => {
-              if (editingLine !== null) patch(editingLine, change)
-              setEditingLine(null)
+          {/* The Add item form itself, on the line: a pick from the
+              catalogue, the pencil and Complete all open the same sheet as
+              New item (the owner, 2026-10-02), and Submit puts the line on
+              the order — or back where it stood. */}
+          <ItemFormSheet
+            open={adding !== null}
+            supplierId={supplierId}
+            line={adding === null ? undefined : seedOf(adding)}
+            onLine={(got) => {
+              if (adding === null) return
+              const line = edited(adding, got)
+              const replaces = toAdd?.replaces ?? null
+              setLines((was) =>
+                replaces === null
+                  ? put(was, line)
+                  : was.map((one) =>
+                      one.supplierItemId === replaces ? line : one
+                    )
+              )
+              advance()
             }}
-            onClose={() => setEditingLine(null)}
+            onSkip={
+              toAdd !== null && toAdd.lines.length > 1 ? advance : undefined
+            }
+            onClose={() => setToAdd(null)}
           />
           <ItemFormSheet
             open={creating}
@@ -1822,9 +2473,10 @@ export function OrderComposer({
             // reads as if nothing happened.
             // Drafted, not saved: the item is created with the order, so an
             // order abandoned here leaves nothing in the catalogue.
-            onDraft={(pending) => {
-              setLines((was) => [...was, fromPending(pending)])
-              setCreating(false)
+            onDraft={(pending, keepOpen) => {
+              setLines((was) => put(was, seeded(fromPending(pending))))
+              // "Add next item" leaves the form up, empty, for the next one.
+              if (!keepOpen) setCreating(false)
             }}
           />
         </>
@@ -1833,20 +2485,66 @@ export function OrderComposer({
       {/* Outside the `supplierId !== null` gate, for the obvious reason: this
           is the sheet somebody opens BECAUSE there is no supplier to choose
           yet. */}
+      {/* The whole supplier form, not a four-field quick add (the owner,
+          2026-09-28): a supplier registered from an order is the same record
+          as one registered from the book. It shows the number it was given
+          and closes itself back onto this order. */}
       <SupplierComposer
-        quick
         open={addingSupplier}
         onClose={() => setAddingSupplier(false)}
-        // Selected the moment it exists. The list behind the picker is
-        // invalidated by the sheet itself, so by the time this runs the new
-        // supplier is either already in `supplierChoices` or one refetch away
-        // — and `<PickOne>` holds an id, not a label, so the choice survives
-        // the gap either way.
-        onCreated={(supplier) => {
-          setSupplierId(supplier.supplier_id)
-          setAddingSupplier(false)
-        }}
+        // Selected the moment it exists, while its number is still showing.
+        // The list behind the picker is invalidated by the sheet itself, so
+        // the new supplier is either already in `supplierChoices` or one
+        // refetch away — and `<PickOne>` holds an id, not a label, so the
+        // choice survives the gap either way.
+        onCreated={(supplier) => setSupplierId(supplier.supplier_id)}
+        savedNote="Chosen as this order's supplier."
       />
+
+      {/* The save's receipt, over whatever the sheet handed over to — the
+          list for a raised order, the order itself for a saved edit. State
+          lives here, not in the screen, because this component outlives the
+          close its own `onRaised` performs. */}
+      <SavedDialog
+        open={raised !== null}
+        // A new order can be called back for a few seconds, like a ride: the
+        // number stays used, and the order stands in the book as cancelled.
+        undo={
+          SHOW_CANCEL_AFTER_CREATE &&
+          raised !== null &&
+          raised.verb === "created"
+            ? {
+                label: "Cancel PO",
+                onClick: async () => {
+                  await cancelPurchaseOrder(
+                    raised.receipt.purchase_order_id,
+                    "Cancelled right after it was created",
+                    crypto.randomUUID()
+                  )
+                  void client.invalidateQueries({
+                    queryKey: procurementKeys.orders(),
+                  })
+                  toast.success(`${raised.receipt.po_number} cancelled`)
+                  if (raised.draft !== undefined) restore(raised.draft)
+                },
+              }
+            : undefined
+        }
+        onOpenChange={(next) => {
+          if (!next) setRaised(null)
+        }}
+        title={
+          raised !== null && (
+            <>
+              {raised.receipt.po_number} {raised.verb}
+            </>
+          )
+        }
+      >
+        {raised === null || raised.verb === "created"
+          ? undefined
+          : money(raised.receipt.net_minor)}
+      </SavedDialog>
     </>
   )
 }
@@ -1858,6 +2556,6 @@ export function OrderComposer({
 function basketChoices(groups: readonly Group[]): Choice[] {
   return groups.map((one) => ({
     value: one.supplierId,
-    label: `${one.supplierName} — ${one.lines.length} lines`,
+    label: `${one.supplierName} — ${one.lines.length} ${one.lines.length === 1 ? "line" : "lines"}`,
   }))
 }

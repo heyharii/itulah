@@ -18,6 +18,7 @@ import {
   type ExceptionSettings,
   type ExceptionState,
 } from "@/lib/queries/exceptions"
+import { SHOW_MISSING } from "@/lib/features"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { useSections } from "@/lib/session"
@@ -71,12 +72,13 @@ export function StoreExceptions() {
         <Segmented
           options={STATE_OPTIONS}
           value={stateValue}
-          onChange={(next) => (next === "open" ? state.close() : state.open(next))}
+          onChange={(next) =>
+            next === "open" ? state.close() : state.open(next)
+          }
         />
         <Select
           value={unit.value ?? ""}
           onChange={(next) => (next === "" ? unit.close() : unit.open(next))}
-          placeholder="Every store"
           aria-label="Store"
           className="w-56"
         >
@@ -104,7 +106,9 @@ export function StoreExceptions() {
                 <Pill
                   tone={row.bad > 0 ? "bad" : "warn"}
                   className={
-                    kind.value === row.kind ? "ring-2 ring-accent/40" : undefined
+                    kind.value === row.kind
+                      ? "ring-2 ring-accent/40"
+                      : undefined
                   }
                 >
                   {exceptionKindLabel(row.kind)} · {row.count}
@@ -161,7 +165,11 @@ function ExceptionSettingsSheet({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       title="Exception thresholds"
-      caption="When a shift, a drawer, a deposit, a delivery, a missing item or a checkout counts as an exception."
+      caption={
+        SHOW_MISSING
+          ? "When a shift, a drawer, a deposit, a delivery, a missing item or a checkout counts as an exception."
+          : "When a shift, a drawer, a deposit, a delivery or a checkout counts as an exception."
+      }
     >
       {open && <ExceptionSettingsForm onDone={onClose} />}
     </Sheet>
@@ -225,8 +233,9 @@ function ExceptionSettingsFields({
         {number("deposit_bad_days", "Deposit red (days)")}
         {number("deposit_lookback_days", "Deposit lookback (days)")}
         {number("stage_bad_hours", "Delivery stage red (h)")}
-        {number("missing_open_days", "Missing goods open (days)")}
-        {number("missing_bad_days", "Missing goods red (days)")}
+        {SHOW_MISSING &&
+          number("missing_open_days", "Missing goods open (days)")}
+        {SHOW_MISSING && number("missing_bad_days", "Missing goods red (days)")}
         {number("checkout_bad_hours", "Checkout red after (h)")}
       </div>
 
@@ -269,7 +278,7 @@ function ExceptionSettingsFields({
           pending={update.isPending}
           onClick={() => update.mutate(form, { onSuccess: onDone })}
         >
-          {update.isPending ? "Saving…" : "Save"}
+          {update.isPending ? "Submitting…" : "Submit"}
         </Button>
       </div>
     </div>

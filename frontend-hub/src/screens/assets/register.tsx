@@ -8,12 +8,13 @@ import { Choices, Section, type Tile } from "@/components/ui/form"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner } from "@/components/ui/states"
 import { buildOf } from "@/lib/builds"
+import { financeKeys, listAssetClasses } from "@/lib/queries/finance"
 import {
-  financeKeys,
-  listAssetClasses,
-  listAssets,
-} from "@/lib/queries/finance"
-import { gaAssetBuilds, gaKeys, registerGaAsset } from "@/lib/queries/ga"
+  gaAssetBuilds,
+  gaKeys,
+  registerGaAsset,
+  useGaSites,
+} from "@/lib/queries/ga"
 import type { GaBuildSpec } from "@itulah/contract"
 
 /// Registering a thing, from the side of the person holding it.
@@ -80,11 +81,7 @@ export function RegisterAssetSheet({
     enabled: open,
     staleTime: Infinity,
   })
-  const shape = useQuery({
-    queryKey: financeKeys.assets(false, null),
-    queryFn: ({ signal }) => listAssets({ limit: 1 }, signal),
-    enabled: open,
-  })
+  const { sites: siteOptions } = useGaSites(open)
 
   const offered = useMemo(
     () =>
@@ -166,9 +163,7 @@ export function RegisterAssetSheet({
         <Section title="Asset type" aside="determines the fields below">
           {offered.length === 0 ? (
             <p className="text-meta text-mute">
-              {schema.isLoading
-                ? "Reading the list…"
-                : "No types here."}
+              {schema.isLoading ? "Reading the list…" : "No types here."}
             </p>
           ) : (
             <Choices
@@ -201,7 +196,6 @@ export function RegisterAssetSheet({
               <Input
                 value={form.name ?? ""}
                 onChange={(event) => set("name", event.target.value)}
-                placeholder="AC split 2 PK"
               />
             </Field>
             <Field
@@ -212,7 +206,6 @@ export function RegisterAssetSheet({
               <Input
                 value={form.asset_number ?? ""}
                 onChange={(event) => set("asset_number", event.target.value)}
-                placeholder="AST-000124"
               />
             </Field>
           </div>
@@ -243,7 +236,7 @@ export function RegisterAssetSheet({
                 aria-label="Site"
               >
                 <option value="">Select…</option>
-                {(shape.data?.facets.sites ?? []).map((one) => (
+                {siteOptions.map((one) => (
                   <option key={one.value} value={one.value}>
                     {one.label ?? one.value}
                   </option>
@@ -257,14 +250,12 @@ export function RegisterAssetSheet({
               <Input
                 value={form.sub_location ?? ""}
                 onChange={(event) => set("sub_location", event.target.value)}
-                placeholder="Floor 1 · cashier area"
               />
             </Field>
             <Field label="Holder">
               <Input
                 value={form.holder ?? ""}
                 onChange={(event) => set("holder", event.target.value)}
-                placeholder="Store manager C007"
               />
             </Field>
           </div>
@@ -274,7 +265,6 @@ export function RegisterAssetSheet({
               <Input
                 value={form.serial_number ?? ""}
                 onChange={(event) => set("serial_number", event.target.value)}
-                placeholder="SN 7Q2-118834"
               />
             </Field>
             <Field label="Date acquired" required>
@@ -287,7 +277,10 @@ export function RegisterAssetSheet({
           </div>
         </Section>
 
-        <Section title="Condition" aside="items needing service show up in Overview">
+        <Section
+          title="Condition"
+          aside="items needing service show up in Overview"
+        >
           <Choices
             label="Condition"
             columns={3}
@@ -345,7 +338,6 @@ export function RegisterAssetSheet({
             <Input
               value={form.notes ?? ""}
               onChange={(event) => set("notes", event.target.value)}
-              placeholder="e.g. BAST signed, unit G-12"
             />
           </Field>
         </Section>

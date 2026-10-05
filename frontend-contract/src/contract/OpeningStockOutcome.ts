@@ -6,7 +6,7 @@ import type { OpeningStockUnit } from "./OpeningStockUnit";
 /**
  * What the stock import did, or would.
  */
-export type OpeningStockOutcome = { cutover_date: string, committed: boolean, lines: number, layers: number, units: Array<OpeningStockUnit>,
+export type OpeningStockOutcome = { cutover_date: string, committed: boolean, lines: number, layers: number, units: Array<OpeningStockUnit>, 
 /**
  * Every line whose price was not a real purchase price. **This is the list
  * somebody has to read before agreeing to the cutover**, which is why it

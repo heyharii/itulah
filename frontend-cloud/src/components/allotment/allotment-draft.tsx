@@ -51,10 +51,10 @@ interface ArticleRow {
   readonly stock: number
 }
 
-/// The DC warehouse is where goods bound for a store come out of. It is not a
-/// choice on this screen: every other DC pool is either goods already spoken
-/// for or goods not yet identified, and a store allotment out of one of those
-/// is refused by the server anyway.
+/// The Gudang is where goods bound for a store come out of. It is not a
+/// choice on this screen: every other pool at the Gudang is either goods
+/// already spoken for or goods not yet identified, and a store allotment out
+/// of one of those is refused by the server anyway.
 const WAREHOUSE_POOL_CODE = "WAREHOUSE"
 
 /// Promise goods to the shops.
@@ -80,7 +80,7 @@ export function AllotmentDraft() {
   /// Keyed `skuId|storeId`. Per SKU rather than per article because that is
   /// what a line names; the article cells above are sums of these. It is one
   /// field rather than one per cell because the shape of it is not known until
-  /// the warehouse has answered — a hundred articles times thirteen stores,
+  /// the Gudang has answered — a hundred articles times thirteen stores,
   /// most of them never typed into.
   const form = useForm({
     defaultValues: { quantities: {} as Record<string, number> },
@@ -167,7 +167,7 @@ export function AllotmentDraft() {
   }, [stockItems])
 
   /// The divisions and tags actually present, so the filter offers what this
-  /// warehouse holds rather than the whole vocabulary. A division nothing is
+  /// Gudang holds rather than the whole vocabulary. A division nothing is
   /// filed under is a tick that can only ever empty the screen.
   const divisions = useMemo(
     () =>
@@ -296,7 +296,7 @@ export function AllotmentDraft() {
   const destinations = new Set(filled.map(([key]) => key.split("|")[1]))
 
   // The count shown here is the centre's projection; the number the server
-  // checks against is the warehouse's own, reported by the DC node. They can
+  // checks against is the Gudang's own, reported by the DC node. They can
   // disagree, so this is a warning and not a block — but a row promising more
   // than the centre thinks exists is the one the DC is most likely to refuse,
   // and that is worth reading before the allotment is raised.
@@ -316,7 +316,7 @@ export function AllotmentDraft() {
   const create = useMutation({
     mutationFn: () => {
       if (source === null) {
-        throw new Error("no DC warehouse pool")
+        throw new Error("no Gudang fulfilment pool")
       }
       const lines: CreateAllotmentLine[] = filled.map(([key, quantity]) => {
         const [skuId, storeId] = key.split("|")
@@ -351,7 +351,7 @@ export function AllotmentDraft() {
 
   const problems: string[] = []
   if (source === null && pools.isSuccess) {
-    problems.push("The DC has no warehouse pool to promise goods out of.")
+    problems.push("The Gudang has no pool to promise goods out of.")
   }
   if (filled.length === 0)
     problems.push("Type a quantity against a store to allot it.")
@@ -368,7 +368,7 @@ export function AllotmentDraft() {
         title="New allotment"
         subtitle={
           source === null
-            ? "DC warehouse"
+            ? "Gudang"
             : `${source.site_name} · ${source.label}`
         }
       >
@@ -477,26 +477,26 @@ export function AllotmentDraft() {
       <ScreenBody>
         {source === null && pools.isSuccess ? (
           <p className="px-3.5 py-6 text-center text-xs text-muted-foreground">
-            No DC warehouse pool exists to promise goods out of.
+            No Gudang pool exists to promise goods out of.
           </p>
         ) : stock.isPending ? (
           <p className="px-3.5 py-6 text-center text-xs text-muted-foreground">
-            Reading what the warehouse holds…
+            Reading what the Gudang holds…
           </p>
         ) : stock.isError ? (
           <p className="px-3.5 py-6 text-center text-xs text-destructive">
             {stock.error instanceof ApiError
               ? stock.error.message
-              : "The warehouse's stock could not be read."}
+              : "The Gudang's stock could not be read."}
           </p>
         ) : shown.length === 0 ? (
           // Said plainly rather than shown as an empty grid: thirteen columns
-          // of blank cells look exactly like a warehouse with nothing in it,
+          // of blank cells look exactly like a Gudang with nothing in it,
           // and the reason here is a filter the person set.
           <div className="px-3.5 py-10 text-center">
             <p className="text-xs text-muted-foreground">
               {articles.length === 0
-                ? "The warehouse holds nothing to promise."
+                ? "The Gudang holds nothing to promise."
                 : "No article matches what you are asking for."}
             </p>
             {articles.length > 0 && (filterCount > 0 || needle !== "") && (
@@ -779,7 +779,7 @@ export function AllotmentDraft() {
           overreach.length > 0 && (
             <span className="truncate text-[11.5px] text-amber-600">
               {overreach.length} article{overreach.length === 1 ? "" : "s"}{" "}
-              promise more than the warehouse is thought to hold. The DC's own
+              promise more than the Gudang is thought to hold. The Gudang's own
               count decides, and may refuse them.
             </span>
           )

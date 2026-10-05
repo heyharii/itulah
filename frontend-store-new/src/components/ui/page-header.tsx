@@ -42,7 +42,7 @@ export function PageHeader({
         )}
         <h1 className="text-hero font-semibold text-ink">{title}</h1>
         {sub && (
-          <p className="mt-[0.1875rem] text-[0.75rem] text-body">{sub}</p>
+          <p className="mt-[0.1875rem] text-meta text-body">{sub}</p>
         )}
       </div>
       {actions && (

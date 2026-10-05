@@ -1,4 +1,4 @@
-use super::sync::{inventory_dc_owner_tx, issue_command_tx};
+use super::sync::{inventory_count_owner_tx, issue_command_tx};
 use super::{
     apply_lines, begin_idempotent, complete_idempotent, insert_group, payload_digest, rank_facets,
     resolve_subject, InventoryFacet,
@@ -192,7 +192,7 @@ pub async fn activate_count(
 
     let site_id: String = row.get("site_id");
     let pool_id: String = row.get("pool_id");
-    let owner = inventory_dc_owner_tx(&mut tx, &site_id).await?;
+    let owner = inventory_count_owner_tx(&mut tx, &site_id).await?;
     let expected_subjects = if owner.is_none() {
         sqlx::query(
             r#"INSERT INTO count_snapshot(count_id,subject_id,expected_quantity,expected_place_id)
@@ -563,6 +563,9 @@ pub async fn approve_count(
     .await?;
     let mut shortages = Vec::new();
     let mut gains = Vec::new();
+    // Counted over where this pool has the same piece missing: a find, not a
+    // gain — a count closes an open Missing first (owner, 1 Oct 2026).
+    let mut finds = Vec::new();
     for row in rows {
         let subject_id: Uuid = row.get("subject_id");
         let expected: i64 = row.get("expected");
@@ -583,9 +586,41 @@ pub async fn approve_count(
                 )?,
             });
         } else if found > expected {
+            let missing_here: i64 = sqlx::query(
+                "SELECT COALESCE(SUM(pr.quantity),0)::bigint quantity
+                 FROM inventory_projection pr
+                 JOIN inventory_place ip ON ip.id=pr.place_id
+                 WHERE pr.subject_id=$1 AND ip.pool_id=$2 AND ip.state='MISSING'",
+            )
+            .bind(subject_id)
+            .bind(&pool_id)
+            .fetch_one(&mut *tx)
+            .await?
+            .get("quantity");
+            let over = found - expected;
+            let find = over.min(missing_here);
+            if find > 0 {
+                finds.push(MovementLine {
+                    subject_id: SubjectId(subject_id),
+                    quantity: find,
+                    from: format!("{pool_id}:missing").parse().map_err(
+                        |error: crate::cloud::domain::PlaceError| {
+                            AppError::Validation(error.to_string())
+                        },
+                    )?,
+                    to: format!("{pool_id}:on_hand").parse().map_err(
+                        |error: crate::cloud::domain::PlaceError| {
+                            AppError::Validation(error.to_string())
+                        },
+                    )?,
+                });
+            }
+            if over == find {
+                continue;
+            }
             gains.push(MovementLine {
                 subject_id: SubjectId(subject_id),
-                quantity: found - expected,
+                quantity: over - find,
                 from: Place::System {
                     place: SystemPlace::CountGain,
                 },
@@ -620,6 +655,23 @@ pub async fn approve_count(
         insert_group(&mut tx, &command, &key, &digest).await?;
         movement_count += apply_lines(&mut tx, &command, &key, &digest).await?.len();
         shortage_group_id = Some(command.movement_group_id.0);
+        group_ids.push(command.movement_group_id.0);
+    }
+    if !finds.is_empty() {
+        let command = MovementCommand {
+            movement_group_id: MovementGroupId::new(),
+            lines: finds,
+            cause: MovementCause::Found,
+            reference_type: Some("OFFICIAL_COUNT".into()),
+            reference_id: Some(count_id.to_string()),
+            reason: format!("Approved count found what was missing: {reason}"),
+            actor_id: request.actor_id.clone(),
+            occurred_at: Utc::now(),
+        };
+        validate_command(&command).map_err(|error| AppError::Validation(error.to_string()))?;
+        let key = format!("{}:found", request.idempotency_key);
+        insert_group(&mut tx, &command, &key, &digest).await?;
+        movement_count += apply_lines(&mut tx, &command, &key, &digest).await?.len();
         group_ids.push(command.movement_group_id.0);
     }
     if !gains.is_empty() {
@@ -779,6 +831,35 @@ pub async fn get_count(pool: &PgPool, count_id: Uuid) -> Result<Value, AppError>
                 .collect(),
         )
     };
+    // Each line names its article, so a review reads as goods rather than codes.
+    let mut lines = lines;
+    if let Value::Array(items) = &mut lines {
+        let codes: Vec<String> = items
+            .iter()
+            .filter_map(|line| line.get("sku_code").and_then(Value::as_str).map(str::to_owned))
+            .collect();
+        let names: BTreeMap<String, String> = sqlx::query(
+            "SELECT sku.sku_code, article.name FROM sku
+             JOIN article ON article.id = sku.article_id
+             WHERE sku.sku_code = ANY($1)",
+        )
+        .bind(&codes)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|row| (row.get("sku_code"), row.get("name")))
+        .collect();
+        for line in items.iter_mut() {
+            let name = line
+                .get("sku_code")
+                .and_then(Value::as_str)
+                .and_then(|code| names.get(code))
+                .cloned();
+            if let Value::Object(map) = line {
+                map.insert("article_name".into(), json!(name));
+            }
+        }
+    }
     let summary = {
         let mut tx = pool.begin().await?;
         let value = count_comparison_tx(&mut tx, count_id).await?;

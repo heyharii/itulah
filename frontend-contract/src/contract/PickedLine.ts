@@ -8,4 +8,9 @@ export type PickedLine = { sku_code: string, picked: number,
  * More than one when a picker came back to the same rack — a rack that
  * keeps needing second trips is a rack in the wrong place.
  */
-events: number, };
+events: number, 
+/**
+ * Of what this picklist fetched, how much is still in the pick area and
+ * in no carton: what packing can still take off this picklist.
+ */
+waiting: number, };

@@ -135,7 +135,7 @@ function EditSheet({
         <SheetFooter
           onCancel={onClose}
           onSave={() => save.mutate()}
-          saveLabel="Save payslip settings"
+          saveLabel="Submit"
           pending={save.isPending}
           disabled={reason.trim() === ""}
         />

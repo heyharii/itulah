@@ -8,4 +8,9 @@ subledger_minor: number,
 /**
  * What the ledger holds on the account the type is mapped to.
  */
-gl_minor: number, difference_minor: number, account_code: string | null, };
+gl_minor: number, 
+/**
+ * The ledger less everything still open on that account — every period
+ * of every type mapped to it, since types can share an account.
+ */
+difference_minor: number, account_code: string | null, };

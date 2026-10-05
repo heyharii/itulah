@@ -30,6 +30,7 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { Lifecycle } from "@/components/ui/timeline"
+import { SHOW_MISSING } from "@/lib/features"
 import { useFilterState, type FilterField } from "@/lib/filters"
 import { usePanelDock } from "@/lib/layout"
 import { count, label as humanise, moment } from "@/lib/format"
@@ -55,6 +56,11 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
+import {
+  groupMissing,
+  useMissingRows,
+  type MissingGroup,
+} from "@/screens/inventory/missing-data"
 import { Choice } from "@/screens/inventory/parts"
 import { signed, useActor, writablePools } from "@/screens/inventory/shared"
 
@@ -64,9 +70,9 @@ import { signed, useActor, writablePools } from "@/screens/inventory/shared"
 /// The lifecycle is `DRAFT → ACTIVE → REVIEW → CLOSED` and nothing else. What
 /// each step means depends entirely on who owns the site, and the fork is at
 /// **activation**: with no DC owner the cloud freezes an expectation here and
-/// the counting happens here; with one, the cloud snapshots nothing, sends a
+/// the counting happens here; with one, the cloud projects nothing, sends a
 /// command, and every later step is the DC's. Approving a DC-owned count does
-/// not close it — it *asks* for an adjustment, and the count stays in review
+/// not close it — it *asks* for a movement, and the count stays in review
 /// until that node answers. The screen says which of the two it is on every
 /// record rather than leaving a button that silently does something else.
 
@@ -102,9 +108,9 @@ const columns: ColumnDef<TableSetup, CountRow>[] = [
     id: "pool_id",
     accessorFn: (row) => row.pool_id,
     cell: ({ row }) => (
-      <div className="min-w-0">
+      <div className="min-w-0 py-1">
         <span className="block truncate text-ink">{row.original.reason}</span>
-        <span className="font-mono text-id text-mute">
+        <span className="mt-1 block truncate font-mono text-id text-mute">
           {row.original.pool_id}
         </span>
       </div>
@@ -362,11 +368,7 @@ export function Counts() {
 
   return (
     <PageContent>
-      <PageHeader
-        crumb="Inventory"
-        title="Counts"
-        sub="What was expected, what was found, and who is allowed to say so."
-      />
+      <PageHeader crumb="Inventory" title="Counts" />
 
       <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="flex min-w-0 flex-col">
@@ -383,9 +385,8 @@ export function Counts() {
                     ? search.open(event.target.value)
                     : search.close()
                 }
-                placeholder="Search pool, reason, who"
                 aria-label="Search counts"
-                className="h-[2.125rem] w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
+                className="h-control w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
               />
             </span>
             {/* The same model as the panel, as the chips over the table and
@@ -435,21 +436,22 @@ export function Counts() {
                 rows.length === 0 ? (
                   <EmptyState>
                     {narrowed
-                      ? "No count matches what you asked for."
+                      ? "Nothing matches."
                       : slice.value === "REVIEW"
-                        ? "Nothing is waiting for a decision."
+                        ? "Nothing to review."
                         : slice.value === "ACTIVE"
-                          ? "Nobody is counting anything right now."
+                          ? "Nothing being counted."
                           : slice.value === "DRAFT"
-                            ? "No count has been drafted."
+                            ? "No drafts."
                             : slice.value === "CLOSED"
-                              ? "No count has been closed yet."
-                              : "No count has been opened yet."}
+                              ? "None closed."
+                              : "No counts."}
                   </EmptyState>
                 ) : (
                   <DataTable<CountRow>
                     table={table}
                     more={board}
+                    rowHeight={64}
                     onRowClick={(row) => sheet.open(row.id)}
                     isSelected={(row) => row.id === sheet.value}
                     className="max-h-[calc(100vh-14rem)]"
@@ -490,21 +492,9 @@ function bookKpis(page: CountPage | undefined) {
   if (page === undefined) return undefined
   return [
     { label: "Counts", value: count(page.total) },
-    {
-      label: "In review",
-      value: count(facetOf(page, "REVIEW")),
-      note: "Counted, and waiting for somebody to approve the adjustment.",
-    },
-    {
-      label: "Counting",
-      value: count(facetOf(page, "ACTIVE")),
-      note: "Open on somebody's floor right now.",
-    },
-    {
-      label: "Drafts",
-      value: count(facetOf(page, "DRAFT")),
-      note: "Opened, not yet started.",
-    },
+    { label: "In review", value: count(facetOf(page, "REVIEW")) },
+    { label: "Counting", value: count(facetOf(page, "ACTIVE")) },
+    { label: "Drafts", value: count(facetOf(page, "DRAFT")) },
   ]
 }
 
@@ -580,6 +570,10 @@ function CountSheet({
     },
   })
 
+  // Open Missing for the same pool: an over-count closes it before it is extra.
+  const missingRows = useMissingRows().rows
+  const missing = useMemo(() => groupMissing(missingRows), [missingRows])
+
   const failure = [activate, submit, approve, record].find((one) => one.isError)
 
   return (
@@ -620,7 +614,7 @@ function CountSheet({
                           : "warn"
                     }
                   >
-                    Adjustment {humanise(data.edge_adjustment_status)}
+                    Movement {humanise(data.edge_adjustment_status)}
                   </Pill>
                 )}
               </div>
@@ -690,11 +684,13 @@ function CountSheet({
                   Lines
                 </h4>
                 {data.lines.length === 0 ? (
-                  <p className="text-meta text-body">
-                    {owned
-                      ? "The DC has not reported a result yet."
-                      : "Nothing has been snapshotted — the count is still a draft."}
-                  </p>
+                  <p className="text-meta text-body">No lines yet.</p>
+                ) : data.status === "REVIEW" ? (
+                  <ReviewLines
+                    lines={data.lines}
+                    poolId={data.pool_id}
+                    open={missing}
+                  />
                 ) : (
                   <MiniTable
                     head={[
@@ -709,16 +705,16 @@ function CountSheet({
                         key={line.subject_id ?? line.epc}
                         className="border-t border-hairline"
                       >
-                        <td className="py-2 pr-2 font-mono text-[0.875rem] text-body">
+                        <td className="py-3.5 pr-2 font-mono text-[0.875rem] text-body">
                           {line.epc}
                         </td>
-                        <td className="py-2 text-right font-mono text-[0.875rem] text-body">
+                        <td className="py-3.5 text-right font-mono text-[0.875rem] text-body">
                           {line.sku_code}
                         </td>
-                        <td className="py-2 text-right tabular-nums">
+                        <td className="py-3.5 text-right tabular-nums">
                           {count(line.expected_quantity)}
                         </td>
-                        <td className="w-20 py-2 pl-2 text-right tabular-nums">
+                        <td className="w-20 py-3.5 pl-2 text-right tabular-nums">
                           {data.status === "ACTIVE" &&
                           !owned &&
                           line.subject_id ? (
@@ -747,79 +743,150 @@ function CountSheet({
                 )}
               </section>
 
-              <section className="flex flex-col gap-2.5 border-t border-hairline pt-4">
-                {owned && data.status !== "DRAFT" && (
-                  <p className="text-[0.875rem] text-mute">
-                    The DC that owns this site does the counting. Entries and
-                    submission from here are refused, and approving only asks
-                    that node to adjust — the count closes when it answers.
-                  </p>
-                )}
+              {data.status !== "CLOSED" &&
+                !(data.status === "ACTIVE" && owned) && (
+                  <section className="flex flex-col gap-2.5 border-t border-hairline pt-4">
+                    {data.status === "DRAFT" && (
+                      <Button
+                        variant="soft"
+                        pending={activate.isPending}
+                        disabled={actor === ""}
+                        onClick={() => activate.mutate()}
+                      >
+                        {activate.isPending ? "Activating…" : "Activate"}
+                      </Button>
+                    )}
 
-                {data.status === "DRAFT" && (
-                  <Button
-                    variant="soft"
-                    pending={activate.isPending}
-                    disabled={actor === ""}
-                    onClick={() => activate.mutate()}
-                  >
-                    {activate.isPending
-                      ? "Activating…"
-                      : "Activate and freeze the expectation"}
-                  </Button>
-                )}
+                    {data.status === "ACTIVE" && !owned && (
+                      <>
+                        <Button
+                          variant="soft"
+                          pending={record.isPending}
+                          disabled={
+                            Object.keys(found).length === 0 || actor === ""
+                          }
+                          onClick={() => record.mutate()}
+                        >
+                          {record.isPending ? "Submitting…" : "Submit"}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          pending={submit.isPending}
+                          disabled={actor === ""}
+                          onClick={() => submit.mutate()}
+                        >
+                          {submit.isPending ? "Submitting…" : "Submit"}
+                        </Button>
+                      </>
+                    )}
 
-                {data.status === "ACTIVE" && !owned && (
-                  <>
-                    <Button
-                      variant="soft"
-                      pending={record.isPending}
-                      disabled={Object.keys(found).length === 0 || actor === ""}
-                      onClick={() => record.mutate()}
-                    >
-                      {record.isPending
-                        ? "Recording…"
-                        : "Record what was found"}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      pending={submit.isPending}
-                      disabled={actor === ""}
-                      onClick={() => submit.mutate()}
-                    >
-                      {submit.isPending ? "Submitting…" : "Submit for review"}
-                    </Button>
-                  </>
+                    {data.status === "REVIEW" && (
+                      <Button
+                        variant="soft"
+                        pending={approve.isPending}
+                        disabled={actor === ""}
+                        onClick={() => approve.mutate()}
+                      >
+                        {approve.isPending ? "Approving…" : "Approve"}
+                      </Button>
+                    )}
+                  </section>
                 )}
-
-                {data.status === "REVIEW" && (
-                  <Button
-                    variant="soft"
-                    pending={approve.isPending}
-                    disabled={actor === ""}
-                    onClick={() => approve.mutate()}
-                  >
-                    {approve.isPending
-                      ? "Approving…"
-                      : owned
-                        ? "Ask the DC to adjust"
-                        : "Approve and post the difference"}
-                  </Button>
-                )}
-
-                {data.status === "CLOSED" && (
-                  <p className="text-[0.875rem] text-mute">
-                    Closed {moment(data.closed_at)}. Shortages moved to missing
-                    as `COUNT_SHORTAGE`; anything found over arrived as
-                    `COUNT_GAIN`.
-                  </p>
-                )}
-              </section>
             </div>
           )
         },
       })}
     </Sheet>
+  )
+}
+
+/// Per SKU: the book, what was counted, and what approving does with the
+/// difference — short goes to Missing, over closes an open Missing of the same
+/// SKU in this pool and only the rest is extra.
+function ReviewLines({
+  lines,
+  poolId,
+  open,
+}: {
+  lines: CountDetail["lines"]
+  poolId: string
+  open: readonly MissingGroup[]
+}) {
+  const skus = useMemo(() => {
+    const by = new Map<
+      string,
+      { sku: string; name: string | null; book: number; counted: number }
+    >()
+    for (const line of lines) {
+      const one = by.get(line.sku_code) ?? {
+        sku: line.sku_code,
+        name: line.article_name ?? null,
+        book: 0,
+        counted: 0,
+      }
+      one.book += line.expected_quantity
+      one.counted += line.found_quantity
+      by.set(line.sku_code, one)
+    }
+    return [...by.values()]
+  }, [lines])
+
+  const becomes = (sku: string, book: number, counted: number) => {
+    const diff = counted - book
+    if (diff === 0) return { text: "Same", tone: "text-mute" }
+    if (diff < 0)
+      return {
+        text: SHOW_MISSING ? `${-diff} to Missing` : `${-diff} short`,
+        tone: "text-warn-fg",
+      }
+    const held = open
+      .filter((one) => one.pool === poolId && one.sku === sku)
+      .reduce((sum, one) => sum + one.left, 0)
+    const found = Math.min(diff, held)
+    return found > 0
+      ? {
+          text:
+            diff > found
+              ? `${found} found · ${diff - found} extra`
+              : `${found} found`,
+          tone: "text-ok-fg",
+        }
+      : { text: `${diff} extra`, tone: "text-ok-fg" }
+  }
+
+  return (
+    <MiniTable
+      head={[{ label: "Article", align: "left" }, "Book", "Counted", "Becomes"]}
+    >
+      {skus.map((one) => {
+        const result = becomes(one.sku, one.book, one.counted)
+        return (
+          <tr key={one.sku} className="h-16 border-t border-hairline">
+            <td className="py-3.5">
+              {one.name ? (
+                <>
+                  <span className="block text-ink">{one.name}</span>
+                  <span className="mt-1 block font-mono text-[0.875rem] text-mute">
+                    {one.sku}
+                  </span>
+                </>
+              ) : (
+                <span className="font-mono text-[0.875rem] text-ink">
+                  {one.sku}
+                </span>
+              )}
+            </td>
+            <td className="text-right tabular-nums">{count(one.book)}</td>
+            <td className="text-right font-medium text-ink tabular-nums">
+              {count(one.counted)}
+            </td>
+            <td className={`text-right font-medium ${result.tone}`}>
+              {result.text}
+            </td>
+          </tr>
+        )
+      })}
+    </MiniTable>
   )
 }
 
@@ -896,12 +963,6 @@ function Composer({ open, onClose }: { open: boolean; onClose: () => void }) {
         }}
         className="flex flex-col gap-4"
       >
-        <p className="text-[0.875rem] text-mute">
-          A count starts as a draft and freezes nothing. The expectation is
-          taken at activation — and if a DC owns the site, it is taken there
-          rather than here.
-        </p>
-
         {create.isError && (
           <Banner tone="bad">
             {create.error instanceof Error
@@ -912,11 +973,7 @@ function Composer({ open, onClose }: { open: boolean; onClose: () => void }) {
 
         <form.Field name="pool">
           {(field) => (
-            <Field
-              label="Pool"
-              required
-              hint="Only pools this node may write to. A pool a live Edge node owns is counted there."
-            >
+            <Field label="Pool" required>
               <Choice
                 value={field.state.value}
                 onChange={field.handleChange}
@@ -924,7 +981,6 @@ function Composer({ open, onClose }: { open: boolean; onClose: () => void }) {
                   value: item.id,
                   label: `${item.site_id} · ${item.label}`,
                 }))}
-                placeholder="Choose a pool"
                 className="h-9 w-full max-w-none"
               />
             </Field>
@@ -951,7 +1007,6 @@ function Composer({ open, onClose }: { open: boolean; onClose: () => void }) {
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(event) => field.handleChange(event.target.value)}
-                placeholder="Quarterly stocktake"
               />
             </Field>
           )}
@@ -962,18 +1017,13 @@ function Composer({ open, onClose }: { open: boolean; onClose: () => void }) {
             targeted && (
               <form.Field name="epcs">
                 {(field) => (
-                  <Field
-                    label="Tags to count"
-                    required
-                    hint="One EPC per line or comma separated. A targeted count with no scope is refused."
-                  >
+                  <Field label="Tags to count" required>
                     <Input
                       value={field.state.value}
                       onBlur={field.handleBlur}
                       onChange={(event) =>
                         field.handleChange(event.target.value)
                       }
-                      placeholder="A0000000000000000001, A0000000000000000002"
                     />
                   </Field>
                 )}
@@ -998,7 +1048,7 @@ function Composer({ open, onClose }: { open: boolean; onClose: () => void }) {
               pending={create.isPending}
               disabled={!ready}
             >
-              {create.isPending ? "Drafting…" : "Draft the count"}
+              {create.isPending ? "Submitting…" : "Submit"}
             </Button>
           )}
         </form.Subscribe>

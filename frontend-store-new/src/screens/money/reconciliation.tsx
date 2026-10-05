@@ -17,7 +17,7 @@ import {
   type SalesWindow,
   type TenderTotal,
 } from "@/lib/queries"
-import { useOpenDrawer } from "@/lib/queries/reconciliation"
+import { useOpenDrawers, useTillSeats } from "@/lib/queries/reconciliation"
 import { signed, spanWords, tenderOf } from "@/screens/money/format"
 import {
   CardHead,
@@ -27,7 +27,7 @@ import {
   Toolbar,
   TwoLine,
 } from "@/screens/money/parts"
-import type { CashMovementView, ShiftReport } from "@itulah/contract"
+import type { CashMovementView, ShiftReport, TillSeat } from "@itulah/contract"
 import { money, units } from "@itulah/contract/money"
 
 /// Did the money this shop rang up turn into money this shop holds?
@@ -57,11 +57,11 @@ import { money, units } from "@itulah/contract/money"
 ///
 /// **Why the two halves carry different spans.** A drawer is counted per
 /// *shift*; an acquirer settles a *day's* batch. Forcing one span on both would
-/// make one half lie, so the cash half is the shift the node has open and the
-/// capture half is a calendar window — each with its own strip of figures, so
-/// nobody adds one to the other.
+/// make one half lie, so the cash half is the shifts the node has open — one
+/// drawer per till seat — and the capture half is a calendar window. Each has
+/// its own strip of figures, so nobody adds one to the other.
 export function Reconciliation() {
-  const drawer = useOpenDrawer()
+  const drawers = useOpenDrawers()
   const span = useParam("span")
   const chosen = spanOf(span.value)
   // Read once per render. `lastDays` reads the clock, and two calls either
@@ -74,26 +74,23 @@ export function Reconciliation() {
   })
 
   return (
-    <MoneyScreen sub="Cash is counted in the drawer, tonight. Card and QRIS are settled by an acquirer, days later. Two questions, kept apart.">
+    <MoneyScreen>
       <Section
         className="mb-8"
-        title="Cash · counted in the drawer"
+        title="Cash"
         action={
-          drawer.data !== undefined && drawer.data !== null ? (
-            <Pill tone={drawer.data.status === "OPEN" ? "info" : "ok"}>
-              {drawer.data.status === "OPEN" ? "Still open" : "Closed"}
-            </Pill>
+          drawers.data !== undefined && drawers.data.length > 0 ? (
+            <Pill tone="info">{drawers.data.length} still open</Pill>
           ) : undefined
         }
       >
-        {queryState(drawer, {
-          loading: "Reading the drawer this shop has open…",
-          render: (report) =>
-            report === null ? <NoDrawer /> : <Drawer report={report} />,
+        {queryState(drawers, {
+          loading: "Loading…",
+          render: (reports) => <Counter reports={reports} />,
         })}
       </Section>
 
-      <Section title="Card, QRIS and the rest · settled elsewhere">
+      <Section title="Card, QRIS and others">
         <Toolbar>
           <SpanPicker
             options={SPANS}
@@ -105,7 +102,7 @@ export function Reconciliation() {
           </span>
         </Toolbar>
         {queryState(captured, {
-          loading: "Reading what this terminal captured…",
+          loading: "Loading…",
           render: (taken) => <Captured taken={taken} days={chosen} />,
         })}
       </Section>
@@ -135,22 +132,132 @@ function spanOf(raw: string | undefined): Span {
 // ─────────────────────────────────────────────────────────────────────────────
 // Cash
 
+/// The whole counter: which seats are held, then each open drawer in full.
+///
+/// A shop has as many till seats as head office set, and a drawer is one
+/// person's cash at one seat — so this is a list, and the seat table above it
+/// is the glance a manager wants before choosing which ladder to read. The
+/// ladders below are the same `Drawer` the single-counter screen drew, one per
+/// open shift, in the order the node lists them.
+///
+/// The seat list is a courtesy, not a dependency: if `tills` fails, the drawers
+/// are still the answer to the question the screen asks, and a manager should
+/// not lose a cash position over a missing table.
+function Counter({ reports }: { reports: readonly ShiftReport[] }) {
+  const seats = useTillSeats()
+  return (
+    <>
+      {seats.data !== undefined && seats.data.length > 0 && (
+        <Card className="mb-4">
+          <CardHead
+            title="Tills"
+          />
+          <ListTable
+            rows={seats.data}
+            columns={seatColumns(reports)}
+            rowKey={(seat) => seat.terminal_id}
+            empty="No tills."
+          />
+        </Card>
+      )}
+      {reports.length === 0 ? (
+        <NoDrawer />
+      ) : (
+        reports.map((report, index) => (
+          <div key={report.shift_id} className={index === 0 ? "" : "mt-8"}>
+            <h3 className="mb-2 text-card-title font-semibold text-ink">
+              {report.terminal_label}
+            </h3>
+            <Drawer report={report} />
+          </div>
+        ))
+      )}
+    </>
+  )
+}
+
+/// A store-local calendar day, as a date rather than a moment.
+///
+/// `business_date` is a day, not an instant: run through `moment` it would
+/// grow an hour nobody rang anything at. Parsed at local midnight so a day
+/// never slips a day in a timezone behind UTC.
+function businessDay(date: string | null): string {
+  if (date === null) return "—"
+  const parsed = new Date(`${date}T00:00:00`)
+  if (Number.isNaN(parsed.getTime())) return "—"
+  return parsed.toLocaleDateString("id-ID", { day: "2-digit", month: "short" })
+}
+
+/// The seat table's columns. A seat is free when it has no shift; the columns
+/// that describe a person or a drawer are then a dash, not a blank, so a free
+/// seat reads as an answer rather than a row that failed to load.
+function seatColumns(
+  reports: readonly ShiftReport[],
+): readonly ListColumn<TillSeat>[] {
+  const opened = (seat: TillSeat) =>
+    reports.find((report) => report.shift_id === seat.shift_id)
+  const dash = <span className="text-faint">—</span>
+  return [
+    {
+      id: "seat",
+      header: "Seat",
+      className: "min-w-[10rem]",
+      cell: (seat) => (
+        <TwoLine
+          top={seat.label}
+          under={seat.current ? undefined : "Removed · drawer open"}
+        />
+      ),
+    },
+    {
+      id: "held",
+      header: "Held by",
+      cell: (seat) => seat.held_by ?? dash,
+    },
+    {
+      id: "since",
+      header: "Since",
+      className: "tabular-nums",
+      cell: (seat) => (seat.held_since === null ? dash : moment(seat.held_since)),
+    },
+    {
+      id: "day",
+      header: "Business date",
+      card: "hide",
+      className: "tabular-nums max-md:hidden",
+      cell: (seat) => {
+        const report = opened(seat)
+        return report === undefined ? dash : businessDay(report.business_date)
+      },
+    },
+    {
+      id: "status",
+      header: "Status",
+      align: "right",
+      card: "status",
+      cell: (seat) =>
+        seat.shift_id === null ? (
+          <Pill tone="neutral">Free</Pill>
+        ) : (
+          <Pill tone="info">Open</Pill>
+        ),
+    },
+  ]
+}
+
 /// No shift is open, which is not an error and not an empty screen.
 ///
 /// Cash reconciles against a count, a count happens at a close, and a close
 /// belongs to a shift. The node also keeps no way to walk back through shifts
-/// that have ended — `shifts/active` and `shifts/{id}` are the only two doors,
-/// and the second needs an id nothing on this node hands out — so a drawer
+/// that have ended — `shifts/open` and `shifts/{id}` are the only doors, and
+/// the second needs an id nothing on this node hands out — so a drawer
 /// counted last night cannot be re-opened from here. Saying that is the honest
 /// answer; drawing an empty ladder of zeroes would not be.
 function NoDrawer() {
   return (
     <Card>
       <EmptyState>
-        No drawer is open on this node, so there is no cash position to
-        reconcile. Cash is counted against a shift, opened and closed at the
-        till on the POS: a float counted in at the start, and a count at the
-        close.
+        No drawer is open.
       </EmptyState>
     </Card>
   )
@@ -172,8 +279,7 @@ function Drawer({ report: given }: { report: ShiftReport }) {
   if (report === null) {
     return (
       <Banner tone="warn">
-        The drawer's figures are withheld from a cashier — the close is
-        blind. Sign in as a supervisor to reconcile this shift.
+        Hidden from cashiers. Sign in as a supervisor.
       </Banner>
     )
   }
@@ -184,8 +290,12 @@ function Drawer({ report: given }: { report: ShiftReport }) {
   return (
     <>
       <p className="-mt-1 mb-3 text-meta text-mute">
-        Till {report.terminal_id} · opened {moment(report.opened_at)} by{" "}
-        {report.opened_by}
+        Opened {moment(report.opened_at)} by {report.opened_by} · business date{" "}
+        {businessDay(report.business_date)}
+        {report.taken_over_by !== null &&
+          ` · taken over by ${report.taken_over_by}${
+            report.counted_at === null ? ", not counted yet" : ""
+          }`}
         {report.closed_at !== null &&
           ` · closed ${moment(report.closed_at)}${
             report.closed_by === null ? "" : ` by ${report.closed_by}`
@@ -244,22 +354,22 @@ function Drawer({ report: given }: { report: ShiftReport }) {
       ) : (
         <Banner tone={variance === 0 ? "ok" : variance < 0 ? "bad" : "warn"}>
           {variance === 0
-            ? `The drawer balances: ${money(counted)} counted against ${money(report.expected_cash_minor)} expected.`
+            ? `Balanced: ${money(counted)} counted, ${money(report.expected_cash_minor)} expected.`
             : variance < 0
-              ? "The drawer is short: money this shop rang up and does not hold. Walk the cash in and out below first — a drop or a pay-out recorded for the wrong amount is the common cause — then the receipts, for a sale rung as cash and paid some other way."
-              : "The drawer is over. Nothing is missing, but something was rung wrong: change not handed back, or a card sale recorded as cash. It is found the same way a shortage is, and it is worth finding — an over tonight is usually a short somewhere else."}
+              ? `Short ${money(-variance)}. Check cash in and out, then the receipts.`
+              : `Over ${money(variance)}. Check cash in and out, then the receipts.`}
         </Banner>
       )}
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[22rem_minmax(0,1fr)]">
         <Card className="self-start">
-          <CardHead title="How the drawer adds up" />
+          <CardHead title="Drawer" />
           <div className="px-4 pb-3">
             <TotalsLadder
               className="border-t-0"
               rows={[
                 {
-                  label: "Opening float, drops and pay-outs",
+                  label: "Float, drops and pay-outs",
                   value: money(report.cash_movements_minor),
                 },
                 { label: "Cash taken", value: money(report.cash_sales_minor) },
@@ -291,7 +401,7 @@ function Drawer({ report: given }: { report: ShiftReport }) {
               </span>
             </KeyValue>
             {report.note !== null && (
-              <KeyValue term="Note at the close">{report.note}</KeyValue>
+              <KeyValue term="Close note">{report.note}</KeyValue>
             )}
           </div>
         </Card>
@@ -299,23 +409,20 @@ function Drawer({ report: given }: { report: ShiftReport }) {
         <Card className="min-w-0 self-start">
           <CardHead
             title="Cash in and out"
-            sub="Everything that moved the drawer apart from a sale."
           />
           <ListTable
             rows={report.movements}
             columns={MOVEMENT_COLUMNS}
             rowKey={(movement) => movement.id}
-            empty="Nothing went in or out of this drawer apart from sales."
+            empty="No cash in or out."
           />
         </Card>
       </div>
 
       {report.non_cash_minor > 0 && (
         <Note>
-          This shift also took{" "}
-          <span className="tabular-nums">{money(report.non_cash_minor)}</span>{" "}
-          on cards, QRIS or other tenders. None of it is in the ladder above,
-          because none of it is in the drawer — it is the half below.
+          Non-cash this shift:{" "}
+          <span className="tabular-nums">{money(report.non_cash_minor)}</span>
         </Note>
       )}
     </>
@@ -382,10 +489,8 @@ function whole(report: ShiftReport): WholeReport | null {
 function UncountedDrawer({ expected }: { expected: number }) {
   return (
     <Banner tone="info">
-      This drawer has not been counted, so it has no difference yet — on the
-      figures below it should be holding{" "}
-      <span className="tabular-nums">{money(expected)}</span>. The count is
-      taken at the close, blind, at the till.
+      Not counted yet. Expected{" "}
+      <span className="tabular-nums">{money(expected)}</span>.
     </Banner>
   )
 }
@@ -477,8 +582,8 @@ function Captured({ taken, days }: { taken: SalesWindow; days: Span }) {
       <Card>
         <EmptyState>
           {days === "1"
-            ? "Nothing has been rung up today yet, so there is nothing to settle."
-            : "This shop recorded no sales in that span."}
+            ? "No sales today."
+            : "No sales in this period."}
         </EmptyState>
       </Card>
     )
@@ -488,8 +593,7 @@ function Captured({ taken, days }: { taken: SalesWindow; days: Span }) {
     return (
       <Card>
         <EmptyState>
-          Every payment this shop took in that span was cash. There is nothing
-          here for an acquirer to settle — all of it is counted in the drawer.
+          All payments were cash.
         </EmptyState>
       </Card>
     )
@@ -510,65 +614,39 @@ function Captured({ taken, days }: { taken: SalesWindow; days: Span }) {
     <>
       <StatStrip>
         <Stat
-          label="Captured by this till"
+          label="Captured"
           value={money(total)}
-          sub="card, QRIS and the rest"
         />
         <Stat
-          label="Tenders to settle"
+          label="Payments"
           value={units(count)}
-          sub={`across ${units(nonCash.length)} ${nonCash.length === 1 ? "method" : "methods"}`}
+          sub={`${units(nonCash.length)} ${nonCash.length === 1 ? "method" : "methods"}`}
         />
         <Stat
-          label="Confirmed by the bank"
+          label="Bank confirmed"
           value="—"
-          sub="checked at head office"
+          sub="At head office"
         />
         {cash !== undefined && (
           <Stat
-            label="Cash in the same span"
+            label="Cash"
             value={money(cash.amount_minor)}
-            sub="counted in the drawer, not here"
           />
         )}
       </StatStrip>
 
       <Card>
         <CardHead
-          title="Captured, by how it was paid"
-          sub="What the terminal captured — not what the bank paid."
+          title="By method"
         />
         <ListTable
           rows={lines}
           columns={CAPTURE_COLUMNS}
           rowKey={(line) => line.key}
-          empty="Nothing captured in this span."
+          empty="Nothing captured."
         />
       </Card>
 
-      <Banner tone="info" className="mt-4">
-        This is what the terminal captured, not what the bank paid. The node
-        behind this counter has no line to an acquirer and no settlement file:
-        it cannot say which of these landed, on what date, or net of what fee.
-        That confirmation is done at head office against the bank statement, and
-        nothing on this screen should be read as it.
-      </Banner>
-
-      <Note>
-        The till captures an approval code with each card or QRIS tender and
-        keeps it on the sale, where it prints on the receipt. These figures are
-        grouped by method, which is all this node&rsquo;s report answers — so
-        the code-by-code list a bank match needs is read receipt by receipt, on
-        Reports.
-        {cash !== undefined && (
-          <>
-            {" "}
-            Cash taken in this span is deliberately not in the table: it is
-            banknotes, counted in the drawer above. That half is one shift and
-            this one is a calendar span, so the two are not meant to add up.
-          </>
-        )}
-      </Note>
     </>
   )
 }
@@ -576,12 +654,12 @@ function Captured({ taken, days }: { taken: SalesWindow; days: Span }) {
 const CAPTURE_COLUMNS: readonly ListColumn<CaptureLine>[] = [
   {
     id: "method",
-    header: "How it was paid",
+    header: "Method",
     className: "min-w-[14rem]",
     cell: (line) => {
       if (line.tender === null) {
         return (
-          <span className="font-semibold text-ink">Captured by this till</span>
+          <span className="font-semibold text-ink">Total</span>
         )
       }
       const kind = tenderOf(line.tender.method)

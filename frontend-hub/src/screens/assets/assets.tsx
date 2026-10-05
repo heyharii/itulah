@@ -142,7 +142,6 @@ export function Assets() {
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Code, name or serial"
               className="h-8 w-56"
             />
             <Button variant="primary" onClick={() => setAdding(true)}>

@@ -66,7 +66,7 @@ path, and redirects each item's `moved` paths so old bookmarks still land.
 | Promotions | Promotions, Campaigns, Price drops, Vouchers | Edge (the price book) |
 | Stock | On hand, Receive, Movements | Edge |
 | Money | Sales, Reconciliation, Expenses, Reports | Edge |
-| People | Overview, Directory · Time: Roster, Attendance, Leave, Overtime · Pay: Payroll (the month close), Expenses, Benefits · Talent: Recruitment, Onboarding & exit, Employment changes, Performance, Training | head office, relayed |
+| People | Overview, Employees · Time: Roster, Attendance, Period close, Leave, Overtime · Pay: Expenses, Benefits · Talent: Recruitment, Onboarding & exit, Employment changes, Performance, Training | head office, relayed |
 | GA | Overview · Premises: Assets, Contracts, Servicing · Requests: Repairs, Supplies | head office, relayed |
 | Kabar | what head office has told this shop | head office, relayed |
 | This node | Sync, Change password | Edge |
@@ -108,8 +108,8 @@ npm run design-lint
 ```
 
 Point it at a local store Edge with
-`VITE_API_TARGET=http://127.0.0.1:8081 npm run dev` (`launch.json` runs the
-Edge on 8081). For People, GA and Kabar the Edge needs `SYNC_UPLOAD_URL` and
+`VITE_API_TARGET=http://127.0.0.1:8082 npm run dev` (`launch.json` runs the
+Edge on 8082). For People, GA and Kabar the Edge needs `SYNC_UPLOAD_URL` and
 `SYNC_UPLOAD_KEY` for a cloud that has registered it, and the person signed in
 must be a head-office account assigned to that node. Without those the screens
 explain why, and every other module keeps working.

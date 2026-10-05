@@ -24,10 +24,9 @@ import {
 ///
 ///  - **The bench name.** A DC edge can run with `INVENTORY_AUTH_MODE=disabled`
 ///    — a bay with no route to the centre, a recovery, a demo. On such a node
-///    every write is attributed to the same principal, and receiving then
-///    cannot be completed at all: counting and verifying are two people by
-///    database constraint, so one name means an accepted count is refused. The
-///    browser names the person instead, and an authenticated node ignores it.
+///    every write is attributed to the same principal, so a count and its
+///    acceptance would carry no person at all. The browser names the person
+///    instead, and an authenticated node ignores it.
 ///  - **Changing a password ends the session.** The node clears the session
 ///    and CSRF cookies in the same response, so the login box comes back
 ///    immediately. Said before it happens, rather than discovered.
@@ -104,8 +103,8 @@ function Bench() {
       </CardHeader>
       <Banner tone="warn" className="mx-4 mt-2">
         Sign-in is switched off on this node, so every write carries the same
-        principal. Receiving is two people by database constraint — without a
-        name here, a count cannot be accepted at all.
+        principal. Name the person here, so what is counted and accepted is
+        recorded under them.
       </Banner>
       <form
         className="flex flex-col gap-3 px-4 py-3.5"

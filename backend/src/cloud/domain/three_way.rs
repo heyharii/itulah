@@ -65,6 +65,19 @@ pub struct MatchLine {
     pub accepted_quantity: i64,
     /// What the order agreed to pay for one of them.
     pub ordered_unit_price_minor: i64,
+    /// What `billed_quantity` is worth at the ordered price, worked out by the
+    /// caller with the one valuation rule (`units::purchase_value`, 0823):
+    /// a line priced per lusin is pieces × price ÷ 12 rounded once, never
+    /// pieces × a rounded piece price. `None` reads it as `billed_quantity ×
+    /// ordered_unit_price_minor`.
+    pub ordered_value_minor: Option<i64>,
+}
+
+impl MatchLine {
+    fn ordered_value(&self) -> i64 {
+        self.ordered_value_minor
+            .unwrap_or(self.billed_quantity * self.ordered_unit_price_minor)
+    }
 }
 
 /// Why a line did not match.
@@ -157,7 +170,7 @@ pub fn match_bill_to_deliveries(lines: &[MatchLine], tolerance: MatchTolerance) 
     let mut outcome = MatchOutcome::default();
     for line in lines {
         outcome.billed_value_minor += line.billed_quantity * line.billed_unit_price_minor;
-        outcome.ordered_value_minor += line.billed_quantity * line.ordered_unit_price_minor;
+        outcome.ordered_value_minor += line.ordered_value();
 
         if line.billed_quantity > line.accepted_quantity {
             outcome.faults.push(LineFault::OverBilled {
@@ -169,9 +182,11 @@ pub fn match_bill_to_deliveries(lines: &[MatchLine], tolerance: MatchTolerance) 
 
         let difference_bp =
             price_difference_bp(line.billed_unit_price_minor, line.ordered_unit_price_minor);
-        let on_the_line = (line.billed_unit_price_minor - line.ordered_unit_price_minor)
-            .saturating_mul(line.billed_quantity)
-            .abs();
+        let on_the_line = line
+            .billed_quantity
+            .saturating_mul(line.billed_unit_price_minor)
+            .saturating_sub(line.ordered_value())
+            .saturating_abs();
         let within = difference_bp.saturating_abs() <= tolerance.unit_price_bp
             || on_the_line <= tolerance.line_amount_minor;
         if !within {
@@ -203,7 +218,20 @@ mod tests {
             billed_unit_price_minor: billed_price,
             accepted_quantity: accepted,
             ordered_unit_price_minor: ordered,
+            ordered_value_minor: None,
         }
+    }
+
+    #[test]
+    fn a_line_priced_per_lusin_is_compared_with_its_own_total() {
+        // 240 pcs ordered at 400.000 a lusin is 8.000.000; billed per piece
+        // at 33.333 it is 80 short — a rounding, not a disagreement.
+        let mut one = line(1, 240, 33_333, 240, 33_333);
+        one.ordered_value_minor = Some(8_000_000);
+        let outcome = match_bill_to_deliveries(&[one], MatchTolerance::default());
+        assert!(outcome.is_clean());
+        assert_eq!(outcome.ordered_value_minor, 8_000_000);
+        assert_eq!(outcome.variance_minor(), -80);
     }
 
     #[test]

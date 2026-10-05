@@ -109,7 +109,6 @@ async fn variant(
             tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
             colour_codes: colours.iter().map(|one| (*one).to_owned()).collect(),
             size_codes: sizes.iter().map(|one| (*one).to_owned()).collect(),
-            units: vec![],
         },
         ACTOR,
         &format!("item-{code}"),

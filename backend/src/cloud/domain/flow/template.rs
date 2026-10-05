@@ -265,72 +265,13 @@ impl FlowRole {
     }
 }
 
-/// The role of the pool goods land in at the destination. Instances are data
-/// (created from a site template); roles are fixed here.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum PoolRole {
-    /// Receiving at the Gudang: accepted, not yet on the racks.
-    Pending,
-    /// The Gudang racks.
-    Warehouse,
-    /// One store's return pool at the Gudang.
-    Return,
-    Reject,
-    /// A shop's stockroom (gudang belakang).
-    Stockroom,
-    /// A shop's floor.
-    Floor,
-}
-
-impl PoolRole {
-    pub const ALL: [PoolRole; 6] = [
-        Self::Pending,
-        Self::Warehouse,
-        Self::Return,
-        Self::Reject,
-        Self::Stockroom,
-        Self::Floor,
-    ];
-
-    pub const fn code(self) -> &'static str {
-        match self {
-            Self::Pending => "PENDING",
-            Self::Warehouse => "WAREHOUSE",
-            Self::Return => "RETURN",
-            Self::Reject => "REJECT",
-            Self::Stockroom => "STOCKROOM",
-            Self::Floor => "FLOOR",
-        }
-    }
-
-    pub fn parse(code: &str) -> Option<Self> {
-        let code = code.trim();
-        Self::ALL.into_iter().find(|role| role.code() == code)
-    }
-
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Pending => "Receiving area",
-            Self::Warehouse => "Gudang racks",
-            Self::Return => "The store's return pool (Gudang)",
-            Self::Reject => "Reject",
-            Self::Stockroom => "Store stockroom",
-            Self::Floor => "Store floor",
-        }
-    }
-
-    /// Whether a site of this kind has a pool in this role.
-    pub const fn exists_at(self, kind: SiteKind) -> bool {
-        match self {
-            Self::Pending | Self::Warehouse | Self::Return => {
-                matches!(kind, SiteKind::HeadOffice)
-            }
-            Self::Stockroom | Self::Floor => matches!(kind, SiteKind::Store),
-            Self::Reject => true,
-        }
-    }
-}
+/// The role of the pool goods land in at the destination.
+///
+/// The one list both nodes use (`crate::pool_role`), not a second copy: this
+/// module used to declare its own with `PENDING` and `WAREHOUSE` for the two
+/// roles the shared list spells `RECEIVING` and `STOCKROOM`, so a flow that
+/// said goods land in `WAREHOUSE` named a role no pool ever carried.
+pub use crate::pool_role::PoolRole;
 
 /// One stage of a template, with its parameters.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

@@ -32,8 +32,11 @@ export function usePlaces(scope: ReportScope): {
     const names = new Map(places.map((place) => [place.site_id, place.name]))
     return {
       places,
-      nameOf: (siteId: string) =>
-        names.get(siteId) ?? (siteId === "dc" ? "Kantor pusat" : siteId),
+      nameOf: (siteId) =>
+        // Head office does not trade, so it is rarely in the series; the
+        // series resolves its id from its kind (0603) so no screen spells it.
+        names.get(siteId) ??
+        (siteId === series.data?.head_office_site_id ? "Kantor pusat" : siteId),
     }
   }, [series.data])
 }

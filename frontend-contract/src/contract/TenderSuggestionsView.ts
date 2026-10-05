@@ -8,7 +8,7 @@ import type { UnexplainedReceiptRow } from "./UnexplainedReceiptRow";
  * The leftovers are the working list, not an afterthought: a shop accepts the
  * suggestions in a moment and then spends its evening on these.
  */
-export type TenderSuggestionsView = { suggestions: Array<TenderSuggestionRow>, receipts_without_approval: Array<UnexplainedReceiptRow>,
+export type TenderSuggestionsView = { suggestions: Array<TenderSuggestionRow>, receipts_without_approval: Array<UnexplainedReceiptRow>, 
 /**
  * Approvals on the slip that no receipt accounts for, by id.
  */

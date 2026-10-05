@@ -5,15 +5,15 @@ import type { StoreSummary } from "./StoreSummary";
 /**
  * One store's page.
  */
-export type StoreDetail = { store: StoreSummary,
+export type StoreDetail = { store: StoreSummary, 
 /**
  * The shop's address, as General Affairs keeps it.
  */
-address: string | null, checks: Array<StoreCheck>,
+address: string | null, checks: Array<StoreCheck>, 
 /**
  * Getting ready, and every required check passes.
  */
-can_open: boolean,
+can_open: boolean, 
 /**
  * Whether the caller may open the store and install its server — an
  * Admin at head office. The hub hides both buttons otherwise; the

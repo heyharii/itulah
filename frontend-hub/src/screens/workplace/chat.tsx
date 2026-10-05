@@ -24,14 +24,19 @@ import {
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Dialog } from "@/components/ui/dialog"
+import { Dialog, SavedDialog } from "@/components/ui/dialog"
 import { Field, Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { PickMany, PickOne, type Choice } from "@/components/ui/pick"
 import { Pill } from "@/components/ui/pill"
 import { Segmented } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
-import { EmptyState, ErrorState, LoadingState, Problem } from "@/components/ui/states"
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  Problem,
+} from "@/components/ui/states"
 import { ITEM, POPUP, POSITIONER } from "@/lib/filter-chrome"
 import { count } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
@@ -77,8 +82,17 @@ import {
 } from "@/screens/workplace/chat-store"
 import { plainText } from "@/screens/workplace/chat-text"
 import { unreadOf, useDocumentVisible } from "@/screens/workplace/chat-unread"
-import { ago, clock, conversationName, dayOf, eventSubject } from "@/screens/workplace/lib"
-import { useCollaborationFeed, type CollaborationFeed } from "@/screens/workplace/live"
+import {
+  ago,
+  clock,
+  conversationName,
+  dayOf,
+  eventSubject,
+} from "@/screens/workplace/lib"
+import {
+  useCollaborationFeed,
+  type CollaborationFeed,
+} from "@/screens/workplace/live"
 import { Avatar, type PendingAttachment } from "@/screens/workplace/parts"
 import { ApiError } from "@itulah/contract/client"
 import type {
@@ -131,6 +145,9 @@ export function Chat() {
   const conversation = useSheet("conversation")
   const [search, setSearch] = useState("")
   const [filter, setFilter] = useState<RoomFilter>("all")
+  /// Leaving a group says so once the room is gone; the receipt outlives the
+  /// room, which unmounts the moment it closes.
+  const [leftNote, setLeftNote] = useState<string | null>(null)
   // Not a sheet key, for the reason the Discussions composer is not one
   // either: `?conversation=` names a room that exists, and a half-filled form
   // naming nobody is not a room. What it produces goes in the URL the moment
@@ -177,7 +194,8 @@ export function Chat() {
     switch (filter) {
       case "unread":
         return all.filter(
-          (room) => !room.archived && (room.unread_count > 0 || room.mention_count > 0)
+          (room) =>
+            !room.archived && (room.unread_count > 0 || room.mention_count > 0)
         )
       case "groups":
         return all.filter((room) => !room.archived && room.kind === "GROUP")
@@ -214,7 +232,9 @@ export function Chat() {
       // A plain open forgets any earlier target: coming back to a room must
       // not replay a search hit from ten minutes ago.
       setTarget(
-        seq === undefined ? null : { conversationId: id, seq, nonce: Date.now() }
+        seq === undefined
+          ? null
+          : { conversationId: id, seq, nonce: Date.now() }
       )
     },
     [conversation]
@@ -228,7 +248,14 @@ export function Chat() {
     }
   }
 
-  useChatAlerts(feed, conversations.data, conversation.value, me, visible, openRoom)
+  useChatAlerts(
+    feed,
+    conversations.data,
+    conversation.value,
+    me,
+    visible,
+    openRoom
+  )
   const alerts = useAlertPermission()
 
   return (
@@ -282,13 +309,16 @@ export function Chat() {
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search people and messages"
                 aria-label="Search people and messages"
                 className="h-8 w-full pl-8"
               />
             </div>
             {needle === "" && (
-              <Segmented options={FILTERS} value={filter} onChange={setFilter} />
+              <Segmented
+                options={FILTERS}
+                value={filter}
+                onChange={setFilter}
+              />
             )}
           </div>
 
@@ -306,7 +336,10 @@ export function Chat() {
                       <EmptyState
                         action={
                           filter === "all" ? (
-                            <Button variant="ghost" onClick={() => setStarting(true)}>
+                            <Button
+                              variant="ghost"
+                              onClick={() => setStarting(true)}
+                            >
                               Start one
                             </Button>
                           ) : undefined
@@ -364,6 +397,7 @@ export function Chat() {
             me={me}
             onBack={layout === "phone" ? backToList : undefined}
             onGone={() => conversation.close()}
+            onLeftNote={setLeftNote}
             jumpTo={
               target !== null && target.conversationId === conversation.value
                 ? target
@@ -380,6 +414,14 @@ export function Chat() {
         // Pushes, like clicking a room in the list: the room now exists, and
         // arriving at it is somewhere `back` should return from.
         onStarted={(id) => openRoom(id)}
+      />
+
+      <SavedDialog
+        open={leftNote !== null}
+        onOpenChange={(next) => {
+          if (!next) setLeftNote(null)
+        }}
+        title={leftNote ?? ""}
       />
     </PageContent>
   )
@@ -405,7 +447,8 @@ function heldState<T>(
 function useUnreadTitle(unread: number) {
   useEffect(() => {
     const base = document.title.replace(/^\(\d+\+?\) /, "")
-    document.title = unread > 0 ? `(${unread > 99 ? "99+" : unread}) ${base}` : base
+    document.title =
+      unread > 0 ? `(${unread > 99 ? "99+" : unread}) ${base}` : base
     return () => {
       document.title = document.title.replace(/^\(\d+\+?\) /, "")
     }
@@ -458,12 +501,14 @@ function useChatAlerts(
       (event) => event.event_id > (handled.current ?? 0)
     )
     handled.current = Math.max(handled.current, newest)
-    if (!("Notification" in window) || Notification.permission !== "granted") return
+    if (!("Notification" in window) || Notification.permission !== "granted")
+      return
     const now = latest.current
     for (const event of [...fresh].reverse()) {
       if (event.kind !== "chat.message") continue
       const subject = eventSubject(event.payload)
-      if (subject.conversationId === undefined || subject.author === now.me) continue
+      if (subject.conversationId === undefined || subject.author === now.me)
+        continue
       // A line the room wrote about itself — somebody renamed it, joined —
       // is not somebody writing to you.
       if (subject.messageKind === "SYSTEM") continue
@@ -476,7 +521,9 @@ function useChatAlerts(
       if (room !== undefined && room.muted && !named) continue
       const author =
         room?.members.find((member) => member.username === subject.author)
-          ?.display_name ?? subject.author ?? "Somebody"
+          ?.display_name ??
+        subject.author ??
+        "Somebody"
       try {
         const alert = new Notification(room?.title ?? "New message", {
           body: named
@@ -543,7 +590,9 @@ function MessageHits({
               <span className="min-w-0 flex-1 truncate text-meta font-medium text-ink">
                 {hit.conversation_title}
               </span>
-              <span className="shrink-0 text-pill text-mute">{ago(hit.sent_at)}</span>
+              <span className="shrink-0 text-pill text-mute">
+                {ago(hit.sent_at)}
+              </span>
             </span>
             <span className="line-clamp-2 text-[0.8125rem] text-body">
               <span className="text-mute">{hit.author_name}: </span>
@@ -594,10 +643,16 @@ function RoomRow({
   const quiet = room.muted || room.archived
 
   const preferences = useMutation({
-    mutationFn: (change: { muted?: boolean; pinned?: boolean; archived?: boolean }) =>
-      setConversationPreferences(room.conversation_id, change),
+    mutationFn: (change: {
+      muted?: boolean
+      pinned?: boolean
+      archived?: boolean
+    }) => setConversationPreferences(room.conversation_id, change),
     onSuccess: (updated) => {
-      client.setQueryData(workplaceKeys.conversation(room.conversation_id), updated)
+      client.setQueryData(
+        workplaceKeys.conversation(room.conversation_id),
+        updated
+      )
       void client.invalidateQueries({
         queryKey: workplaceKeys.conversations(),
         exact: true,
@@ -617,7 +672,9 @@ function RoomRow({
 
   // `preview_author` is a display name, so "You" is decided against the
   // reader's own display name in this room.
-  const myName = room.members.find((member) => member.username === me)?.display_name
+  const myName = room.members.find(
+    (member) => member.username === me
+  )?.display_name
   const said = room.preview === null ? "" : plainText(room.preview)
   const preview =
     room.preview === null
@@ -663,7 +720,9 @@ function RoomRow({
               {preview}
             </span>
             {room.pinned && <Pin className="size-3 shrink-0 text-line-ico" />}
-            {room.muted && <BellOff className="size-3 shrink-0 text-line-ico" />}
+            {room.muted && (
+              <BellOff className="size-3 shrink-0 text-line-ico" />
+            )}
             {room.mention_count > 0 && (
               <span
                 title={`${room.mention_count} mention${room.mention_count === 1 ? "" : "s"}`}
@@ -694,7 +753,12 @@ function RoomRow({
           <MoreHorizontal className="size-4" />
         </Menu.Trigger>
         <Menu.Portal>
-          <Menu.Positioner side="bottom" align="end" sideOffset={4} className={POSITIONER}>
+          <Menu.Positioner
+            side="bottom"
+            align="end"
+            sideOffset={4}
+            className={POSITIONER}
+          >
             <Menu.Popup className={POPUP}>
               {unread && (
                 <Menu.Item className={ITEM} onClick={() => read.mutate()}>
@@ -733,6 +797,7 @@ function Room({
   me,
   onBack,
   onGone,
+  onLeftNote,
   jumpTo,
 }: {
   id: string
@@ -742,6 +807,9 @@ function Room({
   onBack?: () => void
   /// The reader is no longer in this room (left, removed, or it is gone).
   onGone: () => void
+  /// Said when the leave was the room's own doing — the receipt outlives this
+  /// component, which unmounts the moment the room closes.
+  onLeftNote: (said: string) => void
   jumpTo: { seq: number; nonce: number } | null
 }) {
   const client = useQueryClient()
@@ -756,23 +824,29 @@ function Room({
   const [info, setInfo] = useState<InfoTab | null>(null)
   const [searching, setSearching] = useState(false)
   const [highlight, setHighlight] = useState<number | null>(null)
-  const [restore, setRestore] = useState<{ text: string; nonce: number } | null>(null)
+  const [restore, setRestore] = useState<{
+    text: string
+    nonce: number
+  } | null>(null)
   const [dragging, setDragging] = useState(false)
+
+  // The row the list already holds, so the header, the read mark and the first
+  // placement of the thread do not wait a round trip for a room that is on
+  // screen already. Read as a VALUE rather than passed as a function: with a
+  // function, TypeScript unifies it with `queryFn` and infers the query's data
+  // as the placeholder's function, so every read of `detail.data` sees
+  // `() => ChatConversation | undefined` instead of the conversation.
+  const held = client
+    .getQueryData<ChatConversation[]>(workplaceKeys.conversations())
+    ?.find((one) => one.conversation_id === id)
 
   const detail = useQuery({
     queryKey: workplaceKeys.conversation(id),
     queryFn: ({ signal }) => readConversation(id, signal),
-    // The row the list already holds, so the header, the read mark and the
-    // first placement of the thread do not wait a round trip for a room that
-    // is on screen already.
-    placeholderData: () =>
-      client
-        .getQueryData<ChatConversation[]>(workplaceKeys.conversations())
-        ?.find((one) => one.conversation_id === id),
+    placeholderData: held,
   })
   const room = detail.data
-  const gone =
-    detail.error instanceof ApiError && detail.error.status === 404
+  const gone = detail.error instanceof ApiError && detail.error.status === 404
 
   const typing = useQuery({
     queryKey: workplaceKeys.typing(id),
@@ -858,7 +932,8 @@ function Room({
   const catchUpStarted = useRef(false)
   const reachOnOpen = thread.reach
   useEffect(() => {
-    if (!needsCatchUp || catchUpStarted.current || firstUnreadSeq === null) return
+    if (!needsCatchUp || catchUpStarted.current || firstUnreadSeq === null)
+      return
     catchUpStarted.current = true
     void reachOnOpen(firstUnreadSeq).finally(() => setCaughtUp(true))
   }, [needsCatchUp, firstUnreadSeq, reachOnOpen])
@@ -880,7 +955,8 @@ function Room({
     if (el === null || thread.query.data === undefined) return
     // The first placement waits for the room as well as its messages: the
     // unread line it looks for is drawn from the room's read mark.
-    if (!snapshot.current.positioned && markOnOpen === null && !detail.isError) return
+    if (!snapshot.current.positioned && markOnOpen === null && !detail.isError)
+      return
     // More unread than the first page holds: wait for the pages that reach
     // the first unread line, so it is placed where reading stopped rather
     // than at the top of the newest fifty.
@@ -1044,7 +1120,9 @@ function Room({
           .then(writeMessage)
           .catch((error: Error) => {
             toast.error(error.message)
-            void client.invalidateQueries({ queryKey: workplaceKeys.messages(id) })
+            void client.invalidateQueries({
+              queryKey: workplaceKeys.messages(id),
+            })
           })
       },
       pin: (message, pinned) => {
@@ -1052,7 +1130,9 @@ function Room({
           .then((updated) => {
             writeMessage(updated)
             void client.invalidateQueries({ queryKey: workplaceKeys.pins(id) })
-            toast.success(pinned ? "Pinned for everybody in the room" : "Unpinned")
+            toast.success(
+              pinned ? "Pinned for everybody in the room" : "Unpinned"
+            )
           })
           .catch((error: Error) => toast.error(error.message))
       },
@@ -1149,8 +1229,8 @@ function Room({
             </Button>
           }
         >
-          You are not in this conversation — you left it, somebody removed
-          you, or it no longer exists.
+          You are not in this conversation — you left it, somebody removed you,
+          or it no longer exists.
         </EmptyState>
       </div>
     )
@@ -1159,17 +1239,18 @@ function Room({
   const members = room?.members ?? []
   const group = room?.kind === "GROUP"
   const others = members.filter((member) => member.username !== me)
-  const typingNames = (typing.data ?? [])
-    .map(
-      (name) =>
-        members.find((member) => member.username === name)?.display_name ?? name
-    )
+  const typingNames = (typing.data ?? []).map(
+    (name) =>
+      members.find((member) => member.username === name)?.display_name ?? name
+  )
   const unseen =
     nearBottom || seenUpTo === null
       ? 0
       : messages.filter(
           (message) =>
-            message.seq > seenUpTo && message.author !== me && message.kind === "TEXT"
+            message.seq > seenUpTo &&
+            message.author !== me &&
+            message.kind === "TEXT"
         ).length
 
   return (
@@ -1228,14 +1309,21 @@ function Room({
               <Avatar name={conversationName(current, me)} size="lg" />
               <div className="min-w-0 flex-1">
                 <h2 className="flex items-center gap-1.5 truncate text-card-title font-semibold text-ink">
-                  <span className="truncate">{conversationName(current, me)}</span>
+                  <span className="truncate">
+                    {conversationName(current, me)}
+                  </span>
                   {current.muted && (
-                    <BellOff className="size-3.5 shrink-0 text-line-ico" aria-label="Muted" />
+                    <BellOff
+                      className="size-3.5 shrink-0 text-line-ico"
+                      aria-label="Muted"
+                    />
                   )}
                 </h2>
                 <p className="mt-[0.1875rem] truncate text-meta text-mute">
                   {typingNames.length > 0 ? (
-                    <span className="text-accent">{typingLine(typingNames)}</span>
+                    <span className="text-accent">
+                      {typingLine(typingNames)}
+                    </span>
                   ) : current.kind === "GROUP" ? (
                     `${current.members.length} people · ${others
                       .map((member) => member.display_name)
@@ -1309,7 +1397,10 @@ function Room({
                 <div className="flex justify-center py-3">
                   {thread.hasOlder ? (
                     thread.olderError !== null ? (
-                      <Button variant="ghost" onClick={() => void thread.loadOlder()}>
+                      <Button
+                        variant="ghost"
+                        onClick={() => void thread.loadOlder()}
+                      >
                         Could not load earlier messages — try again
                       </Button>
                     ) : (
@@ -1318,7 +1409,9 @@ function Room({
                         pending={thread.loadingOlder}
                         onClick={() => void thread.loadOlder()}
                       >
-                        {thread.loadingOlder ? "Loading…" : "Load earlier messages"}
+                        {thread.loadingOlder
+                          ? "Loading…"
+                          : "Load earlier messages"}
                       </Button>
                     )
                   ) : messages.length > 0 ? (
@@ -1434,6 +1527,7 @@ function Room({
           room={room}
           me={me}
           onJump={(seq) => void jump(seq)}
+          onLeftNote={onLeftNote}
           onLeft={() => {
             setInfo(null)
             onGone()
@@ -1514,7 +1608,11 @@ function ThreadLines({
   let lastOwnSeq: number | null = null
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]
-    if (message.kind === "TEXT" && message.deleted_at === null && message.author === me) {
+    if (
+      message.kind === "TEXT" &&
+      message.deleted_at === null &&
+      message.author === me
+    ) {
       lastOwnSeq = message.seq
       break
     }
@@ -1532,7 +1630,10 @@ function ThreadLines({
     const newDay =
       previous === null || dayOf(previous.sent_at) !== dayOf(message.sent_at)
     const unreadHere = message.seq === firstUnread
-    if (newDay) lines.push(<DayDivider key={`day-${message.seq}`} iso={message.sent_at} />)
+    if (newDay)
+      lines.push(
+        <DayDivider key={`day-${message.seq}`} iso={message.sent_at} />
+      )
     if (unreadHere) {
       lines.push(
         <div key={`unread-${message.seq}`} data-unread-line>
@@ -1548,11 +1649,14 @@ function ThreadLines({
       message.kind === "TEXT" &&
       previous.author === message.author &&
       message.reply_to === null &&
-      Date.parse(message.sent_at) - Date.parse(previous.sent_at) < GROUP_WITHIN_MS
+      Date.parse(message.sent_at) - Date.parse(previous.sent_at) <
+        GROUP_WITHIN_MS
 
     let receipt: React.ReactNode = undefined
     if (message.seq === lastOwnSeq && others.length > 0) {
-      const seenBy = others.filter((member) => member.last_read_seq >= message.seq)
+      const seenBy = others.filter(
+        (member) => member.last_read_seq >= message.seq
+      )
       receipt =
         seenBy.length === 0 ? (
           "Sent"
@@ -1618,7 +1722,6 @@ function RoomSearch({
           onKeyDown={(event) => {
             if (event.key === "Escape") onClose()
           }}
-          placeholder="Search in this conversation"
           aria-label="Search in this conversation"
           className="h-8 min-w-0 flex-1 bg-transparent text-[0.875rem] text-ink outline-none placeholder:text-mute"
         />
@@ -1636,7 +1739,9 @@ function RoomSearch({
           {hits.isPending ? (
             <p className="px-3 py-2 text-meta text-mute">Searching…</p>
           ) : hits.isError ? (
-            <p className="px-3 py-2 text-meta text-bad-fg">{hits.error.message}</p>
+            <p className="px-3 py-2 text-meta text-bad-fg">
+              {hits.error.message}
+            </p>
           ) : (hits.data ?? []).length === 0 ? (
             <p className="px-3 py-2 text-meta text-mute">
               Nothing in here says “{query}”.
@@ -1650,7 +1755,9 @@ function RoomSearch({
                 className="flex w-full flex-col gap-0.5 border-b border-hairline px-3 py-2 text-left last:border-b-0 hover:bg-soft"
               >
                 <span className="flex items-baseline gap-2 text-pill text-mute">
-                  <span className="font-medium text-body">{hit.author_name}</span>
+                  <span className="font-medium text-body">
+                    {hit.author_name}
+                  </span>
                   <span>
                     {dayOf(hit.sent_at)} {clock(hit.sent_at)}
                   </span>
@@ -1817,7 +1924,6 @@ function StartSheet({
             <Input
               value={title}
               onChange={(event) => setTitle(event.target.value)}
-              placeholder="Receiving DC-01"
             />
           </Field>
         )}
@@ -1837,7 +1943,6 @@ function StartSheet({
               choices={choices}
               value={people[0] ?? null}
               onChange={(person) => setPeople(person === null ? [] : [person])}
-              placeholder={users.isPending ? "Loading…" : "Nobody yet"}
             />
           ) : (
             <PickMany
@@ -1845,7 +1950,6 @@ function StartSheet({
               choices={choices}
               values={people}
               onChange={setPeople}
-              placeholder={users.isPending ? "Loading…" : "Nobody yet"}
               leading={(name) => <Avatar name={name} size="sm" />}
             />
           )}

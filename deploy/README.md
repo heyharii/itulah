@@ -110,33 +110,25 @@ Open **TCP 443** and **UDP 3478** to the internet. Nothing else — the admin
 API stays on localhost, and once the tailnet is up you administer this box
 over the tailnet like any other node.
 
-### 2. Cloud node on Render
+### 2. Cloud node on Google Cloud
 
-Render is suitable for the central Cloud API and its PostgreSQL database. The
-checked-in [`render.yaml`](../render.yaml) creates one `itulah-cloud` Docker
-web service and one Render Postgres database in Singapore. It uses the same
-image as the edge runtimes, with `APP_BIN=cloud`, and the app listens on the
-Render-provided `PORT`.
+The primary path is a small GCP deployment: one e2-micro VM in Jakarta on a
+private network with a Cloud SQL Postgres instance, HTTPS through Caddy.
+[`deploy/gcp/`](gcp/README.md) holds `deploy.sh` (idempotent — first run and
+every redeploy are the same command), `startup.sh`, and the env template.
 
-1. Push this repository to a Git provider that is connected to the target
-   Render workspace.
-2. Create a Blueprint from the repository and select `render.yaml`.
-3. When Render prompts for the `sync: false` variable, set a unique
-   `INVENTORY_BOOTSTRAP_ADMIN_PASSWORD` (at least 8 characters).
-4. After the first deploy, verify:
+1. Link billing to the project — `deploy.sh` refuses to run without it.
+2. Copy `deploy/gcp/cloud.env.example` to `deploy/gcp/cloud.env` and fill it
+   in. `SYNC_INGEST_KEY` is the fleet master the store nodes authenticate
+   with; on a fresh fleet choose a new 32+ character value.
+3. Run `deploy/gcp/deploy.sh`, then verify:
 
    ```bash
-   curl -fsS https://YOUR-CLOUD.onrender.com/api/v1/health
+   curl -fsS https://YOUR-CLOUD-HOST/api/v1/health
    ```
 
-The Blueprint generates `SYNC_INGEST_KEY` and wires `DATABASE_URL` to Render
-Postgres. The generated key is the Cloud master used only for provisioning;
-each DC/Store origin gets its own key from the provisioning endpoint.
-
-Free Render Postgres is appropriate only for a short-lived trial because it
-expires after 30 days and has no backups. The Blueprint uses the smallest paid
-Postgres plan and a 5 GB disk; adjust those values before applying if the
-expected fleet size requires more capacity.
+The browser surfaces are static sites on Firebase Hosting
+(`deploy/frontend/`), each rewriting `/api/*` to the node it belongs to.
 
 ### 3. Cloud node on a private host (alternative)
 
@@ -146,17 +138,21 @@ shops and issues commands; it is never given to a shop. The `cloud` startup
 runs PostgreSQL migrations automatically, so older deployment jobs that called
 the removed `migrate` binary must switch to this startup path. Existing units
 that called `inventory-edge` must likewise be changed to `cloud`, `dc`, or
-`store` in the same coordinated rollout; the checked-in Store unit already
-runs `/usr/local/bin/store`.
+`store` in the same coordinated rollout; the checked-in Store unit runs
+`/opt/itulah/store/store` (`deploy/edge/store-edge.service`), and
+`deploy/scripts/install-store.sh` puts it there.
 
 ### 4. DC and Store Edge nodes
 
 The edge binaries run on the DC and shop machines so they keep operating when
-the WAN or Cloud is unavailable. They are not public Render web services: a
-Render web service would expose the local SQLite/RFID boundary and would not
-provide access to the physical reader or till. Build the shared image with
-`APP_BIN=dc` or `APP_BIN=store` on a private host, or install the release
-binaries and the systemd units below.
+the WAN or Cloud is unavailable. In the pilot they run as small private VMs
+beside the cloud node (the same image, `APP_BIN=dc` or `APP_BIN=store`, SQLite
+on a disk); on a shop's own hardware they are the release binaries and the
+systemd units below, built from the same image with `APP_BIN=dc` or
+`APP_BIN=store`. A
+publicly reachable edge would expose the local SQLite/RFID boundary, so
+whatever hosts them keeps that boundary private — a tunnel or the tailnet, not
+the open internet.
 
 For a DC, copy `deploy/edge/dc.env.example` to `/etc/itulah/dc.env` and enable
 `deploy/edge/dc-edge.service`. For a Store, use the existing

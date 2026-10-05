@@ -1,0 +1,700 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Articles · 5 list options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* Tokens from frontend-hub/src/styles/index.css, sized to the E · Quiet scale:
+   Inter 14, 36px controls, 52px rows, Poppins title 28. Nothing under 14px. */
+:root{
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f9fb; --soft-2:#f0f2f5; --soft-3:#f7f8fa;
+  --hairline:#e7eaf0; --hairline-2:#dce1e8; --hairline-strong:#c7ced8;
+  --backdrop:#dfe3ea; --tooltip:#101012;
+  --accent:#2563eb; --accent-bg:#eff5ff; --cta:#2563eb; --cta-hover:#1d4ed8;
+  --info:#2f86d8; --info-fg:#2c57bf;
+  --ok:#36b827; --warn:#c9892e; --warn-bg:#fdf3e1; --warn-fg:#b45309;
+  --r-shell:1rem; --r-card:.75rem; --r-inner:.4375rem;
+  --shadow-soft:0 1px 3px rgb(24 39 60 / 4%);
+  --shadow-pop:0 4px 8px rgb(24 39 60 / 4%),0 12px 32px rgb(24 39 60 / 8%);
+  --shadow-shell:0 10px 34px rgb(24 39 60 / 8%);
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --row:52px; --ctl:36px;
+  font-size:16px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Inter,system-ui,sans-serif;background:var(--backdrop);color:var(--text);font-size:14px;line-height:20px;
+  -webkit-font-smoothing:antialiased;padding:20px 20px 96px;min-height:100vh}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px;letter-spacing:-.02em}
+.num{font-variant-numeric:tabular-nums}
+.mute{color:var(--mute)} .faint{color:var(--faint)} .warnc{color:var(--warn-fg)}
+svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* option switcher (prototype chrome, not part of the screen) */
+.top{max-width:90rem;margin:0 auto 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.top h1{font-size:16px;font-weight:600;color:var(--ink)}
+.top p{color:var(--body)}
+.lenses{margin-left:auto;display:flex;gap:2px;background:var(--soft-2);padding:3px;border-radius:999px;flex-wrap:wrap}
+.lens{border:0;background:transparent;border-radius:999px;padding:6px 14px;color:var(--body);transition:background .15s var(--ease-out),color .15s}
+.lens.on{background:var(--canvas);color:var(--ink);font-weight:500;box-shadow:var(--shadow-soft)}
+
+/* the screen */
+.pane{max-width:90rem;margin:0 auto;background:var(--canvas);border-radius:var(--r-shell);box-shadow:var(--shadow-shell);padding:24px 28px 24px}
+.ph{display:flex;align-items:flex-end;gap:16px;margin-bottom:18px;flex-wrap:wrap}
+.ph h2{font-family:Poppins,Inter,sans-serif;font-size:28px;line-height:36px;font-weight:600;color:var(--ink);letter-spacing:-.025em}
+.ph .sub{color:var(--body);margin-top:2px}
+.ph .act{margin-left:auto;display:flex;gap:8px;align-items:center}
+.btn{height:var(--ctl);display:inline-flex;align-items:center;gap:6px;border:1px solid var(--hairline-2);background:var(--canvas);border-radius:var(--r-inner);
+  padding:0 12px;color:var(--ink);font-weight:500;white-space:nowrap;transition:background .15s var(--ease-out),transform .1s var(--ease-out)}
+.btn:hover{background:var(--soft)} .btn:active{transform:scale(.97)}
+.btn.pri{background:var(--cta);border-color:var(--cta);color:#fff;font-weight:600} .btn.pri:hover{background:var(--cta-hover)}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--body)} .btn.ghost:hover{background:var(--soft-2)}
+.btn.on{background:var(--soft-2);border-color:transparent}
+.btn .cnt{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:var(--ink);color:#fff;font-weight:600}
+.btn svg.i{color:var(--line-ico)}
+
+.tools{display:flex;align-items:center;gap:6px;margin-bottom:12px;flex-wrap:wrap;position:relative}
+.search{position:relative;display:flex;align-items:center;height:var(--ctl);width:22rem;max-width:100%;border:1px solid var(--hairline-2);border-radius:var(--r-inner);
+  padding:0 10px;gap:8px;background:var(--canvas);transition:border-color .15s,box-shadow .15s}
+.search:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.search input{border:0;outline:0;flex:1;min-width:0;background:transparent}
+.search input::placeholder{color:var(--mute)}
+.search svg{color:var(--line-ico)}
+.kbd{border:1px solid var(--hairline-2);border-radius:5px;padding:0 6px;color:var(--mute);line-height:20px}
+.tools .count{margin-left:auto;color:var(--body);white-space:nowrap}
+.tools .count b{color:var(--ink);font-weight:600}
+.seg{display:inline-flex;background:var(--soft-2);border-radius:var(--r-inner);padding:3px;height:var(--ctl)}
+.seg button{border:0;background:transparent;border-radius:5px;padding:0 10px;color:var(--body)}
+.seg button.on{background:var(--canvas);color:var(--ink);font-weight:500;box-shadow:var(--shadow-soft)}
+.sep{width:1px;height:20px;background:var(--hairline);margin:0 4px}
+
+/* one table grammar, virtualised */
+.frame{display:grid;grid-template-columns:minmax(0,1fr);gap:0;border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+.frame.split{grid-template-columns:minmax(0,1fr) 27rem}
+.scroll{overflow:auto;height:calc(100vh - 290px);min-height:26rem;position:relative;overscroll-behavior:contain}
+table.t{border-collapse:separate;border-spacing:0;width:100%;table-layout:fixed}
+.t th,.t td{padding:0 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
+.t td{height:var(--row);box-shadow:inset 0 -1px var(--hairline);color:var(--text)}
+.t thead th{position:sticky;top:0;z-index:2;height:40px;background:var(--canvas);color:var(--mute);font-weight:400;box-shadow:inset 0 -1px var(--hairline-2);user-select:none}
+.t thead th.srt{cursor:pointer} .t thead th.srt:hover{color:var(--ink)}
+.t thead th .ar{color:var(--ink)}
+.t .n{text-align:right}
+.t tbody tr{cursor:default}
+.t tbody tr.link{cursor:pointer}
+.t tbody tr.link:hover>td{background:var(--soft)}
+.t tbody tr.picked>td{background:var(--accent-bg)!important}
+.t tbody tr.dim td{color:var(--mute)}
+.t tr.sp td{height:auto;box-shadow:none;padding:0}
+.t tr.grp>td{background:var(--soft-3);color:var(--ink);font-weight:500;cursor:pointer}
+.t tr.grp:hover>td{background:var(--soft-2)}
+.t tr.lv1>td{background:#fcfcfd}
+.t tr.lv2>td{background:#fcfcfd}
+.t td.chk,.t th.chk{padding:0 0 0 14px;width:40px}
+input[type=checkbox]{width:16px;height:16px;accent-color:var(--ink);vertical-align:-3px;cursor:pointer}
+
+.art{display:flex;gap:10px;align-items:center;min-width:0}
+.art .tx{min-width:0;display:flex;flex-direction:column}
+.art b{font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis}
+.dim .art b{color:var(--mute)}
+.art .code{color:var(--mute)}
+.th{width:32px;height:32px;border-radius:var(--r-inner);flex:none;display:grid;place-items:center;position:relative;overflow:hidden}
+.th svg{width:18px;height:18px;opacity:.55}
+.th.none{border:1px dashed var(--hairline-strong);background:var(--canvas);color:var(--faint)}
+.th.big{width:72px;height:72px;border-radius:10px} .th.big svg{width:34px;height:34px}
+.dots{display:inline-flex;align-items:center}
+.dot{width:16px;height:16px;border-radius:50%;box-shadow:0 0 0 2px var(--canvas),inset 0 0 0 1px rgb(0 0 0/12%);margin-right:-4px}
+.dots .more{margin-left:10px;color:var(--mute)}
+.stat{display:inline-flex;align-items:center;gap:6px;color:var(--mute)}
+.stat i{width:6px;height:6px;border-radius:50%;background:var(--c,var(--faint))}
+.chev{width:16px;height:16px;color:var(--line-ico);transition:transform .2s var(--ease-out);flex:none}
+.chev.open{transform:rotate(90deg)}
+.tw{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:6px;border:0;background:none;margin-right:4px}
+.tw:hover{background:var(--soft-2)}
+.tw.ph{visibility:hidden}
+
+/* spreadsheet cells */
+.cell{width:100%;height:34px;border:1px solid transparent;border-radius:6px;background:transparent;padding:0 8px;outline:0;transition:border-color .12s,background .12s}
+.cell:hover{border-color:var(--hairline-2);background:var(--canvas)}
+.cell:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg);background:var(--canvas)}
+.cell.dirty{color:var(--accent);background:var(--accent-bg);font-weight:500}
+.cell.r{text-align:right;font-variant-numeric:tabular-nums}
+select.cell{appearance:none;cursor:pointer}
+.sheetnote{display:flex;gap:16px;align-items:center;margin-bottom:10px;color:var(--body);flex-wrap:wrap}
+.selbar{display:flex;align-items:center;gap:8px;height:44px;padding:0 6px 0 14px;border-radius:var(--r-inner);background:var(--ink);color:#fff;margin-bottom:10px}
+.selbar b{font-weight:600;margin-right:6px}
+.selbar .btn{background:transparent;border-color:rgb(255 255 255/.2);color:#fff;height:32px}
+.selbar .btn:hover{background:rgb(255 255 255/.1)}
+
+/* tabs (option 5) */
+.tabs{display:flex;border-bottom:1px solid var(--hairline-2);margin-bottom:12px;overflow-x:auto}
+.tabs button{border:0;background:none;padding:10px 14px;color:var(--body);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;display:flex;gap:8px;align-items:center}
+.tabs button span{color:var(--mute)}
+.tabs button.warn span{color:var(--warn-fg)}
+.tabs button.on{color:var(--ink);font-weight:500;border-bottom-color:var(--ink)}
+
+/* detail (pane in 1, sheet elsewhere) */
+.det{overflow:auto;height:calc(100vh - 290px);min-height:26rem;border-left:1px solid var(--hairline);animation:slide .22s var(--ease-out)}
+.det .hd{display:flex;gap:14px;padding:18px 18px 14px;align-items:flex-start}
+.det .hd h3{font-size:18px;line-height:24px;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+.det .hd .x{margin-left:auto}
+.det .sec{padding:12px 18px;border-top:1px solid var(--hairline)}
+.det .sec h4{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:8px;display:flex;align-items:center}
+.det .sec h4 span{margin-left:auto;font-weight:400;color:var(--mute)}
+.facts{display:grid;grid-template-columns:8.5rem 1fr;row-gap:8px}
+.facts dt{color:var(--mute)} .facts dd{color:var(--ink)}
+.issue{display:flex;gap:10px;align-items:center;padding:8px 12px;border-radius:var(--r-inner);background:var(--warn-bg);color:var(--warn-fg);margin-bottom:6px}
+.issue .btn{margin-left:auto;height:30px}
+.mx{border-collapse:separate;border-spacing:0;width:100%}
+.mx th,.mx td{padding:0 8px;height:40px;text-align:right;white-space:nowrap;box-shadow:inset 0 -1px var(--hairline)}
+.mx th{color:var(--mute);font-weight:400;height:32px}
+.mx th:first-child,.mx td:first-child{text-align:left;padding-left:0}
+.mx td.z{color:var(--faint)}
+.mx td.no{color:var(--warn-fg)}
+.mx td.hl{background:var(--accent-bg);color:var(--accent);font-weight:600;border-radius:6px}
+.mx .cw{display:flex;align-items:center;gap:8px}
+.mx .cw .dot{margin:0}
+.mx tfoot td{color:var(--ink);font-weight:500;box-shadow:none}
+.shade{position:fixed;inset:0;background:rgb(16 16 18/.18);z-index:30;animation:fade .2s}
+.sheet{position:fixed;top:12px;right:12px;bottom:12px;width:32rem;max-width:calc(100vw - 24px);background:var(--canvas);border-radius:var(--r-shell);z-index:31;
+  box-shadow:var(--shadow-pop);overflow:auto;animation:slide .25s var(--ease-out)}
+.sheet .det{height:auto;border:0;animation:none;overflow:visible}
+
+/* popovers */
+.pop{position:absolute;z-index:40;min-width:17rem;max-height:30rem;overflow:auto;background:var(--canvas);border-radius:var(--r-card);box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);
+  padding:6px;animation:pop .16s var(--ease-out);transform-origin:top left}
+.pop h6{font-size:14px;font-weight:500;color:var(--mute);padding:8px 10px 4px}
+.pop label,.pop .opt{display:flex;align-items:center;gap:10px;height:36px;padding:0 10px;border-radius:6px;cursor:pointer;width:100%;border:0;background:none;text-align:left}
+.pop label:hover,.pop .opt:hover{background:var(--soft)}
+.pop .opt.on{font-weight:500;color:var(--ink)}
+.pop .opt .ck{width:16px;color:var(--ink)}
+.pop label span:last-child,.pop .opt span:last-child{margin-left:auto;color:var(--mute);font-variant-numeric:tabular-nums}
+.pop hr{border:0;border-top:1px solid var(--hairline);margin:6px 4px}
+.pop .foot{display:flex;justify-content:space-between;padding:6px 4px 2px}
+
+/* notes under the screen */
+.why{max-width:90rem;margin:14px auto 0;display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.why div{background:var(--canvas);border-radius:var(--r-card);padding:14px 16px;box-shadow:var(--shadow-soft)}
+.why h5{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:4px}
+.why p{color:var(--body)}
+
+/* research */
+.res{display:grid;grid-template-columns:repeat(auto-fill,minmax(19rem,1fr));gap:12px}
+.res article{border:1px solid var(--hairline);border-radius:var(--r-card);padding:14px 16px}
+.res h5{font-size:15px;font-weight:600;color:var(--ink);margin-bottom:6px}
+.res ul{padding-left:18px;color:var(--text)} .res li{margin:3px 0}
+.res .tk{margin-top:8px;color:var(--accent)}
+.lead{color:var(--body);max-width:58rem;margin-bottom:16px}
+table.pat{border-collapse:separate;border-spacing:0;width:100%;margin:6px 0 22px}
+.pat th,.pat td{text-align:left;padding:10px 12px;vertical-align:top;box-shadow:inset 0 -1px var(--hairline)}
+.pat th{color:var(--mute);font-weight:400}
+.pat td:first-child{color:var(--ink);font-weight:500;width:15rem}
+.pat td:last-child{width:9rem}
+
+.toast{position:fixed;left:50%;bottom:20px;z-index:50;background:var(--tooltip);color:#fff;border-radius:999px;transform:translateX(-50%);
+  padding:9px 18px;animation:rise .25s var(--ease-out);box-shadow:var(--shadow-pop)}
+.tray{position:fixed;left:50%;bottom:20px;z-index:45;display:flex;align-items:center;gap:12px;background:var(--canvas);border-radius:999px;transform:translateX(-50%);
+  box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);padding:6px 6px 6px 18px;animation:rise .25s var(--ease-out)}
+.tray b{color:var(--ink);font-weight:600}
+.tray .btn{border-radius:999px}
+@keyframes rise{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+@keyframes pop{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}
+@keyframes slide{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:none}}
+@keyframes fade{from{opacity:0}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:1100px){.frame.split{grid-template-columns:minmax(0,1fr)} .frame.split .det{display:none} .why{grid-template-columns:1fr}}
+@media (max-width:760px){body{padding:12px 12px 96px}.pane{padding:16px}.lenses{margin-left:0}.ph .act{margin-left:0}.search{width:100%}}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div>
+    <h1>Articles: 5 list options for a 12.480-article master</h1>
+    <p>No card grid. Every option is a table that stays fast at thousands of rows. Try searching <span class="mono">kemeja linen</span> or scanning a SKU like <span class="mono" id="demoSku"></span>.</p>
+  </div>
+  <div class="lenses" id="lenses">
+    <button class="lens on" data-v="1">1 · List + side panel</button>
+    <button class="lens" data-v="2">2 · Article › colour › size</button>
+    <button class="lens" data-v="3">3 · One row per SKU</button>
+    <button class="lens" data-v="4">4 · Edit as sheet</button>
+    <button class="lens" data-v="5">5 · Worklists + groups</button>
+    <button class="lens" data-v="r">Research</button>
+  </div>
+</div>
+
+<div class="pane" id="pane"></div>
+<div class="why" id="why"></div>
+
+<script>
+/* ---------- icons ---------- */
+const I={
+  search:'<svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+  scan:'<svg class="i" viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M8 9v6M11 9v6M14 9v6M17 9v6"/></svg>',
+  filter:'<svg class="i" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg>',
+  cols:'<svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></svg>',
+  views:'<svg class="i" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>',
+  chev:'<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg>',
+  down:'<svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
+  x:'<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  shirt:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M8 3 3 6l2 5 3-1v11h8V10l3 1 2-5-5-3a4 4 0 0 1-8 0Z"/></svg>',
+  img:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m3 16 5-5 5 5M14 14l2-2 5 5"/></svg>',
+  up:'<svg class="i" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>',
+  dl:'<svg class="i" viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5M4 20h16"/></svg>',
+};
+
+/* ---------- a deterministic 12.480-article master ---------- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const R=mulberry32(20260928);
+const pick=a=>a[Math.floor(R()*a.length)];
+const DIVS=[{c:'MEN',l:'Menswear',w:.32},{c:'WOMEN',l:'Womenswear',w:.34},{c:'KIDS',l:'Kids',w:.14},{c:'ACC',l:'Accessories',w:.12},{c:'FOOT',l:'Footwear',w:.08}];
+const DIVL=Object.fromEntries(DIVS.map(d=>[d.c,d.l]));
+const TYPES={
+  MEN:[['Kaos','Tops',59,149],['Kemeja','Tops',149,299],['Polo','Tops',129,219],['Celana Chino','Bottoms',199,349],['Celana Jeans','Bottoms',249,449],['Jaket Bomber','Outerwear',299,549],['Hoodie','Outerwear',219,399],['Sweater','Outerwear',199,329],['Kemeja Flanel','Tops',179,299],['Celana Pendek','Bottoms',119,199]],
+  WOMEN:[['Blouse','Tops',129,259],['Dress Midi','Dresses',199,429],['Rok Plisket','Bottoms',149,259],['Kulot','Bottoms',149,249],['Tunik','Tops',159,279],['Cardigan','Outerwear',179,329],['Kaos','Tops',69,139],['Kemeja','Tops',149,279],['Gamis','Dresses',249,499],['Outer Kimono','Outerwear',169,299]],
+  KIDS:[['Kaos Anak','Tops',49,99],['Setelan Anak','Sets',99,189],['Celana Anak','Bottoms',69,139],['Dress Anak','Dresses',99,179],['Hoodie Anak','Outerwear',129,219],['Piyama Anak','Sets',89,159]],
+  ACC:[['Topi Baseball','Headwear',79,149],['Tas Tote','Bags',99,249],['Kaos Kaki','Socks',29,59],['Ikat Pinggang','Small leather',99,219],['Dompet','Small leather',129,299],['Scarf','Headwear',69,149],['Bucket Hat','Headwear',89,159]],
+  FOOT:[['Sneakers','Footwear',349,799],['Sandal Slide','Footwear',99,199],['Loafer','Footwear',399,699],['Slip On','Footwear',249,449],['Sepatu Kanvas','Footwear',199,379]],
+};
+const DESC={MEN:['Oversize','Slim Fit','Linen','Basic','Stripe','Pocket','Garment Dye','Heavyweight','Boxy','Relaxed','Twill','Corduroy','Denim'],
+  WOMEN:['Rayon','Linen','Basic','Ruffle','Plisket','Crinkle','Katun','Satin','Stripe','Floral','Polka','Relaxed'],
+  KIDS:['Basic','Karakter','Stripe','Katun','Printed','Rib'],ACC:['Kanvas','Kulit','Basic','Knit','Classic','Printed'],FOOT:['Kanvas','Kulit','Suede','Knit','Classic','Low','High']};
+const COLL=['Arka','Senja','Laut','Rimba','Kala','Bayu','Tirta','Awan','Gema','Lintang','Sora','Raya','Nara','Wana','Jagat','Candra','Bumi','Aksa','Sekar','Lana','Rana','Dipa'];
+const COLOURS=[['Black','#1f2125'],['White','#f4f3ef'],['Navy','#23324f'],['Olive','#6b6b3a'],['Beige','#d9c7a7'],['Maroon','#6e2330'],['Misty grey','#a9adb3'],['Dusty pink','#d8a7a7'],['Sage','#9fb09a'],['Mustard','#c99a2e'],['Sky','#8fb5d8'],['Terracotta','#b85f3f'],['Charcoal','#3d4046'],['Cream','#efe6d2']];
+const SIZE_ALL=['XS','S','M','L','XL','XXL','2','4','6','8','10','12','38','39','40','41','42','43','44','All size'];
+const SUPS={any:['CV Sinar Garmen','PT Delta Konveksi','Rajut Bandung','Majalaya Tekstil','PT Anugerah Apparel','Konveksi Tiga Putra','CV Benang Emas'],FOOT:['CV Cibaduyut Jaya','PT Kurnia Leather'],ACC:['PT Kurnia Leather','CV Benang Emas','Rajut Bandung','PT Anugerah Apparel']};
+const PUNITS=['CARTON 24','CARTON 24','KODI','LUSIN','PCS'];
+const SEASON=['Lebaran 2026','Basics','Back to school','Collab','Year end 2025'];
+const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const T0=Date.UTC(2024,0,8), TODAY=Date.UTC(2026,8,28);
+const day=t=>{const d=new Date(t);return d.getUTCDate()+' '+MONTHS[d.getUTCMonth()]+(d.getUTCFullYear()!==2026?' '+d.getUTCFullYear():'')};
+function sizeRun(div){
+  if(div==='KIDS'){const s=6+Math.floor(R()*2),n=4+Math.floor(R()*2);return Array.from({length:Math.min(n,12-s)},(_,k)=>s+k)}
+  if(div==='FOOT'){const s=12+Math.floor(R()*2),n=5+Math.floor(R()*3);return Array.from({length:Math.min(n,19-s)},(_,k)=>s+k)}
+  if(div==='ACC') return R()<.7?[19]:[1,2,3];
+  const runs=[[1,2,3,4],[0,1,2,3,4,5],[1,2,3,4,5],[2,3,4,5],[1,2,3]];return pick(runs);
+}
+function hash(a,b,c){let h=(Math.imul(a,2654435761)^Math.imul(b+1,40503)^Math.imul(c+7,9973))>>>0;h=Math.imul(h^(h>>>13),1274126177)>>>0;return (h^(h>>>16))>>>0}
+const N=12480, ARTS=[];
+for(let i=0;i<N;i++){
+  let r=R(),div=DIVS[DIVS.length-1].c;for(const d of DIVS){if(r<d.w){div=d.c;break}r-=d.w}
+  const [type,cat,lo,hi]=pick(TYPES[div]);
+  const name=`${type} ${pick(DESC[div])} ${pick(COLL)}`;
+  const nc=1+Math.floor(Math.pow(R(),1.6)*6);
+  const cols=[];while(cols.length<nc){const c=Math.floor(R()*COLOURS.length);if(!cols.includes(c))cols.push(c)}
+  const sizes=sizeRun(div);
+  const created=T0+Math.floor((TODAY-T0)*(i/N))+Math.floor(R()*86400000);
+  const miss=R()<.03?1+Math.floor(R()*3):0;
+  const base=Math.round((lo+R()*(hi-lo))/10)*10000-1000;
+  const tags=[cat];if(R()<.28)tags.push(div==='KIDS'&&R()<.5?'Back to school':pick(SEASON));
+  const a={i,code:String(20000001+i),name,div,cat,tags:[...new Set(tags)],cols,sizes,miss:Math.min(miss,cols.length*sizes.length-1),
+    price:R()<.012?null:base,up:R()<.2?10000:0,act:i<N-600?R()<.93:true,photo:R()<.955,
+    sup:R()<.012?null:pick(SUPS[div]||SUPS.any),punit:pick(PUNITS),created,upd:Math.min(TODAY,created+Math.floor(R()*200)*86400000)};
+  a.skus=a.cols.length*a.sizes.length-a.miss;
+  let t=0;for(let ci=0;ci<a.cols.length;ci++)for(let si=0;si<a.sizes.length;si++){const v=oh(a,ci,si);if(v)t+=v}a.oh=t;
+  a.s=(a.name+' '+a.code+' '+DIVL[a.div]+' '+a.tags.join(' ')+' '+(a.sup||'')+' '+a.cols.map(c=>COLOURS[c][0]).join(' ')).toLowerCase();
+  ARTS.push(a);
+}
+function minted(a,ci,si){return !(a.miss&&ci===a.cols.length-1&&si>=a.sizes.length-a.miss)}
+function oh(a,ci,si){if(!minted(a,ci,si))return null;const h=hash(a.i,ci,si);if(!a.act)return h%4===0?h%5:0;return h%6===0?0:h%48}
+const skuCode=(a,ci,si)=>a.code+ci+String(a.sizes[si]+1).padStart(2,'0');
+const TOTAL_SKUS=ARTS.reduce((s,a)=>s+a.skus,0);
+const issues=a=>{const o=[];if(!a.photo)o.push('No photo');if(a.price==null)o.push('No price');if(a.miss)o.push(`${a.miss} SKU${a.miss>1?'s':''} not made`);if(!a.sup)o.push('No supplier');return o};
+
+/* ---------- formatting ---------- */
+const fmt=new Intl.NumberFormat('id-ID');
+const n=x=>fmt.format(x);
+const money=(a)=>a.price==null?'<span class="warnc">No price</span>':'Rp '+n(a.price)+(a.up?'–'+n(a.price+a.up):'');
+const sizeSpan=a=>a.sizes.length===1?SIZE_ALL[a.sizes[0]]:SIZE_ALL[a.sizes[0]]+'–'+SIZE_ALL[a.sizes[a.sizes.length-1]];
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function thumb(a,big){
+  if(!a.photo)return `<span class="th none${big?' big':''}">${I.img}</span>`;
+  const h=COLOURS[a.cols[0]][1];const light=['#f4f3ef','#efe6d2','#d9c7a7','#d8a7a7','#a9adb3','#9fb09a','#8fb5d8'].includes(h);
+  return `<span class="th${big?' big':''}" style="background:${h};color:${light?'#20242c':'#fff'}">${I.shirt}</span>`;
+}
+const dots=(a,cap=5)=>`<span class="dots">${a.cols.slice(0,cap).map(c=>`<i class="dot" style="background:${COLOURS[c][1]}" title="${COLOURS[c][0]}"></i>`).join('')}${a.cols.length>cap?`<span class="more">+${a.cols.length-cap}</span>`:''}</span>`;
+const artCell=(a,q)=>`<span class="art">${thumb(a)}<span class="tx"><b>${hi(a.name,q)}</b><span class="code mono">${a.code}</span></span></span>`;
+function hi(s,q){if(!q||/^\d+$/.test(q))return esc(s);const w=q.toLowerCase().split(/\s+/).filter(Boolean);let o=esc(s);for(const t of w){o=o.replace(new RegExp('('+t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig'),'<mark style="background:#fff3c4;color:inherit;border-radius:3px">$1</mark>')}return o}
+const status=a=>a.act?'':'<span class="stat"><i></i>Cancelled</span>';
+
+/* ---------- state ---------- */
+const S={opt:'1',q:'',view:'all',f:{div:new Set,tag:new Set,st:new Set},sort:{k:'new',d:-1},sel:null,hl:null,
+  level:'none',exp:new Set,expC:new Set,group3:'article',group5:'div',collapsed:new Set,checked:new Set,allChecked:false,edits:new Map,hidden:new Set(['sup','upd']),sheet:null,reset:true};
+const VIEWS=[
+  ['all','All articles',a=>true],
+  ['attention','Needs attention',a=>issues(a).length>0],
+  ['nophoto','No photo',a=>!a.photo],
+  ['unpriced','No price',a=>a.price==null],
+  ['incomplete','SKUs not made',a=>a.miss>0],
+  ['new','Added in September',a=>a.created>=Date.UTC(2026,8,1)],
+  ['cancelled','Cancelled',a=>!a.act],
+];
+const viewFn=k=>VIEWS.find(v=>v[0]===k)[2];
+
+function parseQ(){const q=S.q.trim();S.hl=null;
+  if(/^\d{11}$/.test(q)){const a=ARTS[+q.slice(0,8)-20000001];if(a){const ci=+q[8],sc=+q.slice(9)-1,si=a.sizes.indexOf(sc);if(ci<a.cols.length&&si>=0&&minted(a,ci,si)){S.hl={i:a.i,ci,si};return x=>x===a}}return ()=>false}
+  if(/^\d{3,8}$/.test(q))return a=>a.code.startsWith(q)||a.code.endsWith(q);
+  const w=q.toLowerCase().split(/\s+/).filter(Boolean);if(!w.length)return null;return a=>w.every(t=>a.s.includes(t));}
+let CACHE=null;
+function matchedByQ(){const f=parseQ();return f?ARTS.filter(f):ARTS}
+function passFilters(a,skip){const f=S.f;
+  if(skip!=='div'&&f.div.size&&!f.div.has(a.div))return false;
+  if(skip!=='tag'&&f.tag.size&&!a.tags.some(t=>f.tag.has(t)))return false;
+  if(skip!=='st'&&f.st.size&&!f.st.has(a.act?'Active':'Cancelled'))return false;return true}
+const SORTS={new:a=>a.i,name:a=>a.name,price:a=>a.price??-1,skus:a=>a.skus,oh:a=>a.oh,div:a=>DIVL[a.div],sup:a=>a.sup||'',upd:a=>a.upd};
+function list(ignoreView){
+  const base=matchedByQ(), vf=viewFn(S.view);
+  let out=base.filter(a=>passFilters(a)&&(ignoreView||vf(a)));
+  const k=SORTS[S.sort.k],d=S.sort.d;
+  out.sort((x,y)=>{const a=k(x),b=k(y);return (a<b?-1:a>b?1:0)*d});
+  return out;
+}
+
+/* ---------- virtual table ---------- */
+let V=null;
+function mount(host,cols,rows,o={}){
+  const keep=!S.reset&&V&&V.opt===S.opt?V.sc.scrollTop:0;S.reset=false;
+  host.innerHTML=`<div class="scroll"><table class="t" style="min-width:${cols.reduce((t,c)=>t+(c.w?parseFloat(c.w)*(c.w.endsWith('px')?1:16):0),0)+(cols.some(c=>!c.w)?260:0)}px"><colgroup>${cols.map(c=>`<col${c.w?` style="width:${c.w}"`:''}>`).join('')}</colgroup>
+  <thead><tr>${cols.map(c=>`<th class="${c.cls||''}${c.sort?' srt':''}" ${c.sort?`data-sort="${c.sort}"`:''}>${c.head??c.label}${c.sort&&S.sort.k===c.sort?` <span class="ar">${S.sort.d>0?'↑':'↓'}</span>`:''}</th>`).join('')}</tr></thead><tbody></tbody></table></div>`;
+  const sc=host.querySelector('.scroll'),tb=sc.querySelector('tbody');
+  const rh=()=>parseInt(getComputedStyle(document.documentElement).getPropertyValue('--row'));
+  let raf=0;
+  const draw=()=>{raf=0;const h=rh();const st=Math.max(0,Math.floor(sc.scrollTop/h)-10),en=Math.min(rows.length,st+Math.ceil(sc.clientHeight/h)+20);
+    let html=`<tr class="sp"><td colspan="${cols.length}" style="height:${st*h}px"></td></tr>`;
+    for(let k=st;k<en;k++){const r=rows[k];
+      if(r.t==='g'){html+=`<tr class="grp" data-k="${k}"><td colspan="${cols.length}">${r.html}</td></tr>`;continue}
+      html+=`<tr data-k="${k}" class="${o.rowCls?o.rowCls(r):''}">${cols.map(c=>`<td class="${c.cls||''}">${c.cell(r)}</td>`).join('')}</tr>`}
+    html+=`<tr class="sp"><td colspan="${cols.length}" style="height:${(rows.length-en)*h}px"></td></tr>`;tb.innerHTML=html;o.after&&o.after(tb)};
+  sc.addEventListener('scroll',()=>{if(!raf)raf=requestAnimationFrame(draw)});
+  sc.querySelector('thead').addEventListener('click',e=>{const th=e.target.closest('[data-sort]');if(!th)return;const k=th.dataset.sort;
+    S.sort=S.sort.k===k?{k,d:-S.sort.d}:{k,d:k==='name'||k==='div'||k==='sup'?1:-1};S.reset=true;render()});
+  tb.addEventListener('click',e=>{const tr=e.target.closest('tr[data-k]');if(!tr||!o.onRow)return;o.onRow(rows[+tr.dataset.k],e)});
+  o.bind&&o.bind(tb,rows,sc);
+  sc.scrollTop=keep;draw();
+  V={sc,draw,rows,opt:S.opt};
+  if(!rows.length)tb.innerHTML=`<tr><td colspan="${cols.length}" style="height:160px;text-align:center;color:var(--body)">No article matches that. Clear the filters, or search the whole master.</td></tr>`;
+}
+
+/* ---------- shared chrome ---------- */
+const fcount=()=>S.f.div.size+S.f.tag.size+S.f.st.size;
+function header(){
+  return `<div class="ph"><div><h2>Articles</h2><div class="sub">${n(N)} articles · ${n(TOTAL_SKUS)} SKUs · minted by article setup in Procurement</div></div>
+  <div class="act"><button class="btn ghost" data-t="Import from Excel: upload, map columns, preview the changes, apply">${I.up}Import</button>
+  <button class="btn ghost" data-t="Exports what is filtered now, not the whole master">${I.dl}Export</button>
+  <button class="btn pri" data-t="Opens article setup (Procurement)">Set up articles</button></div></div>`;
+}
+function toolbar(extra='',o={}){
+  const vl=VIEWS.find(v=>v[0]===S.view)[1];
+  return `<div class="tools">
+   <label class="search">${I.search}<input id="q" value="${esc(S.q)}" placeholder="Name, article code, SKU or scan" autocomplete="off"/>${S.q?`<button class="btn ghost" id="qx" style="height:26px;padding:0 4px">${I.x}</button>`:'<span class="kbd">/</span>'}</label>
+   ${o.noViews?'':`<button class="btn${S.view!=='all'?' on':''}" id="bViews">${I.views}${vl}${I.down}</button>`}
+   <button class="btn${fcount()?' on':''}" id="bFilter">${I.filter}Filter${fcount()?`<span class="cnt">${fcount()}</span>`:''}</button>
+   ${extra}
+   <span class="count" id="count"></span>
+   ${o.noCols?'':`<button class="btn ghost" id="bCols" title="Columns">${I.cols}Columns</button>`}
+   <span class="seg" id="dens"><button data-h="52" class="${getRow()===52?'on':''}">Comfortable</button><button data-h="44" class="${getRow()===44?'on':''}">Compact</button></span>
+  </div>`;
+}
+const getRow=()=>parseInt(getComputedStyle(document.documentElement).getPropertyValue('--row'));
+function countText(shown,unit='articles',total=N){
+  const filtered=S.q||fcount()||S.view!=='all';
+  return filtered?`<b>${n(shown)}</b> of ${n(total)} ${unit}`:`<b>${n(total)}</b> ${unit}`;
+}
+
+/* ---------- detail (panel in 1, sheet in 2–5) ---------- */
+function detail(a,closeId){
+  const iss=issues(a);
+  const hl=S.hl&&S.hl.i===a.i?S.hl:null;
+  let totals=a.sizes.map(()=>0);
+  const rows=a.cols.map((c,ci)=>`<tr><td><span class="cw"><i class="dot" style="background:${COLOURS[c][1]}"></i>${COLOURS[c][0]} <span class="mute mono">${ci}</span></span></td>${a.sizes.map((s,si)=>{const v=oh(a,ci,si);if(v==null)return `<td class="no" title="Not made yet">—</td>`;totals[si]+=v;
+    return `<td class="num${v===0?' z':''}${hl&&hl.ci===ci&&hl.si===si?' hl':''}" title="SKU ${skuCode(a,ci,si)}">${n(v)}</td>`}).join('')}<td class="num">${n(a.sizes.reduce((t,_,si)=>t+(oh(a,ci,si)||0),0))}</td></tr>`).join('');
+  return `<div class="det">
+   <div class="hd">${thumb(a,true)}<div style="min-width:0"><h3>${esc(a.name)}</h3><div class="mono mute">${a.code}</div>
+     <div style="margin-top:8px;display:flex;gap:6px"><button class="btn" data-t="Opens the article form">Edit</button><button class="btn ghost" data-t="Prints swing tags for the SKUs you pick">Print tags</button></div></div>
+     <button class="btn ghost x" id="${closeId}" title="Close (Esc)">${I.x}</button></div>
+   ${iss.length?`<div class="sec">${iss.map(t=>`<div class="issue">${t}<button class="btn" data-t="Fix: ${t}">${t==='No photo'?'Add photo':t==='No price'?'Set price':t==='No supplier'?'Pick supplier':'Make SKUs'}</button></div>`).join('')}</div>`:''}
+   ${hl?`<div class="sec"><div class="issue" style="background:var(--accent-bg);color:var(--accent)">Scanned SKU ${skuCode(a,hl.ci,hl.si)} · ${COLOURS[a.cols[hl.ci]][0]} ${SIZE_ALL[a.sizes[hl.si]]}</div></div>`:''}
+   <div class="sec"><dl class="facts">
+     <dt>Division</dt><dd>${DIVL[a.div]}</dd>
+     <dt>Tags</dt><dd>${a.tags.join(', ')}</dd>
+     <dt>Price</dt><dd class="num">${money(a)}</dd>
+     <dt>Supplier</dt><dd>${a.sup?esc(a.sup):'<span class="warnc">None yet</span>'}</dd>
+     <dt>Units</dt><dd>Counted in PCS${a.punit!=='PCS'?` · bought in ${a.punit}`:''}</dd>
+     <dt>Status</dt><dd>${a.act?'Active':'<span class="stat"><i></i>Cancelled</span>'}</dd>
+     <dt>Added</dt><dd>${day(a.created)} · changed ${day(a.upd)}</dd>
+   </dl></div>
+   <div class="sec"><h4>On hand by colour and size<span>${n(a.skus)} SKUs · all sites</span></h4>
+     <table class="mx num"><thead><tr><th></th>${a.sizes.map(s=>`<th>${SIZE_ALL[s]}</th>`).join('')}<th>Total</th></tr></thead><tbody>${rows}</tbody>
+     <tfoot><tr><td>Total</td>${totals.map(t=>`<td>${n(t)}</td>`).join('')}<td>${n(a.oh)}</td></tr></tfoot></table></div>
+   <div class="sec"><h4>Where it is<span>top sites</span></h4>
+     <dl class="facts">${['Gudang Pusat','Toko Braga','Toko Dago','Toko PVJ'].map((s,k)=>`<dt>${s}</dt><dd class="num">${n(Math.floor(a.oh*[.46,.2,.18,.16][k]))}</dd>`).join('')}</dl></div>
+  </div>`;
+}
+function openSheet(a){S.sheet=a;document.querySelectorAll('.shade,.sheet').forEach(e=>e.remove());
+  document.body.insertAdjacentHTML('beforeend',`<div class="shade" id="shade"></div><aside class="sheet">${detail(a,'shx')}</aside>`);
+  const close=()=>{S.sheet=null;document.querySelectorAll('.shade,.sheet').forEach(e=>e.remove())};
+  $('#shade').onclick=close;$('#shx').onclick=close;}
+const $=s=>document.querySelector(s);
+
+/* ---------- column sets ---------- */
+const C={
+  art:{id:'art',label:'Article',sort:'name',cell:r=>artCell(r.a,S.q)},
+  div:{id:'div',label:'Division',sort:'div',w:'9.5rem',cell:r=>r.t==='a'||!r.t?DIVL[r.a.div]:''},
+  cols:{id:'cols',label:'Colours',w:'8.5rem',cell:r=>dots(r.a)},
+  sizes:{id:'sizes',label:'Sizes',w:'6.5rem',cell:r=>sizeSpan(r.a)},
+  skus:{id:'skus',label:'SKUs',sort:'skus',w:'5.5rem',cls:'n num',cell:r=>r.a.miss?`<span class="warnc" title="${r.a.miss} not made yet">${r.a.skus}/${r.a.skus+r.a.miss}</span>`:n(r.a.skus)},
+  price:{id:'price',label:'Price',sort:'price',w:'10.5rem',cls:'n num',cell:r=>money(r.a)},
+  oh:{id:'oh',label:'On hand',sort:'oh',w:'6.5rem',cls:'n num',cell:r=>n(r.a.oh)},
+  sup:{id:'sup',label:'Supplier',sort:'sup',w:'11rem',cell:r=>r.a.sup?esc(r.a.sup):'<span class="warnc">None</span>'},
+  upd:{id:'upd',label:'Changed',sort:'upd',w:'7rem',cell:r=>day(r.a.upd)},
+  st:{id:'st',label:'Status',w:'7.5rem',cell:r=>status(r.a)},
+};
+const OPTIONAL=[['cols','Colours'],['sizes','Sizes'],['skus','SKUs'],['oh','On hand'],['sup','Supplier'],['upd','Changed']];
+
+/* ---------- option 1: list + side panel ---------- */
+function opt1(body){
+  const arts=list();setCount(countText(arts.length));
+  if(S.hl&&arts.length===1)S.sel=arts[0].i;
+  const narrow=S.sel!==null;
+  const cols=[C.art,C.div,C.cols,C.sizes,C.skus,C.price,C.oh,C.sup,C.upd,C.st].filter(c=>!S.hidden.has(c.id)&&!(narrow&&['cols','sizes','sup','upd','div'].includes(c.id)));
+  body.innerHTML=`<div class="frame${S.sel!==null?' split':''}"><div id="tbl"></div>${S.sel!==null?detail(ARTS[S.sel],'px'):''}</div>`;
+  const rows=arts.map(a=>({a}));
+  mount($('#tbl'),cols,rows,{rowCls:r=>'link'+(r.a.i===S.sel?' picked':'')+(r.a.act?'':' dim'),onRow:r=>{S.sel=S.sel===r.a.i?null:r.a.i;render()}});
+  const px=$('#px');if(px)px.onclick=()=>{S.sel=null;render()};
+  V.list=arts;
+}
+/* ---------- option 2: article › colour › size ---------- */
+function opt2(body){
+  const arts=list();setCount(countText(arts.length));
+  const rows=[];
+  for(const a of arts){rows.push({t:'a',a});
+    const open=S.level!=='none'?!S.exp.has('x'+a.i):S.exp.has(a.i);
+    if(!open)continue;
+    a.cols.forEach((c,ci)=>{rows.push({t:'c',a,ci});
+      const k=a.i+':'+ci,copen=S.level==='sku'?!S.expC.has('x'+k):S.expC.has(k);
+      if(copen)a.sizes.forEach((s,si)=>{if(minted(a,ci,si))rows.push({t:'s',a,ci,si})})});}
+  const cw=(r)=>{const a=r.a;
+    if(r.t==='a'){const open=S.level!=='none'?!S.exp.has('x'+a.i):S.exp.has(a.i);return `<span class="art"><button class="tw" data-tg="a">${I.chev.replace('chev','chev'+(open?' open':''))}</button>${thumb(a)}<span class="tx"><b>${hi(a.name,S.q)}</b><span class="code mono">${a.code}</span></span></span>`}
+    if(r.t==='c'){const k=a.i+':'+r.ci,open=S.level==='sku'?!S.expC.has('x'+k):S.expC.has(k);return `<span class="art" style="padding-left:28px"><button class="tw" data-tg="c">${I.chev.replace('chev','chev'+(open?' open':''))}</button><i class="dot" style="background:${COLOURS[a.cols[r.ci]][1]};margin:0 4px"></i><span class="tx"><b style="font-weight:400">${COLOURS[a.cols[r.ci]][0]}</b></span><span class="mono mute">${a.code}${r.ci}</span></span>`}
+    const hl=S.hl&&S.hl.i===a.i&&S.hl.ci===r.ci&&S.hl.si===r.si;
+    return `<span class="art" style="padding-left:84px"><span style="width:3.5rem;color:var(--ink)">${SIZE_ALL[a.sizes[r.si]]}</span><span class="mono${hl?'':' mute'}" style="${hl?'color:var(--accent);font-weight:600':''}">${skuCode(a,r.ci,r.si)}</span></span>`};
+  const sumC=(a,ci)=>a.sizes.reduce((t,_,si)=>t+(oh(a,ci,si)||0),0);
+  const cols=[
+    {id:'art',label:'Article · colour · size',sort:'name',cell:cw},
+    {id:'div',label:'Division',sort:'div',w:'9.5rem',cell:r=>r.t==='a'?DIVL[r.a.div]:''},
+    {id:'sz',label:'Sizes',w:'7rem',cell:r=>r.t==='a'?sizeSpan(r.a):r.t==='c'?`<span class="mute">${r.a.sizes.filter((_,si)=>minted(r.a,r.ci,si)).length} of ${r.a.sizes.length}</span>`:''},
+    {id:'skus',label:'SKUs',sort:'skus',w:'5.5rem',cls:'n num',cell:r=>r.t==='a'?C.skus.cell(r):''},
+    {id:'price',label:'Price',sort:'price',w:'10.5rem',cls:'n num',cell:r=>r.t==='a'?money(r.a):r.t==='s'&&r.a.price!=null?`<span class="mute">Rp ${n(r.a.price+(r.si===r.a.sizes.length-1?r.a.up:0))}</span>`:''},
+    {id:'oh',label:'On hand',sort:'oh',w:'6.5rem',cls:'n num',cell:r=>r.t==='a'?n(r.a.oh):r.t==='c'?n(sumC(r.a,r.ci)):`<span class="${oh(r.a,r.ci,r.si)?'':'faint'}">${n(oh(r.a,r.ci,r.si))}</span>`},
+    {id:'st',label:'Status',w:'7.5rem',cell:r=>r.t==='a'?status(r.a):''},
+  ];
+  body.innerHTML=`<div class="frame"><div id="tbl"></div></div>`;
+  mount($('#tbl'),cols,rows,{rowCls:r=>(r.t==='a'?'link':r.t==='c'?'lv1 link':'lv2')+(r.a.act?'':' dim'),onRow:(r,e)=>{
+    const tg=e.target.closest('[data-tg]');
+    if(tg||r.t==='c'){if(r.t==='a'){const k=S.level!=='none'?'x'+r.a.i:r.a.i;S.exp.has(k)?S.exp.delete(k):S.exp.add(k)}
+      else if(r.t==='c'){const b=r.a.i+':'+r.ci,k=S.level==='sku'?'x'+b:b;S.expC.has(k)?S.expC.delete(k):S.expC.add(k)}render();return}
+    if(r.t==='a')openSheet(r.a)}});
+  setCount(countText(arts.length)+(rows.length>arts.length?` <span class="mute">· ${n(rows.length)} rows open</span>`:''));
+}
+/* ---------- option 3: one row per SKU ---------- */
+function opt3(body){
+  const arts=list();const rows=[];let skus=0;
+  for(const a of arts){
+    if(S.group3==='article')rows.push({t:'g',a,html:`<span class="art">${thumb(a)}<span class="tx"><b>${hi(a.name,S.q)}</b><span class="code mono">${a.code} · ${DIVL[a.div]} · ${a.skus} SKUs</span></span><span style="margin-left:auto" class="num mute">${n(a.oh)} on hand</span></span>`});
+    a.cols.forEach((c,ci)=>a.sizes.forEach((s,si)=>{if(minted(a,ci,si)){rows.push({a,ci,si});skus++}}));
+  }
+  setCount(countText(skus,'SKUs',TOTAL_SKUS));
+  const cols=[
+    {id:'sku',label:'SKU',w:'10.5rem',cell:r=>{const hl=S.hl&&S.hl.i===r.a.i&&S.hl.ci===r.ci&&S.hl.si===r.si;return `<span class="mono" style="${hl?'color:var(--accent);font-weight:600':'color:var(--ink)'}">${skuCode(r.a,r.ci,r.si)}</span>`}},
+    ...(S.group3==='article'?[]:[{id:'art',label:'Article',sort:'name',cell:r=>`<span style="color:var(--ink)">${hi(r.a.name,S.q)}</span>`}]),
+    {id:'col',label:'Colour',w:S.group3==='article'?null:'10rem',cell:r=>`<span class="art"><i class="dot" style="background:${COLOURS[r.a.cols[r.ci]][1]};margin:0"></i>${COLOURS[r.a.cols[r.ci]][0]}</span>`},
+    {id:'sz',label:'Size',w:'6rem',cell:r=>SIZE_ALL[r.a.sizes[r.si]]},
+    {id:'bc',label:'Barcode',w:'10.5rem',cell:r=>`<span class="mono mute">899${skuCode(r.a,r.ci,r.si).slice(1)}</span>`},
+    {id:'price',label:'Price',sort:'price',w:'9rem',cls:'n num',cell:r=>r.a.price==null?'<span class="warnc">No price</span>':'Rp '+n(r.a.price+(r.si===r.a.sizes.length-1?r.a.up:0))},
+    {id:'oh',label:'On hand',sort:'oh',w:'6.5rem',cls:'n num',cell:r=>{const v=oh(r.a,r.ci,r.si);return `<span class="${v?'':'faint'}">${n(v)}</span>`}},
+    {id:'st',label:'Status',w:'7.5rem',cell:r=>status(r.a)},
+  ];
+  body.innerHTML=`<div class="frame"><div id="tbl"></div></div>`;
+  mount($('#tbl'),cols,rows,{rowCls:r=>'link'+(r.a.act?'':' dim')+(S.hl&&S.hl.i===r.a.i&&S.hl.ci===r.ci&&S.hl.si===r.si?' picked':''),onRow:r=>openSheet(r.a)});
+}
+/* ---------- option 4: edit as sheet ---------- */
+const EDITABLE={name:a=>a.name,div:a=>a.div,tags:a=>a.tags.join(', '),price:a=>a.price==null?'':String(a.price),punit:a=>a.punit,st:a=>a.act?'Active':'Cancelled'};
+const ev=(a,f)=>S.edits.has(a.i+':'+f)?S.edits.get(a.i+':'+f):EDITABLE[f](a);
+function opt4(body){
+  const arts=list();setCount(countText(arts.length));
+  const nsel=S.allChecked?arts.length:S.checked.size;
+  const inp=(a,f,cls='')=>`<input class="cell ${cls}${S.edits.has(a.i+':'+f)?' dirty':''}" data-i="${a.i}" data-f="${f}" value="${esc(ev(a,f))}"${f==='price'?' inputmode="numeric" placeholder="No price"':''}/>`;
+  const sel=(a,f,opts)=>`<select class="cell${S.edits.has(a.i+':'+f)?' dirty':''}" data-i="${a.i}" data-f="${f}">${opts.map(([v,l])=>`<option value="${v}"${ev(a,f)===v?' selected':''}>${l}</option>`).join('')}</select>`;
+  const cols=[
+    {id:'chk',cls:'chk',w:'40px',head:`<input type="checkbox" id="all"${S.allChecked?' checked':''}>`,cell:r=>`<input type="checkbox" data-c="${r.a.i}"${S.allChecked||S.checked.has(r.a.i)?' checked':''}>`},
+    {id:'code',label:'Code',w:'7.5rem',sort:'new',cell:r=>`<span class="mono mute">${r.a.code}</span>`},
+    {id:'name',label:'Name',sort:'name',cell:r=>inp(r.a,'name')},
+    {id:'div',label:'Division',sort:'div',w:'10rem',cell:r=>sel(r.a,'div',DIVS.map(d=>[d.c,d.l]))},
+    {id:'tags',label:'Tags',w:'12rem',cell:r=>inp(r.a,'tags')},
+    {id:'price',label:'Price (Rp)',sort:'price',w:'8.5rem',cls:'n',cell:r=>inp(r.a,'price','r')},
+    {id:'punit',label:'Bought in',w:'8.5rem',cell:r=>sel(r.a,'punit',[['PCS','PCS'],['LUSIN','LUSIN (12)'],['KODI','KODI (20)'],['CARTON 24','CARTON 24']])},
+    {id:'st',label:'Status',w:'8.5rem',cell:r=>sel(r.a,'st',[['Active','Active'],['Cancelled','Cancelled']])},
+  ];
+  body.innerHTML=(nsel?`<div class="selbar"><b>${n(nsel)} selected${S.allChecked?' (every article that matches)':''}</b>
+     <button class="btn" data-bulk="Set division">Set division</button><button class="btn" data-bulk="Add tag">Add tag</button><button class="btn" data-bulk="Change price by %">Change price</button><button class="btn" data-bulk="Cancel articles">Cancel</button>
+     <button class="btn" style="margin-left:auto;border:0" id="clr">${I.x}</button></div>`:
+    `<div class="sheetnote"><span>Click a cell to change it. <span class="kbd">Enter</span> goes down, <span class="kbd">Tab</span> goes right. Paste a column from Excel to fill down.</span><span class="mute">Reached from “Edit as sheet” on any list.</span></div>`)
+    +`<div class="frame"><div id="tbl"></div></div>`;
+  mount($('#tbl'),cols,arts.map(a=>({a})),{bind:(tb,rows,sc)=>{
+    tb.addEventListener('change',e=>{const c=e.target.dataset.c;if(c!==undefined){S.allChecked=false;e.target.checked?S.checked.add(+c):S.checked.delete(+c);render();return}edit(e.target)});
+    tb.addEventListener('keydown',e=>{const t=e.target;if(!t.dataset.f||e.key!=='Enter')return;e.preventDefault();edit(t);
+      const k=+t.closest('tr').dataset.k+1;const h=getRow();if((k+1)*h>sc.scrollTop+sc.clientHeight-40)sc.scrollTop+=h;
+      requestAnimationFrame(()=>{const nx=tb.querySelector(`tr[data-k="${k}"] [data-f="${t.dataset.f}"]`);nx&&nx.focus()})});
+    tb.addEventListener('paste',e=>{const t=e.target;if(!t.dataset.f)return;const lines=e.clipboardData.getData('text').split(/\r?\n/).filter(Boolean);if(lines.length<2)return;e.preventDefault();
+      const k0=+t.closest('tr').dataset.k;lines.forEach((v,j)=>{const r=rows[k0+j];if(r)S.edits.set(r.a.i+':'+t.dataset.f,v.trim())});render();toast(`Pasted ${lines.length} values down ${t.dataset.f}`)});
+  }});
+  const all=$('#all');if(all)all.onchange=()=>{S.allChecked=all.checked;S.checked.clear();render()};
+  const clr=$('#clr');if(clr)clr.onclick=()=>{S.allChecked=false;S.checked.clear();render()};
+  document.querySelectorAll('[data-bulk]').forEach(b=>b.onclick=()=>toast(`${b.dataset.bulk} on ${n(nsel)} articles: one confirm, then it applies`));
+  tray();
+}
+function edit(t){const a=ARTS[+t.dataset.i],f=t.dataset.f;const orig=EDITABLE[f](a);
+  if(t.value===orig)S.edits.delete(a.i+':'+f);else S.edits.set(a.i+':'+f,t.value);t.classList.toggle('dirty',t.value!==orig);tray()}
+function tray(){document.querySelectorAll('.tray').forEach(e=>e.remove());if(S.opt!=='4'||!S.edits.size)return;
+  const arts=new Set([...S.edits.keys()].map(k=>k.split(':')[0])).size;
+  document.body.insertAdjacentHTML('beforeend',`<div class="tray"><span><b>${S.edits.size} change${S.edits.size>1?'s':''}</b> <span class="mute">on ${arts} article${arts>1?'s':''}</span></span><button class="btn ghost" id="disc">Discard</button><button class="btn pri" id="save">Save</button></div>`);
+  $('#disc').onclick=()=>{S.edits.clear();render()};$('#save').onclick=()=>{toast(`Saved ${S.edits.size} changes. Each is in the article's history.`);S.edits.clear();render()};}
+/* ---------- option 5: worklists + groups ---------- */
+const GROUPS={div:['Division',a=>DIVL[a.div]],cat:['Category',a=>a.cat],sup:['Supplier',a=>a.sup||'No supplier'],none:['No grouping',null]};
+function opt5(body){
+  const base=matchedByQ().filter(a=>passFilters(a));
+  const arts=list();setCount(countText(arts.length));
+  const tabs=VIEWS.map(([k,l,f])=>{const c=base.filter(f).length;return `<button data-v="${k}" class="${S.view===k?'on':''}${k!=='all'&&k!=='new'&&k!=='cancelled'&&c?' warn':''}">${l}<span class="num">${n(c)}</span></button>`}).join('');
+  const g=GROUPS[S.group5];const rows=[];
+  if(g[1]){const m=new Map();for(const a of arts){const k=g[1](a);if(!m.has(k))m.set(k,[]);m.get(k).push(a)}
+    [...m.entries()].sort((x,y)=>x[0].localeCompare(y[0])).forEach(([k,as])=>{const open=!S.collapsed.has(k);
+      rows.push({t:'g',key:k,html:`<span class="art">${I.chev.replace('chev','chev'+(open?' open':''))}<span>${esc(k)}</span><span class="mute" style="font-weight:400">${n(as.length)} articles · ${n(as.reduce((t,a)=>t+a.oh,0))} on hand</span></span>`});
+      if(open)as.forEach(a=>rows.push({a}))})}
+  else arts.forEach(a=>rows.push({a}));
+  const attn=S.view!=='all'&&S.view!=='new'&&S.view!=='cancelled';
+  const cols=[C.art,C.cols,C.sizes,C.skus,C.price,C.oh,
+    attn?{id:'need',label:'Needs',w:'15rem',cell:r=>`<span class="warnc">${issues(r.a).join(' · ')}</span>`}:{...C.st,label:'Status'}];
+  body.innerHTML=`<div class="tabs" id="tabs">${tabs}</div><div class="frame"><div id="tbl"></div></div>`;
+  mount($('#tbl'),cols,rows,{rowCls:r=>'link'+(r.a&&!r.a.act?' dim':''),onRow:r=>{if(r.t==='g'){S.collapsed.has(r.key)?S.collapsed.delete(r.key):S.collapsed.add(r.key);render();return}openSheet(r.a)}});
+  document.querySelectorAll('#tabs [data-v]').forEach(b=>b.onclick=()=>{S.view=b.dataset.v;S.reset=true;render()});
+}
+
+/* ---------- research ---------- */
+const RESEARCH=window.RESEARCH||null;
+function research(pane){pane.innerHTML=document.getElementById('research').innerHTML}
+
+/* ---------- notes ---------- */
+const NOTES={
+  '1':[['Best for','Everyone, daily. Find one article among 12.480 by typing or scanning, see it whole without leaving the list. ↑ ↓ walk the list, Esc closes the panel.'],['Taken from','Linear, Odoo list + form, Lightspeed product list. Replaces today’s grid + sheet: the list stays visible, so the next article is one click away.'],['Trade-off','The panel takes 27rem, so Colours, Sizes and Supplier fold away while it is open. Below 1100px the panel becomes a sheet.']],
+  '2':[['Best for','Merchandisers checking what an article comes in. Expand only what you need: article → colourways → sizes, each with its own on-hand.'],['Taken from','Shopify and Lightspeed (product with variants underneath), ERPNext template → variants.'],['Trade-off','Deep trees get long. The “Expand” switch opens every row at once, which is fine for 40 matches and heavy for 12.480.']],
+  '3':[['Best for','Store and warehouse staff who think in barcodes. Every SKU is a row, so a scan lands on the exact colour and size. Group by article or flat.'],['Taken from','7Soft, Accurate, ERPNext Item list (each variant is an item), SAP B1 item master.'],['Trade-off','186 thousand rows. Fine to scroll, but the article-level facts (photo, division) only show on the group row.']],
+  '4':[['Best for','Tidying the master in bulk: fix 200 prices, move 50 articles to another division, cancel last season. Changes wait in a tray until Save.'],['Taken from','Shopify bulk editor, Airtable/Notion grids, ERPNext Report view. “Select all that match” reaches all 12.480, not just what is on screen.'],['Trade-off','Not a daily screen. It is a mode you enter from the list, so nobody edits a price by accident while browsing.']],
+  '5':[['Best for','Admins keeping the master clean. Tabs are saved worklists with live counts (no photo, no price, SKUs not made); groups fold a division away.'],['Taken from','Shopify saved views, NetSuite saved searches, Odoo group-by, Retail Pro Prism filters.'],['Trade-off','Tabs cost one row of height. Groups hide the order: sorting works inside each group, not across them.']],
+};
+
+/* ---------- render ---------- */
+let countHtml='';const setCount=h=>{countHtml=h;const c=$('#count');if(c)c.innerHTML=h};
+function render(){
+  document.querySelectorAll('.pop').forEach(p=>p.remove());
+  const pane=$('#pane');
+  if(S.opt==='r'){research(pane);$('#why').innerHTML='';tray();return}
+  const extra=S.opt==='2'?`<span class="sep"></span><span class="seg" id="lvl"><button data-l="none" class="${S.level==='none'?'on':''}">Articles</button><button data-l="colour" class="${S.level==='colour'?'on':''}">+ Colours</button><button data-l="sku" class="${S.level==='sku'?'on':''}">+ Sizes</button></span>`
+    :S.opt==='3'?`<span class="sep"></span><span class="seg" id="grp3"><button data-g="article" class="${S.group3==='article'?'on':''}">By article</button><button data-g="flat" class="${S.group3==='flat'?'on':''}">Flat</button></span>`
+    :S.opt==='5'?`<button class="btn" id="bGroup">Group: ${GROUPS[S.group5][0]}${I.down}</button>`:'';
+  pane.innerHTML=header()+toolbar(extra,{noViews:S.opt==='5',noCols:S.opt!=='1'})+`<div id="body"></div>`;
+  const body=$('#body');({'1':opt1,'2':opt2,'3':opt3,'4':opt4,'5':opt5})[S.opt](body);
+  $('#why').innerHTML=NOTES[S.opt].map(([h,p])=>`<div><h5>${h}</h5><p>${p}</p></div>`).join('');
+  if(S.opt!=='4')tray();
+  wire();
+}
+function wire(){
+  const q=$('#q');
+  q.oninput=()=>{S.q=q.value;S.reset=true;S.sel=null;const pos=q.selectionStart;render();const nq=$('#q');nq.focus();nq.setSelectionRange(pos,pos)};
+  const qx=$('#qx');if(qx)qx.onclick=()=>{S.q='';S.hl=null;S.reset=true;render()};
+  document.querySelectorAll('#dens button').forEach(b=>b.onclick=()=>{document.documentElement.style.setProperty('--row',b.dataset.h+'px');render()});
+  document.querySelectorAll('#lvl button').forEach(b=>b.onclick=()=>{S.level=b.dataset.l;S.exp.clear();S.expC.clear();S.reset=true;render()});
+  document.querySelectorAll('#grp3 button').forEach(b=>b.onclick=()=>{S.group3=b.dataset.g;S.reset=true;render()});
+  document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>toast(b.dataset.t));
+  const bv=$('#bViews');if(bv)bv.onclick=e=>{e.stopPropagation();const base=matchedByQ().filter(a=>passFilters(a));
+    pop(bv,`<h6>Views</h6>${VIEWS.map(([k,l,f])=>`<button class="opt${S.view===k?' on':''}" data-v="${k}"><span class="ck">${S.view===k?'✓':''}</span>${l}<span>${n(base.filter(f).length)}</span></button>`).join('')}<hr><button class="opt" data-t="Saves the search, filters, sort and columns as a view for everyone"><span class="ck"></span>Save current as view…<span></span></button>`,
+      p=>p.querySelectorAll('[data-v]').forEach(o=>o.onclick=()=>{S.view=o.dataset.v;S.reset=true;S.sel=null;render()}))};
+  const bf=$('#bFilter');bf.onclick=e=>{e.stopPropagation();filterPop(bf)};
+  const bc=$('#bCols');if(bc)bc.onclick=e=>{e.stopPropagation();pop(bc,`<h6>Columns</h6>${OPTIONAL.map(([k,l])=>`<label><input type="checkbox" data-k="${k}"${S.hidden.has(k)?'':' checked'}>${l}<span></span></label>`).join('')}`,
+    p=>p.querySelectorAll('[data-k]').forEach(c=>c.onchange=()=>{c.checked?S.hidden.delete(c.dataset.k):S.hidden.add(c.dataset.k);const r=bc.getBoundingClientRect();render();const nb=$('#bCols');nb.click()}),true)};
+  const bg=$('#bGroup');if(bg)bg.onclick=e=>{e.stopPropagation();pop(bg,`<h6>Group by</h6>${Object.entries(GROUPS).map(([k,[l]])=>`<button class="opt${S.group5===k?' on':''}" data-g="${k}"><span class="ck">${S.group5===k?'✓':''}</span>${l}<span></span></button>`).join('')}`,
+    p=>p.querySelectorAll('[data-g]').forEach(o=>o.onclick=()=>{S.group5=o.dataset.g;S.collapsed.clear();S.reset=true;render()}))};
+  $('#count').innerHTML=countHtml;
+}
+function pop(anchor,html,bind,right){
+  document.querySelectorAll('.pop').forEach(p=>p.remove());
+  const host=$('.tools');const r=anchor.getBoundingClientRect(),hr=host.getBoundingClientRect();
+  host.insertAdjacentHTML('beforeend',`<div class="pop" style="top:${r.bottom-hr.top+6}px;${right?`right:${hr.right-r.right}px;transform-origin:top right`:`left:${r.left-hr.left}px`}">${html}</div>`);
+  const p=host.querySelector('.pop');p.onclick=e=>e.stopPropagation();bind&&bind(p);
+  p.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>toast(b.dataset.t));
+}
+function filterPop(anchor){
+  const base=matchedByQ().filter(viewFn(S.view));
+  const cnt=(skip,fn)=>{const m=new Map();for(const a of base){if(!passFilters(a,skip))continue;for(const k of fn(a))m.set(k,(m.get(k)||0)+1)}return m};
+  const dv=cnt('div',a=>[a.div]),tg=cnt('tag',a=>a.tags),st=cnt('st',a=>[a.act?'Active':'Cancelled']);
+  const sec=(title,key,entries)=>`<h6>${title}</h6>`+entries.map(([v,l,c])=>`<label><input type="checkbox" data-f="${key}" value="${esc(v)}"${S.f[key].has(v)?' checked':''}>${l}<span>${n(c||0)}</span></label>`).join('');
+  const tags=[...tg.entries()].sort((a,b)=>b[1]-a[1]);
+  pop(anchor,`<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;min-width:30rem"><div>${sec('Division','div',DIVS.map(d=>[d.c,d.l,dv.get(d.c)]))}${sec('Status','st',[['Active','Active',st.get('Active')],['Cancelled','Cancelled',st.get('Cancelled')]])}</div><div>${sec('Tag','tag',tags.map(([k,c])=>[k,k,c]))}</div></div>
+    <hr><div class="foot"><button class="btn ghost" id="fclr">Clear</button><span class="mute" style="align-self:center">Counts are over what the search matches</span></div>`,p=>{
+    p.querySelectorAll('input[data-f]').forEach(c=>c.onchange=()=>{const s=S.f[c.dataset.f];c.checked?s.add(c.value):s.delete(c.value);S.reset=true;S.sel=null;render();filterPop($('#bFilter'))});
+    $('#fclr').onclick=()=>{S.f.div.clear();S.f.tag.clear();S.f.st.clear();S.reset=true;render()};
+  });
+}
+let tt;function toast(t){document.querySelectorAll('.toast').forEach(e=>e.remove());document.body.insertAdjacentHTML('beforeend',`<div class="toast">${esc(t)}</div>`);clearTimeout(tt);tt=setTimeout(()=>document.querySelectorAll('.toast').forEach(e=>e.remove()),2600)}
+
+document.addEventListener('click',()=>document.querySelectorAll('.pop').forEach(p=>p.remove()));
+document.addEventListener('keydown',e=>{
+  const typing=/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
+  if(e.key==='/'&&!typing){e.preventDefault();$('#q')?.focus();return}
+  if(e.key==='Escape'){if(document.querySelector('.pop')){document.querySelectorAll('.pop').forEach(p=>p.remove());return}if(S.sheet){$('#shx').click();return}if(S.opt==='1'&&S.sel!==null){S.sel=null;render();return}}
+  if(S.opt==='1'&&!typing&&(e.key==='ArrowDown'||e.key==='ArrowUp')&&V&&V.list&&V.list.length){e.preventDefault();
+    const L=V.list;let k=S.sel===null?-1:L.findIndex(a=>a.i===S.sel);k=Math.max(0,Math.min(L.length-1,k+(e.key==='ArrowDown'?1:-1)));S.sel=L[k].i;
+    const h=getRow(),sc=V.sc,top=k*h;const st=sc.scrollTop;render();const nsc=V.sc;nsc.scrollTop=st;
+    if(top<nsc.scrollTop)nsc.scrollTop=top;else if(top+h>nsc.scrollTop+nsc.clientHeight-40)nsc.scrollTop=top+h-nsc.clientHeight+40;V.draw()}
+});
+document.getElementById('lenses').onclick=e=>{const b=e.target.closest('.lens');if(!b)return;document.querySelectorAll('.lens').forEach(x=>x.classList.toggle('on',x===b));
+  S.opt=b.dataset.v;S.reset=true;S.sel=null;if(S.opt==='5'&&S.view==='all')S.view='attention';if(S.opt!=='5'&&S.opt!=='r'&&S.view==='attention')S.view='all';render()};
+{const a=ARTS[ARTS.length-37];document.getElementById('demoSku').textContent=skuCode(a,0,Math.min(1,a.sizes.length-1))}
+</script>
+<template id="research"><div style="padding:4px 0">
+  <div class="ph"><div><h2>Research</h2><div class="sub">How ten back-offices list thousands of products, and what each option borrows.</div></div></div>
+  <p class="lead">One finding runs through all of them: past a few hundred products, nobody keeps a card grid as the main list. Odoo ships kanban by default and implementers routinely switch it to the list view. Cards survive only as a merchandising browse. The client said the same about our grid.</p>
+  <table class="pat">
+    <thead><tr><th>Pattern</th><th>Who does it</th><th>Here</th></tr></thead>
+    <tbody>
+      <tr><td>Dense table as the default</td><td>Shopify, ERPNext Report view, Accurate, SAP B1, Square item library</td><td>All five</td></tr>
+      <tr><td>Parent row, variants folded underneath</td><td>Shopify (product → variants), Lightspeed X-Series (family, up to 200 variants), Cin7 (product families)</td><td>Option 2</td></tr>
+      <tr><td>Every variant is its own row</td><td>ERPNext (each variant is an Item), Retail Pro Prism (each size × colour is an item inside a style), Accurate, 7Soft</td><td>Option 3</td></tr>
+      <tr><td>Colour × size matrix inside the article, not as the list</td><td>Retail Pro Prism styles, Odoo product matrix, Lightspeed R-Series matrices</td><td>Detail in every option</td></tr>
+      <tr><td>Saved views as navigation</td><td>NetSuite saved searches (the “list” is a library of named queries), Shopify saved views</td><td>Views menu (1–4), tabs (5)</td></tr>
+      <tr><td>Bulk edit as its own mode</td><td>Shopify bulk editor, Square table view, ERPNext Report view</td><td>Option 4</td></tr>
+      <tr><td>Columns chosen by the user</td><td>ERPNext list settings, Shopify, Cin7, Accurate</td><td>Columns menu</td></tr>
+      <tr><td>Inactive is a filter, not a separate archive</td><td>Shopify (active / draft / archived), NetSuite “show inactives”, Accurate</td><td>Status filter + Cancelled view</td></tr>
+      <tr><td>Small thumbnail in the row only</td><td>Shopify, Accurate (optional)</td><td>32px in the row, 72px in the detail</td></tr>
+    </tbody>
+  </table>
+  <div class="res">
+    <article><h5>Shopify Admin</h5><ul><li>Table: checkbox, thumbnail, title, status, stock.</li><li>Lists products only; “4 variants” lives on the product page.</li><li>Search, filters and saved views are one bar.</li><li>Bulk editor is a separate grid: one row per variant, columns you pick.</li></ul><div class="tk">We keep: saved views, bulk mode. We skip: filter chips (they crowd the hub).</div></article>
+    <article><h5>Lightspeed Retail</h5><ul><li>X-Series: a variant family with one parent. Children inherit and override only SKU, price and stock.</li><li>Up to 3 options (colour, size, fabric).</li><li>R-Series builds an explicit matrix per style.</li></ul><div class="tk">Matches our article → colourway → size. Option 2.</div></article>
+    <article><h5>Odoo</h5><ul><li>Kanban by default, list one click away. Implementers make list the default.</li><li>A template with attribute lines (size, colour) and a separate variants list.</li><li>A product matrix popup for size × colour entry.</li></ul><div class="tk">Evidence against the grid. Group-by in option 5.</div></article>
+    <article><h5>ERPNext / Frappe</h5><ul><li>List view with a filter side panel, plus a Report view: a spreadsheet you can edit in place and export.</li><li>List settings choose the columns.</li><li>Filter builder: field + operator, AND only.</li></ul><div class="tk">Report view → option 4. Each variant is an item → option 3.</div></article>
+    <article><h5>NetSuite</h5><ul><li>For tens of thousands of items, the working list is a saved search.</li><li>Each saved search can be published as a list view or dashboard.</li></ul><div class="tk">Worklists as tabs with live counts. Option 5.</div></article>
+    <article><h5>Cin7 Core</h5><ul><li>Product families group colour and size; every member needs its own SKU.</li><li>Columns picked from a settings gear.</li><li>Cancelling a family cascades to its variants.</li></ul><div class="tk">Same as us: cancelling an article cancels its SKUs.</div></article>
+    <article><h5>Retail Pro Prism</h5><ul><li>A “style” groups items that vary by size and colour.</li><li>Each size × colour is a real inventory item.</li></ul><div class="tk">Apparel’s classic matrix. The detail panel’s colour × size table.</div></article>
+    <article><h5>SAP Business One</h5><ul><li>Item master is one full-page form with tabs (purchasing, sales, inventory, planning).</li><li>Search is a “Find” mode of the same window, not a list.</li></ul><div class="tk">Full page for editing; our list stays for finding.</div></article>
+    <article><h5>Square for Retail</h5><ul><li>Item library with bulk actions after ticking rows.</li><li>Variations edited in a table view (many at once) or one at a time.</li></ul><div class="tk">Bulk bar in option 4.</div></article>
+    <article><h5>Accurate Online, 7Soft</h5><ul><li>Accurate: a flat table (code, name, type, unit, price, active) with configurable columns and an optional image.</li><li>Basic filters, no saved views.</li></ul><div class="tk">What the client’s team already knows. Option 3 is closest.</div></article>
+  </div>
+</div></template>
+<script>render()</script>
+</body>
+</html>

@@ -4,10 +4,8 @@ import { useSyncExternalStore } from "react"
 ///
 /// A DC edge can be run with `INVENTORY_AUTH_MODE=disabled` — a bench, a
 /// recovery, a machine on a bay with no route to the centre. On such a node
-/// every write is attributed to the same development principal, and receiving
-/// then cannot be completed at all: counting and verifying are two people by
-/// **database constraint**, not by policy, so one name means an accepted count
-/// is refused by `CHECK (verified_by IS NULL OR verified_by <> counted_by)`.
+/// every write is attributed to the same development principal, and every
+/// record would then carry one name no matter whose hands did the work.
 ///
 /// So the browser names the person instead. This is not the browser claiming
 /// an identity: an authenticated node overwrites `actor_id` from its principal

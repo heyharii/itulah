@@ -260,7 +260,7 @@ const columns: ColumnDef<TableSetup, DayRow>[] = [
     // Joined into a string so the column carries a sortable value; the cell
     // draws the codes as what they are, which is a set rather than a word.
     accessorFn: (row) => row.outcomes.join(" "),
-    header: "What the day was",
+    header: "What the Day Was",
     size: 240,
     meta: { card: "status" },
     cell: ({ row }) =>
@@ -918,7 +918,7 @@ function Underivable({
           head={[
             "Who",
             { label: "Date", align: "left" },
-            { label: "Why not", align: "left" },
+            { label: "Why Not", align: "left" },
           ]}
         >
           {rows.map((row) => (
@@ -1020,7 +1020,7 @@ function Unrostered({
             { label: "Direction", align: "left" },
             "At",
             { label: "Station", align: "left" },
-            { label: "Reached us", align: "right" },
+            { label: "Reached Us", align: "right" },
           ]}
         >
           {rows.map((row) => (
@@ -1074,8 +1074,8 @@ function Stations({
                   "Station",
                   { label: "State", align: "left" },
                   "Enrolled",
-                  { label: "Templates taken", align: "right" },
-                  { label: "Last punch", align: "right" },
+                  { label: "Templates Taken", align: "right" },
+                  { label: "Last Punch", align: "right" },
                 ]}
               >
                 {rows.map((row) => (
@@ -1210,7 +1210,7 @@ function PersonSheet({
                             "Date",
                             "In",
                             "Out",
-                            { label: "What the day was", align: "left" },
+                            { label: "What the Day Was", align: "left" },
                             "Late by",
                             "Worked",
                           ]}
@@ -1259,7 +1259,7 @@ function PersonSheet({
                             Could not be derived
                           </p>
                           <MiniTable
-                            head={["Date", { label: "Why not", align: "left" }]}
+                            head={["Date", { label: "Why Not", align: "left" }]}
                           >
                             {view.underivable.map((one) => (
                               <MiniRow key={`${one.date}-${one.reason}`}>
@@ -1295,7 +1295,7 @@ function PersonSheet({
                   "At",
                   { label: "Station", align: "left" },
                   { label: "Clock", align: "left" },
-                  { label: "Reached us", align: "right" },
+                  { label: "Reached Us", align: "right" },
                 ]}
               >
                 {mine.map((one) => (

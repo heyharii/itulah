@@ -176,7 +176,22 @@ fn posting_of(caller: &infrastructure::CallerRecord) -> Option<Posting> {
         // also not a reason to refuse the request: the unit is still a unit,
         // and `Only` is the conservative reading of an id we can name but
         // cannot classify.
-        UnitKind::parse(kind).unwrap_or(UnitKind::Store),
+        //
+        // Said out loud, though: failing closed silently means a centre one
+        // version ahead of this build quietly demotes its head office to a
+        // shop for every caller of this function, and nobody ever hears. The
+        // reading stays narrow; the log is what makes it visible.
+        match UnitKind::parse(kind) {
+            Some(kind) => kind,
+            None => {
+                tracing::warn!(
+                    unit = %unit_id,
+                    kind,
+                    "unit kind is not one this build knows; read as a store's, which grants nothing"
+                );
+                UnitKind::Store
+            }
+        },
     );
     Some(if caller.in_charge {
         posting.in_charge()
@@ -187,7 +202,9 @@ fn posting_of(caller: &infrastructure::CallerRecord) -> Option<Posting> {
 
 fn reach_from(principal: &Principal, caller: &infrastructure::CallerRecord) -> Reach {
     let posting = posting_of(caller);
-    let reach = Reach::resolve(principal.role, posting.as_ref());
+    // The job role's own answer to *where* (0700): head office's departments
+    // reach every unit; the section gate has already said *what*.
+    let reach = Reach::resolve_for(principal.role, principal.job.every_unit, posting.as_ref());
     // A call a store node relayed reaches the node's own place and nothing
     // else, whoever it was relayed for. Here, where every HR handler's reach
     // is resolved, so a list that takes no place in its query is bounded by

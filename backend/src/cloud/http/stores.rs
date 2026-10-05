@@ -39,7 +39,9 @@ async fn reach_of(state: &AppState, principal: &Principal) -> Result<StoreReach,
             "the stores pages are the hub's; a store's till cannot read them".into(),
         ));
     }
-    if principal.role >= Role::Admin || principal.job.holds_everything() {
+    // A role that reaches every unit (0700) reads every store, as an Admin does.
+    if principal.role >= Role::Admin || principal.job.holds_everything() || principal.job.every_unit
+    {
         return Ok(StoreReach::Every);
     }
     infrastructure::store_reach(&state.db, &principal.username).await
@@ -104,6 +106,28 @@ pub async fn open(
     };
     Ok(Json(
         infrastructure::open_store(&state.db, unit.trim(), request, &principal.username).await?,
+    ))
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct TillSeatsRequest {
+    /// Kasir 1 to Kasir `count`.
+    pub count: i32,
+}
+
+/// `PUT /api/v1/stores/{unit}/tills`: how many till seats the store's counter
+/// has. Head office decides; a machine at the shop sits at one of them and
+/// never adds another.
+pub async fn set_till_seats(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(unit): Path<String>,
+    Json(request): Json<TillSeatsRequest>,
+) -> Result<Json<infrastructure::StoreDetail>, AppError> {
+    require_admin(&principal, "set a store's till seats")?;
+    Ok(Json(
+        infrastructure::set_till_seats(&state.db, unit.trim(), request.count, &principal.username)
+            .await?,
     ))
 }
 

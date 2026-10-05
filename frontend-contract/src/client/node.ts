@@ -1,4 +1,4 @@
-import { readError } from "./error";
+import { ApiError, readError } from "./error";
 
 /// The cookie the server sets alongside the session, readable by script on
 /// purpose: its whole job is to be echoed back in a header that a cross-site
@@ -41,6 +41,10 @@ export interface NodeIdentity {
   readonly node_id: string;
   readonly node_role: "CLOUD" | "DC" | "STORE";
   readonly site_id?: string;
+  /// The site as the register names it, and its code — what a shell shows
+  /// instead of the technical id.
+  readonly site_name?: string;
+  readonly site_code?: string;
   /// Capitalised on purpose by the server when it is off — a shout, not a
   /// value to be tidied. `cloud/http/mod.rs` and `edge/http.rs` both write
   /// `if enabled { "enabled" } else { "DISABLED" }`, so typing this as
@@ -60,6 +64,28 @@ export interface RequestOptions {
   /// concerns (content type, CSRF, credentials) are set below and are not
   /// overridable from here.
   readonly headers?: Readonly<Record<string, string>>;
+}
+
+/// `fetch`, with a network failure said in words.
+///
+/// A browser that cannot reach the server — the VM restarting, the wifi gone —
+/// throws a bare `TypeError: Failed to fetch`, and that is what a banner used
+/// to show. It is not an answer from the server and it is not a bug in what
+/// was typed, so it is said as what it is. Drawn as 503, the status a server
+/// that is not there would have given, so anything that retries on a 5xx still
+/// does. An abort is the caller's own doing and passes through untouched.
+async function reach(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new ApiError(
+        503,
+        "Can't reach the server. Check the connection and try again in a moment.",
+      );
+    }
+    throw error;
+  }
 }
 
 /// A node, addressed by its base URL.
@@ -200,7 +226,7 @@ export class Node {
     for (const [name, value] of Object.entries(options.headers ?? {})) {
       headers[name] = value;
     }
-    const response = await fetch(`${this.baseUrl}${path}`, {
+    const response = await reach(`${this.baseUrl}${path}`, {
       method: "GET",
       headers,
       credentials,
@@ -236,7 +262,7 @@ export class Node {
     for (const [name, value] of Object.entries(options.headers ?? {})) {
       headers[name] = value;
     }
-    const response = await fetch(`${this.baseUrl}${path}`, {
+    const response = await reach(`${this.baseUrl}${path}`, {
       method,
       headers,
       body,
@@ -363,7 +389,7 @@ export class Node {
     for (const [name, value] of Object.entries(options.headers ?? {})) {
       headers[name] = value;
     }
-    const response = await fetch(`${this.baseUrl}${path}`, {
+    const response = await reach(`${this.baseUrl}${path}`, {
       method: "POST",
       headers,
       body: JSON.stringify(body),

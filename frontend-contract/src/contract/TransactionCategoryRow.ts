@@ -39,7 +39,7 @@ expects_account_name: string | null,
  */
 expects_category_code: string | null, 
 /**
- * What the meaning resolves to at the location asked about, today. Read
+ * What the meaning resolves to in the unit asked about, today. Read
  * through the map on every read rather than remembered, so it follows a
  * remapping instead of recording where the account used to be. `None` when
  * nobody has mapped the key yet — which is the honest answer and the one

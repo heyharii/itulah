@@ -30,9 +30,10 @@ import { centreState } from "@/screens/hr/centre"
 ///
 /// # The scope is the node's, and there is no picker
 ///
-/// The shop is read from this till's own `site_id` and nothing on this surface
-/// can change it. A store manager has one shop; a unit picker on a till would
-/// be a control whose only use is to look at somebody else's.
+/// This till's `site_id` identifies its premises; the cloud relay resolves the
+/// site's owning unit and returns it as `ReachView.unit_id`. HR calls use that
+/// authoritative unit. A manager posted elsewhere receives `NOWHERE` after
+/// the relay bounds reach to the till's unit.
 ///
 /// # The page header is the screen's, drawn here
 ///
@@ -65,12 +66,11 @@ export function HrWorkspace({
   const scope: StoreScope | null =
     site !== null &&
     signedIn &&
-    view !== undefined &&
-    view.scope !== "NOWHERE" &&
-    !(view.scope === "ONE_UNIT" && view.unit_id !== site)
+    view?.scope === "ONE_UNIT" &&
+    view.unit_id !== null
       ? {
-          id: site,
-          label: view.unit_id === site ? (view.unit_name ?? site) : site,
+          unit_id: view.unit_id,
+          label: view.unit_name ?? view.unit_id,
         }
       : null
 
@@ -90,10 +90,7 @@ export function HrWorkspace({
     if (site === null) {
       return (
         <Banner tone="bad">
-          This till has not been told which shop it is standing in, so there is
-          no place to ask head office about. The node reports no
-          <code className="px-1 font-mono">site_id</code>; that is a setting on
-          the machine behind the counter, not something this screen can choose.
+          This server has no shop set (<code className="font-mono">site_id</code>).
         </Banner>
       )
     }
@@ -102,13 +99,13 @@ export function HrWorkspace({
       return (
         <RelayRefusal
           access={session.access}
-          what="People — the rota, leave and the month's close —"
+          what="People"
         />
       )
     }
 
     return centreState(reach, {
-      loading: "Asking head office what this sign-in may see…",
+      loading: "Checking access…",
       render: (view) => {
         // A session with no posting behind it reaches nothing at all — a
         // machine account, or a login HR has not finished the paperwork for.
@@ -117,36 +114,28 @@ export function HrWorkspace({
         if (view.scope === "NOWHERE") {
           return (
             <Banner tone="bad">
-              This account has no employment record behind it at head office, so
-              head office will not say whose rota is whose — the account is
-              nobody's, which is what a login issued before HR finished the
-              paperwork looks like, or one posted to a different shop. Somebody
-              has to be posted to this shop before they can read it.
+              This account is not posted to this shop.
             </Banner>
           )
         }
 
-        // Posted to a different shop. Not a warning: every read would be
-        // refused with "is not posted anywhere that reaches …", and offering
-        // the screens anyway would be offering five ways to see that sentence.
-        if (view.scope === "ONE_UNIT" && view.unit_id !== site) {
+        // A store HR call must be bounded to exactly one unit. The till's site
+        // id names premises and cannot be compared with this unit id; a missing
+        // or unbounded relay response is still refused.
+        if (view.scope !== "ONE_UNIT" || view.unit_id === null) {
           return (
             <Banner tone="bad">
-              This account is posted to{" "}
-              <b className="font-semibold">
-                {view.unit_name ?? view.unit_id}
-              </b>
-              , and this till is standing in{" "}
-              <b className="font-semibold">{site}</b>. Head office refuses one
-              shop's rota to another shop's manager, which is the rule working
-              rather than a fault. Sign in with this shop's own account.
+              This account is not limited to one shop.
             </Banner>
           )
         }
 
         // Every refusal above has been ruled out, so `scope` is set; the
         // fallback only keeps the type honest.
-        const here: StoreScope = scope ?? { id: site, label: site }
+        const here: StoreScope = scope ?? {
+          unit_id: view.unit_id,
+          label: view.unit_name ?? view.unit_id,
+        }
 
         return (
           <>

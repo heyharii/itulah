@@ -90,8 +90,9 @@ The person who performs the blind count.
 _Avoid_: receiver, counter
 
 **Verifier**:
-The second person, who accepts or refuses the checker's count. Never the same
-person as the checker.
+The person who accepts or refuses the checker's count. Who may verify — and
+whether that may be the checker, or the person who raised the order — is a
+matter of role and permission (owner, 2026-10-04), not a fixed second name.
 _Avoid_: approver, supervisor
 
 **Accepted Receipt**:

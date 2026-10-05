@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>List filters (prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Filters for a list with many fields.
+
+   TODAY (frontend-hub <FilterPanel>): chips over the table, a dashed Filter
+   button, and a right panel where each filter is BUILT — pick a column,
+   pick an operator, pick a value. Fine with one or two. With five, the chips
+   wrap into a second row, every clause is three steps, and the empty panel
+   asks you to already know which columns exist.
+
+   The proposals keep the right panel and change what's in it:
+
+     A · Facets       every field already listed, values with counts, tick
+                      to narrow; one quiet summary line over the table
+     B · Quick + more the three fields people use daily as buttons in the
+                      toolbar; the rest in the panel
+     C · Views        saved sets of filters as tabs over the list; the panel
+                      is for adjusting one
+
+   Counts are faceted: each field counts against every OTHER filter, so you
+   never tick your way into an empty list. The record sheet shares the right
+   edge with the panel — opening a record covers the panel, closing it gives
+   the panel back, and next/previous walks the filtered list.
+
+   Hub tokens, 16px root, nothing under 14px, English copy.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f8f9; --soft-2:#f0f0f2; --soft-3:#f6f6f7;
+  --hairline:#e6e6e9; --hairline-2:#dadade; --hairline-strong:#c6c6cc;
+  --rail:#242526; --rail-3:#393b3d; --rail-text:#c3c4c7;
+  --scrim:rgba(246,246,247,.72);
+  --accent:#2563eb; --accent-bg:#eff5ff; --cta:#2563eb; --cta-hover:#1d4ed8;
+  --ok:#36b827; --warn:#c9892e; --bad:#d05151; --info:#2f86d8;
+  --r-shell:1rem; --r-card:.625rem; --r-inner:.4375rem;
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1);
+  --shadow-soft:0 1px 3px rgb(24 39 60/4%);
+  --shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);
+  --shadow-float:0 2px 6px rgb(24 39 60/5%),0 18px 48px rgb(24 39 60/12%);
+}
+*{box-sizing:border-box}
+html{font-size:16px}
+html,body{height:100%;margin:0}
+body{font-family:Inter,system-ui,sans-serif;font-size:15px;color:var(--text);background:var(--soft-3);-webkit-font-smoothing:antialiased;font-feature-settings:"cv11","ss01"}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:left}
+input,select{font:inherit;color:var(--ink)}
+svg.lucide{width:17px;height:17px;stroke-width:1.7;flex-shrink:0}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px}
+.num{font-variant-numeric:tabular-nums;text-align:right}
+
+.shell{display:flex;height:100vh}
+.col{width:68px;background:var(--rail);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:6px;flex-shrink:0}
+.mark{width:30px;height:30px;border-radius:8px;background:#0b0b0b;box-shadow:inset 0 0 0 1px rgb(255 255 255/.12);color:#fff;display:grid;place-items:center;font-weight:600;position:relative;margin-bottom:10px}
+.mark::after{content:"";position:absolute;right:5px;bottom:5px;width:5px;height:5px;border-radius:50%;background:#3b82f6}
+.ci{width:40px;height:40px;border-radius:9px;display:grid;place-items:center;color:var(--rail-text)}
+.ci.on{background:var(--rail-3);color:#fff}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.bar{height:52px;display:flex;align-items:center;gap:8px;padding:0 24px;border-bottom:1px solid var(--hairline);color:var(--body);flex-shrink:0}
+.bar b{color:var(--ink);font-weight:500}
+.bar svg{width:15px;height:15px;color:var(--faint)}
+.page{flex:1;overflow-y:auto;transition:padding-right 280ms var(--ease-drawer)}
+.page.docked{padding-right:24rem}
+.page.docked-rec{padding-right:31rem}
+.content{max-width:100rem;margin:0 auto;padding:28px 32px 140px}
+.ph{display:flex;align-items:flex-end;gap:16px;margin-bottom:18px}
+.ph h1{margin:0;font-size:28px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+.ph p{margin:6px 0 0;color:var(--body)}
+.ph .act{margin-left:auto;display:flex;gap:8px}
+.btn{height:36px;padding:0 14px;border-radius:var(--r-inner);box-shadow:inset 0 0 0 1px var(--hairline-2);background:var(--canvas);color:var(--ink);display:inline-flex;align-items:center;gap:7px;font-weight:500;white-space:nowrap}
+.btn:hover{background:var(--soft)}
+.btn.pri{background:var(--cta);color:#fff;box-shadow:none}
+.btn.pri:hover{background:var(--cta-hover)}
+.btn.ghost{box-shadow:none;background:none;color:var(--body)}
+.btn.ghost:hover{background:var(--soft-2);color:var(--ink)}
+.btn.on{background:var(--soft-2);box-shadow:inset 0 0 0 1px var(--hairline-strong)}
+.btn.set{box-shadow:inset 0 0 0 1px #b9cdf5;background:var(--accent-bg);color:#1e40af}
+.btn svg{width:16px;height:16px}
+.btn .n{color:var(--mute);font-variant-numeric:tabular-nums;font-weight:400}
+.btn.set .n{color:#1e40af}
+.btn.dash{box-shadow:none;border:1px dashed var(--hairline-strong);color:var(--body)}
+.ib{width:32px;height:32px;border-radius:var(--r-inner);display:grid;place-items:center;color:var(--line-ico);flex-shrink:0}
+.ib:hover{background:var(--soft-2);color:var(--ink)}
+
+/* views (C) */
+.views{display:flex;gap:2px;border-bottom:1px solid var(--hairline);margin-bottom:14px;overflow-x:auto;scrollbar-width:none}
+.views button{height:40px;padding:0 12px;color:var(--body);font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;display:flex;align-items:center;gap:6px}
+.views button.on{color:var(--ink);border-color:var(--ink)}
+.views button .n{color:var(--mute);font-weight:400;font-variant-numeric:tabular-nums}
+.views .add{color:var(--mute)}
+
+/* toolbar */
+.tools{display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap}
+.inp{height:36px;border-radius:var(--r-inner);box-shadow:inset 0 0 0 1px var(--hairline-2);background:var(--canvas);display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--mute)}
+.inp input{border:0;outline:none;background:none;height:100%;width:200px}
+.count{margin-left:auto;color:var(--body);white-space:nowrap}
+
+/* today's chips */
+.chip{height:32px;display:inline-flex;align-items:center;gap:6px;padding:0 6px 0 10px;border-radius:var(--r-inner);box-shadow:inset 0 0 0 1px var(--hairline-2);background:var(--canvas);white-space:nowrap}
+.chip b{font-weight:500;color:var(--ink)}
+.chip i{font-style:normal;color:var(--mute)}
+.chip .x{width:22px;height:22px;border-radius:5px;display:grid;place-items:center;color:var(--mute)}
+.chip .x svg{width:14px;height:14px}
+
+/* the one quiet summary line (A, C) */
+.sum{display:flex;align-items:center;gap:6px;flex-wrap:wrap;color:var(--body);margin:0 0 12px;min-height:28px}
+.sum .k{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:6px;color:var(--text)}
+.sum .k:hover{background:var(--soft-2)}
+.sum .k b{font-weight:500;color:var(--ink)}
+.sum .sep{color:var(--faint)}
+.sum .clr{color:var(--accent);font-weight:500;padding:2px 6px;border-radius:6px}
+.sum .clr:hover{background:var(--accent-bg)}
+.sum .mod{margin-left:auto;display:flex;gap:6px;align-items:center}
+
+.card{background:var(--canvas);border-radius:12px;box-shadow:0 0 0 1px var(--hairline);overflow:hidden}
+table{width:100%;border-collapse:collapse}
+th{height:40px;text-align:left;font-weight:500;color:var(--body);padding:0 16px;border-bottom:1px solid var(--hairline);white-space:nowrap;background:var(--soft);font-size:14px}
+td{height:52px;padding:0 16px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+tbody tr{cursor:pointer}
+tbody tr:hover td{background:var(--soft)}
+tbody tr.sel td{background:var(--accent-bg)}
+tbody tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+td.strong{color:var(--ink);font-weight:500}
+.st{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0}
+.empty{padding:32px;text-align:center;color:var(--mute)}
+.docked .hide-d{display:none}
+.docked-rec .hide-d{display:none}
+
+/* ── right panel: filters ──────────────────────────────────────────────── */
+.veil{position:fixed;inset:0;background:var(--scrim);z-index:30;animation:fade 200ms}
+@keyframes fade{from{opacity:0}}
+.fp{position:fixed;z-index:40;top:20px;right:20px;bottom:20px;width:22rem;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-shell);box-shadow:var(--shadow-float);display:flex;flex-direction:column;overflow:hidden;animation:arrive 280ms var(--ease-drawer)}
+.fp.still{animation:none}
+@keyframes arrive{from{transform:translateX(calc(100% + 20px))}}
+.fph{display:flex;align-items:center;gap:8px;padding:14px 12px 12px 20px;border-bottom:1px solid var(--hairline);flex-shrink:0}
+.fph h2{margin:0;font-size:18px;font-weight:600;letter-spacing:-.02em;color:var(--ink);flex:1}
+.fpb{flex:1;min-height:0;overflow-y:auto;padding:6px 0 12px}
+.fpf{border-top:1px solid var(--hairline);padding:12px 16px 12px 20px;display:flex;align-items:center;gap:8px;flex-shrink:0}
+.fpf .res{flex:1;color:var(--body)}
+.fpf .res b{color:var(--ink);font-weight:500}
+.sec{border-bottom:1px solid var(--hairline)}
+.sec:last-child{border-bottom:0}
+.sh{width:100%;display:flex;align-items:center;gap:8px;padding:12px 16px 12px 20px;min-height:48px}
+.sh:hover{background:var(--soft)}
+.sh .l{font-weight:500;color:var(--ink)}
+.sh .s{flex:1;text-align:right;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.sh .s.none{color:var(--mute)}
+.sh svg{color:var(--faint);transition:transform 160ms var(--ease-out)}
+.sh.open svg{transform:rotate(180deg)}
+.sb{padding:0 12px 12px}
+.sieve{height:36px;margin:0 8px 6px;border-radius:var(--r-inner);box-shadow:inset 0 0 0 1px var(--hairline-2);display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--mute)}
+.sieve input{border:0;outline:none;width:100%;background:none}
+.fo{width:100%;display:flex;align-items:center;gap:10px;height:38px;padding:0 8px;border-radius:var(--r-inner)}
+.fo:hover{background:var(--soft-2)}
+.fo .box{width:18px;height:18px;border-radius:5px;box-shadow:inset 0 0 0 1.5px var(--hairline-strong);display:grid;place-items:center;flex-shrink:0;background:var(--canvas)}
+.fo.on .box{background:var(--accent);box-shadow:none;color:#fff}
+.fo .box svg{width:13px;height:13px;stroke-width:2.6;display:none}
+.fo.on .box svg{display:block}
+.fo .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+.fo.on .t{color:var(--ink);font-weight:500}
+.fo .c{color:var(--mute);font-variant-numeric:tabular-nums}
+.fo.zero{opacity:.45}
+.more{color:var(--accent);font-weight:500;padding:6px 8px;border-radius:6px}
+.more:hover{background:var(--accent-bg)}
+.grp{padding:14px 20px 4px;color:var(--mute);font-size:14px}
+
+/* today's clause builder */
+.cl{margin:10px 16px;border-radius:var(--r-card);box-shadow:inset 0 0 0 1px var(--hairline);padding:10px 12px}
+.cl .row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.pick{height:32px;padding:0 10px;border-radius:var(--r-inner);box-shadow:inset 0 0 0 1px var(--hairline-2);display:inline-flex;align-items:center;gap:6px;background:var(--canvas)}
+.pick svg{width:14px;height:14px;color:var(--mute)}
+.cl .vals{margin-top:8px;color:var(--ink);line-height:1.5}
+.addm{margin:4px 16px;border-radius:var(--r-card);box-shadow:0 0 0 1px var(--hairline),var(--shadow-pop);padding:4px;background:var(--canvas)}
+.addm button{width:100%;height:38px;padding:0 10px;border-radius:var(--r-inner);display:flex;align-items:center;gap:8px}
+.addm button:hover{background:var(--soft-2)}
+.hint{color:var(--mute);padding:10px 20px;line-height:1.5}
+
+/* B · quick filter popover */
+.pop{position:fixed;z-index:45;width:20rem;max-height:60vh;overflow-y:auto;background:var(--canvas);border-radius:var(--r-card);box-shadow:0 0 0 1px var(--hairline),var(--shadow-pop);padding:6px 4px;animation:drop 150ms var(--ease-out)}
+@keyframes drop{from{opacity:0;transform:translateY(-4px)}}
+.pop .sb{padding:0 4px}
+.pop .sieve{margin:2px 4px 6px}
+
+/* record sheet, sharing the right edge */
+.rec{position:fixed;z-index:42;top:20px;right:20px;bottom:20px;width:30rem;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-shell);box-shadow:var(--shadow-float);display:flex;flex-direction:column;overflow:hidden;animation:arrive 280ms var(--ease-drawer)}
+.rec.still{animation:none}
+.rh{padding:10px 12px 14px 24px;border-bottom:1px solid var(--hairline)}
+.rh .top{display:flex;align-items:center;gap:4px;min-height:32px}
+.rh .top .id{flex:1;color:var(--body)}
+.rh h2{margin:2px 0 0;font-size:18px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+.rh .cap{color:var(--mute);font-size:14px;margin-top:2px}
+.pos{color:var(--body);padding:0 6px;font-variant-numeric:tabular-nums;font-size:14px}
+.back{display:inline-flex;align-items:center;gap:6px;color:var(--accent);font-weight:500;padding:4px 8px;border-radius:6px;margin:0 0 0 -8px}
+.back:hover{background:var(--accent-bg)}
+.rb{flex:1;overflow-y:auto;padding:20px 24px}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:16px 20px;margin:0}
+.facts dt{color:var(--body);font-size:14px}
+.facts dd{margin:5px 0 0;color:var(--ink)}
+
+/* phone */
+.pcard{display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:12px 16px;border-bottom:1px solid var(--hairline);cursor:pointer}
+.pcard:last-child{border-bottom:0}
+.pcard .meta{color:var(--body);font-size:14px}
+.phone .col{display:none}
+.phone .bar{padding:0 16px}
+.phone .content{padding:16px 16px 100px}
+.phone .ph p,.phone .ph .act{display:none}
+.phone .ph h1{font-size:24px}
+.phone .tools .inp{flex:1 1 100%}
+.phone .inp input{width:100%}
+.phone .count{display:none}
+.phone .quick{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;width:100%;padding-bottom:2px}
+.phone .btn{height:44px}
+.phone .fp,.phone .rec{top:12px;left:0;right:0;bottom:0;width:auto;border-radius:16px 16px 0 0;border-width:1px 0 0;animation:rise 400ms var(--ease-drawer)}
+.phone .fp.still,.phone .rec.still{animation:none}
+@keyframes rise{from{transform:translateY(100%)}}
+.phone .fo{height:46px}
+.phone .sh{min-height:54px}
+.phone .pop{left:0!important;right:0;bottom:0;top:auto!important;width:auto;max-height:70vh;border-radius:16px 16px 0 0;animation:rise 300ms var(--ease-drawer)}
+
+.toast{position:fixed;left:50%;bottom:110px;transform:translateX(-50%);background:#191b20;color:#fff;padding:10px 16px;border-radius:10px;z-index:80;box-shadow:var(--shadow-pop)}
+
+/* ── the prototype's own switch ────────────────────────────────────────── */
+.dev{position:fixed;inset:0;z-index:85;background:#e7e7ea;display:flex;justify-content:center;align-items:flex-start;padding-top:18px}
+.dev[hidden]{display:none}
+.frame{flex-shrink:0;border:10px solid #191b20;border-radius:46px;overflow:hidden;background:#fff;transform-origin:top center;box-shadow:0 30px 60px rgb(24 39 60/18%);width:390px;height:844px}
+.frame iframe{width:100%;height:100%;border:0;display:block}
+.proto{position:fixed;left:84px;bottom:16px;z-index:90;background:#191b20;color:#d6d7da;border-radius:14px;padding:6px;display:flex;flex-direction:column;gap:6px;box-shadow:var(--shadow-float);font-size:14px;max-width:min(44rem,calc(100vw - 100px))}
+body.devmode .proto{left:50%;transform:translateX(-50%)}
+.embed .proto{display:none}
+.prow{display:flex;gap:6px;flex-wrap:wrap}
+.seg{display:flex;background:#2a2c31;border-radius:10px;padding:3px}
+.seg button{height:34px;padding:0 12px;border-radius:7px;color:#a9abb1;white-space:nowrap}
+.seg button.on{background:#fff;color:#191b20;font-weight:500}
+.proto .note{color:#a9abb1;padding:2px 8px 4px;line-height:1.4}
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="col"><span class="mark">C</span><span class="ci"><i data-lucide="house"></i></span><span class="ci on"><i data-lucide="shopping-cart"></i></span><span class="ci"><i data-lucide="shirt"></i></span><span class="ci"><i data-lucide="boxes"></i></span><span class="ci"><i data-lucide="landmark"></i></span></nav>
+  <div class="main">
+    <header class="bar">Buying<i data-lucide="chevron-right"></i><b>Purchase orders</b></header>
+    <div class="page" id="page"><div class="content" id="list"></div></div>
+  </div>
+</div>
+<div id="side"></div>
+<div id="popRoot"></div>
+<div class="dev" id="dev" hidden><div class="frame" id="frame"><iframe id="ifr" title="Phone preview"></iframe></div></div>
+<div class="proto">
+  <div class="prow"><div class="seg" id="devseg"></div><div class="seg" id="scnseg"></div></div>
+  <div class="seg" id="seg"></div>
+  <div class="note" id="note"></div>
+</div>
+
+<script>
+/* ── data: 64 purchase orders, seeded so every reload is the same ───────── */
+let seed=7;const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
+const pick=a=>a[Math.floor(rnd()*a.length)];
+const SUPS=['PT Sinar Garmen','CV Benang Mas','PT Tekstil Jaya','Konveksi Anugerah','UD Rajut Bandung','CV Kain Nusantara','PT Mega Jahit','CV Bordir Indah','PT Denim Raya','Konveksi Sejahtera','PT Kancing Mas','UD Batik Solo'];
+const DESTS=['Cikarang DC','Cikarang DC','Cikarang DC','Store Kemang','Store PIK','Store Senayan','Store Bintaro','Store BSD'];
+const BY=['Rina','Dimas','Sari','Budi','Wulan'];
+const DIVS=['Men','Women','Kids','Accessories'];
+const TERMS=['Cash','14 days','30 days','30 days','45 days'];
+const STW=['Draft','Draft','Awaiting approval','Awaiting approval','Sent','Sent','Sent','Partly received','Received','Received','Received','Received','Cancelled'];
+const ST={'Draft':'var(--faint)','Awaiting approval':'var(--warn)','Sent':'var(--info)','Partly received':'var(--info)','Received':'var(--ok)','Cancelled':'var(--bad)'};
+const MON=['Sep','Oct','Nov'];
+const POS=[];
+for(let n=476;n>412;n--){
+  const st=pick(STW), eta=Math.round(rnd()*48)-14;
+  const d=new Date(2026,9,1+eta);
+  POS.push({no:'PO-2026-0'+n,sup:pick(SUPS),dest:pick(DESTS),by:pick(BY),div:pick(DIVS),terms:pick(TERMS),st,eta,etaL:d.getDate()+' '+MON[d.getMonth()-8],val:Math.round((8+rnd()*250))*1e6,qty:Math.round(100+rnd()*2400)});
+}
+const etaB=p=>p.eta<0?(p.st==='Received'||p.st==='Cancelled'?'Already in':'Overdue'):p.eta<7?'This week':p.eta<21?'Next 2 weeks':'Later';
+const valB=p=>p.val<50e6?'Under Rp 50 jt':p.val<150e6?'Rp 50–150 jt':'Over Rp 150 jt';
+const FIELDS=[
+  {k:'st',l:'Status',get:p=>p.st,top:1,order:Object.keys(ST)},
+  {k:'sup',l:'Supplier',get:p=>p.sup,top:1},
+  {k:'eta',l:'ETA',get:etaB,top:1,order:['Overdue','This week','Next 2 weeks','Later','Already in']},
+  {k:'dest',l:'Destination',get:p=>p.dest},
+  {k:'val',l:'Value',get:valB,order:['Under Rp 50 jt','Rp 50–150 jt','Over Rp 150 jt']},
+  {k:'by',l:'Raised by',get:p=>p.by},
+  {k:'div',l:'Division',get:p=>p.div},
+  {k:'terms',l:'Payment terms',get:p=>p.terms,order:['Cash','14 days','30 days','45 days']},
+];
+const field=k=>FIELDS.find(f=>f.k===k);
+const VIEWS=[
+  {n:'All',f:{}},
+  {n:'My drafts',f:{st:['Draft'],by:['Rina']}},
+  {n:'Awaiting approval',f:{st:['Awaiting approval']}},
+  {n:'Overdue',f:{eta:['Overdue']}},
+  {n:'Arriving this week',f:{eta:['This week'],st:['Sent','Partly received']}},
+];
+const SCN={none:{},many:{st:['Awaiting approval','Sent','Draft'],eta:['This week','Next 2 weeks','Overdue'],dest:['Cikarang DC'],by:['Rina','Dimas','Sari'],div:['Men','Women']}};
+
+const OPTS={
+  now:{l:'Today',n:'frontend-hub now: chips over the table and a panel where each filter is built from column → operator → value. Try "5 filters": the chips wrap and the panel is a stack of sentences.'},
+  A:{l:'A · Facets',n:'Every field is already in the panel, with its values and how many POs each would leave. Tick to narrow. Over the table: one quiet line, not a row of chips.'},
+  B:{l:'B · Quick + more',n:'The three fields used daily (Status, Supplier, ETA) are buttons in the toolbar. "More filters" opens the panel with the rest.'},
+  C:{l:'C · Views',n:'Saved filter sets as tabs over the list. Change a filter and the view says it\'s modified, with Save and Reset.'},
+};
+
+/* ── state ──────────────────────────────────────────────────────────────── */
+const QS=new URLSearchParams(location.search), EMBED=QS.get('embed');
+if(EMBED)document.documentElement.classList.add('embed','phone');
+else if(innerWidth<768)document.documentElement.classList.add('phone');
+const isPhone=()=>document.documentElement.classList.contains('phone');
+const S={opt:QS.get('opt')||'A',scn:QS.get('scn')||'none',q:'',F:{},panel:!isPhone(),open:null,secOpen:{},more:{},sieve:{},view:'All',pop:null,adding:false};
+const docked=()=>innerWidth>=1380&&!isPhone();
+const $=id=>document.getElementById(id);
+const icons=()=>lucide.createIcons({attrs:{'stroke-width':1.7}});
+const rp=n=>'Rp '+(n/1e6).toLocaleString('id-ID',{maximumFractionDigits:1})+' jt';
+function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),2000)}
+
+/* Faceted: a row matches when it passes every filter except, optionally,
+   the one being counted — so a field's counts say what ticking each value
+   would leave, given everything ELSE you've chosen. */
+const sel=k=>S.F[k]||(S.F[k]=new Set());
+const active=()=>FIELDS.filter(f=>S.F[f.k]&&S.F[f.k].size);
+function match(p,skip){
+  if(S.q&&!(p.no+' '+p.sup).toLowerCase().includes(S.q.toLowerCase()))return false;
+  for(const f of FIELDS){if(f.k===skip)continue;const s=S.F[f.k];if(s&&s.size&&!s.has(f.get(p)))return false}
+  return true;
+}
+const rows=()=>POS.filter(p=>match(p));
+function counts(f){
+  const m={};POS.filter(p=>match(p,f.k)).forEach(p=>{const v=f.get(p);m[v]=(m[v]||0)+1});
+  const vals=f.order?f.order.slice():Object.keys(m).sort((a,b)=>(m[b]||0)-(m[a]||0)||a.localeCompare(b));
+  (S.F[f.k]||[]).forEach(v=>{if(!vals.includes(v))vals.push(v)});
+  if(!f.order)POS.forEach(p=>{const v=f.get(p);if(!vals.includes(v))vals.push(v)});
+  return vals.map(v=>({v,c:m[v]||0}));
+}
+const OC={};
+function tog(k,i){const v=OC[k][i];const s=sel(k);s.has(v)?s.delete(v):s.add(v);S.open=null;renderAll(true)}
+function clearField(k){delete S.F[k];renderAll(true)}
+function clearAll(){S.F={};if(S.opt==='C')S.view='All';renderAll(true)}
+function summary(f){const s=[...(S.F[f.k]||[])];return s.length?(s.length<=2?s.join(', '):s[0]+' +'+(s.length-1)):''}
+
+/* ── page ───────────────────────────────────────────────────────────────── */
+function renderPage(){
+  const r=rows(), A=active(), o=S.opt;
+  let h='<div class="ph"><div><h1>Purchase orders</h1><p>'+POS.length+' this quarter</p></div><div class="act"><button class="btn pri"><i data-lucide="plus"></i>New PO</button></div></div>';
+  if(o==='C'){
+    h+='<div class="views">'+VIEWS.map(v=>'<button class="'+(S.view===v.n?'on':'')+'" onclick="setView(\''+v.n+'\')">'+v.n+'<span class="n">'+viewCount(v)+'</span></button>').join('')+'<button class="add" onclick="saveView()"><i data-lucide="plus"></i>New view</button></div>';
+  }
+  h+='<div class="tools"><label class="inp"><i data-lucide="search"></i><input id="q" placeholder="Search PO or supplier" value="'+S.q+'"></label>';
+  if(o==='now'){
+    h+=A.map(f=>'<span class="chip"><b>'+f.l+'</b><i>is</i>'+summary(f)+'<button class="x" onclick="clearField(\''+f.k+'\')" aria-label="Remove"><i data-lucide="x"></i></button></span>').join('');
+    h+='<button class="btn dash'+(S.panel?' on':'')+'" onclick="togglePanel()"><i data-lucide="list-filter"></i>Filter'+(A.length?' <span class="n">'+A.length+'</span>':'')+'</button>';
+  } else if(o==='B'){
+    h+=(isPhone()?'<div class="quick">':'')+FIELDS.filter(f=>f.top).map(f=>{const s=summary(f);return '<button class="btn'+(s?' set':'')+(S.pop===f.k?' on':'')+'" id="qb-'+f.k+'" onclick="togglePop(\''+f.k+'\')">'+f.l+(s?': '+s:'')+'<i data-lucide="chevron-down"></i></button>'}).join('');
+    const rest=A.filter(f=>!f.top).length;
+    h+='<button class="btn'+(rest?' set':'')+(S.panel?' on':'')+'" onclick="togglePanel()"><i data-lucide="sliders-horizontal"></i>More filters'+(rest?' <span class="n">'+rest+'</span>':'')+'</button>'+(isPhone()?'</div>':'');
+    if(A.length)h+='<button class="btn ghost" onclick="clearAll()">Clear</button>';
+  } else {
+    h+='<button class="btn'+(A.length?' set':'')+(S.panel?' on':'')+'" onclick="togglePanel()"><i data-lucide="list-filter"></i>Filter'+(A.length?' <span class="n">'+A.length+'</span>':'')+'</button>';
+  }
+  h+='<span class="count">'+r.length+' of '+POS.length+'</span></div>';
+  if((o==='A'||o==='C')&&(A.length||viewModified()))h+=sumLine(r,A);
+  h+=isPhone()?cards(r):table(r);
+  $('list').innerHTML=h;
+  const q=$('q');q.oninput=e=>{S.q=e.target.value;renderAll(true);const q2=$('q');q2.focus();q2.setSelectionRange(q2.value.length,q2.value.length)};
+  $('page').className='page'+(docked()&&S.open?' docked-rec':docked()&&S.panel?' docked':'');
+}
+/* One line, read left to right, each part a door back into the panel. */
+function sumLine(r,A){
+  let h='<div class="sum"><span>'+r.length+' shown</span>';
+  const cap=isPhone()?1:4, shown=A.slice(0,cap);
+  shown.forEach(f=>h+='<span class="sep">·</span><button class="k" onclick="openSec(\''+f.k+'\')">'+f.l+': <b>'+summary(f)+'</b></button>');
+  if(A.length>cap)h+='<span class="sep">·</span><button class="k" onclick="openPanel()">+'+(A.length-cap)+' more</button>';
+  if(A.length)h+='<button class="clr" onclick="clearAll()">Clear all</button>';
+  if(S.opt==='C'&&viewModified())h+='<span class="mod"><span style="color:var(--mute)">'+S.view+' · modified</span><button class="btn ghost" onclick="setView(S.view)">Reset</button><button class="btn" onclick="saveView()">Save view</button></span>';
+  return h+'</div>';
+}
+function table(r){
+  if(!r.length)return '<div class="card"><div class="empty">Nothing matches. <button class="clr" style="color:var(--accent);font-weight:500" onclick="clearAll()">Clear filters</button></div></div>';
+  return '<div class="card"><table><thead><tr><th>PO</th><th>Supplier</th><th class="hide-d">Destination</th><th class="num">Value</th><th>ETA</th><th class="hide-d">Raised by</th><th>Status</th></tr></thead><tbody>'
+    +r.map(p=>'<tr id="r-'+p.no+'" class="'+(S.open===p.no?'sel':'')+'" onclick="openRec(\''+p.no+'\')"><td class="mono strong">'+p.no+'</td><td>'+p.sup+'</td><td class="hide-d">'+p.dest+'</td><td class="num">'+rp(p.val)+'</td><td'+(etaB(p)==='Overdue'?' style="color:#be123c"':'')+'>'+p.etaL+'</td><td class="hide-d">'+p.by+'</td><td><span class="st"><span class="dot" style="background:'+ST[p.st]+'"></span>'+p.st+'</span></td></tr>').join('')+'</tbody></table></div>';
+}
+function cards(r){
+  if(!r.length)return '<div class="card"><div class="empty">Nothing matches.</div></div>';
+  return '<div class="card">'+r.map(p=>'<div class="pcard" onclick="openRec(\''+p.no+'\')"><span class="mono" style="color:var(--ink)">'+p.no+'</span><span class="st"><span class="dot" style="background:'+ST[p.st]+'"></span>'+p.st+'</span><span style="color:var(--ink);font-weight:500">'+p.sup+'</span><span class="meta num">'+rp(p.val)+'</span><span class="meta">'+p.dest+' · ETA '+p.etaL+'</span></div>').join('')+'</div>';
+}
+
+/* ── the right edge: filters, or the record that covers them ────────────── */
+function renderSide(animate){
+  const veil=!docked();
+  if(S.open){$('side').innerHTML=(veil?'<div class="veil" onclick="closeRec()"></div>':'')+recHtml(animate);icons();return}
+  if(!S.panel){$('side').innerHTML='';return}
+  const r=rows(), A=active(), o=S.opt;
+  const title=o==='B'?'More filters':'Filters';
+  let h=(veil?'<div class="veil" onclick="closePanel()"></div>':'')+'<aside class="fp'+(animate?'':' still')+'" id="fp"><div class="fph"><h2>'+title+'</h2>'+(A.length&&!isPhone()?'<button class="btn ghost" onclick="clearAll()">Clear all</button>':'')+'<button class="ib" onclick="closePanel()" aria-label="Close"><i data-lucide="x"></i></button></div><div class="fpb" id="fpb">';
+  if(o==='now')h+=clauses();
+  else{
+    const fs=o==='B'?FIELDS.filter(f=>!f.top):FIELDS;
+    if(o!=='B'){h+=fs.filter(f=>f.top).map(f=>facet(f)).join('');h+='<div class="grp">More fields</div>'+fs.filter(f=>!f.top).map(f=>facet(f)).join('')}
+    else h+=fs.map(f=>facet(f)).join('');
+  }
+  h+='</div><div class="fpf"><span class="res"><b>'+r.length+'</b> of '+POS.length+' purchase orders</span>'
+    +(isPhone()?(A.length?'<button class="btn ghost" onclick="clearAll()">Clear</button>':'')+'<button class="btn pri" onclick="closePanel()">Show '+r.length+'</button>':'')+'</div></aside>';
+  const keep=$('fpb')?$('fpb').scrollTop:0;
+  $('side').innerHTML=h;
+  if(keep)$('fpb').scrollTop=keep;
+  wireSieves();icons();
+}
+function facet(f,inPop){
+  const vals=counts(f), s=S.F[f.k]||new Set(), open=inPop||(S.secOpen[f.k]??(!!s.size||f.top));
+  OC[f.k]=vals.map(x=>x.v);
+  let h='<div class="sec">';
+  if(!inPop)h+='<button class="sh'+(open?' open':'')+'" onclick="S.secOpen[\''+f.k+'\']='+(!open)+';renderSide()"><span class="l">'+f.l+'</span><span class="s'+(s.size?'':' none')+'">'+(s.size?summary(f):'Any')+'</span><i data-lucide="chevron-down"></i></button>';
+  if(open){
+    const q=(S.sieve[f.k]||'').toLowerCase();
+    let list=vals.map((x,i)=>({...x,i})).filter(x=>!q||x.v.toLowerCase().includes(q));
+    const all=S.more[f.k]||q||inPop, cut=6;
+    h+='<div class="sb">'+(vals.length>6?'<label class="sieve"><i data-lucide="search"></i><input data-sieve="'+f.k+'" placeholder="Find a '+f.l.toLowerCase()+'" value="'+(S.sieve[f.k]||'')+'"></label>':'');
+    h+=(all?list:list.slice(0,cut)).map(x=>'<button class="fo'+(s.has(x.v)?' on':'')+(x.c||s.has(x.v)?'':' zero')+'" onclick="tog(\''+f.k+'\','+x.i+')"><span class="box"><i data-lucide="check"></i></span><span class="t">'+x.v+'</span><span class="c">'+x.c+'</span></button>').join('');
+    if(!all&&list.length>cut)h+='<button class="more" onclick="S.more[\''+f.k+'\']=true;renderSide()">Show all '+list.length+'</button>';
+    if(s.size&&inPop)h+='<button class="more" onclick="clearField(\''+f.k+'\')">Clear '+f.l.toLowerCase()+'</button>';
+    h+='</div>';
+  }
+  return h+'</div>';
+}
+/* Today's panel: a filter is a sentence you assemble. */
+function clauses(){
+  const A=active();
+  let h='';
+  if(!A.length&&!S.adding)h+='<p class="hint">Nothing is narrowing this list. Pick a column to ask it a question — what it is, what it is not, or whether it is empty at all.</p>';
+  A.forEach(f=>{h+='<div class="cl"><div class="row"><span class="sel">'+f.l+'<i data-lucide="chevron-down"></i></span><span class="pick">is any of<i data-lucide="chevron-down"></i></span><span style="flex:1"></span><button class="ib" onclick="clearField(\''+f.k+'\')"><i data-lucide="trash-2"></i></button></div><div class="vals">'+[...S.F[f.k]].join(', ')+'</div></div>'});
+  if(S.adding){
+    const left=FIELDS.filter(f=>!A.includes(f));
+    if(typeof S.adding==='string'){h+=facet(field(S.adding),true)+'<div style="padding:0 20px"><button class="btn" onclick="S.adding=false;renderAll()">Done</button></div>'}
+    else h+='<div class="addm">'+left.map(f=>'<button onclick="S.adding=\''+f.k+'\';renderSide()"><i data-lucide="columns-3"></i>'+f.l+'</button>').join('')+'</div>';
+  }
+  else h+='<div style="padding:8px 16px"><button class="btn dash" onclick="S.adding=true;renderSide()"><i data-lucide="plus"></i>Add filter</button></div>';
+  return h;
+}
+function wireSieves(){
+  document.querySelectorAll('[data-sieve]').forEach(el=>el.oninput=()=>{
+    S.sieve[el.dataset.sieve]=el.value;
+    const where=el.closest('.pop')?'pop':'side';
+    where==='pop'?renderPop():renderSide();
+    const n=document.querySelector('[data-sieve="'+el.dataset.sieve+'"]');n.focus();n.setSelectionRange(n.value.length,n.value.length);
+  });
+}
+
+/* ── B · quick-filter popovers ─────────────────────────────────────────── */
+function togglePop(k){S.pop=S.pop===k?null:k;renderPage();renderPop();icons()}
+function renderPop(){
+  if(!S.pop||S.opt!=='B'){$('popRoot').innerHTML='';return}
+  const b=$('qb-'+S.pop);if(!b){$('popRoot').innerHTML='';return}
+  const r=b.getBoundingClientRect();
+  $('popRoot').innerHTML=(isPhone()?'<div class="veil" style="z-index:44" onclick="togglePop(S.pop)"></div>':'')+'<div class="pop" style="top:'+(r.bottom+6)+'px;left:'+r.left+'px">'+facet(field(S.pop),true)+'</div>';
+  wireSieves();icons();
+}
+document.addEventListener('mousedown',e=>{if(S.pop&&!e.target.closest('.pop')&&!e.target.closest('[id^="qb-"]')){S.pop=null;renderPage();renderPop();icons()}});
+
+/* ── C · views ─────────────────────────────────────────────────────────── */
+function viewCount(v){const keep=S.F,q=S.q;S.F={};Object.entries(v.f).forEach(([k,a])=>S.F[k]=new Set(a));S.q='';const n=rows().length;S.F=keep;S.q=q;return n}
+function setView(n){const v=VIEWS.find(x=>x.n===n);S.view=n;S.F={};Object.entries(v.f).forEach(([k,a])=>S.F[k]=new Set(a));renderAll(true)}
+function viewModified(){
+  if(S.opt!=='C')return false;
+  const v=VIEWS.find(x=>x.n===S.view)||VIEWS[0];
+  const norm=e=>JSON.stringify(e.filter(x=>x[1].length).map(([k,x])=>[k,[...x].sort()]).sort((x,y)=>x[0]<y[0]?-1:1));
+  const a=norm(active().map(f=>[f.k,[...S.F[f.k]]])), b=norm(Object.entries(v.f));
+  return a!==b;
+}
+function saveView(){
+  const name=S.view==='All'||!viewModified()?'View '+VIEWS.length:S.view;
+  let v=VIEWS.find(x=>x.n===name);
+  const f=Object.fromEntries(active().map(x=>[x.k,[...S.F[x.k]]]));
+  if(v)v.f=f;else VIEWS.push(v={n:name,f});
+  S.view=name;toast('Saved as "'+name+'"');renderAll();
+}
+
+/* ── record sheet, on the same edge ────────────────────────────────────── */
+function recHtml(animate){
+  const p=POS.find(x=>x.no===S.open), r=rows(), i=r.findIndex(x=>x.no===S.open);
+  return '<aside class="rec'+(animate?'':' still')+'"><div class="rh"><div class="top"><span class="id mono">'+p.no+'</span>'
+    +'<span class="pos">'+(i+1)+' of '+r.length+'</span><button class="ib" onclick="stepRec(-1)" title="Previous"><i data-lucide="chevron-up"></i></button><button class="ib" onclick="stepRec(1)" title="Next"><i data-lucide="chevron-down"></i></button><button class="ib" onclick="closeRec()" aria-label="Close"><i data-lucide="x"></i></button></div>'
+    +'<h2>'+p.sup+'</h2><div class="cap"><span class="st"><span class="dot" style="background:'+ST[p.st]+'"></span>'+p.st+'</span> · raised by '+p.by+'</div>'
+    +(S.panel&&!isPhone()?'<div style="margin-top:10px"><button class="back" onclick="closeRec()"><i data-lucide="arrow-left"></i>Back to filters'+(active().length?' ('+active().length+')':'')+'</button></div>':'')+'</div>'
+    +'<div class="rb"><dl class="facts"><div><dt>Destination</dt><dd>'+p.dest+'</dd></div><div><dt>Value</dt><dd>'+rp(p.val)+'</dd></div><div><dt>ETA</dt><dd>'+p.etaL+' 2026 · '+etaB(p)+'</dd></div><div><dt>Quantity</dt><dd>'+p.qty.toLocaleString('id-ID')+' pcs</dd></div><div><dt>Division</dt><dd>'+p.div+'</dd></div><div><dt>Payment terms</dt><dd>'+p.terms+'</dd></div></dl></div></aside>';
+}
+function openRec(no){const first=!S.open;S.open=no;S.pop=null;renderPage();renderPop();renderSide(first);icons();$('r-'+no)?.scrollIntoView({block:'nearest'})}
+function closeRec(){S.open=null;renderAll(false)}
+function stepRec(d){const r=rows(),i=r.findIndex(x=>x.no===S.open),j=i+d;if(!r[j]){toast(d>0?'Last one in this filtered list':'First one in this filtered list');return}openRec(r[j].no)}
+
+function togglePanel(){S.panel?closePanel():openPanel()}
+function openPanel(){S.open=null;S.panel=true;renderAll(true)}
+function closePanel(){S.panel=false;S.adding=false;renderAll()}
+function openSec(k){S.secOpen[k]=true;if(!S.panel||S.open){S.open=null;S.panel=true;renderAll(true)}else renderSide();setTimeout(()=>document.querySelectorAll('.sh').forEach(b=>{if(b.textContent.startsWith(field(k).l))b.scrollIntoView({block:'nearest',behavior:'smooth'})}),30)}
+function renderAll(animateSide){renderPage();renderSide(animateSide&&!$('fp')&&!document.querySelector('.rec'));renderPop();icons()}
+addEventListener('keydown',e=>{if(e.key==='Escape'){if(S.pop)togglePop(S.pop);else if(S.open)closeRec();else if(S.panel&&!docked())closePanel()}});
+addEventListener('resize',()=>{renderAll();fitDev()});
+
+/* ── prototype switches ────────────────────────────────────────────────── */
+let DEV='desktop';
+function setOpt(k){
+  S.opt=k;S.pop=null;S.adding=false;S.open=null;S.view='All';
+  if(!EMBED&&DEV!=='desktop')$('ifr').contentWindow?.postMessage({opt:k},'*');
+  paintProto();renderAll();
+}
+function setScn(k){
+  S.scn=k;S.F={};Object.entries(SCN[k]).forEach(([f,a])=>S.F[f]=new Set(a));S.view='All';
+  if(!EMBED&&DEV!=='desktop')$('ifr').contentWindow?.postMessage({scn:k},'*');
+  paintProto();renderAll();
+}
+function setDev(d){
+  DEV=d;paintProto();
+  document.body.classList.toggle('devmode',d!=='desktop');
+  if(d==='desktop'){$('dev').hidden=true;$('ifr').src='about:blank';return}
+  $('dev').hidden=false;$('ifr').src=location.pathname+'?embed=phone&opt='+S.opt+'&scn='+S.scn;fitDev();
+}
+function fitDev(){if(DEV==='desktop')return;const f=$('frame');f.style.transform='scale('+Math.min(1,(innerHeight-200)/844)+')'}
+function paintProto(){
+  if(EMBED)return;
+  $('devseg').innerHTML=[['desktop','Desktop'],['phone','Phone']].map(x=>'<button class="'+(DEV===x[0]?'on':'')+'" onclick="setDev(\''+x[0]+'\')">'+x[1]+'</button>').join('');
+  $('scnseg').innerHTML=[['none','No filters'],['many','5 filters']].map(x=>'<button class="'+(S.scn===x[0]?'on':'')+'" onclick="setScn(\''+x[0]+'\')">'+x[1]+'</button>').join('');
+  $('seg').innerHTML=Object.entries(OPTS).map(([k,o])=>'<button class="'+(S.opt===k?'on':'')+'" onclick="setOpt(\''+k+'\')">'+o.l+'</button>').join('');
+  $('note').textContent=OPTS[S.opt].n;
+}
+addEventListener('message',e=>{if(!EMBED||!e.data)return;if(e.data.opt)setOpt(e.data.opt);if(e.data.scn)setScn(e.data.scn)});
+setScn(S.scn);setOpt(S.opt);
+</script>
+</body>
+</html>

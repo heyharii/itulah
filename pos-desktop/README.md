@@ -80,7 +80,7 @@ src-tauri/
 
 ### Why calls go through Rust
 
-The WebView is `tauri://` and the node is `http://…:8081`; the edge sends no CORS
+The WebView is `tauri://` and the node is `http://…:8082`; the edge sends no CORS
 headers, deliberately — it serves its own SPA same-origin, and
 `backend/src/cloud/http/mod.rs` is the only place in the estate that opens an
 allow-list. Widening the shop node's door so one client could skip a proxy is

@@ -509,7 +509,16 @@ export function toRules(drafts: readonly PromotionDraft[]): RuleInput[] {
         },
         priority: Number(draft.priority) || 0,
         stacking: draft.stacking,
+        // The three fields whose DEFAULTS the engine documents, written out
+        // because this literal is the whole rule: an offer that will not share
+        // claims the whole basket (as every published rule does), a promotion
+        // does not land on marked-down goods unless it says so, and a bonus
+        // rate gives way to the best rate on the line.
+        exclusive_scope: "BASKET",
+        markdown_policy: "EXCLUDE",
+        points_combination: "HIGHEST",
         advisory: false,
+        max_uses_per_customer: null,
         // The default the engine documents: a shopper who buys a marked-down
         // shirt earns on what the shirt now costs.
         earn_basis: "POST_MARKDOWN_PRE_DISCOUNT",

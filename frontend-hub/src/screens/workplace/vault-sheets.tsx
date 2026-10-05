@@ -419,7 +419,6 @@ function IntoRoom({
         <Input
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search the rooms"
           className="mb-2"
         />
         <div className="max-h-64 overflow-y-auto rounded-inner border border-hairline">
@@ -538,7 +537,6 @@ function IntoDrawer({
           <Input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            placeholder="Cotton supply agreement 2026"
           />
         </Field>
       )}
@@ -550,16 +548,11 @@ function IntoDrawer({
         <Input
           value={folder}
           onChange={(event) => setFolder(event.target.value)}
-          placeholder="contracts/suppliers"
         />
       </Field>
 
       <Field label="Tags" hint="Comma separated, from the company vocabulary.">
-        <Input
-          value={tags}
-          onChange={(event) => setTags(event.target.value)}
-          placeholder="DENIM, SUP02"
-        />
+        <Input value={tags} onChange={(event) => setTags(event.target.value)} />
       </Field>
 
       <div className="grid grid-cols-2 gap-3">
@@ -590,7 +583,6 @@ function IntoDrawer({
           <Input
             value={subjectId}
             onChange={(event) => setSubjectId(event.target.value)}
-            placeholder="PO-2607-0108"
             // Naming an id without saying what kind of thing it is would file a
             // link the server cannot resolve.
             disabled={subjectKind === ""}

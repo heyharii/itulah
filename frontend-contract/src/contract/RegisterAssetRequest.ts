@@ -4,7 +4,7 @@ export type RegisterAssetRequest = { asset_number: string, name: string,
 /**
  * One of the register's own asset classes — an `asset_class.class_code`,
  * not an account code. The account its cost lands in follows from the
- * class through `account_map`, and is `1601` or `1602` for every one.
+ * class through `account_resolution`, and is `1601` or `1602` for every one.
  */
 category_code: string, site_id: string, acquired_on: string, serial_number: string | null, notes: string | null, 
 /**

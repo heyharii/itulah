@@ -1,5 +1,6 @@
 import { node } from "@/lib/api"
 import type {
+  AccountBalance,
   AccountDetail,
   AccountLink,
   AccountLinkChange,
@@ -13,33 +14,45 @@ import type {
   AssetRow,
   AssetSchedule,
   BalanceMatrix,
+  BankRuleRow,
+  BankRuleRunOutcome,
   BankStatementLineRow,
   BankStatementPage,
   BillPage,
   BillWarning,
   BookBankLineRequest,
+  BookOnlyLine,
   BankInstitution,
   ChartChange,
   ChartChangeRequest,
   CashCountRow,
   CompanyBankAccount,
   DescribeBankAccountRequest,
+  PeriodEvent,
+  RecordBankRuleRequest,
+  TransactionCategoryRow,
   PostCountRequest,
   RecordCountRequest,
+  SettleGiroRequest,
   UpdateBankLineRequest,
   UpdateGiroPrintTemplateRequest,
   ConfirmMatchRequest,
+  CreditNote,
+  CreditNoteRefundRequest,
+  CreditNoteRequest,
   DepreciationRun,
   DisposeAssetRequest,
   CreateGiroPrintTemplateRequest,
   GeneralLedger,
   GiroPrintTemplate,
+  GiroRow,
   ImportOutcome,
   ImportStatementRequest,
   JournalEntryDetail,
   JournalPage,
   LineSuggestions,
   MoneyOverview,
+  PartyMovements,
   PayablesAging,
   PaymentPage,
   PeriodPage,
@@ -131,14 +144,54 @@ import type {
 export const financeKeys = {
   all: ["finance"] as const,
 
+  /// Stock at cost, per article and site; `unit` narrows it to one unit.
+  inventoryValuation: (unit: string | null) =>
+    ["finance", "inventory-valuation", unit] as const,
+  stockVsLedger: () => ["finance", "stock-vs-ledger"] as const,
+  goodsInTransit: () => ["finance", "goods-in-transit"] as const,
+  cogs: (year: number) => ["finance", "cogs", year] as const,
+  stockAdjustments: () => ["finance", "stock-adjustments"] as const,
+
   /// Where the words go on each bank's giro leaf. One key for the lot: there
   /// are five banks and the calibration screen reads them all to draw its
   /// picker.
   giroPrintTemplates: (includeRetired: boolean) =>
     ["finance", "giro-print-templates", includeRetired] as const,
 
+  /// One party's ledger over a window. Every argument changes the answer.
+  partyMovements: (
+    partyType: string,
+    partyId: string,
+    from: string,
+    to: string,
+    unit: string | null
+  ) =>
+    ["finance", "party-movements", partyType, partyId, from, to, unit] as const,
+
+  /// The recurring-bill promises — one list, unfiltered by the server. See
+  /// `listBillTemplates`.
+  billTemplates: () => ["finance", "bill-templates"] as const,
+
+  /// The credit notes, narrowed on the server by status and supplier — a
+  /// narrowed list is a narrowed request, not a slice of a wider one held here.
+  creditNotes: (status: string | null, supplier: string | null) =>
+    ["finance", "credit-notes", status, supplier] as const,
+
+  /// Every asset the register holds under one narrowing, followed to the last
+  /// page. Under `assets` so a disposal or an assessment, which invalidates
+  /// that prefix, refreshes the two asset reports as well.
+  assetsAll: (
+    decision: string | null,
+    status: string | null,
+    site: string | null
+  ) => ["finance", "assets", "all", decision, status, site] as const,
+
   accountChildren: (parent: string | null, inactive: boolean) =>
     ["finance", "accounts", "children", parent, inactive] as const,
+  /// Under `accounts` so posting anything that invalidates the chart's reads
+  /// catches the figures beside it too.
+  accountBalances: (parent: string | null, unit: string | null) =>
+    ["finance", "accounts", "balances", parent, unit] as const,
   accountSearch: (needle: string, inactive: boolean) =>
     ["finance", "accounts", "search", needle, inactive] as const,
   /// `unit` is part of the key because `accountDetail` takes it and the
@@ -288,6 +341,10 @@ export const financeKeys = {
     ["finance", "assets", "depreciation-status", year, month] as const,
   closeChecklist: (period: string | null) =>
     ["finance", "period-checklist", period] as const,
+  /// Every close and reopen one month has had. Under `periods` so the
+  /// invalidation that refreshes the calendar refreshes this too.
+  periodEvents: (period: string | null) =>
+    ["finance", "periods", "events", period] as const,
   /// What has actually been charged against one asset, month by month.
   assetSchedule: (id: string) => ["finance", "assets", "schedule", id] as const,
   /// The two halves of "what the books bought and what the register holds".
@@ -297,6 +354,9 @@ export const financeKeys = {
   /// Where the money sits, as at a date, in one unit's books or all of them.
   money: (asOf: string | null, unit: string | null) =>
     ["finance", "money", asOf, unit] as const,
+  /// Giros in one status — the server filters, so each status is its own
+  /// request and its own entry.
+  giros: (status: string | null) => ["finance", "giros", status] as const,
   /// What the bank has told us, for one unit or for all of them.
   ///
   /// `listBankStatements` takes `unit` and narrows on the server, so the unit
@@ -317,6 +377,15 @@ export const financeKeys = {
     ["finance", "cash-counts", account, site] as const,
   bankSuggestions: (statementId: string, exact = true) =>
     ["finance", "bank-statements", statementId, "suggestions", exact] as const,
+  bankBookOnly: (statementId: string) =>
+    ["finance", "bank-statements", statementId, "book-only"] as const,
+  /// The rules that recognise a bank line. Retired ones are a separate entry:
+  /// the server hides them unless asked, so "show retired" is a different
+  /// request and not a filter over the same rows.
+  bankRules: (includeRetired: boolean) =>
+    ["finance", "bank-rules", includeRetired] as const,
+  /// What a bank line, a payment or a rule can be said to mean.
+  transactionCategories: () => ["finance", "transaction-categories"] as const,
 
   /// The instruction queue. Both filters are the server's, so a narrowed list
   /// is a narrowed request and never a slice of a wider answer held in the
@@ -386,6 +455,19 @@ function search(
 ///
 /// A level at a time, deliberately: the client's chart is 7,528 accounts and
 /// about a megabyte of JSON, and somebody opening the screen wants eight rows.
+/// The balance beside every account of one level of the chart — headings
+/// summed over what hangs under them — as ERPNext's Chart of Accounts prints
+/// it. `parent` absent means the root classes; `unit` absent, the company.
+export function accountBalances(
+  options: { parent?: string; unit?: string } = {},
+  signal?: AbortSignal
+): Promise<AccountBalance[]> {
+  return node.get<AccountBalance[]>(
+    `/api/v1/finance/accounts/balances${search(options)}`,
+    { signal }
+  )
+}
+
 export function accountChildren(
   options: { parent?: string; inactive?: boolean; cursor?: string } = {},
   signal?: AbortSignal
@@ -1158,7 +1240,7 @@ export interface PeriodCloseReceipt {
   readonly entries_sealed: number
 }
 
-/// Seal a month. Not reversible from any screen, and it cannot race a posting:
+/// Seal a month. Undo closing takes it back (`reopenPeriod`), and it cannot race a posting:
 /// the gating trigger reads the period row `FOR SHARE`, so a close and a
 /// posting serialise rather than interleaving.
 export function closePeriod(
@@ -1169,6 +1251,34 @@ export function closePeriod(
   return node.post<PeriodCloseReceipt>(
     "/api/v1/finance/periods/close",
     { year, month },
+    { signal }
+  )
+}
+
+/// Take a sealed month back. The reason is required and is kept with who asked
+/// and when. Refused with 409 while a later month is still closed (undo the
+/// newest first) or a year-end voucher covers the month; the message names why
+/// and is shown as it arrives. Answers with the period page, like opening does.
+export function reopenPeriod(
+  year: number,
+  month: number,
+  reason: string,
+  signal?: AbortSignal
+): Promise<PeriodPage> {
+  return node.post<PeriodPage>(
+    `/api/v1/finance/periods/${year}-${String(month).padStart(2, "0")}/reopen`,
+    { reason },
+    { signal }
+  )
+}
+
+/// Every close and reopen this month has had, newest first.
+export function periodEvents(
+  period: string,
+  signal?: AbortSignal
+): Promise<PeriodEvent[]> {
+  return node.get<PeriodEvent[]>(
+    `/api/v1/finance/periods/${encodeURIComponent(period)}/events`,
     { signal }
   )
 }
@@ -2037,6 +2147,20 @@ export function bankSuggestions(
   )
 }
 
+/// In the books, not on the bank (ERPNext: *Amounts not reflected in bank*).
+/// Postings on the statement's account, up to its last day, that no bank line
+/// has claimed — reaching back to the account's first statement, so a giro
+/// from last month that still has not cleared is here too.
+export function bookOnlyLines(
+  statementId: string,
+  signal?: AbortSignal
+): Promise<BookOnlyLine[]> {
+  return node.get<BookOnlyLine[]>(
+    `/api/v1/finance/bank-statements/${encodeURIComponent(statementId)}/book-only`,
+    { signal }
+  )
+}
+
 /// Agree that a bank line and a journal line are the same event. This posts
 /// nothing — reconciling records that we booked something and the bank
 /// confirmed it. A tool that posted here would stop checking the books and
@@ -2138,6 +2262,92 @@ export function retireBankAccount(
 }
 
 // ---------------------------------------------------------------------------
+// Bank rules
+//
+// A rule recognises a bank line by its narration and names the category it
+// means; running the rules writes PROPOSALS and nothing else. A person accepts
+// a proposal on the reconciliation screen (`lib/queries/bank-recon.ts`), and
+// accepting is what creates the cash document.
+
+/// Every rule, lowest priority first. Retired rules are hidden unless asked
+/// for: a proposal names the rule that made it, so "why was this booked there"
+/// still has an answer once somebody has turned the rule off.
+export function listBankRules(
+  options: { include_retired?: boolean } = {},
+  signal?: AbortSignal
+): Promise<BankRuleRow[]> {
+  return node.get<BankRuleRow[]>(
+    `/api/v1/finance/bank-rules${search({
+      include_retired: options.include_retired === true ? true : undefined,
+    })}`,
+    { signal }
+  )
+}
+
+export function recordBankRule(
+  request: RecordBankRuleRequest,
+  signal?: AbortSignal
+): Promise<BankRuleRow> {
+  return node.post<BankRuleRow>("/api/v1/finance/bank-rules", request, {
+    signal,
+  })
+}
+
+/// The whole rule again, not a patch of one field: the server re-checks the
+/// pair of (category, meaning) and the pattern every time, so a half-sent rule
+/// would be refused for what it left out.
+export function updateBankRule(
+  ruleId: string,
+  request: RecordBankRuleRequest,
+  signal?: AbortSignal
+): Promise<BankRuleRow> {
+  return node.patch<BankRuleRow>(
+    `/api/v1/finance/bank-rules/${encodeURIComponent(ruleId)}`,
+    request,
+    { signal }
+  )
+}
+
+/// Retire, never delete: the rule stays readable beside the proposals it made.
+export function retireBankRule(
+  ruleId: string,
+  signal?: AbortSignal
+): Promise<BankRuleRow> {
+  return node.delete<BankRuleRow>(
+    `/api/v1/finance/bank-rules/${encodeURIComponent(ruleId)}`,
+    { signal }
+  )
+}
+
+/// Run the active rules over every open bank line (or one statement's), and
+/// write a proposal for each line one recognises. Posts nothing.
+export function evaluateBankRules(
+  options: { statementId?: string } = {},
+  signal?: AbortSignal
+): Promise<BankRuleRunOutcome> {
+  return node.post<BankRuleRunOutcome>(
+    "/api/v1/finance/bank-rules/evaluate",
+    { statement_id: options.statementId ?? null },
+    { signal }
+  )
+}
+
+/// The categories a line can be said to mean, active ones unless asked.
+/// `direction` is `OUTFLOW` or `INFLOW`; the server also returns `BOTH`.
+export function listTransactionCategories(
+  options: { direction?: string; include_retired?: boolean } = {},
+  signal?: AbortSignal
+): Promise<TransactionCategoryRow[]> {
+  return node.get<TransactionCategoryRow[]>(
+    `/api/v1/finance/transaction-categories${search({
+      direction: options.direction,
+      include_retired: options.include_retired === true ? true : undefined,
+    })}`,
+    { signal }
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Cash counts
 // ---------------------------------------------------------------------------
 
@@ -2221,6 +2431,32 @@ export function unmatchBankLine(
   )
 }
 
+/// The register paged all the way through, sorted by due date, for a screen
+/// that ADDS it up (Payment Projection, the Bank Account summary) and so must
+/// not be answered with the first page. `listBills`'s own comment explains why
+/// its callers page; these two sum, which is the one place a short page is a
+/// silent wrong total.
+export async function listAllBills(
+  status: string,
+  site: string | undefined,
+  signal?: AbortSignal
+): Promise<SupplierBill[]> {
+  const rows: SupplierBill[] = []
+  let cursor: string | undefined
+  // A step, not a ceiling; and a safety valve against an unbounded loop, not
+  // a real limit — forty thousand open bills is not a shape this client takes.
+  for (let page = 0; page < 40; page++) {
+    const answer = await listBills(
+      { status, site, limit: 200, cursor, sort: "due", dir: "asc" },
+      signal
+    )
+    rows.push(...answer.rows)
+    if (answer.next_cursor === null) break
+    cursor = answer.next_cursor
+  }
+  return rows
+}
+
 // ---------------------------------------------------------------------------
 // Giro printing
 //
@@ -2228,6 +2464,42 @@ export function unmatchBankLine(
 // carrying its number; what a printer adds is nine facts, and the whole problem
 // is landing them on boxes that are already there. So these read and write
 // COORDINATES — see `0222`.
+
+/// Giros, in one status or all of them, due date first. `OUT` we wrote,
+/// `IN` somebody gave us.
+export function listGiros(
+  options: {
+    status?: string
+    bank?: string
+    direction?: string
+    as_of?: string
+    limit?: number
+  } = {},
+  signal?: AbortSignal
+): Promise<GiroRow[]> {
+  return node.get<GiroRow[]>(`/api/v1/finance/giros${search(options)}`, {
+    signal,
+  })
+}
+
+/// The bank took it, on `on` — the day on the statement, not today. Posts the
+/// clearing entry.
+export function clearGiro(
+  giroId: string,
+  on: string,
+  signal?: AbortSignal
+): Promise<GiroRow> {
+  const request: SettleGiroRequest = {
+    on,
+    statement_line_id: null,
+    reason: null,
+  }
+  return node.post<GiroRow>(
+    `/api/v1/finance/giros/${encodeURIComponent(giroId)}/clear`,
+    request,
+    { signal }
+  )
+}
 
 export function giroPrintTemplates(
   includeRetired = false,
@@ -2273,6 +2545,206 @@ export function saveGiroPrintTemplate(
         "If-Match": `"${version}"`,
       },
     }
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Recurring bills
+//
+// The promise, not the paper: what a supplier is expected to invoice every
+// month, before the bill itself has arrived. `GET /finance/bill-templates`
+// answers `serde_json::Value`-free but still has no `ts_rs` export — see
+// `backend/src/cloud/postgres/bill_template.rs::BillTemplate` — so this is
+// typed by hand, the way `fleet.ts` explains at its own top: field names and
+// shapes transcribed from the struct's own doc comments, and a mismatch is
+// this file's bug.
+// ---------------------------------------------------------------------------
+
+/// One recurring charge — `BillTemplate` on the wire.
+export interface BillTemplateRow {
+  readonly template_id: string
+  readonly supplier_id: string
+  readonly supplier_name: string | null
+  readonly site_id: string
+  readonly expense_account_code: string
+  readonly expense_category_code: string | null
+  readonly expense_site_id: string
+  readonly expected_subtotal_minor: number
+  readonly expected_tax_minor: number
+  readonly tolerance_bps: number
+  /// The day of the month it is expected, 1–31 — clamped to the month's own
+  /// length by a reader that projects it forward, since not every month has
+  /// a 31st.
+  readonly due_day: number
+  readonly label: string
+  readonly note: string | null
+  readonly active: boolean
+  readonly contract_id: string | null
+  readonly created_by: string
+}
+
+/// Every recurring bill template, retired ones included. The route takes no
+/// filter — `GET /finance/bill-templates` always answers the whole list, and
+/// a caller wanting only the live ones filters on `active` itself.
+export function listBillTemplates(
+  signal?: AbortSignal
+): Promise<BillTemplateRow[]> {
+  return node.get<BillTemplateRow[]>("/api/v1/finance/bill-templates", {
+    signal,
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Credit notes
+// ---------------------------------------------------------------------------
+
+/// The supplier credit notes, newest first. `status` is `DRAFT`, `POSTED` or
+/// `REFUNDED`; `supplier` is the code a bill carries in its `supplier_id`.
+/// The server clamps `limit` to 500 and answers a bare array, so a list that
+/// comes back that long may have been cut off.
+export function listCreditNotes(
+  options: {
+    status?: string
+    supplier?: string
+    invoice?: string
+    limit?: number
+  } = {},
+  signal?: AbortSignal
+): Promise<CreditNote[]> {
+  return node.get<CreditNote[]>(
+    `/api/v1/finance/credit-notes${search({ limit: 500, ...options })}`,
+    { signal }
+  )
+}
+
+/// Record a credit note against one purchase invoice. Not in the books yet:
+/// it is a DRAFT until somebody posts it.
+export function createCreditNote(
+  request: CreditNoteRequest,
+  signal?: AbortSignal
+): Promise<CreditNote> {
+  return node.post<CreditNote>("/api/v1/finance/credit-notes", request, {
+    signal,
+  })
+}
+
+/// Put a draft credit note in the ledger: it lowers what is owed on the
+/// invoice without any money moving. With no date the server posts it on the
+/// credit date.
+export function postCreditNote(
+  creditNoteId: string,
+  postingDate?: string,
+  signal?: AbortSignal
+): Promise<CreditNote> {
+  return node.post<CreditNote>(
+    `/api/v1/finance/credit-notes/${encodeURIComponent(creditNoteId)}/post`,
+    { posting_date: postingDate },
+    { signal }
+  )
+}
+
+/// The supplier sent the money back instead of letting the next bill absorb
+/// it. A second act with its own date, which re-opens the debt the note had
+/// answered.
+export function refundCreditNote(
+  creditNoteId: string,
+  request: CreditNoteRefundRequest,
+  signal?: AbortSignal
+): Promise<CreditNote> {
+  return node.post<CreditNote>(
+    `/api/v1/finance/credit-notes/${encodeURIComponent(creditNoteId)}/refund`,
+    request,
+    { signal }
+  )
+}
+
+// ---------------------------------------------------------------------------
+// The register, whole
+// ---------------------------------------------------------------------------
+
+/// Every asset a narrowing matches, however many pages it takes.
+///
+/// `GET /finance/assets` is a keyset-paged list that answers 200 rows unless
+/// told otherwise and never more than 1,000. The two asset reports add up
+/// cost, depreciation and book value, and a total summed over a first page is
+/// a wrong figure that looks right — so this follows `next_cursor` to the end.
+/// The client's register is about 1,300 rows: two requests, not twenty.
+///
+/// `complete` is false only if the safety stop of twenty pages was reached,
+/// which no register here comes near; a report that gets it says so rather
+/// than printing a partial total as the whole.
+export async function listAllAssets(
+  options: { decision?: string; status?: string; site?: string } = {},
+  signal?: AbortSignal
+): Promise<{ rows: AssetRow[]; complete: boolean }> {
+  const rows: AssetRow[] = []
+  let cursor: string | undefined
+  for (let page = 0; page < 20; page += 1) {
+    const answer = await listAssets({ ...options, limit: 1000, cursor }, signal)
+    rows.push(...answer.rows)
+    if (answer.next_cursor === null || answer.next_cursor === undefined)
+      return { rows, complete: true }
+    cursor = answer.next_cursor
+  }
+  return { rows, complete: false }
+}
+
+/// One party's movements over a window, with the balance walking down them
+/// — the supplier's Kartu Hutang.
+///
+/// Read from the general ledger's own party lines, so the closing figure is
+/// the balance the books carry. The balance is credits less debits: what is
+/// owed to the party, which a bill raises and a payment or an advance lowers.
+/// `from` defaults to 1 January of `to`'s year and `to` to today.
+export function partyMovements(
+  partyType: string,
+  partyId: string,
+  options: { from?: string; to?: string; unit?: string } = {},
+  signal?: AbortSignal
+): Promise<PartyMovements> {
+  return node.get<PartyMovements>(
+    `/api/v1/finance/payment-ledger/${encodeURIComponent(partyType)}/${encodeURIComponent(partyId)}/movements${search(options)}`,
+    { signal }
+  )
+}
+
+/// What `POST /finance/bill-templates` takes — `RecordBillTemplateRequest`.
+///
+/// `supplier_id` is the supplier's CODE, as on a bill. `expense_site_id`
+/// defaults to `site_id` on the server, which is the only pairing that posts
+/// today (a cost at another site needs an inter-unit credit).
+export interface RecordBillTemplateRequest {
+  readonly supplier_id: string
+  readonly supplier_name?: string | null
+  readonly site_id: string
+  readonly expense_account_code: string
+  readonly expense_category_code?: string | null
+  readonly expense_site_id?: string | null
+  readonly expected_subtotal_minor: number
+  readonly expected_tax_minor: number
+  /// Basis points either side of the expected figure a raised draft may
+  /// differ by before it is flagged. The server defaults to 500 (5%).
+  readonly tolerance_bps?: number
+  readonly due_day: number
+  readonly label: string
+  readonly note?: string | null
+}
+
+/// Write a promise down. The server checks the account is postable and the
+/// category belongs to it, and answers in words when it does not.
+export function recordBillTemplate(
+  request: RecordBillTemplateRequest
+): Promise<BillTemplateRow> {
+  return node.post<BillTemplateRow>("/api/v1/finance/bill-templates", request)
+}
+
+/// Stop a promise. Drafts it already raised stay.
+export function retireBillTemplate(
+  templateId: string
+): Promise<{ retired: string }> {
+  return node.post<{ retired: string }>(
+    `/api/v1/finance/bill-templates/${encodeURIComponent(templateId)}/retire`,
+    {}
   )
 }
 
@@ -2445,6 +2917,147 @@ export function landDeposit(
   return node.post<StoreDeposit>(
     `/api/v1/finance/deposits/${encodeURIComponent(depositId)}/land`,
     request,
+    { signal }
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Inventory
+// ---------------------------------------------------------------------------
+
+export type InventoryValuationRow = {
+  unit_id: string
+  site_id: string
+  site_name: string
+  in_transit: boolean
+  division_code: string | null
+  article_code: string
+  article_name: string
+  quantity: number
+  unit_cost_minor: number
+  value_minor: number
+  cost_source: "RECEIPT" | "PO" | "NONE"
+  po_numbers: string | null
+  po_count: number
+}
+
+export type AwaitingSetupRow = {
+  unit_id: string
+  receipt_number: string
+  po_number: string | null
+  supplier_id: string | null
+  received_on: string | null
+  lines: number
+  quantity: number
+  value_minor: number
+}
+
+export type InventoryValuation = {
+  as_of: string
+  rows: InventoryValuationRow[]
+  awaiting_setup: AwaitingSetupRow[]
+}
+
+export type StockLedgerUnitRow = {
+  unit_id: string
+  unit_name: string
+  on_hand_minor: number
+  awaiting_setup_minor: number
+  stock_minor: number
+  ledger_minor: number
+  difference_minor: number
+  in_transit_stock_minor: number
+  in_transit_ledger_minor: number
+  in_transit_difference_minor: number
+}
+
+/// What the stock is worth: pieces on hand × the price each was bought at.
+export function inventoryValuation(
+  options: { unit?: string | null } = {},
+  signal?: AbortSignal
+): Promise<InventoryValuation> {
+  return node.get<InventoryValuation>(
+    `/api/v1/finance/inventory/valuation${search({ unit: options.unit })}`,
+    { signal }
+  )
+}
+
+/// Each unit's stock at cost against its inventory account and 1031.
+export function stockVsLedger(
+  signal?: AbortSignal
+): Promise<StockLedgerUnitRow[]> {
+  return node.get<StockLedgerUnitRow[]>(
+    "/api/v1/finance/inventory/stock-vs-ledger",
+    { signal }
+  )
+}
+
+/// One piece-line head office has sent that the shop has not counted in yet.
+export type GoodsInTransitRow = {
+  allotment_line_id: string
+  shipment_reference: string | null
+  koli_number: string | null
+  destination_site_id: string
+  destination_name: string
+  destination_unit_id: string
+  sku_code: string
+  article_code: string | null
+  article_name: string | null
+  quantity: number
+  value_minor: number
+  dispatched_on: string | null
+  days: number
+  status: "ON_THE_ROAD" | "SHORT"
+}
+
+/// BDP (1031): goods sent and not yet counted in.
+export function goodsInTransit(
+  signal?: AbortSignal
+): Promise<GoodsInTransitRow[]> {
+  return node.get<GoodsInTransitRow[]>("/api/v1/finance/inventory/in-transit", {
+    signal,
+  })
+}
+
+export type CogsMonthRow = {
+  unit_id: string
+  unit_name: string
+  year: number
+  month: number
+  revenue_minor: number
+  cogs_minor: number
+  gross_margin_minor: number
+}
+
+/// Net sales against the cost of what was sold, per unit and month.
+export function cogsByMonth(
+  year: number,
+  signal?: AbortSignal
+): Promise<CogsMonthRow[]> {
+  return node.get<CogsMonthRow[]>(
+    `/api/v1/finance/inventory/cogs${search({ year })}`,
+    { signal }
+  )
+}
+
+export type StockAdjustmentRow = {
+  state: "BOOKED" | "SHORT_IN_TRANSIT" | "MISSING"
+  unit_id: string
+  on_date: string | null
+  reference: string
+  kind: string
+  description: string
+  quantity: number | null
+  /// Signed: negative takes value off stock.
+  value_minor: number
+}
+
+/// Stock value changed by anything other than buying, moving or selling.
+export function stockAdjustments(
+  signal?: AbortSignal
+): Promise<StockAdjustmentRow[]> {
+  return node.get<StockAdjustmentRow[]>(
+    "/api/v1/finance/inventory/adjustments",
     { signal }
   )
 }

@@ -68,8 +68,15 @@ pub struct PoImportDraftLine {
     pub line_id: String,
     pub article_code: Option<String>,
     pub article_name: Option<String>,
+    /// As printed: that many of `unit`, or pieces when no unit was printed.
     pub quantity: Option<i64>,
+    /// The unit as printed: "lsn", "Potong", "koli".
     pub unit: Option<String>,
+    /// `unit` matched to the units master ("LUSIN"), or null when the paper
+    /// named no unit or one the master does not know. Filled by the import
+    /// route, which can read the master; the parsers leave it empty.
+    #[serde(default)]
+    pub unit_code: Option<String>,
     pub unit_price_minor: Option<i64>,
     pub promised_date: Option<String>,
 }
@@ -165,6 +172,7 @@ pub fn draft_from(
                 article_name: line.article_name,
                 quantity: line.quantity,
                 unit: line.unit,
+                unit_code: None,
                 unit_price_minor: line.unit_price,
                 promised_date: line
                     .promised_date
@@ -417,6 +425,7 @@ mod tests {
                 article_name: Some("Kain Katon Prima".to_string()),
                 quantity: Some(120),
                 unit: Some("potong".to_string()),
+                unit_code: None,
                 unit_price_minor: Some(48500),
                 promised_date: None,
             }],

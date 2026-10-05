@@ -3,10 +3,11 @@ import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
+import { ExportButton } from "@/components/ui/export-button"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, LoadMore } from "@/components/ui/states"
+import { fileSafe, monthStamp, type ExportSheet } from "@/lib/export-xlsx"
 import { count, day, label, money } from "@/lib/format"
 import {
   accountDetail,
@@ -17,17 +18,14 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import {
-  CardRow,
   Code,
   DebitCredit,
   Grid,
-  Note,
-  NumberCard,
   Td,
   Th,
   TotalRow,
 } from "@/screens/finance-final/parts"
-import { useWindow } from "@/screens/finance/hooks"
+import { useUnitName, useWindow } from "@/screens/finance/hooks"
 import {
   AccountPicker,
   SupplierName,
@@ -35,6 +33,7 @@ import {
   UnitSelect,
   WindowControl,
 } from "@/screens/finance/parts"
+import { ReportFilters } from "@/screens/finance/report"
 import type { JournalEntryDetail } from "@itulah/contract"
 
 /// Every posting against one account, at one unit, between two dates.
@@ -152,64 +151,118 @@ export function GeneralLedger() {
   }, [vouchers])
 
   const isGroup = detail.data?.account.is_group ?? false
+  const unitName = useUnitName()
+
+  /// The ledger as loaded on screen — opening balance, every posting drawn so
+  /// far, the window's foot. "Against & party" is left out: it exists only for
+  /// the vouchers a reader has opened.
+  const build = (): ExportSheet | null => {
+    if (head === undefined) return null
+    const rows = (ledger.data?.pages ?? []).flatMap((page) => page.rows)
+    return {
+      filename: `General-Ledger-${fileSafe(head.account_code)}-${monthStamp(head.to)}`,
+      sheet: "General Ledger",
+      title: `General Ledger · ${head.account_code} ${head.account_name}`,
+      subtitle: `${day(head.from)} – ${day(head.to)} · ${
+        head.unit_id === null ? "every unit" : unitName(head.unit_id)
+      }`,
+      columns: [
+        { header: "Date", kind: "date" },
+        { header: "Voucher", kind: "text", width: 20 },
+        { header: "Memo", kind: "text", width: 32 },
+        { header: "Type", kind: "text", width: 16 },
+        { header: "Account", kind: "text", width: 14 },
+        { header: "Category", kind: "text", width: 22 },
+        { header: "Unit", kind: "text", width: 22 },
+        { header: "Debit", kind: "money" },
+        { header: "Credit", kind: "money" },
+        { header: "Balance", kind: "money" },
+      ],
+      rows: [
+        [
+          head.from,
+          "Opening balance",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          head.opening_minor,
+        ],
+        ...rows.map((row) => [
+          row.posting_date,
+          row.entry_number,
+          row.memo,
+          label(row.source_kind),
+          isGroup ? null : head.account_code,
+          row.category_name,
+          unitName(row.unit_id),
+          row.debit_minor === 0 ? null : row.debit_minor,
+          row.credit_minor === 0 ? null : row.credit_minor,
+          row.running_minor,
+        ]),
+      ],
+      rowStyles: [{ bold: true }],
+      totalRow: [
+        null,
+        "Total for the window",
+        null,
+        null,
+        null,
+        null,
+        null,
+        head.window_debit_minor,
+        head.window_credit_minor,
+        head.closing_minor,
+      ],
+    }
+  }
 
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance · Accounting"
+        crumb="Finance · Financial Reports"
         title="General Ledger"
-        sub="Every posting, filtered to the account, unit and window you name — with the balance it opened on and the one it closed at."
         actions={
           code !== null && (
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setPicking((was) => !was)
-                setOpened([])
-              }}
-            >
-              {picking ? "Keep this account" : "Change account"}
-            </Button>
+            <>
+              <ExportButton build={build} disabled={head === undefined} />
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setPicking((was) => !was)
+                  setOpened([])
+                }}
+              >
+                {picking ? "Keep this account" : "Change account"}
+              </Button>
+            </>
           )
         }
       />
 
-      <Toolbar>
-        {/* First, and beside the account rather than after the dates: at this
-            client a unit is not a refinement of a ledger, it is which ledger. */}
-        <UnitSelect
-          value={unit}
-          onChange={setUnit}
-          className="h-8 w-44"
-          aria-label="Unit"
-        />
-        <WindowControl range={range} />
-        <Toolbar.Spacer />
-        {/* The server's own echo of what it read, never the boxes'. When the
-            two disagree the boxes are wrong and this is the figure the totals
-            below belong to. */}
-        {head && (
-          <span className="text-[0.875rem] text-mute">
-            {day(head.from)} – {day(head.to)} ·{" "}
-            {head.unit_id === null ? (
-              "every unit"
-            ) : (
-              <UnitName id={head.unit_id} />
-            )}
-          </span>
-        )}
-      </Toolbar>
-
-      {(code === null || picking) && (
-        <div className="mb-4 rounded-card border border-hairline p-3.5">
-          <p className="mb-2 text-[0.875rem] text-body">
-            Any account in the client&rsquo;s own chart, by code or by name. A
-            heading works as well as a leaf — <Code>10110</Code> reads the whole
-            of KAS &amp; SETARA KAS, <Code>1011001</Code> reads cash at every
-            unit — and so does an account nobody has posted to yet.
-          </p>
-          <div className="max-w-md">
+      <ReportFilters
+        note={
+          head && (
+            <>
+              {day(head.from)} – {day(head.to)} ·{" "}
+              {head.unit_id === null ? (
+                "every unit"
+              ) : (
+                <UnitName id={head.unit_id} />
+              )}
+            </>
+          )
+        }
+      >
+        {/* The account is a filter like the unit and the window, as in
+            ERPNext's General Ledger — not a box of its own above the report. */}
+        {(code === null || picking) && (
+          <div className="w-80">
             <AccountPicker
+              floating
               allowGroups
               seed={code ?? ""}
               onPick={(picked) => {
@@ -219,14 +272,18 @@ export function GeneralLedger() {
               }}
             />
           </div>
-        </div>
-      )}
+        )}
+        <UnitSelect
+          value={unit}
+          onChange={setUnit}
+          className="h-control w-44"
+          aria-label="Unit"
+        />
+        <WindowControl range={range} />
+      </ReportFilters>
 
       {code === null ? (
-        <EmptyState>
-          No account is chosen. A general ledger is one account read down the
-          page, so this report has no answer until you name one.
-        </EmptyState>
+        <EmptyState>Choose an account to read its ledger.</EmptyState>
       ) : (
         queryState(ledger, {
           loading: "Reading every posting in the window…",
@@ -252,30 +309,6 @@ export function GeneralLedger() {
                     {isGroup && " · heading"}
                   </p>
                 </div>
-
-                {/* The four figures a ledger is checked with. Opening and closing
-                  are the window's own, not the first and last running figures —
-                  on a window with nothing in it those two do not exist and the
-                  balance still does. */}
-                <CardRow columns={4}>
-                  <NumberCard
-                    label={`Opening · ${day(data.from)}`}
-                    value={data.opening_minor}
-                  />
-                  <NumberCard
-                    label="Debits in the window"
-                    value={data.window_debit_minor}
-                  />
-                  <NumberCard
-                    label="Credits in the window"
-                    value={data.window_credit_minor}
-                  />
-                  <NumberCard
-                    label={`Closing · ${day(data.to)}`}
-                    value={data.closing_minor}
-                    tone={data.closing_minor < 0 ? "warn" : undefined}
-                  />
-                </CardRow>
 
                 {/* Which units this account moved at, and how often. With no unit
                   chosen this is the chooser — it is the only list anywhere that
@@ -536,19 +569,6 @@ export function GeneralLedger() {
                   </Grid>
                 )}
                 <LoadMore query={ledger} />
-
-                <Note>
-                  Three of ERPNext&rsquo;s columns cannot be filled from a
-                  ledger row here, and none of them is invented instead.{" "}
-                  <b>Account</b> and <b>Party</b> are not on the wire —{" "}
-                  <code>GeneralLedgerRow</code> carries the line, the voucher,
-                  the unit and the two amounts, and nothing else — and{" "}
-                  <b>against-account</b> is a property of the voucher rather
-                  than of the line, so no row can hold it. All three arrive
-                  together the moment a voucher is opened, which is one request
-                  for however many rows share it. Drawing a column of them would
-                  be one request per row.
-                </Note>
               </div>
             )
           },

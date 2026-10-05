@@ -159,14 +159,21 @@ pub struct NewStore {
     /// is given the next number in the client's `C001` series — which is what
     /// the wizard does: it sends no code and shows that number as a preview.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub code: Option<String>,
     /// The store's manager, who is invited with it. Required — a store
     /// without one is refused with a 422 naming it, and nothing is opened.
     /// Optional here only so that refusal can name the store, rather than a
     /// parser saying a field is missing.
+    // `ts(optional)` alone, NOT `ts(optional, type = "NewStoreManager | null")`:
+    // a `type` override is written into the generated file as a bare string and
+    // ts-rs then emits no `import type { NewStoreManager } …` for it, so the
+    // type referred to a name it never imported. The override is for a TS
+    // spelling ts-rs would not write (`Record<string, unknown>`); naming
+    // another generated type in it breaks the file. Kept as a plain comment so
+    // it stays in the source and not in the contract.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional, type = "NewStoreManager | null"))]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub manager: Option<NewStoreManager>,
 }
 

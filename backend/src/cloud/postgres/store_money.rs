@@ -37,7 +37,7 @@ use crate::cloud::domain::{
     remittance_standing, ApprovalLevel, CashierEquation, DrawerMovement, ExecutionState,
     FundAccountability, LineExecution, LineProgress, RemittanceStanding,
 };
-use chrono::{DateTime, Datelike, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -214,41 +214,17 @@ pub async fn store_ledger_outstanding(
 // Numbering
 // ---------------------------------------------------------------------------
 
-/// The next gapless number in a scope, for the month a date falls in.
+/// The next number of one of store money's kinds, from its series (0701).
 ///
-/// The counter row is locked for the length of the caller's transaction, so a
-/// rolled-back document takes its number back with it. See 0110 for why these
-/// are a table and journal numbers are a sequence.
-///
-/// `pub(crate)` since the claims lane arrived: its `KKC-` payout documents are
-/// numbered by the same counter for the same reason — two lanes minting
-/// numbers by two rules would produce two documents claiming one position.
-pub(crate) async fn next_document_number(
+/// Taken inside the caller's transaction, so a rolled-back document takes its
+/// number back with it.
+async fn next_document_number(
     tx: &mut Transaction<'_, Postgres>,
-    scope: &str,
-    prefix: &str,
+    kind: &str,
     on: NaiveDate,
+    unit_id: Option<&str>,
 ) -> Result<String, AppError> {
-    let year = on.year() as i16;
-    let month = on.month() as i16;
-    let row = sqlx::query(
-        "INSERT INTO store_document_counter (scope, year, month, last_number)
-         VALUES ($1, $2, $3, 1)
-         ON CONFLICT (scope, year, month)
-         DO UPDATE SET last_number = store_document_counter.last_number + 1
-         RETURNING last_number",
-    )
-    .bind(scope)
-    .bind(year)
-    .bind(month)
-    .fetch_one(&mut **tx)
-    .await?;
-    let number: i32 = row.try_get("last_number")?;
-    Ok(format!(
-        "{prefix}-{:02}-{:02}-{number:05}",
-        year % 100,
-        month
-    ))
+    super::number_series::next_number(&mut **tx, kind, on, unit_id).await
 }
 
 /// Refuse a unit the centre does not hold, by name. Store money is a unit's
@@ -294,6 +270,16 @@ pub struct CashShiftFact {
     pub variance_minor: Option<i64>,
     #[serde(default)]
     pub close_note: Option<String>,
+    /// The day the shift trades for (edge `0070`). Absent from an older
+    /// build; the centre then takes the store's local date it opened.
+    #[serde(default)]
+    pub business_date: Option<chrono::NaiveDate>,
+    /// Who took the seat, when that is how the shift ended. Closed with
+    /// nothing declared until its holder counts (`counted_at`).
+    #[serde(default)]
+    pub taken_over_by: Option<String>,
+    #[serde(default)]
+    pub counted_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub movements: Vec<CashMovementFact>,
 }
@@ -374,8 +360,10 @@ pub async fn cash_shift_ingest(
         "INSERT INTO cash_shift
              (shift_id, origin_id, generation, seq, site_id, terminal_id, status,
               opened_by, opened_at, opening_float_minor, closed_by, closed_at,
-              declared_cash_minor, expected_cash_minor, variance_minor, close_note)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+              declared_cash_minor, expected_cash_minor, variance_minor, close_note,
+              business_date, taken_over_by, counted_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
+                 COALESCE($17, site_local_date($9, $5)), $18, $19)
          ON CONFLICT (shift_id) DO UPDATE SET
              status              = EXCLUDED.status,
              closed_by           = EXCLUDED.closed_by,
@@ -383,8 +371,12 @@ pub async fn cash_shift_ingest(
              declared_cash_minor = EXCLUDED.declared_cash_minor,
              expected_cash_minor = EXCLUDED.expected_cash_minor,
              variance_minor      = EXCLUDED.variance_minor,
-             close_note          = EXCLUDED.close_note
-         WHERE cash_shift.status = 'OPEN'",
+             close_note          = EXCLUDED.close_note,
+             taken_over_by       = EXCLUDED.taken_over_by,
+             counted_at          = EXCLUDED.counted_at
+         -- A shift the shop is still writing: open, or closed by somebody
+         -- taking the seat and not counted yet. Once counted it is history.
+         WHERE cash_shift.status = 'OPEN' OR cash_shift.declared_cash_minor IS NULL",
     )
     .bind(fact.shift_id)
     .bind(origin_id)
@@ -402,6 +394,9 @@ pub async fn cash_shift_ingest(
     .bind(fact.expected_cash_minor)
     .bind(fact.variance_minor)
     .bind(fact.close_note.as_deref())
+    .bind(fact.business_date)
+    .bind(fact.taken_over_by.as_deref())
+    .bind(fact.counted_at)
     .execute(&mut **tx)
     .await?;
 
@@ -456,21 +451,27 @@ pub async fn cash_shift_equation(
     let opening_float: i64 = shift.try_get("opening_float_minor")?;
     let declared: Option<i64> = shift.try_get("declared_cash_minor")?;
 
-    // Cash taken over the counter while the shift was open. `now()` for an open
-    // shift, so the figure a supervisor reads at four in the afternoon is what
-    // the drawer should hold at four in the afternoon.
+    // Cash taken into THIS drawer: the sales that name it (0714). A sale from
+    // a shop on an older build names none, and is found as before — by the
+    // window the shift was open across the site, `now()` for an open shift so
+    // the figure a supervisor reads at four in the afternoon is what the
+    // drawer should hold at four in the afternoon. That window is right only
+    // at a one-counter store, which is every store such a build runs.
     let sales = sqlx::query(
         "SELECT COALESCE(SUM(t.amount_minor), 0)::bigint AS cash_minor
            FROM edge_sale_tender t
            JOIN edge_sale s ON s.sale_id = t.sale_id
-          WHERE s.site_id = $1
-            AND t.method = 'CASH'
-            AND s.occurred_at >= $2
-            AND s.occurred_at < COALESCE($3, now())",
+          WHERE t.method = 'CASH'
+            AND (s.shift_id = $4
+                 OR (s.shift_id IS NULL
+                     AND s.site_id = $1
+                     AND s.occurred_at >= $2
+                     AND s.occurred_at < COALESCE($3, now())))",
     )
     .bind(&site_id)
     .bind(opened_at)
     .bind(closed_at)
+    .bind(shift_id)
     .fetch_one(pool)
     .await?;
     let cash_sales: i64 = sales.try_get("cash_minor")?;
@@ -830,7 +831,13 @@ pub async fn store_deposit_prepare(
         remittance_line_room(&mut tx, line_id, request.amount_minor).await?;
     }
 
-    let number = next_document_number(&mut tx, "SB", "SB", request.deposit_date).await?;
+    let number = next_document_number(
+        &mut tx,
+        super::number_series::STORE_BANKING,
+        request.deposit_date,
+        None,
+    )
+    .await?;
     let deposit_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO store_deposit
@@ -1205,7 +1212,13 @@ pub async fn remittance_order_issue(
         resolved.push((kind, reference, display, amount, purpose));
     }
 
-    let number = next_document_number(&mut tx, "REM", "REM", request.order_date).await?;
+    let number = next_document_number(
+        &mut tx,
+        super::number_series::REMITTANCE,
+        request.order_date,
+        None,
+    )
+    .await?;
     let order_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO remittance_order
@@ -1772,7 +1785,13 @@ pub async fn operating_fund_send(
     }
     let custodian_name: String = custodian.try_get("code")?;
 
-    let number = next_document_number(&mut tx, "OF", "OF", request.value_date).await?;
+    let number = next_document_number(
+        &mut tx,
+        super::number_series::OUTFLOW,
+        request.value_date,
+        None,
+    )
+    .await?;
     let fund_id = Uuid::new_v4();
 
     let intent = PostingIntent {
@@ -2542,7 +2561,13 @@ pub async fn custodian_handover_prepare(
         )));
     }
 
-    let number = next_document_number(&mut tx, "HO", "HO", request.handover_date).await?;
+    let number = next_document_number(
+        &mut tx,
+        super::number_series::CASH_HANDOVER,
+        request.handover_date,
+        None,
+    )
+    .await?;
     let handover_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO custodian_handover
@@ -2898,22 +2923,13 @@ pub async fn store_expense_claim(
 
     let mut tx = pool.begin().await?;
     unit_is_known(&mut tx, &request.unit_id).await?;
-    // Counted under the unit's internal id, printed under its client code
-    // (`unit.code`: HO, C001…). A petty-cash voucher is numbered per unit
-    // since 0607, which moved head office's counter from its Gudang's scope to
-    // its unit's and carried the last number with it, so no number is ever
-    // issued twice.
-    let printed = sqlx::query_scalar::<_, String>("SELECT code FROM unit WHERE id = $1")
-        .bind(&request.unit_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .unwrap_or_else(|| request.unit_id.clone())
-        .to_uppercase();
+    // Counted per unit and printed under its client code (`KK-C001-…`) by the
+    // store-expense series (0701).
     let number = next_document_number(
         &mut tx,
-        &format!("KK:{}", request.unit_id),
-        &format!("KK-{printed}"),
+        super::number_series::STORE_EXPENSE,
         request.spent_on,
+        Some(&request.unit_id),
     )
     .await?;
     let expense_id = Uuid::new_v4();
@@ -3241,7 +3257,13 @@ pub async fn petty_cash_replenish(
     let mut tx = pool.begin().await?;
     let head_office = super::sites::head_office_unit_id(&mut *tx).await?;
     unit_is_known(&mut tx, &request.unit_id).await?;
-    let number = next_document_number(&mut tx, "RPL", "KK-RPL", request.replenish_date).await?;
+    let number = next_document_number(
+        &mut tx,
+        super::number_series::PETTY_REPLENISH,
+        request.replenish_date,
+        None,
+    )
+    .await?;
     let replenishment_id = Uuid::new_v4();
 
     let intent = PostingIntent {

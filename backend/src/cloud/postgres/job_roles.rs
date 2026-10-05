@@ -10,7 +10,7 @@
 
 use crate::cloud::application::AppError;
 use crate::cloud::domain::flow::FlowRole;
-use crate::cloud::domain::job_role::{self, NODE_REACH, SECTIONS};
+use crate::cloud::domain::job_role::{self, NODE_REACH, SECTIONS, UNIT_REACH};
 use crate::contract::Role as WireRole;
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
@@ -33,6 +33,9 @@ pub struct JobRole {
     /// Which servers holders sign in at: `NONE`, `UNIT` (the servers of the
     /// unit they are posted to) or `EVERY`.
     pub node_reach: String,
+    /// Which units holders reach in the hub (0700): `OWN` — the unit they are
+    /// posted to — or `EVERY`. Where, not what: sections still decide what.
+    pub unit_reach: String,
     pub description: String,
     /// Seeded by a migration: editable, never deleted.
     pub builtin: bool,
@@ -74,10 +77,13 @@ pub struct JobRolePatch {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub node_reach: Option<String>,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub unit_reach: Option<String>,
 }
 
 const ROLE_COLUMNS: &str = "r.code, r.name, r.rung, r.flow_roles, r.sections, r.read_only,
-       r.node_reach, r.description, r.builtin,
+       r.node_reach, r.unit_reach, r.description, r.builtin,
        (SELECT count(*) FROM app_user u WHERE u.role_code = r.code)::bigint AS holders";
 
 fn rung_of(stored: &str) -> Result<WireRole, AppError> {
@@ -96,6 +102,7 @@ fn to_role(row: &sqlx::postgres::PgRow) -> Result<JobRole, AppError> {
         sections: row.try_get("sections")?,
         read_only: row.try_get("read_only")?,
         node_reach: row.try_get("node_reach")?,
+        unit_reach: row.try_get("unit_reach")?,
         description: row.try_get("description")?,
         builtin: row.try_get("builtin")?,
         holders: row.try_get("holders")?,
@@ -195,6 +202,21 @@ pub async fn put_job_role(
             }
         })
         .transpose()?;
+    let unit_reach = patch
+        .unit_reach
+        .as_deref()
+        .map(|reach| {
+            let reach = reach.trim().to_ascii_uppercase();
+            if UNIT_REACH.contains(&reach.as_str()) {
+                Ok(reach)
+            } else {
+                Err(AppError::Validation(format!(
+                    "unit_reach is one of {}",
+                    UNIT_REACH.join(", ")
+                )))
+            }
+        })
+        .transpose()?;
     let name = patch
         .name
         .as_deref()
@@ -221,6 +243,11 @@ pub async fn put_job_role(
         if patch.read_only == Some(true) {
             return Err(AppError::Conflict(format!("{code} cannot be read-only")));
         }
+        if unit_reach.as_deref().is_some_and(|reach| reach != "EVERY") {
+            return Err(AppError::Conflict(format!(
+                "{code} reaches every unit; it cannot be narrowed to its own"
+            )));
+        }
         if sections.is_some() || flow_roles.is_some() {
             return Err(AppError::Conflict(format!(
                 "{code} always holds every section and every flow role; they cannot be narrowed"
@@ -240,8 +267,8 @@ pub async fn put_job_role(
             sqlx::query(
                 "INSERT INTO job_role
                     (code, name, rung, flow_roles, sections, read_only, node_reach,
-                     description, builtin, updated_by)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9)",
+                     description, builtin, updated_by, unit_reach)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9, $10)",
             )
             .bind(&code)
             .bind(name)
@@ -252,6 +279,7 @@ pub async fn put_job_role(
             .bind(node_reach.as_deref().unwrap_or("NONE"))
             .bind(description.as_deref().unwrap_or(""))
             .bind(actor)
+            .bind(unit_reach.as_deref().unwrap_or("OWN"))
             .execute(&mut *tx)
             .await?;
         }
@@ -265,6 +293,7 @@ pub async fn put_job_role(
                     read_only   = COALESCE($6, read_only),
                     node_reach  = COALESCE($7, node_reach),
                     description = COALESCE($8, description),
+                    unit_reach  = COALESCE($10, unit_reach),
                     updated_by  = $9,
                     updated_at  = now()
                   WHERE code = $1",
@@ -278,6 +307,7 @@ pub async fn put_job_role(
             .bind(node_reach.as_deref())
             .bind(description.as_deref())
             .bind(actor)
+            .bind(unit_reach.as_deref())
             .execute(&mut *tx)
             .await?;
         }

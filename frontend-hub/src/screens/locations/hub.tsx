@@ -9,6 +9,7 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, LoadingState } from "@/components/ui/states"
 import { count, money } from "@/lib/format"
 import { gaKeys, gaLocation, updateGaLocation } from "@/lib/queries/ga"
+import { useContractParty } from "@/screens/contracts/format"
 import { FinanceMark } from "@/screens/contracts/parts"
 import { RepairStagePill, TaskStatePill } from "@/screens/maintenance/parts"
 import { intervalLabel } from "@/screens/maintenance/format"
@@ -63,7 +64,7 @@ export function LocationHubSheet({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       width="wide"
-      title={row === undefined ? "Location" : row.site_name}
+      title={row === undefined ? "Site" : row.site_name}
       id={siteId}
       caption={
         row === undefined
@@ -149,9 +150,9 @@ function DetailTab({ hub }: { hub: GaLocationHub }) {
           <div className="flex items-center gap-2">
             <MapPin className="size-4 shrink-0 stroke-[1.7] text-line-ico" />
             <p className="text-meta text-body">
-              This place is already registered — its address, type and
-              contact have not been filled in yet. Complete the details so
-              anyone delivering goods, or a technician, knows where to go.
+              This site is already registered — its address, type and contact
+              have not been filled in yet. Complete the details so anyone
+              delivering goods, or a technician, knows where to go.
             </p>
           </div>
         </section>
@@ -159,7 +160,7 @@ function DetailTab({ hub }: { hub: GaLocationHub }) {
 
       <section>
         <h4 className="mb-2.5 border-b border-hairline pb-1.5 text-card-title font-semibold text-ink">
-          Place details
+          Site details
         </h4>
         <Facts>
           <Fact term="Name">{location.site_name}</Fact>
@@ -270,11 +271,10 @@ function LocationEditForm({
         <Banner tone="bad">{save.error.message}</Banner>
       )}
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Place type" aside="store, warehouse, office, staff house">
+        <Field label="Site type" aside="store, Gudang, office, staff house">
           <Input
             value={form.kind ?? ""}
             onChange={(event) => set("kind", event.target.value)}
-            placeholder="Store"
           />
         </Field>
         <Field
@@ -287,41 +287,36 @@ function LocationEditForm({
             inputMode="numeric"
             value={form.area ?? ""}
             onChange={(event) => set("area", event.target.value)}
-            placeholder="120"
           />
         </Field>
         <Field label="Address">
           <Input
             value={form.address ?? ""}
             onChange={(event) => set("address", event.target.value)}
-            placeholder="Jl. … No. …, Kel. …, Kec. …"
           />
         </Field>
         <Field label="Contact">
           <Input
             value={form.contact_name ?? ""}
             onChange={(event) => set("contact_name", event.target.value)}
-            placeholder="Person to contact"
           />
         </Field>
         <Field label="Contact phone">
           <Input
             value={form.contact_phone ?? ""}
             onChange={(event) => set("contact_phone", event.target.value)}
-            placeholder="0812…"
           />
         </Field>
         <Field label="Notes">
           <Input
             value={form.notes ?? ""}
             onChange={(event) => set("notes", event.target.value)}
-            placeholder="e.g. staff house is rented, one contract covers several stores"
           />
         </Field>
       </div>
       <div className="mt-3 flex items-center gap-2">
         <Button variant="primary" pending={save.isPending} onClick={submit}>
-          {save.isPending ? "Saving…" : "Save details"}
+          {save.isPending ? "Submitting…" : "Submit"}
         </Button>
         <Button variant="ghost" onClick={onCancel}>
           Cancel
@@ -337,8 +332,8 @@ function AssetsTab({ assets }: { assets: readonly GaAssetRow[] }) {
   if (assets.length === 0) {
     return (
       <p className="text-meta text-body">
-        No assets at this place yet. Assets are recorded from the register
-        when the item arrives, and the site is recorded there too.
+        No assets at this place yet. Assets are recorded from the register when
+        the item arrives, and the site is recorded there too.
       </p>
     )
   }
@@ -375,6 +370,7 @@ function AssetsTab({ assets }: { assets: readonly GaAssetRow[] }) {
 /// listed here — the server's `contracts` are the ones that name this site,
 /// and the estate-wide ones live in Contracts.
 function ContractsTab({ contracts }: { contracts: readonly GaContractRow[] }) {
+  const partyName = useContractParty()
   if (contracts.length === 0) {
     return (
       <p className="text-meta text-body">
@@ -401,7 +397,7 @@ function ContractsTab({ contracts }: { contracts: readonly GaContractRow[] }) {
               </span>
             </span>
             <span className="shrink-0 text-pill text-mute">
-              {partyOf(contract)}
+              {partyName(contract)}
             </span>
             <ChevronRight className="size-4 shrink-0 stroke-[1.7] text-faint" />
           </AppLink>
@@ -414,11 +410,12 @@ function ContractsTab({ contracts }: { contracts: readonly GaContractRow[] }) {
 /// The site's subscriptions, with the meter reading carried on each row. The
 /// amount billed is Finance's, and wears the mark; the usage is GA's own.
 function UtilitiesTab({ utilities }: { utilities: readonly GaContractRow[] }) {
+  const partyName = useContractParty()
   if (utilities.length === 0) {
     return (
       <p className="text-meta text-body">
-        No utilities at this place — electricity, water or phone have not
-        yet been recorded as a Subscriptions contract.
+        No utilities at this place — electricity, water or phone have not yet
+        been recorded as a Subscriptions contract.
       </p>
     )
   }
@@ -433,7 +430,7 @@ function UtilitiesTab({ utilities }: { utilities: readonly GaContractRow[] }) {
           >
             <span className="min-w-0 flex-1">
               <span className="block truncate text-cell font-medium text-ink">
-                {partyOf(contract)}
+                {partyName(contract)}
               </span>
               <span className="block truncate text-pill text-mute">
                 {contract.contract_type_name}
@@ -467,9 +464,7 @@ function UtilitiesTab({ utilities }: { utilities: readonly GaContractRow[] }) {
 /// The breakdowns filed here, each opening its own repair sheet.
 function RepairsTab({ repairs }: { repairs: readonly GaRepairRow[] }) {
   if (repairs.length === 0) {
-    return (
-      <p className="text-meta text-body">No repairs at this place.</p>
-    )
+    return <p className="text-meta text-body">No repairs at this place.</p>
   }
   return (
     <ul className="flex flex-col">
@@ -503,8 +498,8 @@ function ScheduleTab({ tasks }: { tasks: readonly GaMaintenanceTaskRow[] }) {
   if (tasks.length === 0) {
     return (
       <p className="text-meta text-body">
-        No service schedule for this place. Schedules are created in
-        Maintenance › Schedule, for one place or one asset.
+        No service schedule for this place. Schedules are created in Maintenance
+        › Schedule, for one place or one asset.
       </p>
     )
   }
@@ -539,9 +534,7 @@ function SuppliesTab({
 }) {
   if (supplies.length === 0) {
     return (
-      <p className="text-meta text-body">
-        No supply requests from this place.
-      </p>
+      <p className="text-meta text-body">No supply requests from this place.</p>
     )
   }
   return (
@@ -589,9 +582,9 @@ function BillingTab({ row }: { row: GaLocationRow }) {
         </div>
       </figure>
       <p className="text-pill text-mute">
-        Calculated from POSTED bill lines with a site at this place, where
-        the site is read from the GA record it references (contract, repair,
-        asset, request). This figure belongs to Finance; GA only reads it.
+        Calculated from POSTED bill lines with a site at this place, where the
+        site is read from the GA record it references (contract, repair, asset,
+        request). This figure belongs to Finance; GA only reads it.
       </p>
       <Facts>
         <Fact term="Supply requests">{count(row.supply_request_count)}</Fact>
@@ -601,10 +594,4 @@ function BillingTab({ row }: { row: GaLocationRow }) {
       </Facts>
     </div>
   )
-}
-
-/// The contract's party, in the words every GA surface already prints. Kept
-/// local because this file's lists only need the name.
-function partyOf(contract: GaContractRow): string {
-  return contract.supplier_name ?? contract.counterparty_name ?? "—"
 }

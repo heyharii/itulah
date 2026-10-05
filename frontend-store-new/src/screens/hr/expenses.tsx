@@ -64,7 +64,6 @@ export function HrExpenses() {
   const [recording, setRecording] = useState(false)
   return (
     <HrWorkspace
-      sub="Employee claims and advances. The employee asks, the store head approves how much may be paid back, and Finance books and pays it."
       actions={
         <Button variant="primary" onClick={() => setRecording(true)}>
           <Plus />
@@ -119,8 +118,8 @@ function Expenses({
   const [tab, setTab] = useState<Tab>("claims")
   const team = useTeam(scope)
   const claims = useQuery({
-    queryKey: hrKeys.claimsAt(scope.id),
-    queryFn: ({ signal }) => claimsAt(scope.id, signal),
+    queryKey: hrKeys.claimsAt(scope.unit_id),
+    queryFn: ({ signal }) => claimsAt(scope.unit_id, signal),
   })
   const limits = useQuery({
     queryKey: hrKeys.rules("claim"),
@@ -193,13 +192,13 @@ function Claims({
   limits: readonly PolicyView[]
 }) {
   const claims = useQuery({
-    queryKey: hrKeys.claimsAt(scope.id),
-    queryFn: ({ signal }) => claimsAt(scope.id, signal),
+    queryKey: hrKeys.claimsAt(scope.unit_id),
+    queryFn: ({ signal }) => claimsAt(scope.unit_id, signal),
   })
   const [open, setOpen] = useState<ClaimRow | null>(null)
 
   return centreState(claims, {
-    loading: "Reading this shop's claims…",
+    loading: "Loading…",
     what: "this shop's claims",
     render: (rows) => {
       const waiting = rows.filter((claim) => claim.state === "SUBMITTED")
@@ -239,7 +238,7 @@ function Claims({
             rows={sorted}
             rowKey={(claim) => claim.claim_id}
             onRowClick={setOpen}
-            empty={`Nobody at ${scope.label} has claimed anything.`}
+            empty="No claims."
             columns={[
               {
                 key: "who",
@@ -257,7 +256,7 @@ function Claims({
                       {claim.lines.map((line) => line.description).join(", ") ||
                         "—"}
                     </span>
-                    <span className="text-[0.6875rem] text-mute">
+                    <span className="text-meta text-mute">
                       <span className="font-mono">{claim.claim_number}</span> ·{" "}
                       {readDate(claim.posted_on)}
                     </span>
@@ -290,7 +289,7 @@ function Claims({
                     <span className="flex flex-col items-end">
                       {money(claim.sanctioned_minor)}
                       {claim.sanctioned_minor < claim.claimed_minor && (
-                        <span className="text-[0.6875rem] text-warn-fg">
+                        <span className="text-meta text-warn-fg">
                           −{money(claim.claimed_minor - claim.sanctioned_minor)}{" "}
                           not paid back
                         </span>
@@ -422,7 +421,7 @@ function ClaimSheet({
               <div className="flex items-baseline justify-between gap-3">
                 <span className="min-w-0 text-cell text-ink">
                   {line.description}
-                  <span className="block text-[0.6875rem] text-mute">
+                  <span className="block text-meta text-mute">
                     {line.type_name} · spent {readDate(line.spent_on)}
                   </span>
                 </span>
@@ -439,7 +438,7 @@ function ClaimSheet({
                       ? "More than was claimed."
                       : (parseMoneyToMinor(figures[line.line_id] ?? "") ?? 0) <=
                           0
-                        ? "Refuse or send back instead of approving nothing."
+                        ? "Enter an amount, or refuse."
                         : undefined
                   }
                 >
@@ -517,13 +516,6 @@ function ClaimSheet({
         </SheetSection>
       )}
 
-      {deciding && (
-        <p className="text-meta text-mute">
-          Whoever filed a claim cannot approve it. Anything above head office's
-          limit is not paid back. Approved: Finance books the cost and owes the
-          employee; Finance pays it.
-        </p>
-      )}
     </PeopleSheet>
   )
 }
@@ -532,7 +524,6 @@ function ClaimSheet({
 /// klaim*. Filed and sent in at once; decided by somebody other than whoever
 /// filed it.
 function RecordClaim({
-  scope,
   team,
   limits,
   onClose,
@@ -586,7 +577,6 @@ function RecordClaim({
       }}
       crumb="Expenses"
       title="Record a claim"
-      sub={`For one of ${scope.label}'s people. How much is paid back follows head office's limits.`}
       foot={
         <Submit
           label="Send to the store head"
@@ -626,7 +616,7 @@ function RecordClaim({
         <Field label="What it was">
           <Input
             value={description}
-            placeholder="Taxi to the DC warehouse"
+            placeholder="Taxi to the Gudang"
             onChange={(event) => setDescription(event.target.value)}
           />
         </Field>
@@ -653,7 +643,7 @@ function RecordClaim({
             />
           </Field>
         </div>
-        <Field label="Purpose" hint="Left blank, what it was is used.">
+        <Field label="Purpose" hint="Optional">
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
@@ -703,7 +693,7 @@ function Advances({ team }: { team: EmployeeList | undefined }) {
       <PeopleTable
         rows={rows}
         rowKey={(row) => row.advance_id}
-        empty="Nobody here is holding an advance."
+        empty="No advances."
         columns={[
           {
             key: "who",
@@ -718,7 +708,7 @@ function Advances({ team }: { team: EmployeeList | undefined }) {
             cell: (row) => (
               <span className="flex flex-col">
                 <span className="text-ink">{row.purpose}</span>
-                <span className="text-[0.6875rem] text-mute">
+                <span className="text-meta text-mute">
                   <span className="font-mono">{row.advance_number}</span> ·{" "}
                   {moment(row.requested_at)}
                 </span>
@@ -772,11 +762,6 @@ function Advances({ team }: { team: EmployeeList | undefined }) {
           },
         ]}
       />
-      <p className="mt-3 text-meta text-mute">
-        Advances are Finance's. Whatever is not covered by receipts comes back
-        in cash or out of a wage — the latter filed as a pay deduction under
-        Employment changes.
-      </p>
     </>
   )
 }

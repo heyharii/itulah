@@ -3,7 +3,7 @@
 /**
  * One receipt tender the till recorded.
  */
-export type TenderReceiptRow = { sale_id: string, tender_seq: number, amount_minor: number,
+export type TenderReceiptRow = { sale_id: string, tender_seq: number, amount_minor: number, 
 /**
  * What the till wrote in the tender's reference. Empty when it recorded
  * none, which the suggestion kernel reads as "unknown", not as "wrong".

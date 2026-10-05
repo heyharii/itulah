@@ -28,6 +28,7 @@ import { searchDocuments, uploadDocument } from "@/lib/queries/workplace"
 import { useIdentity } from "@/lib/session"
 import { cn } from "@/lib/utils"
 import { FinanceMark } from "@/screens/contracts/parts"
+import { BillRequestForm } from "@/screens/ga/bill-request"
 import {
   DisposalStagePill,
   RepairStagePill,
@@ -45,6 +46,7 @@ import {
   replacementNextStage,
   replacementStageWords,
 } from "@/screens/maintenance/format"
+import { SupplierName } from "@/screens/procurement/supplier-name"
 import type {
   GaDisposalRow,
   GaRepairRow,
@@ -65,12 +67,13 @@ import type {
 /// One repair: the fact GA keeps (what broke, where, who fixed it) and the
 /// half that only exists as somebody else's ledger.
 ///
-/// # The money reads zero today, and says so
+/// # The money is Finance's
 ///
-/// `actual_cost_minor` counts POSTED bill lines pointing at the repair, and
-/// the column that lets a bill line point (`repair_id`) lands in tahap 6.
-/// Dropping the Biaya tab until then would hide the place the number will
-/// live; showing it unmarked would read as "cost nothing", which is a
+/// `actual_cost_minor` counts POSTED bill lines pointing at the repair
+/// (`repair_id`). GA sends the vendor's bill from here once the work is done;
+/// it counts once Finance posts it. Dropping the Biaya tab before then would
+/// hide the place the number will live; showing it unmarked would read as
+/// "cost nothing", which is a
 /// different lie. So the figure and the sentence travel together.
 export function RepairSheet({
   repairId,
@@ -93,6 +96,7 @@ export function RepairSheet({
   // repair, so a half-typed budget drops when another record opens.
   const [approving, setApproving] = useState(false)
   const [moving, setMoving] = useState(false)
+  const [billing, setBilling] = useState(false)
 
   const row = repair.data
   const actor = useIdentity()
@@ -102,6 +106,10 @@ export function RepairSheet({
     row !== undefined &&
     row.status === "OPEN" &&
     row.approved_budget_minor === null
+  // The vendor's bill follows the work: once it is done, GA hands it to
+  // Finance from here rather than Finance typing it in from paper.
+  const canBill =
+    row !== undefined && (row.status === "COMPLETED" || row.status === "CLOSED")
 
   return (
     <Sheet
@@ -142,6 +150,11 @@ export function RepairSheet({
                 Move stage
               </Button>
             )}
+            {canBill && (
+              <Button variant="soft" onClick={() => setBilling(true)}>
+                Send bill to Finance
+              </Button>
+            )}
           </>
         )
       }
@@ -163,6 +176,23 @@ export function RepairSheet({
               onClose()
             }}
             onCancel={() => setMoving(false)}
+          />
+        ) : billing ? (
+          <BillRequestForm
+            source={{
+              site_id: row.site_id,
+              supplier_id: row.supplier_id,
+              supplier_name: row.supplier_name,
+              amount_minor:
+                row.approved_budget_minor ?? row.estimated_cost_minor,
+              memo: row.title,
+              repair_id: row.repair_id,
+            }}
+            onDone={() => {
+              setBilling(false)
+              onClose()
+            }}
+            onCancel={() => setBilling(false)}
           />
         ) : undefined
       }
@@ -215,7 +245,9 @@ function RepairDetail({ row }: { row: GaRepairRow }) {
           <Fact term="Asset">{row.asset_name ?? "No asset"}</Fact>
           <Fact term="Location">{row.site_id}</Fact>
           <Fact term="Object">{row.objek_name}</Fact>
-          <Fact term="Vendor">{row.supplier_name}</Fact>
+          <Fact term="Vendor">
+            <SupplierName code={row.supplier_id} name={row.supplier_name} />
+          </Fact>
           <Fact term="Contract">
             {row.contract_id === null ? (
               "—"
@@ -306,10 +338,9 @@ function RepairCost({ row }: { row: GaRepairRow }) {
       )}
 
       <p className="text-pill text-mute">
-        Estimate and budget are GA's own facts. Actual is read from POSTED
-        bills that point to this repair — a bill line can only point from
-        stage 6 onward, so the figure reads zero until then, not because it
-        is empty.
+        Estimate and budget are GA's own facts. Actual is counted from bills
+        Finance has posted against this repair; a bill sent from here shows once
+        Finance posts it.
       </p>
     </div>
   )
@@ -346,8 +377,8 @@ function RepairAccounts({ row }: { row: GaRepairRow }) {
         </div>
       </div>
       <p className="flex items-center gap-1.5 text-pill text-mute">
-        <FinanceMark className="align-[0.0625rem]" /> Proposed on the bill
-        line that points to this repair, from the account map for the{" "}
+        <FinanceMark className="align-[0.0625rem]" /> Proposed on the bill line
+        that points to this repair, from the account map for the{" "}
         {row.objek_name.toLowerCase()} object. Finance can still change it.
       </p>
     </div>
@@ -391,12 +422,7 @@ function ApproveBudgetForm({
         aside="the approved figure, not the estimate"
         className="flex-1"
       >
-        <Money
-          value={budget}
-          onChange={setBudget}
-          placeholder="6000000"
-          autoFocus
-        />
+        <Money value={budget} onChange={setBudget} autoFocus />
       </Field>
       <Button
         variant="primary"
@@ -461,11 +487,7 @@ function MoveRepairForm({
         }))}
       />
       <Field label="Notes" aside="optional, added to the stage history">
-        <Input
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-          placeholder="e.g. Approved by GA manager"
-        />
+        <Input value={note} onChange={(event) => setNote(event.target.value)} />
       </Field>
       <div className="flex items-center gap-2">
         <Button
@@ -664,7 +686,9 @@ function ReplacementDetail({ row }: { row: GaReplacementRow }) {
               </span>
             )}
           </Fact>
-          <Fact term="Vendor">{row.supplier_name ?? "—"}</Fact>
+          <Fact term="Vendor">
+            <SupplierName code={row.supplier_id} name={row.supplier_name} />
+          </Fact>
           <Fact term="Date proposed">{day(row.proposed_on)}</Fact>
           {row.decided_by !== null && (
             <Fact term="Decided by">{row.decided_by}</Fact>
@@ -722,10 +746,10 @@ function ReplacementAccounts({ row }: { row: GaReplacementRow }) {
           <AccountRow role="Reserve" code="1100" />
         </div>
         <p className="flex items-center gap-1.5 text-pill text-mute">
-          <FinanceMark className="align-[0.0625rem]" /> OE uses replacement:
-          the replacement cost is charged to 7024 through reserve 1100; the
-          old asset is not depreciated. Read from the bill that points to
-          this replacement.
+          <FinanceMark className="align-[0.0625rem]" /> OE uses replacement: the
+          replacement cost is charged to 7024 through reserve 1100; the old
+          asset is not depreciated. Read from the bill that points to this
+          replacement.
         </p>
       </div>
     )
@@ -751,8 +775,8 @@ function ReplacementAccounts({ row }: { row: GaReplacementRow }) {
       </div>
       <p className="flex items-center gap-1.5 text-pill text-mute">
         <FinanceMark className="align-[0.0625rem]" /> The new asset is
-        capitalised through the bill using the old asset's class; the old
-        asset is disposed of in Finance.
+        capitalised through the bill using the old asset's class; the old asset
+        is disposed of in Finance.
       </p>
     </div>
   )
@@ -785,9 +809,9 @@ function AccountRow({
   )
 }
 
-/// The cost of a swap is the bills that point at it, and no bill can point
-/// until tahap 6 — so the figure reads em-dash and says why, the same
-/// honesty the contract hub's Ditagih uses for its own zero.
+/// The cost of a swap is the bills that point at it. The replacement's record
+/// does not carry that figure back yet, so it reads em-dash and says why
+/// rather than showing a zero that would read as "cost nothing".
 function ReplacementCost() {
   return (
     <div className="flex flex-col gap-4">
@@ -800,9 +824,8 @@ function ReplacementCost() {
         </div>
       </figure>
       <p className="text-pill text-mute">
-        Calculated from POSTED bills that point to this replacement. A bill
-        line can only point from stage 6 onward; before that, the figure
-        simply doesn't exist yet, not zero.
+        Bills posted against this replacement are not read back here yet.
+        Finance holds the cost until they are.
       </p>
     </div>
   )
@@ -857,9 +880,7 @@ function InstallForm({
           onClick={() => move.mutate()}
         >
           <Check />
-          {move.isPending
-            ? "Moving…"
-            : `Next: ${replacementStageWords(to)}`}
+          {move.isPending ? "Moving…" : `Next: ${replacementStageWords(to)}`}
         </Button>
         <Button variant="ghost" onClick={onCancel}>
           Cancel
@@ -911,7 +932,8 @@ export function DisposalSheet({
       caption={
         row === undefined ? undefined : (
           <>
-            {disposalMethodWords(row.method)} · submitted {day(row.requested_on)}
+            {disposalMethodWords(row.method)} · submitted{" "}
+            {day(row.requested_on)}
           </>
         )
       }
@@ -1073,7 +1095,6 @@ function RejectDisposalForm({
             setProblem("")
             setNote(event.target.value)
           }}
-          placeholder="e.g. Awaiting decision to replace the unit"
           onKeyDown={(event) => {
             if (event.key === "Enter") submit()
           }}
@@ -1097,9 +1118,8 @@ function DisposalDetail({ row }: { row: GaDisposalRow }) {
     <div className="flex flex-col gap-5">
       <Banner tone="warn">
         GA does not post anything: the gain/loss bookkeeping for the disposal
-        belongs to Finance, and the Gain/Loss on Asset Disposal account does
-        not yet exist in the COA.{" "}
-        <FinanceMark className="align-[0.0625rem]" />
+        belongs to Finance, and the Gain/Loss on Asset Disposal account does not
+        yet exist in the COA. <FinanceMark className="align-[0.0625rem]" />
       </Banner>
 
       <section>
@@ -1153,9 +1173,8 @@ function Documents({ kind, id }: { kind: string; id: string }) {
     <div className="flex flex-col gap-4">
       {(documents.data ?? []).length === 0 ? (
         <p className="text-meta text-body">
-          No documents yet. Before-and-after photos, technician reports,
-          service handover certificates — attached here and indexed in the
-          Library.
+          No documents yet. Before-and-after photos, technician reports, service
+          handover certificates — attached here and indexed in the Library.
         </p>
       ) : (
         <ul className="flex flex-col">
@@ -1253,7 +1272,10 @@ function AttachForm({
             onChange={(event) => setFile(event.target.files?.[0] ?? null)}
           />
         </Field>
-        <Field label="Document type" aside="report, handover certificate, photo">
+        <Field
+          label="Document type"
+          aside="report, handover certificate, photo"
+        >
           <Input
             value={form.doc_type ?? ""}
             onChange={(event) => set("doc_type", event.target.value)}
@@ -1293,7 +1315,7 @@ function AttachForm({
           disabled={file === null}
           onClick={() => save.mutate()}
         >
-          {save.isPending ? "Uploading…" : "Save document"}
+          {save.isPending ? "Submitting…" : "Submit"}
         </Button>
         <Button variant="ghost" onClick={onCancel}>
           Cancel

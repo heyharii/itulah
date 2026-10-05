@@ -8,7 +8,17 @@ export type MissingRow = {
  * `subject_uuid@pool_id`. The resolution routes parse it back, so it is a
  * key and not a display string.
  */
-id: string, subject_id: string, subject_type: string, epc: string | null, barcode: string | null, sku_code: string | null, quantity: number, site_id: string, origin_pool: string, pool_label: string, 
+id: string, subject_id: string, subject_type: string, epc: string | null, barcode: string | null, sku_code: string | null, 
+/**
+ * The article's name, for a list read by people rather than by SKU.
+ */
+article_name: string | null, quantity: number, site_id: string, origin_pool: string, pool_label: string, 
+/**
+ * What put it here: the cause and document of the movement that first
+ * carried it into Missing — a pick, a pack, a receipt, a count. The
+ * screen's "From" column.
+ */
+missing_cause: string | null, missing_reference_type: string | null, missing_reference_id: string | null, 
 /**
  * When it first went missing. `None` where no movement into the missing
  * place can be found — an adjustment posted straight into the projection,

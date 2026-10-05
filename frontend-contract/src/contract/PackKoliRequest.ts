@@ -4,4 +4,10 @@
  * RFID Pack request. A package has one destination Store, while its EPCs may
  * be attributed to many FIFO-picked Allotment lines.
  */
-export type PackKoliRequest = { destination_store_id: string, epcs: Array<string>, actor_id: string, idempotency_key: string, };
+export type PackKoliRequest = { destination_store_id: string, epcs: Array<string>, actor_id: string, idempotency_key: string, 
+/**
+ * Draw these allotments' lines first, then the rest oldest first. Set
+ * when a carton is packed from picklists that each answer an allotment,
+ * so the pieces count against the allotment they were picked for.
+ */
+prefer_allotment_ids: Array<string>, };

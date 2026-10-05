@@ -184,7 +184,6 @@ function PartyList({ spec }: { spec: PartyKind }) {
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search"
             className="pl-8"
           />
         </div>
@@ -421,13 +420,12 @@ function PartyList({ spec }: { spec: PartyKind }) {
         open={creating}
         onOpenChange={setCreating}
         title={spec.newLabel}
-        submitLabel="Add to the list"
+        submitLabel="Submit"
         fields={[
           {
             name: "name",
             label: "Name",
             required: true,
-            placeholder: "PT Pancasakti Sandang",
           },
           {
             name: "kind",
@@ -439,11 +437,10 @@ function PartyList({ spec }: { spec: PartyKind }) {
               label: k.label,
             })),
           },
-          { name: "terms_days", label: "Terms in days", placeholder: "30" },
+          { name: "terms_days", label: "Terms in days" },
           {
             name: "bank",
             label: "Pay to",
-            placeholder: "BCA •••• 8871",
             hint: "Without this a payment run stops here.",
           },
         ]}

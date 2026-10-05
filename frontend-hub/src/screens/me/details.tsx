@@ -326,7 +326,6 @@ function AskToChange() {
         <Input
           value={why}
           onChange={(event) => setWhy(event.target.value)}
-          placeholder="HR sees this."
           required
         />
       </Field>

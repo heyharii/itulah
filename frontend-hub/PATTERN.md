@@ -111,8 +111,12 @@ The button that starts a write takes `pending={save.isPending}`, never
 `disabled={save.isPending}`: pending is disabled *and* `aria-busy`, and it is
 drawn less faded than a button that will never work. The label still says what
 is happening ("Saving…") — no spinner. A write that failed is `<Problem>` where
-it was attempted; one that worked and left a receipt is `<Receipt>`; one that
-worked and moved the screen on is a toast.
+it was attempted; one that worked and minted an identity — an order's number, a
+supplier's code, an article's code — says it in `<SavedDialog>`, the small
+receipt in the middle of the screen that stays up until it is read (the owner,
+2026-10-04: "dibikin dialog tengah saja, dialog kecil"); one that worked and
+left a receipt on the page is `<Receipt>`; one that worked and moved the screen
+on is a toast.
 
 An action that must be confirmed is `<ConfirmButton>`. Give it
 `reason={{ label: "Why" }}` when the write records one (required unless

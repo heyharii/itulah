@@ -337,7 +337,6 @@ function NewTypeSheet({
             onChange={(event) =>
               setDraft({ ...draft, code: event.target.value })
             }
-            placeholder="CUTI_TAHUNAN"
           />
         </Field>
         <Field label="Name" required>
@@ -346,7 +345,6 @@ function NewTypeSheet({
             onChange={(event) =>
               setDraft({ ...draft, name: event.target.value })
             }
-            placeholder="Cuti Tahunan"
           />
         </Field>
         <Field
@@ -482,7 +480,6 @@ function CloseDatesSheet({
         <Field label="Where">
           <PickOne
             label="Where"
-            placeholder="Every unit"
             choices={(units.data ?? []).map((one) => ({
               value: one.id,
               label: one.name,
@@ -495,7 +492,6 @@ function CloseDatesSheet({
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            placeholder="Lebaran rush"
           />
         </Field>
       </div>
@@ -704,7 +700,6 @@ function LeavePolicySheet({
             <Input
               value={carryLapse}
               onChange={(event) => setCarryLapse(event.target.value)}
-              placeholder="03-31"
             />
           </Field>
         )}

@@ -75,12 +75,51 @@ setEdgeToken(readStoredEdgeToken())
 /// path exchanges a Cloud ticket for a local DC session in `edge-session.tsx`.
 export const edgeAuth = new Auth(edge)
 
-/// Every warehouse operation the node performs, typed from the Rust that
+/// Where the Gudang lives: on a DC server in the building (`edge`, reached at
+/// `/edge` with its own session) or inside the cloud itself (`cloud`: the same
+/// `/api/v1/dc/...` paths on this origin, the ordinary cookie session).
+///
+/// The cloud says which in `GET /api/v1/health` (`dc_hosting`); `useDcHosting`
+/// in `edge-session.tsx` asks once and records the answer here, before any
+/// screen is let through to make a DC call. Until then it is `edge`, which is
+/// what every deployment was before the cloud could host the Gudang.
+export type DcHosting = "cloud" | "edge"
+
+let dcHosting: DcHosting = "edge"
+
+export function setDcHosting(hosting: DcHosting): void {
+  dcHosting = hosting
+}
+
+/// The node every DC call goes to right now.
+export function dcNode(): Node {
+  return dcHosting === "cloud" ? node : edge
+}
+
+const edgeDc = new Dc(edge)
+const cloudDc = new Dc(node)
+
+/// The typed client for whichever node hosts the Gudang.
+export function dcClient(): Dc {
+  return dcHosting === "cloud" ? cloudDc : edgeDc
+}
+
+/// Every warehouse operation the Gudang performs, typed from the Rust that
 /// serves it. Screens call this rather than writing paths of their own — the
 /// envelopes are part of the wire (`{items}` here, `{lines}` there) and
 /// unwrapping that at forty call sites is forty chances to unwrap the wrong
 /// key.
-export const dc = new Dc(edge)
+///
+/// A forwarding object rather than one fixed client: the hosting is learnt
+/// from the cloud after the module loads, and every call site reads `dc.x()`
+/// at the moment it runs, so each call picks the node then.
+export const dc: Dc = new Proxy({} as Dc, {
+  get(_target, property) {
+    const client = dcClient()
+    const value = Reflect.get(client, property, client)
+    return typeof value === "function" ? value.bind(client) : value
+  },
+})
 
 /// The node's outbox: whether today's work has actually reached the centre.
 export const edgeSync = new Sync(edge)
@@ -107,6 +146,9 @@ export const cacheKey = {
   /// signing out of one would empty the other.
   edgeIdentity: () => ["edge", "node", "identity"] as const,
   edgeMe: () => ["edge", "auth", "me"] as const,
+  /// Where the Gudang lives — `"cloud"` or `"edge"`. Under `node` so a sign-out
+  /// keeps it, like the identity beside it.
+  dcHosting: () => ["node", "dc-hosting"] as const,
 }
 
 /// The pools the DC node owns, as `edge/http.rs::present_pools` composes them.
@@ -155,5 +197,84 @@ export interface PoolsAnswer {
 /// `.filter` on an object. One key, one shape: callers that only want the rows
 /// say `.items`.
 export function poolsAnswer(signal?: AbortSignal): Promise<PoolsAnswer> {
-  return edge.get<PoolsAnswer>("/api/v1/inventory/pools", { signal })
+  return dcNode().get<PoolsAnswer>("/api/v1/inventory/pools", { signal })
+}
+
+/// A purchase return, as this node sees it: excess a buyer at the centre put
+/// on a return, waiting for the Gudang to hand it to the supplier — or
+/// already handed over, for the last fortnight.
+///
+/// Not in `@itulah/contract`: `edge/http.rs::present_purchase_returns` answers
+/// with `json!()` too, so this is transcribed beside the route the same way
+/// `PoolRow` above is.
+export interface PurchaseReturnWork {
+  readonly return_id: string
+  readonly return_number: string
+  readonly po_number: string
+  readonly supplier_id: string
+  readonly supplier_name: string | null
+  /// The Gudang's person in charge, named when the surat jalan was generated
+  /// (0917); null until it is. Absent on a server older than that.
+  readonly note_pic?: string | null
+  /// When the surat jalan was generated; null until it is.
+  readonly note_generated_at?: string | null
+  readonly note: string | null
+  readonly raised_by: string
+  readonly received_at: string
+  readonly status: "OPEN" | "HANDED_OVER"
+  readonly handed_over_by: string | null
+  readonly handed_over_to: string | null
+  readonly handed_over_at: string | null
+  readonly quantity: number
+  readonly lines: readonly {
+    readonly receipt_line_id: string
+    readonly po_line_id: string
+    readonly article_code: string
+    readonly article_name: string
+    readonly quantity: number
+  }[]
+}
+
+/// This node's returns: open first, then the last fortnight's hand-overs.
+export async function dcPurchaseReturns(
+  signal?: AbortSignal
+): Promise<PurchaseReturnWork[]> {
+  const body = await dcNode().get<{ items: PurchaseReturnWork[] }>(
+    "/api/v1/dc/purchase-returns",
+    { signal }
+  )
+  return body.items
+}
+
+/// Generate the surat jalan for the returns going to one supplier: the person in
+/// charge is named, and each return has its note from then on. Refused for one
+/// that is no longer open.
+export async function generatePurchaseReturnNote(
+  body: { return_ids: readonly string[]; pic: string },
+  signal?: AbortSignal
+): Promise<PurchaseReturnWork[]> {
+  const answer = await dcNode().post<{ items: PurchaseReturnWork[] }>(
+    "/api/v1/dc/purchase-returns/note",
+    body,
+    { signal }
+  )
+  return answer.items
+}
+
+/// Give the goods to the supplier. Closes the return; `handed_to` is the
+/// driver's name, for the record, not a decision anything is made from.
+export function handOverPurchaseReturn(
+  returnId: string,
+  body: {
+    actor_id: string
+    handed_to?: string | null
+    idempotency_key: string
+  },
+  signal?: AbortSignal
+): Promise<PurchaseReturnWork> {
+  return dcNode().post<PurchaseReturnWork>(
+    `/api/v1/dc/purchase-returns/${returnId}/hand-over`,
+    body,
+    { signal }
+  )
 }

@@ -1,5 +1,5 @@
 //! The whole chain over HTTP: a buyer raises an order, a warehouse counts it,
-//! a second person accepts it, head office decides what it is, and the
+//! the count is accepted, head office decides what it is, and the
 //! warehouse tags it — every business action as a real request against a real
 //! router.
 //!
@@ -1045,10 +1045,12 @@ async fn a_purchase_order_leaves_the_dc_on_a_truck_entirely_over_http(pool: PgPo
         .unwrap_or_else(|| panic!("no koli_number: {manifest}"))
         .to_string();
     assert!(
-        // The site's display code (0603), which the policy published above
-        // told the node — never the internal id `dc`.
-        koli_number.starts_with("KOLI-HO-GUDANG-"),
-        "a koli number carries the code of the site that minted it: {koli_number}"
+        // The year's letter (A = 2026 … Z = 2051) and a five-digit serial
+        // that restarts each year, per DC (owner, 2026-10-02).
+        koli_number.len() == 6
+            && koli_number.starts_with(|letter: char| letter.is_ascii_uppercase())
+            && koli_number[1..].chars().all(|digit| digit.is_ascii_digit()),
+        "a koli number is a year letter and a five-digit serial: {koli_number}"
     );
     assert_eq!(manifest["qr_payload"], json!(format!("K1:{koli_number}")));
     assert!(

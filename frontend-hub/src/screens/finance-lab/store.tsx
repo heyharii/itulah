@@ -115,7 +115,7 @@ export function SalesReconcile() {
             head={[
               "Date",
               "Store",
-              ">Till cash",
+              ">Till Cash",
               ">Card",
               ">Counted",
               ">Variance",

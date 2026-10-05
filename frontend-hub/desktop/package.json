@@ -1,32 +1,16 @@
 {
   "name": "itulah-hub-desktop",
   "productName": "Central",
-  "version": "0.1.0",
+  "version": "0.1.5",
   "private": true,
-  "description": "The hub as a desktop app: the hosted hub in its own window, with a tray, native notifications and updates.",
-  "main": "main.js",
+  "description": "The hub as a desktop app: the hosted hub in its own window, with a tray, native notifications, printing and downloads.",
   "scripts": {
-    "dev": "ITULAH_HUB_URL=http://localhost:5273 electron .",
-    "start": "electron .",
-    "dist": "electron-builder"
+    "dev": "cd src-tauri && ITULAH_HUB_URL=${ITULAH_HUB_URL:-http://localhost:5480} cargo run",
+    "build": "tauri build",
+    "tauri": "tauri",
+    "release": "bash scripts/release.sh"
   },
   "devDependencies": {
-    "electron": "^38.0.0",
-    "electron-builder": "^26.0.0"
-  },
-  "dependencies": {
-    "electron-updater": "^6.6.0"
-  },
-  "itulah": {
-    "hubUrl": "https://hub.itulah.co.id"
-  },
-  "build": {
-    "appId": "id.itulah.hub",
-    "productName": "Central",
-    "files": ["main.js", "preload.js", "icon.png", "package.json"],
-    "mac": { "target": ["dmg", "zip"], "category": "public.app-category.business" },
-    "win": { "target": ["nsis"] },
-    "nsis": { "oneClick": true, "perMachine": false },
-    "publish": [{ "provider": "github", "owner": "heyharii", "repo": "itulah", "releaseType": "release" }]
+    "@tauri-apps/cli": "^2.11.0"
   }
 }

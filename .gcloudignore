@@ -1,0 +1,20 @@
+# What `gcloud builds submit` uploads (deploy/gcp/deploy.sh). Everything is
+# left out, then the few paths the Dockerfile copies are let back in: the repo
+# with its node_modules and target/ is gigabytes, the image needs megabytes.
+/*
+!/Dockerfile
+!/backend/
+/backend/*
+!/backend/Cargo.toml
+!/backend/Cargo.lock
+!/backend/crates/
+!/backend/src/
+!/backend/migrations/
+!/backend/.sqlx/
+!/deploy/
+/deploy/*
+!/deploy/entrypoint.sh
+!/deploy/gcp/
+/deploy/gcp/cloud.env
+/deploy/gcp/cloud-demo.env
+/deploy/gcp/cloud-sandbox.env

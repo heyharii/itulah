@@ -6,6 +6,19 @@ import type { ShopPriceStack } from "./ShopPriceStack";
  */
 export type ArticlePriceRow = { article_code: string, article_name: string, image_url: string | null, division_code: string | null, tags: Array<string>, sku_count: number, 
 /**
+ * What one piece of this style cost, for the markup the screen shows —
+ * the newest receipt's cost layer, or, for a style nothing has been
+ * received of yet, the newest purchase order's price. `None` when there
+ * is neither. Per style because the cost queue is (migration 0146).
+ */
+unit_cost_minor: number | null, 
+/**
+ * `RECEIVED` or `PURCHASE_ORDER`: which of the two `unit_cost_minor` is.
+ * An ordered price is the buyer's expectation, not a cost yet, and the
+ * screen says so.
+ */
+cost_from: string | null, 
+/**
  * Shops where this style has no price at all are ABSENT, not zero: no
  * price is not a price, and a shop that cannot sell a thing should not
  * appear to sell it for nothing.

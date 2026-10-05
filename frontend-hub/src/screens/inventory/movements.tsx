@@ -281,7 +281,7 @@ const movementColumns = (
   },
   {
     accessorKey: "quantity",
-    header: "Qty",
+    header: "Quantity",
     size: 66,
     meta: { align: "right", card: "metric" },
     cell: ({ row }) => count(row.original.quantity),
@@ -503,9 +503,8 @@ export function Movements() {
                     ? search.open(event.target.value)
                     : search.close()
                 }
-                placeholder="Search tag, SKU, place"
                 aria-label="Search movements"
-                className="h-[2.125rem] w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
+                className="h-control w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
               />
             </span>
             {/* The same model as the panel, as the chips over the table and

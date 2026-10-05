@@ -32,21 +32,27 @@ export function PageHeader({
   title,
   sub,
   actions,
+  small = false,
   className,
 }: {
   crumb?: React.ReactNode
   title: React.ReactNode
   sub?: React.ReactNode
   actions?: React.ReactNode
+  /// A quiet title, 16px, for a screen that opens straight onto its figures.
+  small?: boolean
   className?: string
 }) {
   const echo = useEchoesTopBar(title)
   return (
     <div
       className={cn(
-        "mb-5 flex flex-col items-stretch gap-3",
+        // 24px under the header on a desk (airy charcoal, 2026-09-28): the
+        // title is the page's one bold thing and needs the air to be it.
+        "flex flex-col items-stretch gap-3",
+        small ? "mb-2 md:-mt-1" : "mb-5 md:mb-6",
         // The actions stand level with the title rather than hanging off its
-        // first line: a 17px heading and a 32px button centre on each other.
+        // first line: a 22px heading and a 36px button centre on each other.
         "md:flex-row md:items-center md:justify-between md:gap-5",
         echo && (actions ? "max-md:mb-3" : "max-md:hidden"),
         className
@@ -58,9 +64,18 @@ export function PageHeader({
             {crumb}
           </div>
         )}
-        <h1 className="text-hero font-semibold text-ink">{title}</h1>
+        <h1
+          className={cn(
+            "font-semibold text-ink",
+            small ? "text-[1rem] leading-5" : "text-hero"
+          )}
+        >
+          {title}
+        </h1>
         {sub && (
-          <p className="mt-[0.1875rem] text-[0.875rem] text-body">{sub}</p>
+          <p className="mt-1 text-[0.875rem] leading-[1.375rem] text-body">
+            {sub}
+          </p>
         )}
       </div>
       {actions && (

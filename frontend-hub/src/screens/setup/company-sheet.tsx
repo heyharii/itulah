@@ -2,11 +2,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { SavedDialog } from "@/components/ui/dialog"
 import { Field, Input } from "@/components/ui/field"
 import { Toggle } from "@/components/ui/form"
 import { Sheet } from "@/components/ui/sheet"
 import { Problem } from "@/components/ui/states"
-import { toast } from "@/lib/toast"
 import {
   legalFormOf,
   saveCompany,
@@ -35,26 +35,45 @@ export function CompanySheet({
   open: boolean
   onClose: () => void
 }) {
+  /// The save that went through, held in the receipt dialog until it is read.
+  /// State lives here because the form inside is deliberately unmounted on
+  /// close — it must start from the saved answer next time.
+  const [saved, setSaved] = useState(false)
   return (
-    <Sheet
-      open={open && company !== null}
-      onOpenChange={(next) => !next && onClose()}
-      title="Company"
-      caption="Printed on the letterhead, purchase orders and invoices."
-    >
-      {/* Mounted only while open, so the form starts from the saved answer
-          each time rather than from what was typed and abandoned last time. */}
-      {company && open && <CompanyForm company={company} onDone={onClose} />}
-    </Sheet>
+    <>
+      <Sheet
+        open={open && company !== null}
+        onOpenChange={(next) => !next && onClose()}
+        title="Company"
+        caption="Printed on the letterhead, purchase orders and invoices."
+      >
+        {/* Mounted only while open, so the form starts from the saved answer
+            each time rather than from what was typed and abandoned last time. */}
+        {company && open && (
+          <CompanyForm company={company} onDone={onClose} onSaved={() => setSaved(true)} />
+        )}
+      </Sheet>
+      <SavedDialog
+        open={saved}
+        onOpenChange={(next) => {
+          if (!next) setSaved(false)
+        }}
+        title="Company saved"
+      />
+    </>
   )
 }
 
 function CompanyForm({
   company,
   onDone,
+  onSaved,
 }: {
   company: SetupCompany
   onDone: () => void
+  /// The save went through; the receipt is the wrapper's to show — this form
+  /// unmounts the moment it closes.
+  onSaved: () => void
 }) {
   const client = useQueryClient()
   const [name, setName] = useState(company.name)
@@ -89,7 +108,7 @@ function CompanyForm({
       }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: setupKeys.status() })
-      toast.success("Company saved")
+      onSaved()
       onDone()
     },
   })
@@ -124,17 +143,16 @@ function CompanyForm({
           inputMode="numeric"
           value={taxId}
           onChange={(event) => setTaxId(event.target.value)}
-          placeholder="00.000.000.0-000.000"
           className="font-mono"
         />
       </Field>
       <Toggle
         on={hasWarehouse}
         onToggle={() => setHasWarehouse((on) => !on)}
-        label="Central warehouse"
+        label="Gudang"
         note={
           hasWarehouse
-            ? "Suppliers deliver to the warehouse, and it ships to the stores."
+            ? "Suppliers deliver to the Gudang, and it ships to the stores."
             : "Suppliers deliver straight to the stores."
         }
       />
@@ -167,7 +185,7 @@ function CompanyForm({
             save.mutate(legalForm)
           }}
         >
-          {save.isPending ? "Saving…" : "Save"}
+          {save.isPending ? "Submitting…" : "Submit"}
         </Button>
       </div>
     </div>

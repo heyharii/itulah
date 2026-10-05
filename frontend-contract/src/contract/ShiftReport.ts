@@ -21,7 +21,21 @@ import type { TenderTotal } from "./TenderTotal";
  * itself always carries the numbers; the fields marked `number | null` in
  * the contract are the ones a cashier receives empty.
  */
-export type ShiftReport = { shift_id: string, terminal_id: string, status: string, opened_by: string, opened_at: string, closed_by: string | null, closed_at: string | null, opening_float_minor: number, sale_count: number, sales_total_minor: number | null, 
+export type ShiftReport = { shift_id: string, terminal_id: string, 
+/**
+ * `Kasir 1` for a seat; the id itself for a till from before seats.
+ */
+terminal_label: string, status: string, opened_by: string, opened_at: string, closed_by: string | null, closed_at: string | null, 
+/**
+ * The day this shift trades for, in the store's time: the date it opened.
+ * Every sale rung on it carries the same day, past midnight included.
+ */
+business_date: string | null, 
+/**
+ * Who took the seat, when that is how the shift ended. It is then closed
+ * with nothing declared until its holder counts (`counted_at`).
+ */
+taken_over_by: string | null, counted_at: string | null, opening_float_minor: number, sale_count: number, sales_total_minor: number | null, 
 /**
  * Rung and then reversed. Kept out of the totals but reported, because a
  * shift with forty voids is a fact about the evening even when the money

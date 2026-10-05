@@ -4,8 +4,9 @@ import { useNavigate, useRouterState } from "@tanstack/react-router"
 import { CornerDownLeft, Globe } from "lucide-react"
 import { useMemo, useState } from "react"
 
-import { allNavItems, moduleForPath } from "@/lib/navigation"
+import { allNavItems, moduleAllowed, moduleForPath } from "@/lib/navigation"
 import { runSearch, type SearchHit } from "@/lib/search"
+import { useSections } from "@/lib/session"
 import { cn } from "@/lib/utils"
 
 /// ⌘K — jump to a screen, or find a record.
@@ -15,8 +16,8 @@ import { cn } from "@/lib/utils"
 /// registry, so a screen added to the sidebar is findable here the same commit.
 /// **Records** come from the module's own lists.
 ///
-/// Search is **scoped to the module you are standing in**, with "Everywhere" as
-/// a deliberate second step. Across nine modules the same word names a
+/// Search is **everywhere by default** (owner, 2026-10-01); Tab narrows it to
+/// the module you are standing in. Across nine modules the same word names a
 /// supplier, a store and an employee; an unscoped result list is a
 /// disambiguation puzzle rather than an answer.
 export function CommandPalette({
@@ -30,9 +31,10 @@ export function CommandPalette({
   const client = useQueryClient()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const here = moduleForPath(pathname)
+  const { sections, bypass } = useSections()
 
   const [query, setQuery] = useState("")
-  const [everywhere, setEverywhere] = useState(false)
+  const [everywhere, setEverywhere] = useState(true)
   const [cursor, setCursor] = useState(0)
 
   const needle = query.trim()
@@ -42,7 +44,14 @@ export function CommandPalette({
     // A `soon` module's screens are declared for the sidebar, not for
     // offering: the palette must not hand somebody a jump that lands on a
     // screen that is not there.
-    const routable = allNavItems.filter((item) => !item.module.soon)
+    // Nor a jump the sidebar would not show this person: the same section
+    // check, so ⌘K is not a side door into another department's screens.
+    const routable = allNavItems.filter(
+      (item) =>
+        !item.module.soon &&
+        !item.soon &&
+        moduleAllowed(item.module, sections, bypass)
+    )
     const pool = everywhere
       ? routable
       : routable.filter((item) => item.module.id === here.id)
@@ -54,7 +63,7 @@ export function CommandPalette({
           item.module.label.toLowerCase().includes(lower)
       )
       .slice(0, 12)
-  }, [needle, everywhere, here.id])
+  }, [needle, everywhere, here.id, sections, bypass])
 
   /// Records are a Query of their own, so a slow list does not block the
   /// jump-to half and the answer is cached between openings.
@@ -121,7 +130,7 @@ export function CommandPalette({
         // runs there, rather than in an effect watching `open`.
         if (!next) {
           setQuery("")
-          setEverywhere(false)
+          setEverywhere(true)
           setCursor(0)
         }
       }}
@@ -184,11 +193,6 @@ export function CommandPalette({
                   setCursor(0)
                 }
               }}
-              placeholder={
-                everywhere
-                  ? "Search every module…"
-                  : `Search ${here.label.toLowerCase()}…`
-              }
               className="min-w-0 flex-1 bg-transparent text-[0.875rem] text-ink outline-none placeholder:text-mute"
             />
             <kbd className="shrink-0 rounded-[5px] border border-hairline-2 bg-canvas px-1.5 py-px font-mono text-[0.875rem] text-body">

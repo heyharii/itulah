@@ -6,7 +6,7 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import { Status } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { EmptyState, LoadMore } from "@/components/ui/states"
 import { count, moment } from "@/lib/format"
@@ -178,13 +178,9 @@ export function History() {
 
   return (
     <PageContent>
-      <PageHeader
-        crumb="Marketing"
-        title="History"
-        sub="Everything that has happened to prices. Published is head office; In service is a till."
-      />
+      <PageHeader crumb="Marketing" title="History" />
 
-      <Toolbar className="mb-3">
+      <Toolbar className="mb-5">
         <Segmented
           options={KINDS}
           value={lens.value ?? "ALL"}
@@ -197,7 +193,7 @@ export function History() {
             onClick={shop.close}
             className="text-[0.875rem] text-mute underline underline-offset-2 hover:text-ink"
           >
-            {shopName.get(shop.value) ?? shop.value} · show every shop
+            {shopName.get(shop.value) ?? shop.value} · show every store
           </button>
         )}
         <span className="text-[0.875rem] text-mute tabular-nums">
@@ -207,7 +203,7 @@ export function History() {
 
       <Card className="overflow-hidden">
         {queryState(events, {
-          loading: "Reading the log…",
+          loading: "Loading…",
           render: () =>
             entries.length === 0 ? (
               filtered ? (
@@ -221,13 +217,13 @@ export function History() {
                   Nothing matches these filters.
                 </EmptyState>
               ) : (
-                <EmptyState>Nothing has happened to prices yet.</EmptyState>
+                <EmptyState>No history.</EmptyState>
               )
             ) : (
               <div className="flex flex-col">
                 {days.map(([date, rows]) => (
                   <section key={date}>
-                    <h3 className="sticky top-0 z-10 border-b border-hairline bg-soft-3 px-4 py-1.5 text-[0.875rem] font-medium tracking-[0.06em] text-mute uppercase">
+                    <h3 className="sticky top-0 z-10 border-b border-hairline bg-soft-3 px-6 py-3 text-[0.875rem] font-medium text-mute">
                       {moment(rows[0].lead.at).split(",")[0] ?? date}
                     </h3>
                     {rows.map((entry) => (
@@ -242,7 +238,7 @@ export function History() {
                 ))}
                 {/* The log scrolls with the page, so its foot is watched
                     here, inside the box that scrolls — see `<LoadMore>`. */}
-                <LoadMore query={events} className="py-3" />
+                <LoadMore query={events} className="py-5" />
               </div>
             ),
         })}
@@ -284,13 +280,13 @@ function Row({
 
   return (
     <div className="border-b border-hairline-2 last:border-b-0">
-      <div className="flex items-baseline gap-3 px-4 py-2 hover:bg-soft">
-        <span className="w-12 shrink-0 text-[0.875rem] text-mute tabular-nums">
+      <div className="flex min-h-16 items-center gap-5 px-6 py-3.5 hover:bg-soft">
+        <span className="w-16 shrink-0 text-[0.875rem] text-mute tabular-nums">
           {moment(lead.at).split(", ").pop()}
         </span>
-        <Pill tone={toneOf(lead.kind)} className="w-fit shrink-0">
+        <Status tone={toneOf(lead.kind)} className="shrink-0">
           {describeEventKind(lead.kind)}
-        </Pill>
+        </Status>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[0.875rem] text-ink">
             {lead.publication_name}
@@ -320,28 +316,28 @@ function Row({
             aria-expanded={open}
             className="shrink-0 text-[0.875rem] text-body underline-offset-2 hover:underline"
           >
-            {count(shops.length)} shops
+            {count(shops.length)} stores
           </button>
         )}
 
-        <span className="w-20 shrink-0 text-right text-[0.875rem] text-mute tabular-nums">
+        <span className="w-28 shrink-0 text-right text-[0.875rem] text-mute tabular-nums">
           {prices > 0 ? `${count(prices)} prices` : ""}
         </span>
         {/* Who did it, and only where a PERSON did. On a shop event the actor
             is the till's origin, which the shop name beside it already says. */}
-        <span className="w-20 shrink-0 truncate text-right text-[0.875rem] text-mute">
+        <span className="w-32 shrink-0 truncate text-right text-[0.875rem] text-mute">
           {shops.length === 0 ? (lead.actor ?? "") : ""}
         </span>
       </div>
 
       {open && (
-        <div className="flex flex-wrap gap-1.5 px-4 pt-0.5 pb-2.5 pl-[5.5rem]">
+        <div className="flex flex-wrap gap-2 px-6 pb-4 pl-[6.75rem]">
           {shops.map((siteId) => (
             <button
               key={siteId}
               type="button"
               onClick={() => onPickShop(siteId)}
-              className="rounded-inner border border-hairline-2 px-2 py-0.5 text-[0.875rem] text-body transition-colors hover:border-hairline-strong hover:text-ink"
+              className="rounded-inner border border-hairline-2 px-3 py-1 text-[0.875rem] text-body transition-colors hover:border-hairline-strong hover:text-ink"
             >
               {shopName.get(siteId) ?? siteId}
             </button>

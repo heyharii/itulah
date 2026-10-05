@@ -11,7 +11,11 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 const ACTOR: &str = "ana";
+/// The premises these documents name — head office's Gudang.
 const SITE: &str = "dc";
+/// The BOOKS they belong to: head office's unit, which is what a posting, an
+/// account link and a journal line are keyed by since 0605/0606.
+const UNIT: &str = "ho";
 
 fn day(year: i32, month: u32, day: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(year, month, day).unwrap_or_else(|| panic!("bad date"))
@@ -24,8 +28,8 @@ async fn map(pool: &PgPool, key: &str, code: &str) {
             role: key.into(),
             source_type: "COMPANY".into(),
             source_id: String::new(),
-            scope_type: "SITE".into(),
-            scope_key: SITE.into(),
+            scope_type: "UNIT".into(),
+            scope_key: UNIT.into(),
             account_code: code.into(),
             category_code: None,
             note: None,
@@ -138,7 +142,7 @@ async fn an_applied_advance_is_paid_on_the_bill_in_the_ageing_and_the_bill_list(
         &pool,
         &cloud::SupplierAdvanceRequest {
             purchase_order_id: order,
-            site_id: SITE.into(),
+            unit_id: UNIT.into(),
             advance_date: day(2026, 9, 5),
             amount_minor: 500_000,
             account_key: "cash".into(),
@@ -193,6 +197,13 @@ async fn an_applied_advance_is_paid_on_the_bill_in_the_ageing_and_the_bill_list(
 /// out of the books, so the register carries it at nothing.
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_disposed_asset_has_no_book_value(pool: PgPool) {
+    // The month the disposal entry is dated in has to be open before anything
+    // can be posted to it (`assert_period_open`, 0283) — this test writes its
+    // entry by hand rather than through `a_supplier_with_an_order_and_a_bill`,
+    // which is where the other test opens September.
+    cloud::open_period(&pool, 2026, 9)
+        .await
+        .unwrap_or_else(|error| panic!("open period: {error}"));
     let asset = cloud::register_asset(
         &pool,
         &cloud::RegisterAssetRequest {
@@ -253,8 +264,8 @@ async fn a_disposed_asset_has_no_book_value(pool: PgPool) {
     for (number, debit, credit) in [(1, 1, 0), (2, 0, 1)] {
         sqlx::query(
             "INSERT INTO journal_line
-                 (line_id, entry_id, line_number, account_code, site_id, debit_minor, credit_minor)
-             VALUES ($1, $2, $3, '1002', 'dc', $4, $5)",
+                 (line_id, entry_id, line_number, account_code, unit_id, debit_minor, credit_minor)
+             VALUES ($1, $2, $3, '1002', 'ho', $4, $5)",
         )
         .bind(Uuid::new_v4())
         .bind(entry)

@@ -19,11 +19,7 @@ import {
   TotalRow,
 } from "@/screens/finance-final/parts"
 import { useWindow } from "@/screens/finance/hooks"
-import {
-  SiteName,
-  SiteSelect,
-  WindowControl,
-} from "@/screens/finance/parts"
+import { SiteName, SiteSelect, WindowControl } from "@/screens/finance/parts"
 
 /// Every sale as a row, with what it posted to.
 ///
@@ -115,7 +111,7 @@ export function SalesRegister() {
         <SiteSelect
           value={site}
           onChange={setSite}
-          className="h-8 w-44"
+          className="h-control w-44"
           aria-label="Site"
         />
         <Toolbar.Spacer />

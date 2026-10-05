@@ -171,7 +171,6 @@ function Verdicts({ exchange }: { exchange: Exchange }) {
             autoFocus
             value={note}
             maxLength={500}
-            placeholder="What was wrong? A figure, a shop, a date…"
             className="h-control"
             onChange={(event) => setNote(event.target.value)}
             onKeyDown={(event) => {

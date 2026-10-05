@@ -97,7 +97,6 @@ function NewEntry() {
         <Input
           value={term}
           maxLength={80}
-          placeholder="Word, e.g. C003"
           aria-label="Word"
           className="h-control w-44"
           onChange={(event) => setTerm(event.target.value)}
@@ -105,7 +104,6 @@ function NewEntry() {
         <Input
           value={meaning}
           maxLength={400}
-          placeholder="What it means here, e.g. the Purbalingga shop"
           aria-label="What it means here"
           className="h-control min-w-0 flex-1"
           onChange={(event) => setMeaning(event.target.value)}
@@ -119,7 +117,7 @@ function NewEntry() {
           pending={save.isPending}
           onClick={add}
         >
-          {save.isPending ? "Adding…" : "Add"}
+          {save.isPending ? "Submitting…" : "Submit"}
         </Button>
       </div>
       <Problem error={save.error} className="mt-1.5" />
@@ -184,7 +182,7 @@ function EntryRow({
                 )
               }
             >
-              {save.isPending ? "Saving…" : "Save"}
+              {save.isPending ? "Submitting…" : "Submit"}
             </Button>
           </div>
         </Td>

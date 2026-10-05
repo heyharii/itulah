@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Allotment · Adjust</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* Hub tokens (frontend-hub/src/styles/index.css, 28 Sep · E Quiet · airy charcoal). Inter 14, nothing under 14px. */
+:root{--ink:#20242c;--text:#394150;--body:#626b78;--mute:#737c89;--faint:#b9c0c9;--line-ico:#89919d;--canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--soft-3:#f6f6f7;
+  --hairline:#e6e6e9;--hairline-2:#dadade;--hairline-strong:#c6c6cc;--backdrop:#e0e0e4;--tooltip:#101012;
+  --accent:#2563eb;--accent-bg:#eff5ff;--ok:#36b827;--ok-fg:#15803d;--ok-bg:#e7f7e3;--warn:#c9892e;--warn-bg:#faeacd;--warn-fg:#b45309;--bad:#d05151;--bad-bg:#fbeaea;--bad-fg:#be123c;
+  --rail:#242526;--rail-2:#303234;--rail-text:#c3c4c7;--rail-mute:#a1a3a8;--rail-hair:#343638;
+  --r-shell:16px;--r-card:10px;--r-inner:7px;
+  --shadow-soft:0 1px 3px rgb(24 39 60/4%);--shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);--shadow-shell:0 10px 34px rgb(24 39 60/8%);
+  --ease:cubic-bezier(.23,1,.32,1);--ease-drawer:cubic-bezier(.32,.72,0,1)}
+*{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px}
+body{font:14px/20px Inter,system-ui,sans-serif;color:var(--text);background:var(--backdrop);-webkit-font-smoothing:antialiased;padding:16px 16px 40px}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px;letter-spacing:-.02em}
+.num{font-variant-numeric:tabular-nums}
+.mute{color:var(--mute)}.faint{color:var(--faint)}.body{color:var(--body)}
+svg.i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* prototype chrome */
+.top{max-width:98rem;margin:0 auto 12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.top h1{font-size:15px;font-weight:600;color:var(--ink)}
+.top p{color:var(--body);max-width:60rem}
+.lenses{margin-left:auto;display:flex;gap:2px;background:var(--canvas);padding:3px;border-radius:999px;box-shadow:0 0 0 1px var(--hairline);flex-wrap:wrap}
+.lens{border:0;background:none;border-radius:999px;padding:5px 14px;color:var(--body)}
+.lens.on{background:var(--ink);color:#fff;font-weight:500}
+.why{max-width:98rem;margin:14px auto 0;display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.why div{background:var(--canvas);border-radius:var(--r-card);padding:14px 16px;box-shadow:var(--shadow-soft)}
+.why h5{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:4px}.why p{color:var(--body)}
+@media (max-width:900px){.why{grid-template-columns:1fr 1fr}}
+@media (max-width:560px){.why{grid-template-columns:1fr}}
+
+/* shell */
+.shell{max-width:98rem;margin:0 auto;display:flex;height:min(56rem,calc(100vh - 7rem));min-height:40rem;background:var(--canvas);border-radius:var(--r-shell);box-shadow:var(--shadow-shell);overflow:clip;position:relative}
+.nav{width:14.5rem;flex:none;background:var(--rail);color:var(--rail-text);padding:14px 10px;display:flex;flex-direction:column;gap:2px}
+.brand{display:flex;align-items:center;gap:9px;color:#fff;font-weight:600;padding:2px 8px 14px}
+.brand b{width:24px;height:24px;border-radius:7px;background:#fff;color:var(--rail);display:grid;place-items:center;font-weight:700;position:relative}
+.brand b::after{content:"";position:absolute;right:4px;bottom:4px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.nrow{display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;color:var(--rail-text)}
+.nrow.dept{color:#fff;font-weight:500}
+.nrow.sub{padding-left:34px;color:var(--rail-mute)}
+.nrow.sub.on{background:var(--rail-2);color:#fff}
+.nrow svg.i{color:var(--rail-mute)}
+@media (max-width:900px){.nav{display:none}}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}
+.bar{height:48px;flex:none;display:flex;align-items:center;gap:8px;padding:0 20px;border-bottom:1px solid var(--hairline);color:var(--body)}
+.bar b{color:var(--ink);font-weight:500}
+.scroll{flex:1;min-height:0;overflow:auto}
+.page{padding:26px 32px 32px}
+@media (max-width:700px){.page{padding:18px 16px 24px}}
+
+/* page parts */
+.ph{display:flex;align-items:flex-end;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+.ph h2{font-size:22px;line-height:28px;font-weight:600;color:var(--ink);letter-spacing:-.02em}
+.ph .sub{color:var(--body);margin-top:4px}
+.ph .act{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.btn{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 13px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);color:var(--ink);font-weight:500;white-space:nowrap;transition:background .12s,transform .1s}
+.btn:hover{background:var(--soft)}.btn:active{transform:scale(.97)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}.btn.pri:hover{background:#1d4ed8}
+.btn.ghost{border-color:transparent;background:none;color:var(--body)}.btn.ghost:hover{background:var(--soft-2);color:var(--ink)}
+.btn.dangerq{border-color:transparent;background:none;color:var(--bad-fg)}.btn.dangerq:hover{background:var(--bad-bg)}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.btn svg.i{color:var(--line-ico)}.btn.pri svg.i{color:#fff}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+.kpi{border:1px solid var(--hairline);border-radius:var(--r-card);padding:12px 14px}
+.kpi span{color:var(--body)}.kpi b{display:block;font-size:22px;line-height:30px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+@media (max-width:700px){.kpis{grid-template-columns:1fr 1fr}}
+.tabs{display:flex;gap:18px;border-bottom:1px solid var(--hairline);margin-bottom:12px}
+.tabs button{border:0;background:none;padding:8px 0;color:var(--body);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs button.on{color:var(--ink);font-weight:500;border-color:var(--ink)}
+.toolbar{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.search{position:relative;flex:0 1 16rem}
+.search svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--line-ico)}
+.search input{width:100%;height:34px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 10px 0 32px;box-shadow:var(--shadow-soft);outline:0}
+.search input:focus{border-color:var(--accent)}
+.sel{height:34px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 10px;background:var(--canvas);color:var(--ink)}
+.sp{flex:1}
+.card{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:clip}
+table.list{width:100%;border-collapse:collapse}
+table.list th{font-weight:500;color:var(--mute);text-align:left;padding:0 14px;height:40px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+table.list td{padding:0 14px;height:52px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+table.list tr:last-child td{border-bottom:0}
+table.list tbody tr{cursor:pointer;transition:background .12s}
+table.list tbody tr:hover{background:var(--soft)}
+table.list tbody tr.sel{background:var(--accent-bg)}
+.r{text-align:right!important}
+.status{display:inline-flex;align-items:center;gap:7px;color:var(--ink)}
+.status i{width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.status.done i{background:var(--ok)}.status.closed i{background:var(--mute)}
+.att{color:var(--warn-fg)}.att.bad{color:var(--bad-fg)}
+.bar3{display:inline-block;width:40px;height:3px;border-radius:2px;background:var(--soft-2);vertical-align:middle;margin-right:8px;position:relative;overflow:hidden}
+.bar3 i{position:absolute;inset:0 auto 0 0;background:var(--ok)}
+
+/* sheet */
+.scrim{position:absolute;inset:0;background:rgb(246 246 247/.55);opacity:0;pointer-events:none;transition:opacity .2s}
+.scrim.on{opacity:1;pointer-events:auto}
+.sheet{position:absolute;top:10px;right:10px;bottom:10px;width:min(64rem,calc(100% - 20px));background:var(--canvas);border-radius:var(--r-shell);box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);display:flex;flex-direction:column;transform:translateX(calc(100% + 24px));transition:transform .42s var(--ease-drawer)}
+.sheet.on{transform:none}
+.shead{padding:18px 22px 14px;border-bottom:1px solid var(--hairline);display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}
+.shead h3{font-size:20px;line-height:26px;font-weight:600;color:var(--ink);letter-spacing:-.01em;display:flex;align-items:center;gap:12px}
+.shead .cap{color:var(--body);margin-top:3px}
+.shead .act{margin-left:auto;display:flex;gap:8px;align-items:center}
+.sbody{flex:1;min-height:0;overflow:auto;padding:18px 22px 26px;display:flex;flex-direction:column;gap:22px}
+.x{width:36px;height:36px;border:0;background:none;border-radius:8px;display:grid;place-items:center;color:var(--body)}.x:hover{background:var(--soft-2)}
+.menu{position:relative}
+.pop{position:absolute;right:0;top:40px;z-index:30;min-width:15rem;background:var(--canvas);border-radius:var(--r-card);box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);padding:5px;display:none}
+.pop.on{display:block;animation:pop .16s var(--ease)}
+.pop button{display:flex;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:6px;gap:8px;align-items:center}
+.pop button:hover{background:var(--soft-2)}
+.pop button.bad{color:var(--bad-fg)}
+.pop hr{border:0;border-top:1px solid var(--hairline);margin:4px 0}
+@keyframes pop{from{opacity:0;transform:translateY(-4px) scale(.98)}}
+.banner{display:flex;gap:10px;align-items:flex-start;border-radius:var(--r-inner);padding:10px 12px;background:var(--soft);color:var(--text)}
+.banner.warn{background:var(--warn-bg);color:#6b4410}.banner.ok{background:var(--ok-bg);color:#14532d}.banner.info{background:var(--accent-bg);color:#1e3a8a}
+.banner a{color:inherit;font-weight:600}
+.pipe{display:grid;grid-template-columns:repeat(5,1fr) 1.3fr;border:1px solid var(--hairline);border-radius:var(--r-card)}
+.pipe>div{padding:12px 14px;border-left:1px solid var(--hairline)}
+.pipe>div:first-child{border-left:0}
+.pipe span{color:var(--body)}
+.pipe b{display:block;font-size:22px;line-height:30px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.pipe b.z{color:var(--faint)}
+.pipe .tot{background:var(--soft)}
+.pipe .tot small{display:block;color:var(--body);font-size:14px;font-variant-numeric:tabular-nums}
+@media (max-width:760px){.pipe{grid-template-columns:repeat(3,1fr)}.pipe>div:nth-child(4){border-left:0}.pipe>div:nth-child(n+4){border-top:1px solid var(--hairline)}}
+h4{font-size:15px;font-weight:600;color:var(--ink)}
+.sechead{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.legend{color:var(--mute);display:flex;gap:14px;flex-wrap:wrap;margin-top:10px}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;vertical-align:0}
+.hist{display:flex;flex-direction:column}
+.hist div{display:flex;gap:12px;padding:9px 0;border-top:1px solid var(--hairline)}
+.hist div:first-child{border-top:0}
+.hist b{font-weight:500;color:var(--ink)}
+.hist time{margin-left:auto;color:var(--mute);white-space:nowrap}
+
+/* matrix */
+.mx{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:auto;max-width:100%}
+.mx table{border-collapse:separate;border-spacing:0;min-width:100%}
+.mx th,.mx td{height:40px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+.mx thead th{position:sticky;top:0;z-index:3;background:var(--canvas);font-weight:500;color:var(--mute);height:auto;padding:8px 6px;vertical-align:bottom}
+.mx .id{position:sticky;left:0;z-index:2;background:var(--canvas);text-align:left;padding:0 12px;min-width:15rem;max-width:15rem;border-right:1px solid var(--hairline)}
+.mx thead .id{z-index:4}
+.mx .free{position:sticky;left:15rem;z-index:2;background:var(--canvas);text-align:right;padding:0 10px;min-width:5rem;border-right:1px solid var(--hairline)}
+.mx thead .free{z-index:4}
+.mx .c{min-width:5.25rem;text-align:center;padding:0 4px;border-left:1px solid var(--hairline)}
+.mx .t{min-width:6rem;text-align:right;padding:0 12px;border-left:1px solid var(--hairline)}
+.mx tr.art td{background:var(--soft);height:52px}
+.mx tr.art .id,.mx tr.art .free{background:var(--soft)}
+.mx tbody tr:last-child td{border-bottom:0}
+.artid{display:flex;align-items:center;gap:10px;min-width:0}
+.thumb{width:32px;height:32px;border-radius:var(--r-inner);flex:none;display:grid;place-items:center;color:#fff;font-weight:600}
+.artid div{min-width:0}.artid b{display:block;font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis}
+.skuid{padding-left:54px!important;color:var(--ink)}
+.colh{display:flex;flex-direction:column;align-items:center;gap:1px}
+.colh b{color:var(--ink);font-weight:600}
+.colh .stg{font-weight:400}
+.colh .stg.ok{color:var(--ok-fg)}
+.v{font-variant-numeric:tabular-nums;color:var(--ink)}
+.v.ok{color:var(--ok-fg);font-weight:500}.v.part{color:var(--accent);font-weight:500}.v.closed{color:var(--faint);text-decoration:line-through}.v.sub{color:var(--body)}
+.v s{color:var(--faint);margin-right:5px}
+.colbtn{border:0;background:none;border-radius:6px;padding:2px 6px;display:inline-flex;align-items:center;gap:4px;color:var(--ink);font-weight:600}
+.colbtn:hover{background:var(--soft-2)}
+.newcol{color:var(--accent)!important}
+
+/* adjust cells */
+.cell{position:relative;display:block;width:100%}
+.cell input{width:100%;height:30px;border:1px solid transparent;border-radius:var(--r-inner);background:transparent;text-align:center;font-variant-numeric:tabular-nums;outline:0;transition:background .12s,border-color .12s;color:var(--ink)}
+.cell input:hover{border-color:var(--hairline-2);background:var(--soft-2)}
+.cell input:focus{border-color:var(--accent);background:var(--canvas);box-shadow:0 0 0 3px var(--accent-bg)}
+.cell.down input{background:var(--bad-bg);color:var(--bad-fg);font-weight:600}
+.cell.up input{background:var(--accent-bg);color:var(--accent);font-weight:600}
+.cell.capped input{background:var(--warn-bg);color:var(--warn-fg)}
+.mx td.packed{background:var(--soft-3)}
+.mx td.packed .cell input{color:var(--body)}
+.cell .was{position:absolute;left:4px;top:50%;transform:translateY(-50%);color:var(--faint);text-decoration:line-through;pointer-events:none;font-variant-numeric:tabular-nums}
+
+/* adjust strip */
+.strip{flex:none;border-top:1px solid var(--hairline);background:var(--canvas);padding:12px 32px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+@media (max-width:700px){.strip{padding:12px 16px}}
+.insp{flex:1 1 22rem;min-width:0;color:var(--body)}
+.insp b{color:var(--ink);font-weight:500}
+.sum{display:flex;gap:18px;align-items:baseline;flex-wrap:wrap}
+.sum div{display:flex;align-items:baseline;gap:6px}
+.sum strong{font-size:22px;line-height:28px;font-weight:600;font-variant-numeric:tabular-nums}
+.sum .dn strong{color:var(--bad-fg)}.sum .upc strong{color:var(--accent)}
+.sum .z strong{color:var(--faint)}
+
+/* dialog */
+.dlg{position:absolute;inset:0;z-index:50;display:none;align-items:center;justify-content:center;background:rgb(20 22 26/.28);padding:16px}
+.dlg.on{display:flex;animation:fade .16s var(--ease)}
+@keyframes fade{from{opacity:0}}
+.dbox{width:min(46rem,100%);max-height:100%;background:var(--canvas);border-radius:var(--r-shell);box-shadow:var(--shadow-pop);display:flex;flex-direction:column;animation:rise .22s var(--ease)}
+@keyframes rise{from{transform:translateY(8px) scale(.985);opacity:.6}}
+.dhead{padding:18px 22px 12px}
+.dhead h3{font-size:18px;line-height:24px;font-weight:600;color:var(--ink)}
+.dhead p{color:var(--body);margin-top:3px}
+.dbody{flex:1;min-height:0;overflow:auto;padding:4px 22px 18px;display:flex;flex-direction:column;gap:18px}
+.dfoot{padding:14px 22px;border-top:1px solid var(--hairline);display:flex;gap:8px;justify-content:flex-end;align-items:center;flex-wrap:wrap}
+.block{border:1px solid var(--hairline);border-radius:var(--r-card)}
+.block>header{padding:12px 14px;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.block>header b{color:var(--ink);font-weight:600}
+.block>header span{color:var(--body)}
+.block table{width:100%;border-collapse:collapse}
+.block td,.block th{padding:0 14px;height:40px;border-top:1px solid var(--hairline);text-align:left;white-space:nowrap}
+.block th{font-weight:500;color:var(--mute)}
+.field{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-top:1px solid var(--hairline)}
+.field label{color:var(--ink);font-weight:500}
+.field input{height:47px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 13px;font-size:15px;outline:0;color:var(--ink)}
+.field input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.field .hint{color:var(--mute)}
+.dn{color:var(--bad-fg);font-weight:600}.up{color:var(--accent);font-weight:600}
+.tip{position:fixed;z-index:80;pointer-events:none;background:var(--tooltip);color:#fff;border-radius:7px;padding:7px 10px;max-width:22rem;opacity:0;transition:opacity .12s}
+.tip.on{opacity:1}
+.toast{position:absolute;left:50%;bottom:20px;transform:translate(-50%,20px);background:var(--ink);color:#fff;border-radius:10px;padding:10px 14px;opacity:0;pointer-events:none;transition:all .3s var(--ease);z-index:60;white-space:nowrap}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div>
+    <h1>Allotment · Adjust (prototype C)</h1>
+    <p>Open an allotment, press <b>Adjust</b>, and type. Lower a number → that part is <b>closed short</b>. Raise one or fill an empty box → the extra goes out as a <b>top-up</b> allotment linked to this one. Nothing already packed can be taken back.</p>
+  </div>
+  <div class="lenses" id="lenses">
+    <button class="lens on" data-s="active">Active · DC accepted</button>
+    <button class="lens" data-s="pending">Waiting for DC</button>
+    <button class="lens" data-s="completed">Completed</button>
+  </div>
+</div>
+
+<div class="shell">
+  <aside class="nav">
+    <div class="brand"><b>C</b>Central</div>
+    <div class="nrow"><svg class="i" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Home</div>
+    <div class="nrow"><svg class="i" viewBox="0 0 24 24"><path d="M6 6h15l-2 9H7L5 3H2"/><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/></svg>Buying</div>
+    <div class="nrow dept"><svg class="i" viewBox="0 0 24 24"><path d="M8 3l4 3 4-3 5 4-3 4-2-1v11H8V10l-2 1-3-4z"/></svg>Merchandise</div>
+    <div class="nrow sub">Articles</div>
+    <div class="nrow sub">Divisions</div>
+    <div class="nrow sub">Tags</div>
+    <div class="nrow sub">Sizes</div>
+    <div class="nrow sub">Colours</div>
+    <div class="nrow sub on">Allotments</div>
+    <div class="nrow sub">Return to HO</div>
+    <div class="nrow"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="7" width="13" height="10" rx="1"/><path d="M16 10h3l2 3v4h-5"/><circle cx="7" cy="18" r="1.5"/><circle cx="17" cy="18" r="1.5"/></svg>Ops</div>
+    <div class="nrow"><svg class="i" viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4z"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4"/></svg>Inventory</div>
+  </aside>
+
+  <div class="main" id="main">
+    <div class="bar" id="crumbs"></div>
+    <div class="scroll" id="scroll"><div class="page" id="page"></div></div>
+    <div class="strip" id="strip" hidden></div>
+
+    <div class="scrim" id="scrim"></div>
+    <section class="sheet" id="sheet" aria-label="Allotment">
+      <div class="shead" id="shead"></div>
+      <div class="sbody" id="sbody"></div>
+    </section>
+
+    <div class="dlg" id="dlg"><div class="dbox" id="dbox"></div></div>
+    <div class="toast" id="toast"></div>
+  </div>
+</div>
+
+<div class="why">
+  <div><h5>It feels like editing</h5><p>One grid, the same shape it was raised in. Type over any number. The page works out which legal act each change is.</p></div>
+  <div><h5>Down = close short</h5><p>Only what is still <b>to pack</b> can go. A box never drops below what the DC already packed; grey boxes are packed in full and can only go up.</p></div>
+  <div><h5>Up = a top-up</h5><p>The original promise stays as it was (allotment V1 §3). More goods go out as a new allotment, linked back, capped by what is free in the warehouse.</p></div>
+  <div><h5>Asked only at the end</h5><p>The reason for closing short is asked in the review, once, not per box. Waiting for DC or completed: Adjust stays shut, <b>Allot again</b> is offered.</p></div>
+</div>
+
+<div class="tip" id="tip"></div>
+
+<script>
+/* ------------------------------------------------------------------ data */
+const STORES=[
+  {id:'01',name:'Kemang'},{id:'02',name:'Pondok Indah'},{id:'03',name:'Senayan City'},
+  {id:'04',name:'Kelapa Gading'},{id:'05',name:'Bandung PVJ'},{id:'06',name:'Surabaya Tunjungan'},
+  {id:'07',name:'Bali Beachwalk'},{id:'08',name:'Medan Centre'},{id:'09',name:'Makassar TSM'}];
+const MORE_STORES=[{id:'10',name:'Semarang Paragon'},{id:'11',name:'Yogyakarta Ambarrukmo'}];
+const ARTICLES=[
+  {id:'a1',name:'Linen Overshirt',code:'LNO-01',div:'Menswear',hue:'#34507a',skus:[
+    {id:'s1',label:'Navy · S',base:3,free:14},{id:'s2',label:'Navy · M',base:5,free:22},{id:'s3',label:'Navy · L',base:4,free:18},{id:'s4',label:'Navy · XL',base:2,free:6,only:['01','02','03','05']}]},
+  {id:'a2',name:'Chino Relaxed',code:'CHR-02',div:'Menswear',hue:'#a08455',skus:[
+    {id:'s5',label:'Khaki · 30',base:3,free:10},{id:'s6',label:'Khaki · 32',base:4,free:16},{id:'s7',label:'Khaki · 34',base:2,free:8}]},
+  {id:'a3',name:'Oxford Shirt',code:'OXF-07',div:'Menswear',hue:'#8aa0b8',skus:[
+    {id:'s8',label:'White · S',base:2,free:4,only:['01','03','04']},{id:'s9',label:'White · M',base:4,free:12},{id:'s10',label:'White · L',base:3,free:9}]}];
+const POOL_MORE=[
+  {id:'a4',name:'Knit Polo',code:'KNP-03',div:'Menswear',hue:'#2f3336',skus:[{id:'s11',label:'Black · M',base:0,free:20},{id:'s12',label:'Black · L',base:0,free:15}]},
+  {id:'a5',name:'Denim Jacket',code:'DNJ-11',div:'Menswear',hue:'#4b6a91',skus:[{id:'s13',label:'Indigo · M',base:0,free:8},{id:'s14',label:'Indigo · L',base:0,free:6}]}];
+const BIG=['01','03','04'],SMALL=['08','09'];
+/* where each store's goods are, by the order the DC works them */
+const STAGE_BY_STORE={'01':'received','02':'received','03':'transit','04':'shipment','05':'packed'};
+
+let scenario='active', view='list', menuOpen=false;
+let lines={}, draft={}, capped={}, addedStores=[], addedArticles=[], history=[], applied=null, topups=[];
+let focusKey=null;
+
+const key=(sku,store)=>sku+'|'+store;
+const fmt=n=>n.toLocaleString('id-ID');
+const allStores=()=>STORES.concat(addedStores);
+const allArticles=()=>ARTICLES.concat(addedArticles);
+const skuById=id=>allArticles().flatMap(a=>a.skus.map(s=>({...s,article:a}))).find(s=>s.id===id);
+const storeById=id=>STORES.concat(MORE_STORES).find(s=>s.id===id);
+
+function build(){
+  lines={};draft={};capped={};addedStores=[];addedArticles=[];applied=null;topups=[];
+  for(const a of ARTICLES)for(const s of a.skus)for(const st of STORES){
+    if(s.only&&!s.only.includes(st.id))continue;
+    let q=s.base+(BIG.includes(st.id)?1:0)-(SMALL.includes(st.id)?1:0);
+    if(q<=0)continue;
+    let stage=scenario==='completed'?'received':scenario==='pending'?'topack':(STAGE_BY_STORE[st.id]||'topack');
+    let moved=stage==='topack'?0:stage==='packed'?Math.ceil(q/2):q;
+    if(stage==='packed'&&moved===q)stage='packed';
+    lines[key(s.id,st.id)]={allotted:q,moved,stage,received:stage==='received'?q:0,closed:0};
+  }
+  history=[{t:'Created',d:fmt(total('allotted'))+' pcs to 9 stores',at:'25 Sep, 10.10'}];
+  if(scenario!=='pending')history.push({t:'Accepted by the DC',d:'',at:'25 Sep, 10.14'});
+  if(scenario==='completed')history.push({t:'Received in full',d:'',at:'27 Sep, 16.40'});
+}
+function total(f){let n=0;for(const l of Object.values(lines))n+=l[f];return n}
+function pipeline(){
+  let p={topack:0,packed:0,shipment:0,transit:0,received:0,closed:0,allotted:0};
+  for(const l of Object.values(lines)){
+    p.allotted+=l.allotted;p.closed+=l.closed;p.received+=l.received;
+    p.topack+=l.allotted-l.closed-l.moved;
+    const inflight=l.moved-l.received;
+    if(l.stage==='packed')p.packed+=inflight;else if(l.stage==='shipment')p.shipment+=inflight;else if(l.stage==='transit')p.transit+=inflight;
+  }
+  p.toreceive=p.allotted-p.closed-p.received;return p;
+}
+const STATUS=()=>scenario==='completed'?{w:'Completed',c:'done'}:{w:'Active',c:''};
+
+/* ------------------------------------------------------------------ list (background) */
+function listRows(){
+  const p=pipeline();
+  const rows=[
+    {n:'ALT-00000412',note:'PO-2291 · Batik restock',d:'27 Sep 2026',a:6,s:13,al:960,rc:0,st:'Active',att:'Waiting for DC'},
+    {n:'ALT-00000411',note:'PO-2284 · Linen drop',d:'25 Sep 2026',a:3,s:9,al:p.allotted,rc:p.received,st:STATUS().w,me:1},
+    {n:'ALT-00000410',note:'',d:'22 Sep 2026',a:5,s:5,al:300,rc:180,st:'Active'},
+    {n:'ALT-00000408',note:'Weekend top-up',d:'18 Sep 2026',a:4,s:6,al:420,rc:420,st:'Completed'},
+    {n:'ALT-00000407',note:'',d:'15 Sep 2026',a:2,s:4,al:200,rc:40,st:'Closed'}];
+  for(const t of topups)rows.unshift({n:t.n,note:'Top-up of ALT-00000411',d:'28 Sep 2026',a:t.articles,s:t.stores,al:t.qty,rc:0,st:'Active',att:'Waiting for DC'});
+  return rows;
+}
+function renderList(){
+  crumbs(['Merchandise','Allotments']);
+  const rows=listRows(), act=rows.filter(r=>r.st==='Active');
+  document.getElementById('page').innerHTML=`
+    <div class="ph"><div><h2>Allotments</h2><div class="sub">What each store has been promised, and how much of it has arrived.</div></div></div>
+    <div class="kpis">
+      <div class="kpi"><span>Active</span><b>${act.length}</b></div>
+      <div class="kpi"><span>To pack</span><b>${fmt(pipeline().topack+960+120)}</b></div>
+      <div class="kpi"><span>On the way</span><b>${fmt(pipeline().packed+pipeline().shipment+pipeline().transit)}</b></div>
+      <div class="kpi"><span>To receive</span><b>${fmt(act.reduce((n,r)=>n+r.al-r.rc,0))}</b></div>
+    </div>
+    <div class="tabs"><button class="on">Active</button><button>Completed</button><button>Closed</button><button>All</button></div>
+    <div class="toolbar">
+      <select class="sel"><option>Allotments</option><option>By store</option><option>By article</option></select>
+      <label class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input placeholder="Search allotments"></label>
+      <button class="btn">Filter</button><span class="sp"></span>
+      <button class="btn pri">New allotment</button>
+    </div>
+    <div class="card"><table class="list"><thead><tr><th>Allotment</th><th>Created</th><th>Note</th><th class="r">Articles</th><th class="r">Stores</th><th class="r">Allotted</th><th class="r">Received</th><th class="r">To receive</th><th>Status</th></tr></thead><tbody>
+    ${rows.map(r=>{const tr=r.al-r.rc;const c=r.st==='Completed'?'done':r.st==='Closed'?'closed':'';
+      return `<tr class="${r.me?'sel':''}" ${r.me?'data-open="1"':''}><td class="mono">${r.n}</td><td>${r.d}</td><td class="mute" style="max-width:14rem;overflow:hidden;text-overflow:ellipsis">${r.note}</td><td class="r num">${r.a}</td><td class="r num">${r.s}</td><td class="r num">${fmt(r.al)}</td>
+      <td class="r num">${fmt(r.rc)}</td>
+      <td class="r num" style="${tr>0?'color:var(--ink);font-weight:500':'color:var(--faint)'}">${fmt(tr)}</td>
+      <td><span class="status ${c}"><i></i>${r.st}</span>${r.att?` <span class="att">· ${r.att}</span>`:''}</td></tr>`}).join('')}
+    </tbody></table></div>`;
+  document.querySelectorAll('[data-open]').forEach(tr=>tr.onclick=()=>openSheet());
+  document.getElementById('strip').hidden=true;
+}
+
+/* ------------------------------------------------------------------ sheet (read) */
+function openSheet(){view='sheet';renderSheet();requestAnimationFrame(()=>{if(view!=='sheet')return;sheet.classList.add('on');scrim.classList.add('on')})}
+function closeSheet(){sheet.classList.remove('on');scrim.classList.remove('on');view='list';menuOpen=false}
+function renderSheet(){
+  const p=pipeline(),S=STATUS();
+  const canAdjust=scenario==='active';
+  const stores=allStores().filter(st=>Object.keys(lines).some(k=>k.endsWith('|'+st.id)));
+  document.getElementById('shead').innerHTML=`
+    <div style="min-width:0">
+      <h3><span class="mono" style="font-size:20px;letter-spacing:-.03em">ALT-00000411</span><span class="status ${S.c}" style="font-size:14px;font-weight:400"><i></i>${S.w}</span>${scenario==='pending'?'<span class="att" style="font-size:14px;font-weight:400">· Waiting for DC</span>':''}</h3>
+      <div class="cap">Created 25 Sep 2026 by admin · ${stores.length} stores · 3 articles · PO-2284 · Linen drop</div>
+    </div>
+    <div class="act">
+      ${scenario==='completed'?'':`<button class="btn" id="adj" ${canAdjust?'':'disabled'} title="${canAdjust?'':'Opens once the DC has accepted this allotment'}"><svg class="i" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/></svg>Adjust</button>`}
+      <div class="menu"><button class="btn ghost" id="more" aria-label="More">•••</button>
+        <div class="pop ${menuOpen?'on':''}" id="pop">
+          <button id="again"><svg class="i" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>Allot again</button>
+          ${scenario==='active'&&p.topack>0?`<hr><button class="bad" id="closeall"><svg class="i" viewBox="0 0 24 24"><path d="M5 12h14"/></svg>Close the rest short…</button>`:''}
+        </div></div>
+      <button class="x" id="xclose" aria-label="Close"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>`;
+  let banner='';
+  if(scenario==='pending')banner=`<div class="banner warn">The DC hasn't accepted ALT-00000411 yet. Adjust opens once it does — need more for a store now? Use <a href="#" id="again2">Allot again</a>.</div>`;
+  if(applied)banner=`<div class="banner ok"><div>${applied.closed?`Closed short <b>${fmt(applied.closed)} pcs</b> on this allotment. `:''}${applied.topup?`Top-up <a href="#">${applied.topup.n}</a> created with <b>${fmt(applied.topup.qty)} pcs</b> — waiting for the DC.`:''}</div></div>`;
+  document.getElementById('sbody').innerHTML=`
+    ${banner}
+    <div class="pipe">
+      ${[['To pack',p.topack],['Packed',p.packed],['Shipment',p.shipment],['In transit',p.transit],['Received',p.received]].map(([l,v])=>`<div><span>${l}</span><b class="${v?'':'z'}">${fmt(v)}</b></div>`).join('')}
+      <div class="tot"><span>To receive</span><b>${fmt(p.toreceive)}</b><small>of ${fmt(p.allotted)} allotted${p.closed?` · ${fmt(p.closed)} closed short`:''}</small></div>
+    </div>
+    <section><div class="sechead"><h4>Lines</h4><span class="mute">${Object.keys(lines).length} lines · SKUs down, stores across</span></div>
+      ${readMatrix(stores)}
+      <div class="legend"><span><i style="background:var(--ok)"></i>Arrived in full</span><span><i style="background:var(--accent)"></i>Partly arrived</span><span><i style="background:var(--faint)"></i>Struck through: closed short</span></div>
+    </section>
+    <section><h4 style="margin-bottom:6px">History</h4><div class="hist">${history.slice().reverse().map(h=>`<div><b>${h.t}</b><span class="body">${h.d}</span><time>${h.at}</time></div>`).join('')}</div></section>`;
+  const $=id=>document.getElementById(id);
+  $('xclose').onclick=closeSheet;
+  $('more').onclick=e=>{e.stopPropagation();menuOpen=!menuOpen;$('pop').classList.toggle('on',menuOpen)};
+  $('again').onclick=()=>toast('Opens New allotment with these 3 articles and 9 stores filled in');
+  if($('again2'))$('again2').onclick=e=>{e.preventDefault();toast('Opens New allotment with these 3 articles and 9 stores filled in')};
+  if($('adj'))$('adj').onclick=()=>startAdjust();
+  if($('closeall'))$('closeall').onclick=()=>{startAdjust();closeRest(null)};
+  bindTips();
+}
+function stageWord(stId){
+  const ls=Object.entries(lines).filter(([k])=>k.endsWith('|'+stId)).map(([,l])=>l);
+  if(!ls.length)return '';
+  if(ls.every(l=>l.allotted-l.closed===0))return '<span class="stg faint">Closed short</span>';
+  if(ls.every(l=>l.received>=l.allotted-l.closed))return '<span class="stg ok">Arrived</span>';
+  const st=ls[0].stage;
+  return `<span class="stg">${{topack:'To pack',packed:'Packing',shipment:'Shipment',transit:'On the way',received:'Arrived'}[st]}</span>`;
+}
+function readMatrix(stores){
+  let h=`<div class="mx"><table><thead><tr><th class="id">Article</th>${stores.map(st=>{
+    const n=Object.entries(lines).filter(([k])=>k.endsWith('|'+st.id)).reduce((a,[,l])=>a+l.allotted-l.closed,0);
+    return `<th class="c" data-tip="${st.name}"><div class="colh"><b>${st.id}</b><span class="num">${fmt(n)}</span>${stageWord(st.id)}</div></th>`}).join('')}<th class="t">Total</th></tr></thead><tbody>`;
+  for(const a of allArticles()){
+    const skus=a.skus.filter(s=>stores.some(st=>lines[key(s.id,st.id)]));if(!skus.length)continue;
+    const sub=st=>skus.reduce((n,s)=>{const l=lines[key(s.id,st.id)];return n+(l?l.allotted-l.closed:0)},0);
+    h+=`<tr class="art"><td class="id"><div class="artid"><span class="thumb" style="background:${a.hue}">${a.name[0]}</span><div><b>${a.name}</b><span class="mono mute">${a.code}</span></div></div></td>${stores.map(st=>`<td class="c"><span class="v sub">${sub(st)||''}</span></td>`).join('')}<td class="t"><span class="v sub">${fmt(stores.reduce((n,st)=>n+sub(st),0))}</span></td></tr>`;
+    for(const s of skus){
+      let rowT=0;
+      h+=`<tr><td class="id skuid">${s.label}</td>${stores.map(st=>{const l=lines[key(s.id,st.id)];if(!l)return '<td class="c"></td>';
+        const eff=l.allotted-l.closed;rowT+=eff;
+        let cls='v',txt=fmt(eff);
+        if(eff===0&&l.closed){cls+=' closed';txt=fmt(l.allotted)}
+        else if(l.received>=eff&&eff>0)cls+=' ok';
+        else if(l.received>0)cls+=' part';
+        const tip=`${st.name}: allotted ${l.allotted}${l.closed?` · closed short ${l.closed}`:''} · to pack ${l.allotted-l.closed-l.moved} · packed or beyond ${l.moved} · received ${l.received}`;
+        return `<td class="c" data-tip="${tip}"><span class="${cls}">${l.closed&&eff>0?`<s>${l.allotted}</s>`:''}${txt}</span></td>`}).join('')}<td class="t"><span class="v">${fmt(rowT)}</span></td></tr>`;
+    }
+  }
+  return h+'</tbody></table></div>';
+}
+
+/* ------------------------------------------------------------------ adjust page */
+function startAdjust(){
+  closeSheet();view='adjust';draft={};capped={};focusKey=null;renderAdjust();
+}
+function current(k){return k in draft?draft[k]:(lines[k]?lines[k].allotted-lines[k].closed:0)}
+function floorOf(k){const l=lines[k];return l?l.moved:0}
+function origOf(k){const l=lines[k];return l?l.allotted-l.closed:0}
+function rowRaise(skuId,exceptKey){let n=0;for(const st of allStores()){const k=key(skuId,st.id);if(k===exceptKey)continue;n+=Math.max(0,current(k)-origOf(k))}return n}
+function ceilOf(k){const [skuId]=k.split('|');const s=skuById(skuId);return origOf(k)+Math.max(0,s.free-rowRaise(skuId,k))}
+function changes(){
+  const down=[],up=[];
+  for(const [k,v] of Object.entries(draft)){const o=origOf(k);if(v<o)down.push({k,from:o,to:v,d:o-v});else if(v>o)up.push({k,from:o,to:v,d:v-o})}
+  return {down,up};
+}
+function renderAdjust(){
+  crumbs(['Merchandise','Allotments','ALT-00000411','Adjust']);
+  const stores=allStores();
+  const unused=MORE_STORES.filter(s=>!addedStores.some(a=>a.id===s.id));
+  const moreArts=POOL_MORE.filter(a=>!addedArticles.some(x=>x.id===a.id));
+  document.getElementById('page').innerHTML=`
+    <div class="ph"><div><h2>Adjust ALT-00000411</h2><div class="sub">Lower a number to close it short. Raise one, or fill an empty box, to send more as a top-up. Packed pieces can't be taken back.</div></div>
+      <div class="act"><button class="btn ghost" id="back"><svg class="i" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>Back to allotment</button></div></div>
+    <div class="toolbar">
+      <label class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="find" placeholder="Find an article or SKU"></label>
+      <select class="sel" id="addstore"><option value="">Add a store…</option>${unused.map(s=>`<option value="${s.id}">${s.id} · ${s.name}</option>`).join('')}</select>
+      <select class="sel" id="addart"><option value="">Add an article…</option>${moreArts.map(a=>`<option value="${a.id}">${a.name} · ${a.skus.reduce((n,s)=>n+s.free,0)} free</option>`).join('')}</select>
+      <span class="sp"></span>
+      <button class="btn dangerq" id="restall">Close all the rest short</button>
+    </div>
+    ${adjustMatrix(stores)}
+    <div class="legend"><span><i style="background:var(--bad-bg);box-shadow:inset 0 0 0 1px var(--bad)"></i>Lowered — closes short</span><span><i style="background:var(--accent-bg);box-shadow:inset 0 0 0 1px var(--accent)"></i>Raised — goes out as a top-up</span><span><i style="background:var(--soft-3);box-shadow:inset 0 0 0 1px var(--hairline-2)"></i>Grey: already packed — can only go up</span></div>`;
+  const $=id=>document.getElementById(id);
+  $('back').onclick=()=>{if(Object.keys(draft).length&&!confirm('Leave without applying your changes?'))return;view='list';renderList();openSheet()};
+  $('addstore').onchange=e=>{const s=storeById(e.target.value);if(s){addedStores.push(s);renderAdjust();focusFirstIn(s.id)}};
+  $('addart').onchange=e=>{const a=POOL_MORE.find(x=>x.id===e.target.value);if(a){addedArticles.push(a);renderAdjust()}};
+  $('restall').onclick=()=>closeRest(null);
+  $('find').oninput=e=>{const w=e.target.value.trim().toLowerCase();document.querySelectorAll('#adjmx tbody tr').forEach(tr=>{tr.style.display=!w||tr.dataset.find.includes(w)?'':'none'})};
+  document.querySelectorAll('.cell input').forEach(inp=>{
+    inp.onfocus=()=>{inp.select();focusKey=inp.dataset.k;renderStrip()};
+    inp.oninput=()=>edit(inp);
+  });
+  document.querySelectorAll('[data-colrest]').forEach(b=>b.onclick=()=>closeRest(b.dataset.colrest));
+  bindTips();renderStrip();
+}
+function adjustMatrix(stores){
+  let h=`<div class="mx" id="adjmx"><table><thead><tr><th class="id">Article</th><th class="free" data-tip="Free in the warehouse — the most a row can be raised by">Free</th>${stores.map(st=>{
+    const n=allArticles().flatMap(a=>a.skus).reduce((t,s)=>t+current(key(s.id,st.id)),0);
+    const isNew=addedStores.some(a=>a.id===st.id);
+    const canRest=!isNew&&allArticles().flatMap(a=>a.skus).some(s=>{const k=key(s.id,st.id);return lines[k]&&Math.min(current(k),origOf(k))>floorOf(k)});
+    return `<th class="c" data-tip="${st.name}${isNew?' — new to this allotment, goes out as a top-up':''}"><div class="colh"><b class="${isNew?'newcol':''}">${st.id}</b><span class="num">${n?fmt(n):'—'}</span>${canRest?`<button class="colbtn" data-colrest="${st.id}" data-tip="Close the rest short for ${st.name}" style="font-weight:400;color:var(--bad-fg)">Close rest</button>`:'<span class="faint">&nbsp;</span>'}</div></th>`}).join('')}<th class="t">Total</th></tr></thead><tbody>`;
+  for(const a of allArticles()){
+    const isNew=addedArticles.some(x=>x.id===a.id);
+    h+=`<tr class="art" data-find="${(a.name+' '+a.code).toLowerCase()}"><td class="id"><div class="artid"><span class="thumb" style="background:${a.hue}">${a.name[0]}</span><div><b>${a.name}</b><span class="${isNew?'':'mute'}" style="${isNew?'color:var(--accent)':''}">${isNew?'New to this allotment':a.div}</span></div></div></td><td class="free num mute">${fmt(a.skus.reduce((n,s)=>n+s.free,0))}</td>${stores.map(()=>'<td class="c"></td>').join('')}<td class="t"></td></tr>`;
+    for(const s of a.skus){
+      const rowT=stores.reduce((n,st)=>n+current(key(s.id,st.id)),0),rowO=stores.reduce((n,st)=>n+origOf(key(s.id,st.id)),0);
+      const raised=rowRaise(s.id,null);
+      h+=`<tr data-find="${(a.name+' '+a.code+' '+s.label).toLowerCase()}"><td class="id skuid">${s.label}</td><td class="free num ${s.free-raised<=0?'faint':''}">${fmt(Math.max(0,s.free-raised))}</td>${stores.map(st=>{
+        const k=key(s.id,st.id),o=origOf(k),v=current(k),f=floorOf(k);
+        const cls=capped[k]?'capped':v<o?'down':v>o?'up':'';
+        return `<td class="c${f>0&&f>=o?' packed':''}"><label class="cell ${cls}"><input inputmode="numeric" data-k="${k}" value="${v||(o>0?'0':'')}" aria-label="${a.name} ${s.label} to ${st.name}"></label></td>`}).join('')}
+        <td class="t num">${rowT!==rowO?`<span class="${rowT<rowO?'dn':'up'}">${fmt(rowT)}</span> <s class="faint">${fmt(rowO)}</s>`:`<span class="v">${rowT?fmt(rowT):''}</span>`}</td></tr>`;
+    }
+  }
+  return h+'</tbody></table></div>';
+}
+function edit(inp){
+  const k=inp.dataset.k,typed=+(inp.value.replace(/\D/g,'')||0);
+  const f=floorOf(k),c=ceilOf(k);let kept=Math.min(Math.max(typed,f),c);
+  if(inp.value===''&&f===0)kept=0;
+  if(kept!==typed&&inp.value!==''){capped[k]=kept<typed?'ceil':'floor';setTimeout(()=>{delete capped[k];paintCell(k)},900)}
+  else if(inp.value===''&&f>0){capped[k]='floor';setTimeout(()=>{delete capped[k];paintCell(k)},900)}
+  if(kept===origOf(k))delete draft[k];else draft[k]=kept;
+  refreshTotals(k,kept);
+}
+function paintCell(k){const inp=document.querySelector(`input[data-k="${k}"]`);if(!inp)return;const o=origOf(k),v=current(k);inp.parentElement.className='cell '+(capped[k]?'capped':v<o?'down':v>o?'up':'')}
+function refreshTotals(k,kept){
+  // keep focus and caret: re-render only the numbers around the grid
+  const inp=document.querySelector(`input[data-k="${k}"]`);
+  const pos=inp.value.length;
+  paintCell(k);
+  const scroll=document.getElementById('adjmx');const sl=scroll.scrollLeft,st=document.getElementById('scroll').scrollTop;
+  const html=adjustMatrix(allStores());
+  const tmp=document.createElement('div');tmp.innerHTML=html;
+  const fresh=tmp.firstElementChild;
+  // swap every cell except the input being typed in
+  fresh.querySelectorAll('input').forEach(i=>{if(i.dataset.k===k){const holder=i.parentElement;holder.replaceChild(inp,i);inp.value=capped[k]?String(kept):inp.value.replace(/\D/g,'');}});
+  scroll.replaceWith(fresh);fresh.scrollLeft=sl;document.getElementById('scroll').scrollTop=st;
+  inp.focus();try{inp.setSelectionRange(pos,pos)}catch(e){}
+  fresh.querySelectorAll('.cell input').forEach(i=>{if(i!==inp){i.onfocus=()=>{i.select();focusKey=i.dataset.k;renderStrip()};i.oninput=()=>edit(i)}});
+  fresh.querySelectorAll('[data-colrest]').forEach(b=>b.onclick=()=>closeRest(b.dataset.colrest));
+  bindTips();focusKey=k;renderStrip();
+}
+function closeRest(storeId){
+  for(const k of Object.keys(lines)){if(storeId&&!k.endsWith('|'+storeId))continue;const f=floorOf(k);if(origOf(k)>f&&current(k)>f)draft[k]=f}
+  if(view==='adjust')renderAdjust();
+  toast(storeId?`Everything still to pack for ${storeById(storeId).name} set to close short`:'Everything still to pack set to close short — review before applying');
+}
+function focusFirstIn(stId){const i=document.querySelector(`input[data-k$="|${stId}"]`);if(i){const mx=document.getElementById('adjmx');i.focus({preventScroll:true});mx.scrollLeft=mx.scrollWidth}}
+function renderStrip(){
+  const strip=document.getElementById('strip');strip.hidden=view!=='adjust';if(view!=='adjust')return;
+  const {down,up}=changes();
+  const dn=down.reduce((n,c)=>n+c.d,0),upn=up.reduce((n,c)=>n+c.d,0);
+  const upStores=new Set(up.map(c=>c.k.split('|')[1])).size;
+  let insp='<span>Click a box to see what it can be.</span>';
+  if(focusKey){const [skuId,stId]=focusKey.split('|');const s=skuById(skuId),st=storeById(stId),l=lines[focusKey];
+    const f=floorOf(focusKey),c=ceilOf(focusKey),o=origOf(focusKey);
+    insp=`<b>${s.article.name} ${s.label} → ${st.name}</b><br>${l?`${o} allotted · ${f} already packed · `:'Not in this allotment yet · '}${f>0?`lowest ${f}`:'can go to 0'} · highest ${c}${capped[focusKey]==='floor'?' <span class="att">— that is already packed</span>':capped[focusKey]==='ceil'?' <span class="att">— that is all the warehouse has free</span>':''}`}
+  strip.innerHTML=`<div class="insp">${insp}</div>
+    <div class="sum">
+      <div class="${dn?'dn':'z'}"><strong>−${fmt(dn)}</strong><span class="body">close short · ${down.length} ${down.length===1?'line':'lines'}</span></div>
+      <div class="${upn?'upc':'z'}"><strong>+${fmt(upn)}</strong><span class="body">top-up · ${upStores} ${upStores===1?'store':'stores'}</span></div>
+    </div>
+    <div style="display:flex;gap:8px"><button class="btn ghost" id="reset" ${down.length+up.length?'':'disabled'}>Reset</button><button class="btn pri" id="review" ${down.length+up.length?'':'disabled'}>Review ${down.length&&up.length?'2 changes':'change'}</button></div>`;
+  document.getElementById('reset').onclick=()=>{draft={};addedStores=[];addedArticles=[];focusKey=null;renderAdjust()};
+  document.getElementById('review').onclick=openReview;
+}
+
+/* ------------------------------------------------------------------ review */
+function openReview(){
+  const {down,up}=changes();
+  const dn=down.reduce((n,c)=>n+c.d,0),upn=up.reduce((n,c)=>n+c.d,0);
+  const byStore=list=>{const m={};for(const c of list){const st=c.k.split('|')[1];(m[st]=m[st]||[]).push(c)}return Object.entries(m).sort()};
+  const rows=(list,kind)=>byStore(list).map(([st,cs])=>cs.map((c,i)=>{const s=skuById(c.k.split('|')[0]);
+    return `<tr><td>${i?'':`<b style="font-weight:500;color:var(--ink)">${st} · ${storeById(st).name}</b>`}</td><td>${s.article.name} <span class="mute">${s.label}</span></td>${kind==='down'?`<td class="r num">${c.from} → ${c.to}</td><td class="r num dn">−${c.d}</td>`:`<td class="r num">${c.from?c.from+' → '+c.to:'new'}</td><td class="r num up">+${c.d}</td>`}</tr>`}).join('')).join('');
+  document.getElementById('dbox').innerHTML=`
+    <div class="dhead"><h3>Apply these changes to ALT-00000411?</h3><p>${[down.length?`${fmt(dn)} pcs closed short`:'',up.length?`${fmt(upn)} pcs sent as a top-up`:''].filter(Boolean).join(' and ')}.</p></div>
+    <div class="dbody">
+      ${down.length?`<div class="block"><header><b>Close short on ALT-00000411</b><span>${fmt(dn)} pcs across ${down.length} lines stop being owed. Nothing moves in the warehouse; the DC just stops packing them.</span></header>
+        <table><thead><tr><th>Store</th><th>SKU</th><th class="r">Allotted</th><th class="r">Closed short</th></tr></thead><tbody>${rows(down,'down')}</tbody></table>
+        <div class="field"><label for="why">Why close them short?</label><input id="why" placeholder="e.g. the store is overstocked on linen"><span class="hint">Kept on the allotment's history.</span></div></div>`:''}
+      ${up.length?`<div class="block"><header><b>New top-up · ALT-00000413</b><span>${fmt(upn)} pcs to ${new Set(up.map(c=>c.k.split('|')[1])).size} stores, linked to ALT-00000411. It goes to the DC like any new allotment.</span></header>
+        <table><thead><tr><th>Store</th><th>SKU</th><th class="r">Was</th><th class="r">Top-up</th></tr></thead><tbody>${rows(up,'up')}</tbody></table>
+        <div class="field"><label for="note">Note</label><input id="note" value="Top-up of ALT-00000411"></div></div>`:''}
+    </div>
+    <div class="dfoot"><button class="btn ghost" id="dback">Back to editing</button><button class="btn pri" id="apply" ${down.length?'disabled':''}>Apply changes</button></div>`;
+  dlg.classList.add('on');
+  const why=document.getElementById('why');
+  if(why){why.oninput=()=>document.getElementById('apply').disabled=why.value.trim()==='';setTimeout(()=>why.focus(),50)}
+  document.getElementById('dback').onclick=()=>dlg.classList.remove('on');
+  document.getElementById('apply').onclick=()=>apply(down,up,why?why.value.trim():'');
+}
+function apply(down,up,why){
+  let closed=0;
+  for(const c of down){lines[c.k].closed+=c.d;closed+=c.d}
+  let topup=null;
+  if(up.length){
+    const qty=up.reduce((n,c)=>n+c.d,0);
+    topup={n:'ALT-00000413',qty,stores:new Set(up.map(c=>c.k.split('|')[1])).size,articles:new Set(up.map(c=>skuById(c.k.split('|')[0]).article.id)).size};
+    topups=[topup];
+  }
+  if(closed)history.push({t:'Closed short',d:`${fmt(closed)} pcs · “${why}”`,at:'28 Sep, 23.40'});
+  if(topup)history.push({t:'Top-up created',d:`${topup.n} · ${fmt(topup.qty)} pcs to ${topup.stores} stores`,at:'28 Sep, 23.40'});
+  applied={closed,topup};draft={};addedStores=[];addedArticles=[];
+  dlg.classList.remove('on');view='list';renderList();openSheet();
+}
+
+/* ------------------------------------------------------------------ bits */
+const sheet=document.getElementById('sheet'),scrim=document.getElementById('scrim'),dlg=document.getElementById('dlg');
+scrim.onclick=closeSheet;
+document.addEventListener('click',()=>{if(menuOpen){menuOpen=false;const p=document.getElementById('pop');if(p)p.classList.remove('on')}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(dlg.classList.contains('on'))dlg.classList.remove('on');else if(view==='sheet')closeSheet()}});
+function crumbs(parts){document.getElementById('crumbs').innerHTML=parts.map((p,i)=>i===parts.length-1?`<b>${p}</b>`:`<span>${p}</span><span class="faint">/</span>`).join(' ')}
+let tt;function toast(t){const el=document.getElementById('toast');el.textContent=t;el.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>el.classList.remove('on'),2600)}
+const tip=document.getElementById('tip');
+function bindTips(){document.querySelectorAll('[data-tip]').forEach(el=>{el.onmouseenter=()=>{tip.textContent=el.dataset.tip;tip.classList.add('on')};el.onmousemove=e=>{tip.style.left=Math.min(e.clientX+12,innerWidth-tip.offsetWidth-8)+'px';tip.style.top=(e.clientY+16)+'px'};el.onmouseleave=()=>tip.classList.remove('on')})}
+document.querySelectorAll('.lens').forEach(b=>b.onclick=()=>{document.querySelectorAll('.lens').forEach(x=>x.classList.toggle('on',x===b));scenario=b.dataset.s;build();dlg.classList.remove('on');view='list';renderList();openSheet()});
+
+build();renderList();setTimeout(openSheet,250);
+</script>
+</body>
+</html>

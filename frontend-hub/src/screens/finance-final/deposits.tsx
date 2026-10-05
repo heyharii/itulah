@@ -252,7 +252,8 @@ export function Deposits() {
       </Toolbar>
 
       {queryState(view, {
-        loading: "Reading the drawers, the slips and what the bank says arrived…",
+        loading:
+          "Reading the drawers, the slips and what the bank says arrived…",
         render: (page) => {
           // The window narrows the table, never the exposure: money banked in
           // August and still in the air is this unit's problem in September.
@@ -385,7 +386,9 @@ export function Deposits() {
                 {inWindow.length < page.total && (
                   <p className="text-[0.875rem] text-mute">
                     {page.total - inWindow.length} more{" "}
-                    {page.total - inWindow.length === 1 ? "deposit" : "deposits"}{" "}
+                    {page.total - inWindow.length === 1
+                      ? "deposit"
+                      : "deposits"}{" "}
                     outside this window. The figure above counts every one that
                     is still in the air, whenever it was banked.
                   </p>

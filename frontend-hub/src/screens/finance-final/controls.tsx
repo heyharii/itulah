@@ -1,35 +1,40 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Check, CircleAlert, X } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import { Status } from "@/components/ui/pill"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
-import { money } from "@/lib/format"
+import { count, money } from "@/lib/format"
 import {
   closeReadiness,
   domainKeys,
   financeControls,
   softCloseMonth,
 } from "@/lib/queries/finance-domains"
-import { Grid, Note, NumberCard, Td, Th } from "@/screens/finance-final/parts"
+import { Grid, Td, Th } from "@/screens/finance-final/parts"
+import { monthLabel } from "@/screens/finance/chart"
 
-/// Controls & close — every subledger beside the ledger it controls, and what
-/// stands between this month and being shut.
+/// Period Close — what stands between a month and being shut, then every
+/// subledger beside the ledger it controls.
 ///
-/// # Why one screen and not eleven
+/// Redrawn 2026-10-01 (owner: "closing kita berantakan"). The checklist comes
+/// first because it is the question this page is opened to answer — "can I
+/// close September?" — and the control table second, as the evidence behind
+/// the control rows of that list. Three loud banners became one line of status.
 ///
-/// The question is the same one for every domain: does what we recorded agree
-/// with what posted. Eleven screens would make a reader learn eleven layouts to
-/// ask it once, and the month-end answer — "these three do not agree" — would
-/// be assembled in somebody's head from eleven tabs.
+/// The server's labels and details are Indonesian and partly technical (raw
+/// numbers, trigger names), so the page speaks from the check and domain
+/// CODES, in English, and draws the figures itself. An unknown code still
+/// shows, in the server's own words.
 ///
-/// # Why a difference is not always a fault
-///
-/// A cancelled prepaid schedule leaves a balance in the ledger nobody is
-/// amortising any more. That is a real difference and a real decision, and the
-/// screen says so rather than hiding it: `covered = false` means nothing can
-/// answer for the domain yet, which is a different statement from zero.
+/// ERPNext has no screen like this: its month end is Accounting Period (a
+/// lock) and Period Closing Voucher (the year-end entry). This is the step
+/// before both.
 export function FinanceControls() {
   const client = useQueryClient()
   const now = new Date()
@@ -55,64 +60,146 @@ export function FinanceControls() {
   })
 
   const rows = useMemo(() => controls.data ?? [], [controls.data])
-  const disagreeing = rows.filter((row) => row.covered && row.difference_minor !== 0)
-  const uncovered = rows.filter((row) => !row.covered)
-  const checks = readiness.data?.checks ?? []
+  const byDomain = useMemo(
+    () => new Map(rows.map((row) => [row.domain, row])),
+    [rows]
+  )
+  // Blockers first, then what cannot be known yet, then what is fine.
+  const checks = useMemo(
+    () =>
+      [...(readiness.data?.checks ?? [])].sort(
+        (a, b) => RANK[a.status] - RANK[b.status]
+      ),
+    [readiness.data]
+  )
+  const blockers = readiness.data?.blockers ?? 0
+  const status = readiness.data?.period_status
+  const off = rows.filter((row) => row.covered && row.difference_minor !== 0)
+  const name = monthLabel(month.year, month.month)
 
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance"
-        title="Kontrol & tutup bulan"
-        sub="Setiap subledger di samping buku besar yang dikendalikannya."
+        crumb="Finance · Closing"
+        title="Period Close"
+        sub="Check the month, then close it for the shops."
+        actions={
+          <>
+            <Input
+              type="month"
+              aria-label="Month"
+              className="h-control w-44"
+              value={`${month.year}-${String(month.month).padStart(2, "0")}`}
+              onChange={(event) => {
+                const [year, part] = event.target.value.split("-")
+                if (year && part)
+                  setMonth({ year: Number(year), month: Number(part) })
+              }}
+            />
+            <Button
+              variant="primary"
+              pending={soft.isPending}
+              disabled={status !== "OPEN"}
+              title={
+                status === "OPEN"
+                  ? undefined
+                  : `${name} is already ${statusWord(status).toLowerCase()}`
+              }
+              onClick={() => soft.mutate()}
+            >
+              Close for the shops
+            </Button>
+          </>
+        }
       />
 
-      <Grid>
-        <NumberCard
-          label="Kontrol tidak cocok"
-          value={disagreeing.length}
-          tone={disagreeing.length === 0 ? "ok" : "bad"}
-          note="selisih antara buku besar dan subledger"
-        />
-        <NumberCard
-          label="Belum ada pembanding"
-          value={uncovered.length}
-          tone={uncovered.length === 0 ? undefined : "warn"}
-          note="domain yang belum bisa direkonsiliasi"
-        />
-        <NumberCard
-          label="Penghalang tutup bulan"
-          value={readiness.data?.blockers ?? null}
-          tone={(readiness.data?.blockers ?? 0) === 0 ? "ok" : "bad"}
-          note={`status periode: ${readiness.data?.period_status ?? "—"}`}
-        />
-      </Grid>
+      {/* One line instead of three banners: where the month stands. */}
+      <div className="mb-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-[0.9375rem]">
+        <span className="font-medium text-ink">{name}</span>
+        <Status tone={status === "OPEN" ? "info" : "ok"}>
+          {statusWord(status)}
+        </Status>
+        <span className={blockers > 0 ? "text-bad-fg" : "text-ok-fg"}>
+          {blockers === 0
+            ? "Nothing blocks closing"
+            : `${count(blockers)} ${blockers === 1 ? "thing blocks" : "things block"} closing`}
+        </span>
+        <span className="text-mute">
+          {off.length === 0
+            ? "Every control agrees with the ledger"
+            : `${count(off.length)} ${off.length === 1 ? "control is" : "controls are"} off`}
+        </span>
+      </div>
 
+      <h2 className="mb-3 text-[1rem] font-medium text-ink">
+        Before closing {name}
+      </h2>
+      {readiness.isPending ? (
+        <LoadingState />
+      ) : readiness.isError ? (
+        <ErrorState error={readiness.error} />
+      ) : (
+        <Card className="mb-8 divide-y divide-hairline">
+          {checks.map((check) => (
+            <div key={check.code} className="flex items-start gap-4 px-5 py-4">
+              <CheckMark status={check.status} />
+              <div className="min-w-0 flex-1">
+                <div className="text-[0.9375rem] text-ink">
+                  {labelOf(check)}
+                </div>
+                <div className="mt-0.5 text-[0.875rem] text-mute">
+                  {detailOf(check, byDomain)}
+                </div>
+              </div>
+            </div>
+          ))}
+        </Card>
+      )}
+
+      <h2 className="mb-1 text-[1rem] font-medium text-ink">
+        Ledger against subledgers
+      </h2>
+      <p className="mb-3 text-[0.875rem] text-mute">
+        Each balance in the books beside the register that should explain it.
+        Closing for the shops still leaves adjustments, depreciation, tax,
+        payroll and reversals open.
+      </p>
       {controls.isPending ? (
         <LoadingState />
       ) : controls.isError ? (
         <ErrorState error={controls.error} />
       ) : rows.length === 0 ? (
-        <EmptyState>Belum ada yang bisa dikontrol</EmptyState>
+        <EmptyState>Nothing can be checked yet.</EmptyState>
       ) : (
-        <table className="w-full border-collapse text-sm">
+        <Grid>
           <thead>
             <tr>
-              <Th>Domain</Th>
-              <Th align="right">Buku besar</Th>
-              <Th align="right">Subledger</Th>
-              <Th align="right">Selisih</Th>
-              <Th align="right">Terbuka</Th>
-              <Th>Catatan</Th>
+              <Th>Area</Th>
+              <Th align="right" width="11rem">
+                Ledger
+              </Th>
+              <Th align="right" width="11rem">
+                Subledger
+              </Th>
+              <Th align="right" width="11rem">
+                Difference
+              </Th>
+              <Th align="right" width="7rem">
+                Open items
+              </Th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
               <tr key={row.domain}>
                 <Td>
-                  {row.label}
-                  {row.covered ? null : (
-                    <Pill tone="warn">belum terjangkau</Pill>
+                  <span className="text-ink">
+                    {DOMAIN_LABEL[row.domain] ?? row.label}
+                  </span>
+                  {!row.covered && (
+                    <span className="block text-[0.875rem] text-mute">
+                      Not reconciled yet
+                    </span>
                   )}
                 </Td>
                 <Td align="right">{money(row.gl_minor)}</Td>
@@ -122,89 +209,173 @@ export function FinanceControls() {
                 <Td
                   align="right"
                   className={
-                    row.covered && row.difference_minor !== 0 ? "text-bad-fg" : undefined
+                    row.covered && row.difference_minor !== 0
+                      ? "font-medium text-bad-fg"
+                      : "text-faint"
                   }
                 >
-                  {row.covered ? money(row.difference_minor) : "—"}
+                  {!row.covered
+                    ? "—"
+                    : row.difference_minor === 0
+                      ? "·"
+                      : money(row.difference_minor)}
                 </Td>
-                <Td align="right">{row.unmatched}</Td>
-                <Td>{row.note ?? ""}</Td>
+                <Td align="right">
+                  {row.unmatched === 0 ? (
+                    <span className="text-faint">·</span>
+                  ) : (
+                    count(row.unmatched)
+                  )}
+                </Td>
               </tr>
             ))}
           </tbody>
-        </table>
-      )}
-
-      <PageHeader
-        title="Tutup bulan"
-        sub={`${month.year}-${String(month.month).padStart(2, "0")}`}
-        actions={
-          <div className="flex items-center gap-2">
-            <input
-              type="month"
-              className="rounded-control border border-hairline bg-canvas px-2 py-1 text-sm"
-              value={`${month.year}-${String(month.month).padStart(2, "0")}`}
-              onChange={(event) => {
-                const [year, monthPart] = event.target.value.split("-")
-                if (year !== undefined && monthPart !== undefined) {
-                  setMonth({ year: Number(year), month: Number(monthPart) })
-                }
-              }}
-            />
-            <button
-              type="button"
-              className="rounded-control border border-hairline px-3 py-1 text-sm disabled:opacity-50"
-              disabled={soft.isPending || readiness.data?.period_status !== "OPEN"}
-              onClick={() => soft.mutate()}
-            >
-              Tutup untuk kasir
-            </button>
-          </div>
-        }
-      />
-
-      <Note>
-        Tutup lunak menutup bulan bagi kasir dan toko, dan membiarkannya terbuka
-        untuk penyesuaian, penyusutan, alokasi, pajak, payroll dan pembalikan.
-        Daftar itu ada di trigger 0051, bukan di layar ini.
-      </Note>
-
-      {readiness.isPending ? (
-        <LoadingState />
-      ) : readiness.isError ? (
-        <ErrorState error={readiness.error} />
-      ) : (
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr>
-              <Th>Pemeriksaan</Th>
-              <Th>Status</Th>
-              <Th>Keterangan</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {checks.map((row) => (
-              <tr key={row.code}>
-                <Td>{row.label}</Td>
-                <Td>
-                  <Pill
-                    tone={
-                      row.status === "OK"
-                        ? "ok"
-                        : row.status === "BLOCKER"
-                          ? "bad"
-                          : "warn"
-                    }
-                  >
-                    {row.status}
-                  </Pill>
-                </Td>
-                <Td>{row.detail}</Td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        </Grid>
       )}
     </PageContent>
   )
+}
+
+type CheckStatus = "OK" | "BLOCKER" | "UNKNOWN"
+
+const RANK: Record<string, number> = { BLOCKER: 0, UNKNOWN: 1, OK: 2 }
+
+function CheckMark({ status }: { status: string }) {
+  const tone =
+    status === "OK"
+      ? "bg-ok-bg text-ok-fg"
+      : status === "BLOCKER"
+        ? "bg-bad-bg text-bad-fg"
+        : "bg-warn-bg text-warn-fg"
+  const Icon = status === "OK" ? Check : status === "BLOCKER" ? X : CircleAlert
+  return (
+    <span
+      className={`mt-0.5 grid size-6 shrink-0 place-items-center rounded-full ${tone}`}
+      aria-label={
+        status === "OK"
+          ? "Done"
+          : status === "BLOCKER"
+            ? "Blocks closing"
+            : "Cannot be checked"
+      }
+    >
+      <Icon className="size-3.5 stroke-[2.25]" />
+    </span>
+  )
+}
+
+function statusWord(status: string | undefined): string {
+  switch (status) {
+    case "OPEN":
+      return "Open"
+    case "SOFT_CLOSED":
+      return "Closed for the shops"
+    case "CLOSED":
+      return "Closed"
+    default:
+      return status ?? "—"
+  }
+}
+
+const DOMAIN_LABEL: Readonly<Record<string, string>> = {
+  PREPAID: "Prepaid expenses",
+  TAX_PAYABLE: "Tax payable",
+  TAX_CREDIT: "Tax credit",
+  ADVANCE: "Advances",
+  FINANCING: "Loans",
+  AP: "Supplier payables",
+  INTERUNIT: "Between units",
+  BANK: "Bank",
+  FIXED_ASSET: "Fixed assets",
+  PAYROLL: "Payroll payable",
+  INVENTORY: "Inventory",
+}
+
+const CHECK_LABEL: Readonly<Record<string, string>> = {
+  SALE_DAYS: "Every trading day is in the books",
+  SALE_DAYS_STALE: "Posted days still match their sales",
+  PREPAID: "Prepaid expenses spread for the month",
+  ADVANCES: "Advances accounted for",
+  FINANCING: "Loan instalments due this month paid",
+  TAX: "Tax period filed",
+  BALANCED: "Every journal balances",
+  FINANCE_AUTOMATION: "Month-end runs are switched on",
+  INTERUNIT_NETS: "Balances between units cancel out",
+}
+
+/// A check's name. Each control check is "this register agrees with the
+/// ledger", said in the register's English name.
+function labelOf(check: { code: string; label: string }): string {
+  if (check.code.startsWith("CONTROL_")) {
+    const domain = DOMAIN_LABEL[check.code.slice("CONTROL_".length)]
+    if (domain !== undefined) return `Ledger check · ${domain}`
+  }
+  return CHECK_LABEL[check.code] ?? check.label
+}
+
+/// The line under a check, from its code and count — or, for a control check,
+/// from the control row itself, so the figures are drawn as money.
+function detailOf(
+  check: {
+    code: string
+    status: CheckStatus | string
+    detail: string
+    count: number
+  },
+  byDomain: ReadonlyMap<
+    string,
+    {
+      gl_minor: number
+      subledger_minor: number
+      difference_minor: number
+      covered: boolean
+    }
+  >
+): string {
+  const n = check.count
+  if (check.code.startsWith("CONTROL_")) {
+    const row = byDomain.get(check.code.slice("CONTROL_".length))
+    if (row === undefined) return check.detail
+    if (!row.covered)
+      return "Stock has no cost method yet, so its value cannot come from the warehouse."
+    return row.difference_minor === 0
+      ? "Ledger and subledger agree."
+      : `Ledger ${money(row.gl_minor)} against subledger ${money(row.subledger_minor)} — off by ${money(row.difference_minor)}.`
+  }
+  switch (check.code) {
+    case "SALE_DAYS":
+      return n === 0
+        ? "Nothing left to post."
+        : `${count(n)} trading days not posted yet.`
+    case "SALE_DAYS_STALE":
+      return n === 0
+        ? "No sale has reached a day after it was posted."
+        : `${count(n)} ${n === 1 ? "day has" : "days have"} sales added after posting — reverse and post again from Sales Postings.`
+    case "PREPAID":
+      return n === 0
+        ? "Nothing due this month."
+        : `${count(n)} ${n === 1 ? "schedule waits" : "schedules wait"} for this month.`
+    case "ADVANCES":
+      return n === 0
+        ? "Nothing outstanding."
+        : `${count(n)} advances still with staff.`
+    case "FINANCING":
+      return n === 0
+        ? "Nothing due."
+        : `${count(n)} ${n === 1 ? "instalment is" : "instalments are"} due and unpaid.`
+    case "TAX":
+      return n === 0
+        ? "Nothing left to file."
+        : `${count(n)} tax periods not filed.`
+    case "BALANCED":
+      return n === 0
+        ? "No journal is out of balance."
+        : `${count(n)} journals do not balance.`
+    case "FINANCE_AUTOMATION":
+      return "Depreciation, prepaid spreading and amortisation post on their own."
+    case "INTERUNIT_NETS":
+      return "What one unit is owed, another owes — together they come to nil."
+    default:
+      return check.detail
+  }
 }

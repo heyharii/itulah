@@ -1033,26 +1033,11 @@ pub async fn publish_commercial_usage(
     // Each shop's allowance under every split limit, and its own count under
     // it, in the same instant — see `cap_allocation::allowances_for_message`.
     //
-    // Behind a savepoint, because the counts must go out whatever happens
-    // here. A read that fails leaves the allowances out, which sends every
-    // shop back to the fleet's count — a brake rather than a gate, as it was
-    // before any limit was split — and says so in the log.
-    sqlx::query("SAVEPOINT allowances")
-        .execute(&mut *snapshot)
-        .await?;
-    let allowances = match super::cap_allocation::allowances_for_message(&mut snapshot).await {
-        Ok(allowances) => allowances,
-        Err(error) => {
-            tracing::warn!(
-                %error,
-                "allowances left out of the usage message; shops enforce the fleet's count"
-            );
-            sqlx::query("ROLLBACK TO SAVEPOINT allowances")
-                .execute(&mut *snapshot)
-                .await?;
-            Vec::new()
-        }
-    };
+    // Do not publish a snapshot without its allowances. The edge replaces
+    // them wholesale: sending an empty list after a failed read would turn
+    // hard caps into fleet counters. A failed publication leaves the last
+    // valid allowances in force and is retried by the usage watcher.
+    let allowances = super::cap_allocation::allowances_for_message(&mut snapshot).await?;
     snapshot.commit().await?;
 
     let payload = json!({
@@ -2147,6 +2132,11 @@ pub struct ArticlePriceScope {
     pub cursor: Option<String>,
     /// Absent means [`PRICELIST_DEFAULT_LIMIT`].
     pub limit: Option<i64>,
+    /// Also price every style the way the till does — promotions and
+    /// campaigns counted — into [`ShopPriceStack::final_price`]. Off by
+    /// default: it reads the promotion tables and runs the engine once per SKU
+    /// per shop, which the plain pricelist has no need to pay for.
+    pub final_prices: bool,
 }
 
 /// One shop the pricelist is drawn across.
@@ -2226,6 +2216,33 @@ pub struct ShopPriceStack {
     pub site_id: String,
     pub label: String,
     pub stack: Vec<PriceRung>,
+    /// What the till takes for one piece, promotions counted. `None` unless
+    /// the page was asked for it ([`ArticlePriceScope::final_prices`]), and
+    /// `None` too when no SKU of the style could be priced here.
+    pub final_price: Option<FinalPrice>,
+}
+
+/// One style at one shop as a walk-in shopper pays for it: every SKU priced
+/// as a basket of one, with no coupon and no member.
+///
+/// A basket of ONE per SKU, never one basket holding every size: that would be
+/// a multi-buy, and trip "buy two" offers no shopper buying one shirt gets.
+/// The promotions are head office's published ones, as the simulator reads
+/// them; the prices under them are what this shop has put into service, as
+/// the rest of the grid is.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct FinalPrice {
+    /// The cheapest and dearest SKU. Equal when every SKU pays the same.
+    pub min_unit_price_minor: i64,
+    pub max_unit_price_minor: i64,
+    /// How many different amounts the SKUs come to.
+    pub distinct: i64,
+    /// Every promotion that came off at least one SKU, in the engine's order,
+    /// named once. Empty when the shelf price is what is paid.
+    pub promotions: Vec<String>,
+    /// The campaigns those promotions were filed under, named once.
+    pub campaigns: Vec<String>,
 }
 
 /// One style, across every shop that can sell it.
@@ -2238,6 +2255,15 @@ pub struct ArticlePriceRow {
     pub division_code: Option<String>,
     pub tags: Vec<String>,
     pub sku_count: i64,
+    /// What one piece of this style cost, for the markup the screen shows —
+    /// the newest receipt's cost layer, or, for a style nothing has been
+    /// received of yet, the newest purchase order's price. `None` when there
+    /// is neither. Per style because the cost queue is (migration 0146).
+    pub unit_cost_minor: Option<i64>,
+    /// `RECEIVED` or `PURCHASE_ORDER`: which of the two `unit_cost_minor` is.
+    /// An ordered price is the buyer's expectation, not a cost yet, and the
+    /// screen says so.
+    pub cost_from: Option<String>,
     /// Shops where this style has no price at all are ABSENT, not zero: no
     /// price is not a price, and a shop that cannot sell a thing should not
     /// appear to sell it for nothing.
@@ -2384,6 +2410,49 @@ const PRICELIST_FILTERS: &str = "
                        AND ($5 IS NULL OR m.replacement_unit_price_minor <= $5)))
 ";
 
+/// One style's final price at one shop, from the baskets its SKUs were priced
+/// in. `None` when the engine priced none of them — the shop cannot sell the
+/// style, which is absent rather than free.
+///
+/// `total`, not `amount_due`: the grid's other figures are unit prices on the
+/// book's own tax footing, and a final price has to be comparable with them.
+fn final_of(
+    results: &[Option<pricing_engine::PricingResult>],
+    promotions: &super::pricing::Promotions,
+) -> Option<FinalPrice> {
+    let mut amounts: Vec<i64> = Vec::new();
+    let mut names: Vec<String> = Vec::new();
+    let mut campaigns: Vec<String> = Vec::new();
+    for result in results.iter().flatten() {
+        amounts.push(result.total.minor);
+        for rule in &result.applied_rules {
+            if !names.contains(&rule.name) {
+                names.push(rule.name.clone());
+            }
+            if let Some(campaign) = rule
+                .campaign_id
+                .as_deref()
+                .and_then(|id| promotions.campaign_name(id))
+            {
+                if !campaigns.iter().any(|known| known == campaign) {
+                    campaigns.push(campaign.to_owned());
+                }
+            }
+        }
+    }
+    let low = *amounts.iter().min()?;
+    let high = *amounts.iter().max()?;
+    amounts.sort_unstable();
+    amounts.dedup();
+    Some(FinalPrice {
+        min_unit_price_minor: low,
+        max_unit_price_minor: high,
+        distinct: amounts.len() as i64,
+        promotions: names,
+        campaigns,
+    })
+}
+
 pub async fn article_prices(
     pool: &PgPool,
     channel: CommercialChannel,
@@ -2504,6 +2573,52 @@ pub async fn article_prices(
         });
     }
 
+    // What a piece of each style on the page cost, for the markup. The newest
+    // cost layer is what the goods were last received at; a style nothing has
+    // been received of falls back to the newest purchase order's price, which
+    // is the number the buyer set its markup against (migration 0398).
+    let page_codes: Vec<String> = styles
+        .iter()
+        .map(|style| style.article_code.clone())
+        .collect();
+    let mut costs: std::collections::BTreeMap<String, (i64, &'static str)> =
+        std::collections::BTreeMap::new();
+    for row in sqlx::query(
+        "SELECT a.article_code,
+                received.unit_cost_minor AS received_minor,
+                ordered.unit_price_minor AS ordered_minor
+           FROM article a
+           LEFT JOIN LATERAL (
+                SELECT c.unit_cost_minor
+                  FROM cost_layer c
+                 WHERE c.article_id = a.id
+                 ORDER BY c.economic_date DESC, c.recorded_at DESC
+                 LIMIT 1) received ON true
+           LEFT JOIN LATERAL (
+                SELECT l.unit_price_minor
+                  FROM purchase_order_line l
+                  JOIN purchase_order po ON po.purchase_order_id = l.purchase_order_id
+                 WHERE l.article_code = a.article_code
+                   AND po.order_status NOT IN ('DRAFT', 'CANCELLED')
+                   AND l.line_status <> 'CANCELLED'
+                 ORDER BY po.created_at DESC, l.line_number
+                 LIMIT 1) ordered ON true
+          WHERE a.article_code = ANY($1)",
+    )
+    .bind(&page_codes)
+    .fetch_all(pool)
+    .await?
+    {
+        let code: String = row.try_get("article_code")?;
+        let received: Option<i64> = row.try_get("received_minor")?;
+        let ordered: Option<i64> = row.try_get("ordered_minor")?;
+        if let Some(minor) = received {
+            costs.insert(code, (minor, "RECEIVED"));
+        } else if let Some(minor) = ordered {
+            costs.insert(code, (minor, "PURCHASE_ORDER"));
+        }
+    }
+
     // Every product on THIS PAGE, once, and the whole reason the screen is
     // affordable.
     //
@@ -2567,6 +2682,14 @@ pub async fn article_prices(
     // Campaigns and tax rules are the same for every shop, so they are read
     // once here rather than once per branch inside the loader.
     let common = super::pricing::load_price_book_common(&mut tx).await?;
+
+    // The promotions, once for every shop, and only when the final view is
+    // asked for — the plain pricelist never evaluates one.
+    let promotions = if scope.final_prices {
+        Some(super::pricing::Promotions::load(&mut tx).await?)
+    } else {
+        None
+    };
 
     for shop in &shops {
         let site_id: String = shop.try_get("site_id")?;
@@ -2652,6 +2775,26 @@ pub async fn article_prices(
         // as. `spans` is that slice, recorded when the lines were built.
         let stacks = pricing_engine::price_stacks(&pricing.snapshot, &context, &lines);
 
+        // The final view: one piece of each SKU through the whole engine, each
+        // its own basket — see `FinalPrice`. `None` for a SKU this shop cannot
+        // sell, which the engine refuses rather than prices at nothing.
+        let finals: Option<Vec<Option<pricing_engine::PricingResult>>> =
+            promotions.as_ref().map(|promotions| {
+                let mut snapshot = pricing.snapshot.clone();
+                promotions.apply(&mut snapshot);
+                lines
+                    .iter()
+                    .map(|line| {
+                        pricing_engine::price_cart(
+                            &snapshot,
+                            &context,
+                            std::slice::from_ref(line),
+                        )
+                        .ok()
+                    })
+                    .collect()
+            });
+
         for (style, (from, to)) in styles.iter().zip(&spans) {
             let collapsed = collapse(&stacks[*from..*to]);
             if collapsed.is_empty() {
@@ -2666,6 +2809,12 @@ pub async fn article_prices(
                     site_id: site_id.clone(),
                     label: label.clone(),
                     stack: collapsed,
+                    final_price: match (&finals, &promotions) {
+                        (Some(all), Some(promotions)) => {
+                            final_of(&all[*from..*to], promotions)
+                        }
+                        _ => None,
+                    },
                 });
         }
     }
@@ -2708,6 +2857,7 @@ pub async fn article_prices(
                     return None;
                 }
             }
+            let cost = costs.get(&style.article_code).copied();
             Some(ArticlePriceRow {
                 article_code: style.article_code,
                 article_name: style.article_name,
@@ -2715,6 +2865,8 @@ pub async fn article_prices(
                 division_code: style.division_code,
                 tags: style.tags,
                 sku_count: style.sku_count,
+                unit_cost_minor: cost.map(|(minor, _)| minor),
+                cost_from: cost.map(|(_, from)| from.to_owned()),
                 shops,
             })
         })

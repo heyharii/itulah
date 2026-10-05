@@ -18,7 +18,7 @@
 //! worker on duty, it only gathers what already exists. Picking and packing are
 //! sessions; shipment and dispatch are groupings.
 
-use chrono::{SecondsFormat, Utc};
+use chrono::{DateTime, Datelike, SecondsFormat, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -33,9 +33,11 @@ use qrcode::{EcLevel, QrCode};
 /// Which counter to draw from. Numbers are minted here at the DC; the site's
 /// display code inside each one is what keeps them unique across the fleet
 /// without a central allocator handing them out.
+///
+/// A koli is not here: its number is the year's letter and a serial
+/// ([`next_koli_number`]), and carries no site code.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NumberKind {
-    Koli,
     Shipment,
     Dispatch,
 }
@@ -43,7 +45,6 @@ pub enum NumberKind {
 impl NumberKind {
     const fn key(self) -> &'static str {
         match self {
-            Self::Koli => "KOLI",
             Self::Shipment => "SHIPMENT",
             Self::Dispatch => "DISPATCH",
         }
@@ -51,12 +52,102 @@ impl NumberKind {
 
     const fn prefix(self) -> &'static str {
         match self {
-            Self::Koli => "KOLI",
             // The surat jalan number: it is what a store signs against.
             Self::Shipment => "SJ",
             Self::Dispatch => "DSP",
         }
     }
+}
+
+/// The year lettered `A` in a koli number. `B` is the year after, and so on
+/// to `Z`.
+pub const KOLI_FIRST_YEAR: i32 = 2026;
+
+/// The last serial a DC can give a koli in one year.
+pub const KOLI_LAST_SERIAL: i64 = 99_999;
+
+/// The letter a koli number starts with in `year`: `A` for 2026 to `Z` for
+/// 2051. Any other year is refused rather than wrapped, because a wrapped
+/// letter would print a number a carton from 26 years earlier already holds.
+pub fn koli_year_letter(year: i32) -> Result<char, EdgeError> {
+    let step = year
+        .checked_sub(KOLI_FIRST_YEAR)
+        .and_then(|step| u8::try_from(step).ok())
+        .filter(|step| *step < 26);
+    match step {
+        Some(step) => Ok(char::from(b'A' + step)),
+        None => Err(EdgeError::Configuration(format!(
+            "koli numbers have a year letter for {KOLI_FIRST_YEAR} (A) to {} (Z); \
+             {year} has none, so the koli number format has to be extended",
+            KOLI_FIRST_YEAR + 25
+        ))),
+    }
+}
+
+/// A koli number: the year's letter and a five-digit serial, `A00001`.
+pub fn format_koli_number(year: i32, serial: i64) -> Result<String, EdgeError> {
+    let letter = koli_year_letter(year)?;
+    if !(1..=KOLI_LAST_SERIAL).contains(&serial) {
+        return Err(EdgeError::Conflict(format!(
+            "koli serial {serial} does not fit: a DC numbers at most {KOLI_LAST_SERIAL} \
+             koli a year ({letter}00001 to {letter}{KOLI_LAST_SERIAL})"
+        )));
+    }
+    Ok(format!("{letter}{serial:05}"))
+}
+
+/// Take the next koli number for this DC, bumping its counter for the year in
+/// the same transaction that writes the koli.
+///
+/// `at` is the business clock's instant (never the wall clock: the rig runs a
+/// virtual one); the year is read at the site's own offset, so a carton sealed
+/// on New Year's Eve in Jakarta is numbered in the year it was sealed there.
+///
+/// The counter is per (site, year) and starts at 00001 each year. The first
+/// koli of a year seeds it from the highest number of that year already on
+/// this node, so a counter row that went missing can never hand a number out
+/// twice. Old `KOLI-…` numbers are left as they were printed.
+pub fn next_koli_number(
+    tx: &Transaction<'_>,
+    site_id: &str,
+    at: DateTime<Utc>,
+) -> Result<String, EdgeError> {
+    let offset = chrono::Duration::minutes(i64::from(
+        crate::edge::site_profile::utc_offset_minutes(tx),
+    ));
+    let year = (at + offset).year();
+    let letter = koli_year_letter(year)?;
+    let this_year = format!("{letter}[0-9][0-9][0-9][0-9][0-9]");
+    tx.execute(
+        "INSERT OR IGNORE INTO koli_number_counter (site_id, year, last_serial)
+         VALUES (?1, ?2, COALESCE(
+             (SELECT MAX(CAST(substr(koli_number, 2) AS INTEGER))
+                FROM koli WHERE koli_number GLOB ?3),
+             0))",
+        params![site_id, year, this_year],
+    )
+    .map_err(db)?;
+    let bumped = tx
+        .execute(
+            "UPDATE koli_number_counter SET last_serial = last_serial + 1
+              WHERE site_id = ?1 AND year = ?2 AND last_serial < ?3",
+            params![site_id, year, KOLI_LAST_SERIAL],
+        )
+        .map_err(db)?;
+    if bumped == 0 {
+        return Err(EdgeError::Conflict(format!(
+            "this DC has used every koli number for {year} \
+             ({letter}00001 to {letter}{KOLI_LAST_SERIAL})"
+        )));
+    }
+    let serial: i64 = tx
+        .query_row(
+            "SELECT last_serial FROM koli_number_counter WHERE site_id = ?1 AND year = ?2",
+            params![site_id, year],
+            |row| row.get(0),
+        )
+        .map_err(db)?;
+    format_koli_number(year, serial)
 }
 
 fn db(error: rusqlite::Error) -> EdgeError {
@@ -68,12 +159,12 @@ fn now_text() -> String {
 }
 
 /// Take the next number of its kind, bumping the counter in the same
-/// transaction that writes the row it belongs to. Two boxes sealed at the same
+/// transaction that writes the row it belongs to. Two papers made at the same
 /// instant get adjacent numbers, never equal ones.
 ///
 /// # What is printed
 ///
-/// `KOLI-HO-GUDANG-000001`, `SJ-HO-GUDANG-000045`: the site's DISPLAY code as
+/// `SJ-HO-GUDANG-000045`, `DSP-HO-GUDANG-000003`: the site's DISPLAY code as
 /// head office gave it (`site.code`, 0603), never its internal id — a surat
 /// jalan is paper a store signs, and `dc-01` means nothing to the person
 /// signing it. Until head office has told this node its code, the id is
@@ -82,8 +173,8 @@ fn now_text() -> String {
 /// The counter is per kind and never per code, so a number is never issued
 /// twice even if the code changes or a node prints under its id first and its
 /// code later. A number already issued is stored whole and looked up whole;
-/// nothing parses it, so the old `KOLI-dc-01-…` numbers stay valid wherever
-/// they are scanned or quoted.
+/// nothing parses it, so the old `KOLI-dc-01-…` koli numbers (minted here
+/// before [`next_koli_number`]) stay valid wherever they are scanned or quoted.
 pub fn next_number(
     tx: &Transaction<'_>,
     kind: NumberKind,
@@ -694,9 +785,21 @@ pub struct Dispatch {
     pub carrier: Option<String>,
     pub vehicle_plate: Option<String>,
     pub driver_name: Option<String>,
+    /// What the bay wrote about the trip — plate, driver, courier, whatever
+    /// it knows — as one note. Replaces asking for each (owner, 29 Sep 2026).
+    pub trip_note: Option<String>,
     pub departed_at: Option<String>,
     pub shipment_count: i64,
     pub koli_count: i64,
+    /// Pieces in this run's cartons.
+    pub unit_count: i64,
+    /// Of those, the pieces the shop has counted in. The centre tells this
+    /// node each one (`in_transit_release`, 0055) so it can let go of them.
+    pub received_unit_count: i64,
+    /// When the last piece was counted in, once every piece has been: the run
+    /// is then received rather than in transit. `None` while any is still on
+    /// the road.
+    pub received_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -706,6 +809,8 @@ pub struct CreateDispatchRequest {
     pub carrier: Option<String>,
     pub vehicle_plate: Option<String>,
     pub driver_name: Option<String>,
+    #[serde(default)]
+    pub trip_note: Option<String>,
     #[serde(default)]
     pub actor_id: String,
 }
@@ -750,14 +855,20 @@ pub fn create_dispatch(
     let now = now_text();
     tx.execute(
         "INSERT INTO dispatch
-             (dispatch_id,dispatch_number,carrier,vehicle_plate,driver_name,created_by,created_at)
-         VALUES(?1,?2,?3,?4,?5,?6,?7)",
+             (dispatch_id,dispatch_number,carrier,vehicle_plate,driver_name,trip_note,
+              created_by,created_at)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
         params![
             dispatch_id,
             number,
             request.carrier,
             request.vehicle_plate,
             request.driver_name,
+            request
+                .trip_note
+                .as_deref()
+                .map(str::trim)
+                .filter(|note| !note.is_empty()),
             request.actor_id.trim(),
             now
         ],
@@ -810,13 +921,30 @@ pub fn load_dispatch(connection: &Connection, dispatch_id: &str) -> Result<Dispa
     connection
         .query_row(
             "SELECT d.dispatch_id,d.dispatch_number,d.carrier,d.vehicle_plate,d.driver_name,
-                    d.departed_at,
+                    d.departed_at,d.trip_note,
                     (SELECT COUNT(*) FROM shipment WHERE dispatch_id=d.dispatch_id),
                     (SELECT COUNT(*) FROM koli k JOIN shipment s ON s.shipment_id=k.shipment_id
+                      WHERE s.dispatch_id=d.dispatch_id),
+                    (SELECT COUNT(*) FROM koli_unit u
+                       JOIN koli k ON k.koli_id=u.koli_id
+                       JOIN shipment s ON s.shipment_id=k.shipment_id
+                      WHERE s.dispatch_id=d.dispatch_id AND u.released_at IS NULL),
+                    (SELECT COUNT(*) FROM koli_unit u
+                       JOIN koli k ON k.koli_id=u.koli_id
+                       JOIN shipment s ON s.shipment_id=k.shipment_id
+                      WHERE s.dispatch_id=d.dispatch_id AND u.released_at IS NULL
+                        AND EXISTS (SELECT 1 FROM in_transit_release r
+                                     WHERE r.koli_id=u.koli_id AND r.epc=u.epc)),
+                    (SELECT MAX(r.released_at) FROM in_transit_release r
+                       JOIN koli k ON k.koli_id=r.koli_id
+                       JOIN shipment s ON s.shipment_id=k.shipment_id
                       WHERE s.dispatch_id=d.dispatch_id)
                FROM dispatch d WHERE d.dispatch_id=?1",
             params![dispatch_id],
             |row| {
+                let unit_count: i64 = row.get(9)?;
+                let received_unit_count: i64 = row.get(10)?;
+                let last_received: Option<String> = row.get(11)?;
                 Ok(Dispatch {
                     dispatch_id: row.get(0)?,
                     dispatch_number: row.get(1)?,
@@ -824,8 +952,14 @@ pub fn load_dispatch(connection: &Connection, dispatch_id: &str) -> Result<Dispa
                     vehicle_plate: row.get(3)?,
                     driver_name: row.get(4)?,
                     departed_at: row.get(5)?,
-                    shipment_count: row.get(6)?,
-                    koli_count: row.get(7)?,
+                    trip_note: row.get(6)?,
+                    shipment_count: row.get(7)?,
+                    koli_count: row.get(8)?,
+                    unit_count,
+                    received_unit_count,
+                    received_at: (unit_count > 0 && received_unit_count >= unit_count)
+                        .then_some(last_received)
+                        .flatten(),
                 })
             },
         )
@@ -906,6 +1040,9 @@ pub struct PickedLine {
     /// More than one when a picker came back to the same rack — a rack that
     /// keeps needing second trips is a rack in the wrong place.
     pub events: i64,
+    /// Of what this picklist fetched, how much is still in the pick area and
+    /// in no carton: what packing can still take off this picklist.
+    pub waiting: i64,
 }
 
 /// "This trip round the racks, what came back?"
@@ -918,16 +1055,74 @@ pub struct PickedLine {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PickSessionSummary {
     pub session: Session,
+    /// The shop this picklist was walked for. `None` on rounds an older build
+    /// raised for nobody in particular.
+    pub destination_id: Option<String>,
+    /// The allotment it answers, and its number as printed.
+    pub allotment_id: Option<String>,
+    pub allotment_number: Option<String>,
     pub sku_count: i64,
     pub total_picked: i64,
+    /// Still in the pick area and in no carton: what is left to pack.
+    pub waiting: i64,
     pub lines: Vec<PickedLine>,
+}
+
+/// The pieces a picklist moved into the pick area that are still standing
+/// there — in no carton, not put back. Keyed on the NEWEST pick of each piece,
+/// so a piece put back and picked again for another shop counts for that one.
+///
+/// `?1` is the pick area's place id; the caller adds its own filter and GROUP.
+/// `s` is the pick's session, joined so a caller can filter on its shop.
+pub(crate) const WAITING_PICK_UNITS: &str = "
+    FROM dc_pick_unit u
+    JOIN pick_session s ON s.session_id = u.pick_session_id
+    JOIN inventory_projection p ON p.subject_id = u.subject_id
+   WHERE p.place_id = ?1 AND p.quantity > 0
+     AND u.rowid = (SELECT MAX(x.rowid) FROM dc_pick_unit x WHERE x.subject_id = u.subject_id)";
+
+pub(crate) fn picking_place(site_id: &str) -> String {
+    format!("{site_id}.outbound.picking:on_hand")
 }
 
 pub fn pick_session_summary(
     connection: &Connection,
+    site_id: &str,
     session_id: &str,
 ) -> Result<PickSessionSummary, EdgeError> {
     let session = load_session(connection, SessionKind::Pick, session_id)?;
+    let (destination_id, allotment_id, allotment_number): (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = connection
+        .query_row(
+            "SELECT s.destination_id, s.allotment_id, w.allotment_number
+               FROM pick_session s
+               LEFT JOIN dc_allotment_work w ON w.allotment_id = s.allotment_id
+              WHERE s.session_id = ?1",
+            params![session_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(db)?;
+    let mut waiting_by_sku = BTreeMap::new();
+    {
+        let mut statement = connection
+            .prepare(&format!(
+                "SELECT u.sku_code, COUNT(*) {WAITING_PICK_UNITS}
+                   AND u.pick_session_id = ?2
+                 GROUP BY u.sku_code"
+            ))
+            .map_err(db)?;
+        let rows = statement
+            .query_map(params![picking_place(site_id), session_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
+            .map_err(db)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(db)?;
+        waiting_by_sku.extend(rows);
+    }
     let mut statement = connection
         .prepare(
             "SELECT sku_code, SUM(quantity), COUNT(*)
@@ -939,10 +1134,13 @@ pub fn pick_session_summary(
         .map_err(db)?;
     let lines = statement
         .query_map(params![session_id], |row| {
+            let sku_code: String = row.get(0)?;
+            let waiting = waiting_by_sku.get(&sku_code).copied().unwrap_or(0);
             Ok(PickedLine {
-                sku_code: row.get(0)?,
+                sku_code,
                 picked: row.get(1)?,
                 events: row.get(2)?,
+                waiting,
             })
         })
         .map_err(db)?
@@ -950,8 +1148,12 @@ pub fn pick_session_summary(
         .map_err(db)?;
     Ok(PickSessionSummary {
         session,
+        destination_id,
+        allotment_id,
+        allotment_number,
         sku_count: i64::try_from(lines.len()).unwrap_or(i64::MAX),
         total_picked: lines.iter().map(|line| line.picked).sum(),
+        waiting: lines.iter().map(|line| line.waiting).sum(),
         lines,
     })
 }
@@ -965,8 +1167,15 @@ pub fn pick_session_summary(
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PicklistSummary {
     pub session: Session,
+    /// The shop it was walked for; `None` on older rounds.
+    pub destination_id: Option<String>,
+    /// The allotment it answers, and its number as printed.
+    pub allotment_id: Option<String>,
+    pub allotment_number: Option<String>,
     pub sku_count: i64,
     pub total_picked: i64,
+    /// Still in the pick area and in no carton: what is left to pack off it.
+    pub waiting: i64,
 }
 
 /// Every picklist this DC has raised, newest first.
@@ -974,12 +1183,34 @@ pub struct PicklistSummary {
 /// One query rather than a session list and a summary per row: a warehouse
 /// that has been running a fortnight has a few hundred of these, and the
 /// per-row version is a few hundred requests to draw one screen.
-pub fn list_picklists(connection: &Connection) -> Result<Vec<PicklistSummary>, EdgeError> {
+pub fn list_picklists(
+    connection: &Connection,
+    site_id: &str,
+) -> Result<Vec<PicklistSummary>, EdgeError> {
+    let mut waiting_by_session: BTreeMap<String, i64> = BTreeMap::new();
+    {
+        let mut statement = connection
+            .prepare(&format!(
+                "SELECT u.pick_session_id, COUNT(*) {WAITING_PICK_UNITS}
+                 GROUP BY u.pick_session_id"
+            ))
+            .map_err(db)?;
+        let rows = statement
+            .query_map(params![picking_place(site_id)], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
+            .map_err(db)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(db)?;
+        waiting_by_session.extend(rows);
+    }
     let mut statement = connection
         .prepare(
             "SELECT s.session_id, s.picker_id, s.started_at, s.closed_at, s.status,
-                    COUNT(DISTINCT e.sku_code), COALESCE(SUM(e.quantity), 0)
+                    COUNT(DISTINCT e.sku_code), COALESCE(SUM(e.quantity), 0),
+                    s.destination_id, s.allotment_id, w.allotment_number
                FROM pick_session s
+               LEFT JOIN dc_allotment_work w ON w.allotment_id = s.allotment_id
                LEFT JOIN dc_pick_event e ON e.pick_session_id = s.session_id
               GROUP BY s.session_id
               ORDER BY s.started_at DESC, s.session_id DESC",
@@ -987,16 +1218,22 @@ pub fn list_picklists(connection: &Connection) -> Result<Vec<PicklistSummary>, E
         .map_err(db)?;
     let rows = statement
         .query_map([], |row| {
+            let session_id: String = row.get(0)?;
+            let waiting = waiting_by_session.get(&session_id).copied().unwrap_or(0);
             Ok(PicklistSummary {
                 session: Session {
-                    session_id: row.get(0)?,
+                    session_id,
                     actor_id: row.get(1)?,
                     started_at: row.get(2)?,
                     closed_at: row.get(3)?,
                     status: row.get(4)?,
                 },
+                destination_id: row.get(7)?,
+                allotment_id: row.get(8)?,
+                allotment_number: row.get(9)?,
                 sku_count: row.get(5)?,
                 total_picked: row.get(6)?,
+                waiting,
             })
         })
         .map_err(db)?
@@ -1065,21 +1302,39 @@ pub struct PicklistLine {
     pub allotment_lines: i64,
 }
 
-/// Everything still owed across open allotments, added up by SKU.
-pub fn picklist(connection: &Connection) -> Result<Vec<PicklistLine>, EdgeError> {
+/// Everything still to fetch off the racks, added up by SKU: what open
+/// allotments are owed and no carton holds yet, less what already waits in the
+/// pick area for a carton.
+///
+/// The same arithmetic a pick is held to (`create_picklist`), so the list never
+/// offers a line the node would refuse: a piece fetched and not yet packed is
+/// the packer's work, not the picker's (owner, 28 Sep 2026).
+pub fn picklist(connection: &Connection, site_id: &str) -> Result<Vec<PicklistLine>, EdgeError> {
+    let picking = format!("{site_id}.outbound.picking:on_hand");
     let mut statement = connection
         .prepare(
-            "SELECT sku_code,
-                    SUM(accepted_quantity - picked_quantity - cancelled_quantity) AS outstanding,
-                    COUNT(*)
-               FROM dc_allotment_work_line
-              WHERE accepted_quantity - picked_quantity - cancelled_quantity > 0
-              GROUP BY sku_code
-              ORDER BY outstanding DESC, sku_code",
+            "SELECT want.sku_code,
+                    want.outstanding - COALESCE(have.available, 0) AS to_pick,
+                    want.lines
+               FROM (SELECT sku_code,
+                            SUM(accepted_quantity - picked_quantity - cancelled_quantity)
+                                AS outstanding,
+                            COUNT(*) AS lines
+                       FROM dc_allotment_work_line
+                      WHERE accepted_quantity - picked_quantity - cancelled_quantity > 0
+                      GROUP BY sku_code) want
+               LEFT JOIN (SELECT subject.sku_code, SUM(projection.quantity) AS available
+                            FROM inventory_projection projection
+                            JOIN inventory_subject subject ON subject.id = projection.subject_id
+                           WHERE projection.place_id = ?1 AND projection.quantity > 0
+                           GROUP BY subject.sku_code) have
+                 ON have.sku_code = want.sku_code
+              WHERE want.outstanding - COALESCE(have.available, 0) > 0
+              ORDER BY to_pick DESC, want.sku_code",
         )
         .map_err(db)?;
     let lines = statement
-        .query_map([], |row| {
+        .query_map(params![picking], |row| {
             Ok(PicklistLine {
                 sku_code: row.get(0)?,
                 outstanding: row.get(1)?,
@@ -1090,6 +1345,108 @@ pub fn picklist(connection: &Connection) -> Result<Vec<PicklistLine>, EdgeError>
         .collect::<Result<Vec<_>, _>>()
         .map_err(db)?;
     Ok(lines)
+}
+
+/// One picklist still to pick: one allotment's lines for one shop.
+///
+/// A picklist exists for every allotment × shop as soon as the allotment is
+/// here (owner, 29 Sep 2026) — nobody composes one. It is not a stored
+/// document until somebody accepts it: until then it is what the allotment
+/// still wants for that shop, and accepting it is the pick.
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct AllotmentPick {
+    pub allotment_id: String,
+    pub allotment_number: String,
+    pub destination_id: String,
+    /// When the allotment arrived here; the oldest is picked first.
+    pub created_at: String,
+    /// Pieces still to pick on this picklist.
+    pub pieces: i64,
+    pub lines: Vec<PicklistLine>,
+}
+
+/// Every picklist still to pick, one per allotment × shop, grouped by shop and
+/// oldest allotment first within it.
+///
+/// Per SKU: what the allotment's lines for that shop still want (accepted,
+/// not cancelled, not yet in a carton), less what was already picked FOR that
+/// allotment and shop and still waits in the pick area. The same arithmetic
+/// `pick_stock` holds an allotment's pick to, so a line offered here is never
+/// refused for being over what is owed.
+pub fn picklists_to_pick(
+    connection: &Connection,
+    site_id: &str,
+) -> Result<Vec<AllotmentPick>, EdgeError> {
+    let mut statement = connection
+        .prepare(&format!(
+            "SELECT want.allotment_id, work.allotment_number, want.destination_id,
+                    work.created_at, want.sku_code,
+                    want.outstanding - COALESCE(have.waiting, 0) AS to_pick,
+                    want.lines
+               FROM (SELECT line.allotment_id, line.destination_id, line.sku_code,
+                            SUM(line.accepted_quantity - line.picked_quantity
+                                - line.cancelled_quantity) AS outstanding,
+                            COUNT(*) AS lines
+                       FROM dc_allotment_work_line line
+                      WHERE line.accepted_quantity - line.picked_quantity
+                            - line.cancelled_quantity > 0
+                      GROUP BY line.allotment_id, line.destination_id, line.sku_code) want
+               JOIN dc_allotment_work work ON work.allotment_id = want.allotment_id
+               LEFT JOIN (SELECT s.allotment_id, s.destination_id, u.sku_code,
+                                 COUNT(*) AS waiting
+                            {WAITING_PICK_UNITS}
+                            AND s.allotment_id IS NOT NULL
+                          GROUP BY s.allotment_id, s.destination_id, u.sku_code) have
+                 ON have.allotment_id = want.allotment_id
+                AND have.destination_id = want.destination_id
+                AND have.sku_code = want.sku_code
+              WHERE work.application_status = 'ACCEPTED'
+                AND work.fulfillment_status IN ('OPEN', 'IN_PROGRESS')
+                AND want.outstanding - COALESCE(have.waiting, 0) > 0
+              ORDER BY want.destination_id, work.created_at, want.allotment_id,
+                       to_pick DESC, want.sku_code"
+        ))
+        .map_err(db)?;
+    let rows = statement
+        .query_map(params![picking_place(site_id)], |row| {
+            Ok((
+                (
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ),
+                PicklistLine {
+                    sku_code: row.get(4)?,
+                    outstanding: row.get(5)?,
+                    allotment_lines: row.get(6)?,
+                },
+            ))
+        })
+        .map_err(db)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db)?;
+    let mut picks: Vec<AllotmentPick> = Vec::new();
+    for ((allotment_id, allotment_number, destination_id, created_at), line) in rows {
+        match picks.last_mut() {
+            Some(pick)
+                if pick.allotment_id == allotment_id && pick.destination_id == destination_id =>
+            {
+                pick.pieces += line.outstanding;
+                pick.lines.push(line);
+            }
+            _ => picks.push(AllotmentPick {
+                allotment_id,
+                allotment_number,
+                destination_id,
+                created_at,
+                pieces: line.outstanding,
+                lines: vec![line],
+            }),
+        }
+    }
+    Ok(picks)
 }
 
 /// The surat jalan: one consignment, the boxes in it, and what is in them.
@@ -1205,7 +1562,7 @@ pub fn outstanding_for_destination(
                FROM (SELECT sku_code,
                             SUM(accepted_quantity - packed_quantity - cancelled_quantity) AS wanted
                        FROM dc_allotment_work_line
-                      WHERE destination_type <> 'SUPPLIER' AND destination_id = ?1
+                      WHERE destination_id = ?1
                         AND accepted_quantity - packed_quantity - cancelled_quantity > 0
                       GROUP BY sku_code) want
                LEFT JOIN (SELECT subject.sku_code, SUM(projection.quantity) AS available
@@ -1262,12 +1619,14 @@ pub struct DestinationDemand {
     pub packable: i64,
 }
 
-/// Every shop with something outstanding, busiest first.
+/// Every destination with something outstanding, busiest first.
 ///
 /// "Shop" was the only destination until the owner's routes of 2026-09-27: a
 /// shop's node now owes its returns to the Gudang, and a transfer to another
-/// shop, from the same work table. Any site a line goes to is listed; only the
-/// supplier, which is a counterparty and not a site, is not.
+/// shop, from the same work table. Every destination a line declares is listed,
+/// including `external/supplier` — a return to a supplier is packed and sent
+/// from the Gudang like any other route (0619's `RETUR_SUPPLIER` flow), and
+/// leaving it out of this list is what made one impossible to pack.
 ///
 /// **This is the list an edge node was missing.** Allotments are authored at
 /// the centre, so a DC has never had a roster of destinations — the packing
@@ -1289,8 +1648,7 @@ pub fn destinations_owed(
                FROM (SELECT destination_id, sku_code,
                             SUM(accepted_quantity - packed_quantity - cancelled_quantity) AS wanted
                        FROM dc_allotment_work_line
-                      WHERE destination_type <> 'SUPPLIER'
-                        AND accepted_quantity - packed_quantity - cancelled_quantity > 0
+                      WHERE accepted_quantity - packed_quantity - cancelled_quantity > 0
                       GROUP BY destination_id, sku_code) want
                LEFT JOIN (SELECT subject.sku_code, SUM(projection.quantity) AS available
                             FROM inventory_projection projection
@@ -1399,6 +1757,134 @@ pub fn open_packing_box(
     }
     tx.commit().map_err(db)?;
     load_packing_box(connection, &session_id)
+}
+
+/// What a sweep of an open box would find if the packer put the right
+/// garments in: for each target SKU, up to `target_qty` tagged units from this
+/// DC's picking area (oldest first, as picking and packing choose), plus a few
+/// tagged units of SKUs the box does not want.
+///
+/// Read-only. It exists for the handheld simulator — the demo reader that
+/// stands in for a real sweep — and is equally what a real handheld would show
+/// a packer as "put these in". Nothing here reserves a unit: two open boxes
+/// can be offered the same garment, exactly as two packers can reach for it.
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct BoxCandidates {
+    pub session_id: String,
+    pub destination_store_id: String,
+    pub lines: Vec<CandidateLine>,
+    /// Tagged units in the picking area of SKUs this box does not want: what a
+    /// wrong garment in the box looks like.
+    pub others: Vec<CandidateUnit>,
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct CandidateLine {
+    pub sku_code: String,
+    pub target_qty: i64,
+    /// At most `target_qty`; fewer when the picking area holds fewer.
+    pub epcs: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct CandidateUnit {
+    pub sku_code: String,
+    pub epc: String,
+}
+
+pub fn box_candidates(
+    connection: &Connection,
+    site_id: &str,
+    session_id: &str,
+) -> Result<BoxCandidates, EdgeError> {
+    let packing_box = load_packing_box(connection, session_id)?;
+    let picking = format!("{site_id}.outbound.picking:on_hand");
+    let mut units = connection
+        .prepare(
+            "SELECT subject.epc FROM inventory_projection projection
+               JOIN inventory_subject subject ON subject.id = projection.subject_id
+              WHERE projection.place_id = ?1 AND projection.quantity > 0
+                AND subject.subject_type = 'UNIT' AND subject.epc IS NOT NULL
+                AND subject.sku_code = ?2
+              ORDER BY subject.created_at, subject.epc
+              LIMIT ?3",
+        )
+        .map_err(db)?;
+    let mut lines = Vec::new();
+    for target in &packing_box.target {
+        let epcs = units
+            .query_map(
+                params![picking, target.sku_code, target.target_qty],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(db)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(db)?;
+        lines.push(CandidateLine {
+            sku_code: target.sku_code.clone(),
+            target_qty: target.target_qty,
+            epcs,
+        });
+    }
+    drop(units);
+    let wanted: Vec<&str> = packing_box.target.iter().map(|line| line.sku_code.as_str()).collect();
+    let mut others_statement = connection
+        .prepare(
+            "SELECT subject.sku_code, subject.epc FROM inventory_projection projection
+               JOIN inventory_subject subject ON subject.id = projection.subject_id
+              WHERE projection.place_id = ?1 AND projection.quantity > 0
+                AND subject.subject_type = 'UNIT' AND subject.epc IS NOT NULL
+              ORDER BY subject.created_at, subject.epc
+              LIMIT 200",
+        )
+        .map_err(db)?;
+    let others = others_statement
+        .query_map(params![picking], |row| {
+            Ok(CandidateUnit {
+                sku_code: row.get(0)?,
+                epc: row.get(1)?,
+            })
+        })
+        .map_err(db)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db)?
+        .into_iter()
+        .filter(|unit| !wanted.contains(&unit.sku_code.as_str()))
+        .take(5)
+        .collect();
+    Ok(BoxCandidates {
+        session_id: session_id.to_string(),
+        destination_store_id: packing_box.destination_store_id,
+        lines,
+        others,
+    })
+}
+
+/// Every box opened against a target and not yet frozen by a matching sweep:
+/// the packer's cartons still waiting for their scan. Newest first.
+pub fn open_packing_boxes(connection: &Connection) -> Result<Vec<PackingBox>, EdgeError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT session_id FROM packing_session
+              WHERE status='OPEN' AND koli_id IS NULL
+                AND destination_store_id IS NOT NULL
+                AND EXISTS (SELECT 1 FROM packing_session_target t
+                             WHERE t.session_id = packing_session.session_id)
+              ORDER BY started_at DESC",
+        )
+        .map_err(db)?;
+    let ids = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(db)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db)?;
+    drop(statement);
+    ids.iter()
+        .map(|id| load_packing_box(connection, id))
+        .collect()
 }
 
 pub fn load_packing_box(
@@ -1784,8 +2270,14 @@ mod tests {
             "0010_edge_pick_session_link.sql",
             "0011_edge_packing_capture.sql",
             "0012_edge_pick_event_rename.sql",
+            // A pick for one shop, and a trip note.
+            "0069_a_pick_is_for_one_shop_and_a_trip_is_a_note.sql",
+            // What the shop counted in, which a dispatch reads.
+            "0055_the_origin_lets_go_when_the_goods_arrive.sql",
             // Where a handheld's sweep lands.
             "0004_edge_auth.sql",
+            // A koli numbered by its year.
+            "0074_a_koli_is_numbered_by_its_year.sql",
         ] {
             if let Err(error) = connection.execute_batch(&schema(name)) {
                 panic!("{name}: {error}");
@@ -1854,23 +2346,109 @@ mod tests {
         }
     }
 
+    fn instant(text: &str) -> DateTime<Utc> {
+        match DateTime::parse_from_rfc3339(text) {
+            Ok(value) => value.with_timezone(&Utc),
+            Err(error) => panic!("{text}: {error}"),
+        }
+    }
+
+    fn koli_number_at(tx: &Transaction<'_>, site_id: &str, at: &str) -> String {
+        match next_koli_number(tx, site_id, instant(at)) {
+            Ok(value) => value,
+            Err(error) => panic!("{error}"),
+        }
+    }
+
     #[test]
-    fn numbers_are_minted_in_sequence_and_carry_their_site() {
+    fn a_koli_number_is_the_year_letter_and_a_five_digit_serial() {
+        let cases: [(i32, i64, &str); 5] = [
+            (2026, 1, "A00001"),
+            (2027, 1, "B00001"),
+            (2026, 42, "A00042"),
+            (2051, 1, "Z00001"),
+            (2026, KOLI_LAST_SERIAL, "A99999"),
+        ];
+        for (year, serial, expected) in cases {
+            match format_koli_number(year, serial) {
+                Ok(value) => assert_eq!(value, expected, "{year} #{serial}"),
+                Err(error) => panic!("{year} #{serial}: {error}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_year_without_a_letter_is_refused_not_wrapped() {
+        for year in [2052, 2025, 1970] {
+            match format_koli_number(year, 1) {
+                Err(EdgeError::Configuration(message)) => {
+                    assert!(message.contains(&year.to_string()), "{message}");
+                }
+                other => panic!("{year}: expected a refusal, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_serial_past_99999_is_refused() {
+        for serial in [KOLI_LAST_SERIAL + 1, 0, -1] {
+            match format_koli_number(2026, serial) {
+                Err(EdgeError::Conflict(message)) => {
+                    assert!(message.contains("99999"), "{message}");
+                }
+                other => panic!("#{serial}: expected a refusal, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn koli_numbers_are_minted_in_sequence_and_restart_each_year() {
         let mut connection = fixture();
         let tx = match connection.transaction() {
             Ok(tx) => tx,
             Err(error) => panic!("tx: {error}"),
         };
-        let first = match next_number(&tx, NumberKind::Koli, "dc-01") {
-            Ok(value) => value,
-            Err(error) => panic!("{error}"),
+        assert_eq!(koli_number_at(&tx, "dc-01", "2026-10-02T03:00:00Z"), "A00001");
+        assert_eq!(koli_number_at(&tx, "dc-01", "2026-10-02T03:00:01Z"), "A00002");
+        // 18:00 UTC on New Year's Eve is already 1 January in Jakarta, the
+        // offset a node uses until head office says otherwise.
+        assert_eq!(koli_number_at(&tx, "dc-01", "2026-12-31T18:00:00Z"), "B00001");
+        assert_eq!(koli_number_at(&tx, "dc-01", "2027-03-01T03:00:00Z"), "B00002");
+        // A DC numbers its own cartons; another site's counter is its own.
+        assert_eq!(koli_number_at(&tx, "dc-02", "2026-10-02T03:00:00Z"), "A00001");
+    }
+
+    #[test]
+    fn a_full_year_is_refused_rather_than_reusing_a_number() {
+        let mut connection = fixture();
+        let tx = match connection.transaction() {
+            Ok(tx) => tx,
+            Err(error) => panic!("tx: {error}"),
         };
-        let second = match next_number(&tx, NumberKind::Koli, "dc-01") {
-            Ok(value) => value,
-            Err(error) => panic!("{error}"),
+        if let Err(error) = tx.execute(
+            "INSERT INTO koli_number_counter (site_id, year, last_serial)
+             VALUES ('dc-01', 2026, 99999)",
+            [],
+        ) {
+            panic!("seed counter: {error}");
+        }
+        match next_koli_number(&tx, "dc-01", instant("2026-10-02T03:00:00Z")) {
+            Err(EdgeError::Conflict(message)) => assert!(message.contains("2026"), "{message}"),
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_missing_counter_resumes_after_the_highest_number_on_the_node() {
+        let mut connection = fixture();
+        seed_koli(&connection, "koli-old", "KOLI-dc-01-000777", 0);
+        seed_koli(&connection, "koli-7", "A00007", 0);
+        let tx = match connection.transaction() {
+            Ok(tx) => tx,
+            Err(error) => panic!("tx: {error}"),
         };
-        assert_eq!(first, "KOLI-dc-01-000001");
-        assert_eq!(second, "KOLI-dc-01-000002");
+        assert_eq!(koli_number_at(&tx, "dc-01", "2026-10-02T03:00:00Z"), "A00008");
+        assert_eq!(koli_number_at(&tx, "dc-01", "2027-01-02T03:00:00Z"), "B00001");
     }
 
     #[test]
@@ -1880,13 +2458,15 @@ mod tests {
             Ok(tx) => tx,
             Err(error) => panic!("tx: {error}"),
         };
-        let koli = next_number(&tx, NumberKind::Koli, "dc-01").unwrap_or_default();
+        let koli = koli_number_at(&tx, "dc-01", "2026-10-02T03:00:00Z");
         let shipment = next_number(&tx, NumberKind::Shipment, "dc-01").unwrap_or_default();
-        assert_eq!(koli, "KOLI-dc-01-000001");
+        let second = next_number(&tx, NumberKind::Shipment, "dc-01").unwrap_or_default();
+        assert_eq!(koli, "A00001");
         assert_eq!(
             shipment, "SJ-dc-01-000001",
             "its own counter, not a shared one"
         );
+        assert_eq!(second, "SJ-dc-01-000002");
     }
 
     #[test]
@@ -2024,6 +2604,7 @@ mod tests {
             &mut connection,
             "dc-01",
             CreateDispatchRequest {
+                trip_note: None,
                 shipment_ids: vec![shipment.shipment_id.clone()],
                 carrier: Some("Kilat".into()),
                 vehicle_plate: Some("B 1234 XY".into()),
@@ -2080,6 +2661,7 @@ mod tests {
             &mut connection,
             "dc-01",
             CreateDispatchRequest {
+                trip_note: None,
                 shipment_ids: vec![first.shipment_id],
                 carrier: None,
                 vehicle_plate: None,
@@ -2202,7 +2784,7 @@ mod tests {
         ) {
             panic!("seed second line: {error}");
         }
-        let lines = match picklist(&connection) {
+        let lines = match picklist(&connection, "dc-01") {
             Ok(lines) => lines,
             Err(error) => panic!("{error}"),
         };
@@ -2257,6 +2839,7 @@ mod tests {
             &mut connection,
             "dc-01",
             CreateDispatchRequest {
+                trip_note: None,
                 shipment_ids: vec![shipment.shipment_id],
                 carrier: None,
                 vehicle_plate: None,
@@ -2406,7 +2989,7 @@ mod tests {
             }
         }
 
-        let summary = match pick_session_summary(&connection, &session.session_id) {
+        let summary = match pick_session_summary(&connection, "dc-01", &session.session_id) {
             Ok(summary) => summary,
             Err(error) => panic!("{error}"),
         };
@@ -2441,7 +3024,7 @@ mod tests {
             },
         )
         .unwrap_or_else(|error| panic!("{error}"));
-        let summary = pick_session_summary(&connection, &session.session_id)
+        let summary = pick_session_summary(&connection, "dc-01", &session.session_id)
             .unwrap_or_else(|error| panic!("{error}"));
         assert_eq!(summary.total_picked, 0, "a loose pick joins no round");
     }

@@ -105,6 +105,7 @@ export function StoreDetail() {
                     unit={unit}
                     siteId={siteId}
                     tills={data.store.tills}
+                    canManage={data.can_manage}
                   />
                 ) : (
                   <NoSiteYet />

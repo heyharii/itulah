@@ -5,7 +5,7 @@
  */
 export type BankStatementFacet = { value: string, 
 /**
- * The client's own name for an account, the site's name for a location;
+ * The client's own name for an account, the unit's name for a unit;
  * absent for a state, whose words belong to the screen.
  */
 label: string | null, count: number, };

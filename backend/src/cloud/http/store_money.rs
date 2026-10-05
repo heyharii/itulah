@@ -29,10 +29,10 @@
 //! at the wrong hour.
 
 use super::auth::Principal;
-use super::employment::reach_of;
+use super::scope::Scope;
 use crate::cloud::{
     application::{AppError, AppState},
-    domain::{Reach, Role},
+    domain::Role,
     postgres as infrastructure,
 };
 use axum::{
@@ -141,26 +141,14 @@ pub fn lane_b_routes(router: Router<AppState>) -> Router<AppState> {
 // Who may act, and where
 // ---------------------------------------------------------------------------
 
-/// Refuse a session that may not act on this unit's money.
-///
-/// The message names the unit rather than saying "forbidden", because the
-/// person reading it is usually somebody who picked the wrong row from a list.
+/// Refuse a session that may not act on this unit's money — the one answer
+/// every scoped route gives (`http::scope`).
 async fn allow_unit(
     state: &AppState,
     principal: &Principal,
     unit_id: &str,
 ) -> Result<(), AppError> {
-    let reach = reach_of(state, principal).await?;
-    if reach.covers(Some(unit_id)) {
-        return Ok(());
-    }
-    Err(AppError::Forbidden(match reach {
-        Reach::Nowhere => format!(
-            "this login has no open posting, so it cannot act on {unit_id}'s money. Ask HR to \
-             post you to a unit."
-        ),
-        _ => format!("this login does not cover {unit_id}"),
-    }))
+    Scope::of(state, principal).await?.require_unit(unit_id)
 }
 
 /// Refuse a session that may not act on this shop: the unit that owns it is
@@ -170,36 +158,24 @@ async fn allow_site(
     principal: &Principal,
     site_id: &str,
 ) -> Result<(), AppError> {
-    let unit = infrastructure::sites::unit_of_site(&state.db, site_id).await?;
-    allow_unit(state, principal, &unit).await
+    Scope::of(state, principal)
+        .await?
+        .require_site(state, site_id)
+        .await
 }
 
 /// The unit a list is bounded to, or `None` for a caller who reaches
-/// everywhere.
-///
-/// The distinction matters: `None` from a `Nowhere` reach would return the
-/// whole fleet's cash to exactly the caller who should see none of it, which is
-/// why `Reach` is an enum and this function refuses rather than returning
-/// `None`.
+/// everywhere. A caller who reaches nowhere is refused rather than handed
+/// `None`, which would return the whole fleet's cash to exactly the caller who
+/// should see none of it.
 async fn list_scope(
     state: &AppState,
     principal: &Principal,
     asked: Option<&str>,
 ) -> Result<Option<String>, AppError> {
-    let reach = reach_of(state, principal).await?;
-    if reach.is_nowhere() {
-        return Err(AppError::Forbidden(
-            "this login has no open posting, so there is no store whose money it may read".into(),
-        ));
-    }
-    match (reach.sole_unit(), asked) {
-        (Some(mine), Some(asked)) if mine.as_str() != asked => Err(AppError::Forbidden(format!(
-            "this login covers {} and not {asked}",
-            mine.as_str()
-        ))),
-        (Some(mine), _) => Ok(Some(mine.as_str().to_owned())),
-        (None, asked) => Ok(asked.map(str::to_owned)),
-    }
+    Scope::of(state, principal)
+        .await?
+        .unit(asked.map(str::to_owned))
 }
 
 /// Head office only.

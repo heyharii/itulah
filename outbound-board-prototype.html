@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Outbound board (prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Ops → Outbound: one board, five lanes, only outbound.
+
+   Picklist → Picked → Packed → In transit → Received. A card is one store's
+   share of one allotment. Cards are never dragged: each lane has the one
+   thing the Gudang does there, and doing it moves the card. Dispatch takes
+   several cards at once — one truck, one surat jalan per store.
+
+   Everything else the downloaded "Papan Outbound HO" carried lives in its
+   own place in the hub: allotments in Merchandise, receiving in Ops →
+   Receiving, stock control in Inventory.
+
+   Hub tokens, 16px root, nothing under 14px, English copy.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f8f9; --soft-2:#f0f0f2; --soft-3:#f6f6f7;
+  --hairline:#e6e6e9; --hairline-2:#dadade; --hairline-strong:#c6c6cc;
+  --rail:#242526; --rail-3:#393b3d; --rail-text:#c3c4c7;
+  --scrim:rgba(246,246,247,.72);
+  --accent:#2563eb; --accent-bg:#eff5ff; --cta:#2563eb; --cta-hover:#1d4ed8;
+  --ok:#36b827; --ok-bg:#e8f6ee; --ok-fg:#15803d;
+  --warn:#c9892e; --warn-bg:#fdf1dd; --warn-fg:#b45309;
+  --bad:#d05151; --bad-fg:#be123c; --info:#2f86d8;
+  --r-card:.75rem; --r-inner:.4375rem;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);
+  --shadow-float:0 2px 6px rgb(24 39 60/5%),0 24px 64px rgb(24 39 60/16%);
+}
+*{box-sizing:border-box}
+html{font-size:16px}
+html,body{height:100%;margin:0}
+body{font-family:Inter,system-ui,sans-serif;font-size:15px;color:var(--text);background:var(--soft-3);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:left}
+input,select{font:inherit;color:var(--ink)}
+svg.lucide{width:17px;height:17px;stroke-width:1.7;flex-shrink:0}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px}
+.shell{display:flex;height:100vh}
+.col{width:68px;background:var(--rail);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:6px;flex-shrink:0}
+.mark{width:30px;height:30px;border-radius:8px;background:#0b0b0b;color:#fff;display:grid;place-items:center;font-weight:600;position:relative;margin-bottom:10px}
+.mark::after{content:"";position:absolute;right:5px;bottom:5px;width:5px;height:5px;border-radius:50%;background:#3b82f6}
+.ci{width:40px;height:40px;border-radius:9px;display:grid;place-items:center;color:var(--rail-text)}
+.ci.on{background:var(--rail-3);color:#fff}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.bar{height:52px;display:flex;align-items:center;gap:8px;padding:0 28px;border-bottom:1px solid var(--hairline);color:var(--body);flex-shrink:0}
+.bar b{color:var(--ink);font-weight:500}
+.bar svg{width:15px;height:15px;color:var(--faint)}
+.head{padding:24px 28px 14px;display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap}
+.head h1{margin:0;font-size:28px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+.head p{margin:6px 0 0;color:var(--body)}
+.head .tools{margin-left:auto;display:flex;gap:8px}
+.inp{height:44px;border-radius:var(--r-inner);border:1px solid var(--hairline-2);background:var(--canvas);display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--mute)}
+.inp input{border:0;outline:none;width:16rem;background:none}
+.inp select{border:0;outline:none;background:none;height:100%;padding-right:4px}
+.btn{height:40px;padding:0 14px;border-radius:var(--r-inner);border:1px solid var(--hairline-2);background:var(--canvas);color:var(--ink);display:inline-flex;align-items:center;gap:8px;font-weight:500;white-space:nowrap}
+.btn:hover{background:var(--soft)}
+.btn.pri{background:var(--cta);color:#fff;border-color:var(--cta)}
+.btn.pri:hover{background:var(--cta-hover)}
+.btn.sm{height:36px;padding:0 12px}
+.btn svg{width:16px;height:16px}
+
+/* the board: flat lanes split by hairlines; one card anatomy everywhere */
+.board{flex:1;min-height:0;display:grid;grid-template-columns:repeat(5,minmax(15rem,1fr));gap:12px;margin:0 28px 24px;overflow-x:auto}
+.lane{display:flex;flex-direction:column;min-height:0;background:var(--soft-2);border-radius:var(--r-card)}
+.lh{padding:16px 16px 4px}
+.lh .t{display:flex;align-items:center;gap:8px;font-weight:600;color:var(--ink)}
+.lh .t .n{margin-left:auto;font-weight:500;color:var(--body);font-variant-numeric:tabular-nums}
+.lh .s{color:var(--body);font-size:14px;margin-top:2px}
+.lb{flex:1;min-height:0;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px}
+.lf{padding:0 14px 14px}
+.lf .btn{width:100%;justify-content:center}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.card{background:var(--canvas);border-radius:10px;border:1px solid transparent;padding:14px 16px;display:flex;flex-direction:column;gap:6px;transition:border-color 120ms,box-shadow 120ms,background 120ms}
+.card:hover{border-color:var(--hairline)}
+.card.sel{border-color:var(--accent);background:var(--accent-bg)}
+.card.new{animation:arrive 420ms var(--ease-out)}
+@keyframes arrive{from{opacity:0;transform:translateY(-6px)}}
+.card .r1{display:flex;align-items:center;gap:10px}
+.card .store{font-weight:500;color:var(--ink);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .pcs{font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+.card .r2{display:flex;justify-content:space-between;gap:8px;color:var(--body);font-size:14px}
+.card .note{font-size:14px}
+.card .note.warn{color:var(--warn-fg)}
+.card .note.bad{color:var(--bad-fg)}
+.card .note.ok{color:var(--ok-fg);display:flex;align-items:center;gap:4px}
+.card .note svg{width:14px;height:14px}
+.card .act{margin-top:8px}
+.late{width:7px;height:7px;border-radius:50%;background:var(--warn);flex-shrink:0}
+.card .act .btn{width:100%;justify-content:center;height:36px}
+.box{width:20px;height:20px;border-radius:5px;border:1.5px solid var(--hairline-strong);background:var(--canvas);display:grid;place-items:center;color:#fff;flex-shrink:0;padding:0}
+.box:hover{border-color:var(--accent)}
+.box svg{width:12px;height:12px;stroke-width:2.6;display:none}
+.card.sel .box{background:var(--accent);border-color:var(--accent)}
+.card.sel .box svg{display:block}
+.empty{color:var(--mute);text-align:center;padding:24px 8px;font-size:14px}
+
+/* card: third line and flags */
+.card{cursor:pointer}
+.card.open{border-color:var(--ink)}
+.card .r3{display:flex;align-items:center;gap:8px;color:var(--mute);font-size:14px}
+.card .late-t{color:var(--warn-fg)}
+.flag{font-size:14px;margin-left:auto}
+.flag.bad{color:var(--bad-fg)}
+/* detail sheet */
+.side{position:fixed;z-index:30;top:20px;right:20px;bottom:20px;width:44rem;max-width:calc(100vw - 40px);background:var(--canvas);border:1px solid var(--hairline);border-radius:1rem;box-shadow:var(--shadow-float);display:flex;flex-direction:column;overflow:hidden;animation:slide 260ms cubic-bezier(.32,.72,0,1)}
+@keyframes slide{from{transform:translateX(calc(100% + 20px))}}
+.sh{display:flex;align-items:flex-start;gap:12px;padding:20px 16px 16px 28px;border-bottom:1px solid var(--hairline)}
+.sh .g{flex:1}
+.kicker{display:flex;align-items:center;gap:8px;color:var(--body);font-size:14px;margin-bottom:4px}
+.sh h2{margin:0;font-size:20px;font-weight:600;color:var(--ink)}
+.docs{color:var(--body);margin-top:4px}
+.sb{flex:1;overflow-y:auto;padding:24px 28px}
+.sb td{height:58px;padding:0 16px}
+.sb th{height:44px;padding:0 16px}
+.sb td.n,.sb th.n{width:56px;padding-right:8px}
+.sf{border-top:1px solid var(--hairline);padding:16px 28px;display:flex;gap:8px;justify-content:flex-end}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:14px 20px;margin:0 0 20px}
+.facts dt{color:var(--body);font-size:14px}
+.facts dd{margin:4px 0 0;color:var(--ink)}
+.nm{display:block;color:var(--ink);font-weight:500}
+.sk{display:block;color:var(--mute);font-size:14px}
+td.n,th.n{width:44px;color:var(--mute)}
+tfoot td{background:var(--soft);font-weight:600;color:var(--ink);border-bottom:0}
+.sb h3{font-size:15px;margin:22px 0 10px;color:var(--ink)}
+.koli{display:grid;grid-template-columns:repeat(auto-fill,minmax(7rem,1fr));gap:8px}
+.koli div{background:var(--soft);border-radius:8px;padding:10px 12px;display:flex;justify-content:space-between}
+.page-pad{padding-right:34rem}
+/* cancelled: muted card, one red word */
+.card.cancelled{background:var(--soft);border-color:var(--hairline)}
+.card.cancelled .store,.card.cancelled .r2{color:var(--mute)}
+.cx{color:var(--bad-fg);font-weight:500;font-size:14px}
+/* trip notes */
+.tlabel{display:block;color:var(--body);margin-bottom:6px}
+.trip{width:100%;min-height:84px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:10px 12px;font:inherit;color:var(--ink);outline:none;resize:vertical;margin-bottom:16px}
+.trip:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgb(37 99 235/.12)}
+/* follow-up screens */
+.head[hidden],.other[hidden]{display:none}
+.other{flex:1;overflow-y:auto;padding:24px 28px 120px}
+.vh h1{margin:0;font-size:28px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+.vh p{margin:6px 0 20px;color:var(--body)}
+.vt{font-size:15px;color:var(--ink);margin:20px 0 10px;display:flex;gap:8px}
+.vt span{color:var(--mute);font-weight:400}
+.other .tcard{background:var(--canvas)}
+.other td{height:60px;padding:0 16px}
+.other th{height:44px;padding:0 16px}
+.other td.act{text-align:right;white-space:nowrap;width:1%}
+.other td.strong{color:var(--ink);font-weight:500}
+.none{color:var(--mute);padding:20px 0}
+.pill{font-size:14px;border-radius:6px;padding:3px 10px;background:var(--soft-2);color:var(--body);white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok-fg)}
+.pill.info{background:var(--accent-bg);color:#1e40af}
+.pill.bad{background:#fbeaea;color:var(--bad-fg)}
+.again{font-size:14px;font-weight:500;color:var(--accent);margin-left:4px}
+.proto{position:fixed;right:16px;bottom:16px;z-index:90;background:#191b20;border-radius:12px;padding:4px;box-shadow:var(--shadow-float);font-size:14px}
+.proto .seg{display:flex;background:#2a2c31;border-radius:9px;padding:3px}
+.proto .seg button{height:32px;padding:0 12px;border-radius:6px;color:#a9abb1;white-space:nowrap}
+.proto .seg button.on{background:#fff;color:#191b20;font-weight:500}
+.proto .seg b{color:#f5b453;font-weight:600;margin-left:4px}
+.proto .seg button.on b{color:var(--warn-fg)}
+/* pack: koli by koli */
+.dlg.packw{width:min(68rem,100%)}
+.packw .db{padding:24px 28px}
+.packw .dh{padding:20px 16px 16px 28px}
+.packw .df{padding:16px 28px}
+.packw td{height:60px;padding:0 16px}
+.packw th{height:44px;padding:0 16px}
+.packw td.n,.packw th.n{width:56px;padding-right:8px}
+.packw .qs{gap:10px}
+.packw .qs input{width:64px;height:44px;font-size:16px}
+.packw .qs button{width:44px;height:44px}
+.kdone{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}
+.kdone span{display:flex;gap:10px;align-items:center;background:var(--soft-2);border-radius:8px;padding:8px 12px;color:var(--body)}
+.kdone b{color:var(--ink)}
+.khead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.khead b{font-size:16px;color:var(--ink)}
+.link{color:var(--accent);font-weight:500}
+.qs{display:inline-flex;align-items:center;gap:8px}
+.qs button{width:40px;height:40px;border-radius:var(--r-inner);border:1px solid var(--hairline-2);display:grid;place-items:center;background:var(--canvas)}
+.qs button:disabled{opacity:.35;cursor:default}
+.qs input{width:56px;height:40px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);text-align:center;font-variant-numeric:tabular-nums;outline:none}
+.qs input:focus{border-color:var(--accent)}
+tr.gone td{color:var(--mute)}
+.shortrow td{background:#fffaf1}
+.alldone{display:flex;align-items:center;gap:10px;justify-content:center;padding:28px;color:var(--ok-fg);font-weight:500}
+.btn:disabled{opacity:.45;cursor:default}
+/* pack: big, one question */
+.dlg.pack{width:min(26rem,100%)}
+.klabel{text-align:center;color:var(--body);margin-bottom:10px}
+.kstep{display:flex;align-items:center;justify-content:center;gap:16px}
+.kstep button{width:64px;height:64px;border-radius:14px;border:1px solid var(--hairline-2);display:grid;place-items:center;color:var(--ink);background:var(--canvas)}
+.kstep button:hover{background:var(--soft)}
+.kstep button svg{width:24px;height:24px}
+.kstep input{width:96px;height:64px;border:0;text-align:center;font-size:40px;font-weight:600;color:var(--ink);outline:none;font-variant-numeric:tabular-nums}
+.btn.big{flex:1;height:52px;justify-content:center;font-size:16px}
+/* dialog */
+.veil{position:fixed;inset:0;background:var(--scrim);z-index:40;display:flex;align-items:center;justify-content:center;padding:24px;animation:fade 160ms}
+@keyframes fade{from{opacity:0}}
+.dlg{width:min(44rem,100%);max-height:calc(100vh - 48px);background:var(--canvas);border:1px solid var(--hairline);border-radius:1rem;box-shadow:var(--shadow-float);display:flex;flex-direction:column;overflow:hidden}
+.dh{display:flex;align-items:flex-start;gap:12px;padding:20px 16px 14px 24px;border-bottom:1px solid var(--hairline)}
+.dh h2{margin:0;font-size:20px;font-weight:600;color:var(--ink)}
+.dh p{margin:4px 0 0;color:var(--body)}
+.dh .g{flex:1}
+.ib{width:36px;height:36px;border-radius:var(--r-inner);display:grid;place-items:center;color:var(--line-ico)}
+.ib:hover{background:var(--soft-2)}
+.db{padding:18px 24px;overflow-y:auto}
+.df{border-top:1px solid var(--hairline);padding:14px 20px 14px 24px;display:flex;gap:8px;align-items:center}
+.df .g{flex:1;color:var(--body)}
+table{width:100%;border-collapse:collapse}
+th{height:40px;text-align:left;font-weight:500;color:var(--body);padding:0 12px;border-bottom:1px solid var(--hairline);background:var(--soft);font-size:14px}
+td{height:48px;padding:0 12px;border-bottom:1px solid var(--hairline)}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+.tcard{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+.field{margin-bottom:14px}
+.field label{display:block;color:var(--body);margin-bottom:6px}
+.field input{width:100%;height:47px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 12px;outline:none}
+.field input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgb(37 99 235/.12)}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#191b20;color:#fff;padding:12px 18px;border-radius:10px;z-index:80;box-shadow:var(--shadow-pop)}
+
+/* phone: one lane at a time */
+.tabs{display:none}
+@media (max-width:767px){
+  .board{margin:0 16px 16px}
+  .col{display:none}
+  .bar,.head{padding-left:16px;padding-right:16px}
+  .head .tools{width:100%;margin:0}.inp{flex:1}.inp input{width:100%}
+  .tabs{display:flex;gap:4px;overflow-x:auto;padding:0 16px 10px;scrollbar-width:none}
+  .tabs button{height:40px;padding:0 12px;border-radius:20px;border:1px solid var(--hairline-2);white-space:nowrap;background:var(--canvas)}
+  .tabs button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .board{grid-template-columns:1fr}
+  .lane{display:none}.lane.show{display:flex}
+  .btn{height:44px}
+  .veil{padding:0;align-items:flex-end}.dlg{border-radius:16px 16px 0 0;max-height:92vh}
+}
+
+/* spacious: every row breathes, and a two-line cell (name over SKU) gets room above and below */
+td{padding-top:14px!important;padding-bottom:14px!important;min-height:64px}
+tbody td{height:64px}
+.tree td{height:52px}
+.nm{line-height:1.4}
+.sk{line-height:1.4;margin-top:4px}
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="col"><span class="mark">C</span><span class="ci"><i data-lucide="house"></i></span><span class="ci on"><i data-lucide="truck"></i></span><span class="ci"><i data-lucide="boxes"></i></span><span class="ci"><i data-lucide="shirt"></i></span></nav>
+  <div class="main">
+    <header class="bar" id="crumb">Ops<i data-lucide="chevron-right"></i><b>Outbound</b></header>
+    <div class="other" id="other" hidden></div>
+    <div class="head" id="obhead">
+      <div><h1>Outbound</h1></div>
+      <div class="tools"><label class="inp"><i data-lucide="search"></i><input id="q" placeholder="Search store, allotment or surat jalan"></label><label class="inp"><select id="st"><option value="">All stores</option></select></label></div>
+    </div>
+    <div class="tabs" id="tabs"></div>
+    <div class="board" id="board"></div>
+  </div>
+</div>
+<div id="side"></div>
+<div class="proto"><div class="seg" id="vseg"></div></div>
+<div id="dlg"></div>
+
+<script>
+/* ── data: a card is one store's share of one allotment ─────────────────── */
+const STORES=['Store Kemang','Store PIK','Store Senayan','Store BSD','Store Bintaro','Store Kelapa Gading'];
+let seq=0;
+const C=[
+  {s:'Store Kemang',a:'ALT-0412',pcs:240,lane:'pick',age:0,sup:'PT Sinar Garmen'},
+  {s:'Store PIK',a:'ALT-0412',pcs:180,lane:'pick',age:1,sup:'PT Sinar Garmen',short:12},
+  {s:'Store Senayan',a:'ALT-0411',pcs:96,lane:'pick',age:3,sup:'CV Benang Mas',cancelled:true},
+  {s:'Store BSD',a:'ALT-0410',pcs:150,lane:'picked',age:0,sup:'Konveksi Anugerah'},
+  {s:'Store Bintaro',a:'ALT-0410',pcs:120,lane:'picked',age:1,sup:'Konveksi Anugerah',cancelled:true},
+  {s:'Store Kemang',a:'ALT-0408',pcs:300,lane:'packed',koli:4,age:0,sup:'PT Tekstil Jaya'},
+  {s:'Store PIK',a:'ALT-0408',pcs:210,lane:'packed',koli:3,age:1,sup:'PT Tekstil Jaya'},
+  {s:'Store Kelapa Gading',a:'ALT-0407',pcs:80,lane:'packed',koli:1,age:2,sup:'CV Kain Nusantara',cancelled:true},
+  {s:'Store Senayan',a:'ALT-0405',pcs:260,lane:'transit',koli:3,sj:'SJ-290926-004',age:1},
+  {s:'Store BSD',a:'ALT-0404',pcs:140,lane:'transit',koli:2,sj:'SJ-280926-002',age:3},
+  {s:'Store Kemang',a:'ALT-0402',pcs:190,lane:'recv',koli:2,sj:'SJ-270926-001',age:2,got:190},
+  {s:'Store PIK',a:'ALT-0401',pcs:220,lane:'recv',koli:3,sj:'SJ-260926-003',age:4,got:214},
+].map(c=>({...c,id:++seq}));
+/* What each lane means — said once, under its name. */
+const ARTS=[['Kemeja Oxford Slim','KMJ-OXF-SL'],['Kemeja Linen Relaxed','KMJ-LNN-RX'],['Celana Chino Tapered','CLN-CHN-TP'],['Polo Pique Basic','PLO-PQ-BS'],['Kaos Crew Basic','KAO-CRW-BS'],['Jaket Bomber Light','JKT-BMB-LT']];
+const SIZES=['S','M','L','XL'];
+/* A card's lines, made once from its pieces: SKU, rack, qty — in rack order, the walk a picker makes. */
+function linesOf(c){
+  if(c.lines)return c.lines;
+  const n=3+(c.id%4), out=[];let left=c.pcs;
+  for(let i=0;i<n;i++){
+    const a=ARTS[(c.id+i)%ARTS.length], sz=SIZES[(c.id*3+i)%SIZES.length];
+    const q=i===n-1?left:Math.max(4,Math.round(c.pcs/n/4)*4);left-=q;
+    out.push({name:a[0],sku:a[1]+'-'+sz,size:sz,rack:String.fromCharCode(65+((c.id+i*2)%5))+'-'+String(1+(i*7+c.id)%12).padStart(2,'0'),qty:q});
+  }
+  out.sort((a,b)=>a.rack.localeCompare(b.rack));
+  if(c.short)out[0].short=c.short;
+  if(c.lane==='recv'&&c.got<c.pcs)out[out.length-1].miss=c.pcs-c.got;
+  return c.lines=out;
+}
+const LANES=[
+  {k:'pick',l:'To pick',dot:'var(--faint)',sub:'Picklist per store'},
+  {k:'picked',l:'Picked',dot:'var(--warn)',sub:'Gathered, not packed'},
+  {k:'packed',l:'Packed',dot:'var(--info)',sub:'In koli, ready'},
+  {k:'transit',l:'In transit',dot:'var(--accent)',sub:'Surat jalan out'},
+  {k:'recv',l:'Received',dot:'var(--ok)',sub:'Store counted · 7 days'},
+];
+const S={q:'',store:'',sel:new Set(),phoneLane:'pick',fresh:null,open:null};
+const $=id=>document.getElementById(id);
+const icons=()=>lucide.createIcons({attrs:{'stroke-width':1.7}});
+const id=n=>n.toLocaleString('id-ID');
+function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),2600)}
+const shown=()=>C.filter(c=>(!S.store||c.s===S.store)&&(c.s+' '+c.a+' '+(c.sj||'')).toLowerCase().includes(S.q.toLowerCase()));
+
+/* ── board ──────────────────────────────────────────────────────────────── */
+function card(c){
+  const L=linesOf(c), late=c.age>=3&&c.lane!=='recv';
+  const doc=c.lane==='transit'||c.lane==='recv'?c.sj:c.a;
+  const meta=c.lane==='pick'||c.lane==='picked'?L.length+' SKUs':c.koli+' koli';
+  const short=c.lane==='recv'&&c.got<c.pcs;
+  const qty=c.lane==='recv'?'<span'+(short?' style="color:var(--bad-fg)"':'')+'>'+id(c.got)+'</span> / '+id(c.pcs):id(c.pcs);
+  const when=c.lane==='recv'?(c.age?c.age+'d ago':'today'):(c.age?c.age+'d':'today');
+  const flag=c.short&&c.lane==='pick'?'<span class="flag bad">Rack short</span>':short?'<span class="flag bad">'+(c.pcs-c.got)+' missing</span>':'';
+  const undo={pick:'Remove',picked:'Back to stock',packed:'Unpack'}[c.lane];
+  const act=c.cancelled?'<button class="btn" onclick="event.stopPropagation();dropCard('+c.id+')">'+undo+'</button>'
+    :c.lane==='pick'?'<button class="btn" onclick="event.stopPropagation();finishPick('+c.id+')">Picked</button>'
+    :c.lane==='picked'?'<button class="btn" onclick="event.stopPropagation();openPack('+c.id+')">Pack</button>':'';
+  return '<div class="card'+(c.cancelled?' cancelled':'')+(S.sel.has(c.id)?' sel':'')+(S.fresh===c.id?' new':'')+(S.open===c.id?' open':'')+'" onclick="openDetail('+c.id+')">'
+    +'<div class="r1">'+(c.lane==='packed'&&!c.cancelled?'<button class="box" onclick="event.stopPropagation();pick('+c.id+')" aria-label="Select for dispatch"><i data-lucide="check"></i></button>':'')+'<span class="store">'+c.s+(c.again?' <span class="again">Pick again</span>':'')+'</span>'+(c.cancelled?'<span class="cx">Cancelled</span>':'<span class="pcs">'+qty+' pcs</span>')+'</div>'
+    +'<div class="r2"><span class="mono">'+doc+'</span><span>'+meta+'</span></div>'
+    +(act?'<div class="act">'+act+'</div>':'')+'</div>';
+}
+function render(){
+  const cs=shown();
+  $('tabs').innerHTML=LANES.map(l=>'<button class="'+(S.phoneLane===l.k?'on':'')+'" onclick="S.phoneLane=\''+l.k+'\';render()">'+l.l+' · '+cs.filter(c=>c.lane===l.k).length+'</button>').join('');
+  $('board').innerHTML=LANES.map(l=>{
+    const lc=cs.filter(c=>c.lane===l.k).sort((a,b)=>b.age-a.age), pcs=lc.reduce((s,c)=>s+(l.k==='recv'?c.got:c.pcs),0);
+    let foot='';
+    if(l.k==='packed'){const n=[...S.sel].filter(x=>lc.some(c=>c.id===x)).length;foot='<div class="lf"><button class="btn '+(n?'pri':'')+'" onclick="openDispatch()"><i data-lucide="truck"></i>'+(n?'Dispatch '+n:'Dispatch')+'</button></div>'}
+    return '<section class="lane'+(S.phoneLane===l.k?' show':'')+'"><div class="lh"><div class="t"><span class="dot" style="background:'+l.dot+'"></span>'+l.l+'<span class="n">'+id(pcs)+' pcs</span></div><div class="s">'+lc.length+' store'+(lc.length===1?'':'s')+'</div></div>'
+      +'<div class="lb">'+(lc.length?lc.map(card).join(''):'<div class="empty">Nothing here.</div>')+'</div>'+foot+'</section>';
+  }).join('');
+  S.fresh=null;icons();
+}
+
+/* ── the one thing done in each lane ────────────────────────────────────── */
+function move(c,lane,extra){Object.assign(c,{lane,age:0},extra||{});S.fresh=c.id;if(S.open===c.id)setTimeout(renderDetail)}
+/* Detail: the card's contents, and what can be printed from it. */
+function openDetail(cid){S.open=cid;render();renderDetail()}
+function closeDetail(){S.open=null;$('side').innerHTML='';render()}
+function renderDetail(){
+  const c=C.find(x=>x.id===S.open);if(!c){$('side').innerHTML='';return}
+  const L=linesOf(c), lane=LANES.find(l=>l.k===c.lane), recv=c.lane==='recv';
+  /* One table: number, SKU, qty. Nothing else. */
+  const body='<div class="tcard"><table><thead><tr><th class="n">No.</th><th>SKU</th><th class="r">Qty</th></tr></thead><tbody>'
+    +L.map((l,i)=>{const q=recv?l.qty-(l.miss||0):l.qty;return '<tr><td class="n">'+(i+1)+'</td><td><span class="nm">'+l.name+' · '+l.size+'</span><span class="sk">'+l.sku+'</span></td><td class="r"'+(recv&&l.miss?' style="color:var(--bad-fg)"':'')+'>'+q+(recv&&l.miss?' / '+l.qty:'')+'</td></tr>'}).join('')
+    +'</tbody><tfoot><tr><td></td><td>Total</td><td class="r">'+(recv?id(c.got)+' / ':'')+id(c.pcs)+'</td></tr></tfoot></table></div>';
+  const print=c.lane==='pick'||c.lane==='picked'?'Print picklist':c.lane==='packed'?'Print koli labels':'Print surat jalan';
+  const main=c.cancelled?'<button class="btn pri" onclick="dropCard('+c.id+')">'+{pick:'Remove',picked:'Back to stock',packed:'Unpack'}[c.lane]+'</button>':c.lane==='pick'?'<button class="btn pri" onclick="finishPick('+c.id+')">Picked</button>'
+    :c.lane==='picked'?'<button class="btn pri" onclick="openPack('+c.id+')">Pack</button>'
+    :c.lane==='packed'?'<button class="btn pri" onclick="S.sel.add('+c.id+');openDispatch()">Dispatch</button>':'';
+  $('side').innerHTML='<aside class="side"><div class="sh"><div class="g"><div class="kicker"><span class="dot" style="background:'+(c.cancelled?'var(--bad)':lane.dot)+'"></span>'+lane.l+(c.cancelled?' · <span style="color:var(--bad-fg)">Cancelled</span>':'')+'</div><h2>'+c.s+'</h2><div class="docs"><span class="mono">'+(c.sj||c.a)+'</span></div>'+(c.trip?'<div class="docs">'+c.trip+'</div>':'')+'</div><button class="ib" onclick="closeDetail()" aria-label="Close"><i data-lucide="x"></i></button></div>'
+    +'<div class="sb">'+body+'</div><div class="sf"><button class="btn" onclick="printDoc('+c.id+')"><i data-lucide="printer"></i>'+print+'</button>'+main+'</div></aside>';
+  icons();
+}
+/* A plain printable page: the paper the picker or the driver carries. */
+function printDoc(cid){
+  const c=C.find(x=>x.id===cid), L=linesOf(c), isPick=c.lane==='pick'||c.lane==='picked';
+  const w=window.open('','_blank','width=800,height=900');if(!w){toast('Allow pop-ups to print');return}
+  w.document.write('<html><head><title>'+(isPick?'Picklist':'Surat jalan')+' '+c.a+'</title><style>body{font:14px Inter,system-ui,sans-serif;margin:32px;color:#20242c}h1{font-size:22px;margin:0 0 4px}p{margin:0 0 20px;color:#626b78}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid #ddd}td.r,th.r{text-align:right}.mono{font-family:monospace}.box{width:16px;height:16px;border:1.5px solid #888;border-radius:3px;display:inline-block}</style></head><body>'
+    +'<h1>'+(isPick?'Picklist':'Surat jalan')+' · '+c.s+'</h1><p><span class="mono">'+(c.sj||c.a)+'</span> · '+id(c.pcs)+' pcs'+(c.koli?' · '+c.koli+' koli':'')+'</p>'
+    +'<table><thead><tr><th>No.</th><th>SKU</th><th>Article</th><th class="r">Qty</th>'+(isPick?'<th>✓</th>':'')+'</tr></thead><tbody>'
+    +L.map((l,i)=>'<tr><td>'+(i+1)+'</td><td class="mono">'+l.sku+'</td><td>'+l.name+' · '+l.size+'</td><td class="r">'+l.qty+'</td>'+(isPick?'<td><span class="box"></span></td>':'')+'</tr>').join('')
+    +'</tbody></table><script>print()<\/script></body></html>');
+  w.document.close();
+}
+/* Merchandise cancelled it: not picked yet, the picklist just goes; picked, it goes back to stock. */
+function dropCard(cid){const i=C.findIndex(x=>x.id===cid),c=C[i];C.splice(i,1);S.sel.delete(cid);if(S.open===cid)closeDetail();else render();toast(c.lane==='pick'?c.s+' · picklist removed':c.s+' · '+id(c.pcs)+' pcs back to stock'+(c.lane==='packed'?' · '+c.koli+' koli labels void':''))}
+/* Picked: confirm what actually came off the racks. Anything short goes two
+   ways at once — to MD as unfilled, to Inventory as missing at that rack. */
+const PQ={cid:null,got:{}};
+function finishPick(cid){const c=C.find(x=>x.id===cid);PQ.cid=cid;PQ.got={};linesOf(c).forEach((l,i)=>PQ.got[i]=l.qty);renderPicked()}
+function renderPicked(){
+  const c=C.find(x=>x.id===PQ.cid), L=linesOf(c);
+  const got=L.reduce((s,l,i)=>s+PQ.got[i],0), short=c.pcs-got;
+  $('dlg').innerHTML='<div class="veil" onmousedown="if(event.target===this)closeDlg()"><div class="dlg packw"><div class="dh"><div class="g"><h2>'+c.s+'</h2><p class="mono">'+c.a+' · '+id(c.pcs)+' pcs</p></div><button class="ib" onclick="closeDlg()" aria-label="Close"><i data-lucide="x"></i></button></div>'
+    +'<div class="db"><div class="tcard"><table><thead><tr><th class="n">No.</th><th>SKU</th><th class="r">To pick</th><th class="r" style="width:13rem">Picked</th></tr></thead><tbody>'
+    +L.map((l,i)=>{const q=PQ.got[i];return '<tr'+(q<l.qty?' class="shortrow"':'')+'><td class="n">'+(i+1)+'</td><td><span class="nm">'+l.name+' · '+l.size+'</span><span class="sk">'+l.sku+'</span></td><td class="r">'+l.qty+'</td><td class="r"><span class="qs"><button onclick="pq('+i+',-1)"'+(q?'':' disabled')+' aria-label="One less"><i data-lucide="minus"></i></button><input value="'+q+'" inputmode="numeric" onchange="pqset('+i+',this.value)"><button onclick="pq('+i+',1)"'+(q<l.qty?'':' disabled')+' aria-label="One more"><i data-lucide="plus"></i></button></span></td></tr>'}).join('')
+    +'</tbody><tfoot><tr><td></td><td>Total</td><td class="r">'+id(c.pcs)+'</td><td class="r"'+(short?' style="color:var(--bad-fg)"':'')+'>'+id(got)+'</td></tr></tfoot></table></div></div>'
+    +'<div class="df"><span class="g">'+(short?'<b style="color:var(--bad-fg)">'+short+' pcs short</b> · MD and Inventory are told':'Everything picked')+'</span><button class="btn pri" onclick="confirmPicked()">Picked '+id(got)+' pcs</button></div></div></div>';
+  icons();
+}
+function pq(i,d){const c=C.find(x=>x.id===PQ.cid),l=linesOf(c)[i];PQ.got[i]=Math.max(0,Math.min(l.qty,PQ.got[i]+d));renderPicked()}
+function pqset(i,v){const c=C.find(x=>x.id===PQ.cid),l=linesOf(c)[i];PQ.got[i]=Math.max(0,Math.min(l.qty,parseInt(v)||0));renderPicked()}
+/* What a short pick leaves behind: one row for MD, one for Inventory. */
+const UNF=[{id:'u0',a:'ALT-0409',s:'Store Bintaro',sku:'KAO-CRW-BS-XXL',name:'Kaos Crew Basic · XXL',qty:3,state:'open'}];
+const MIS=[{id:'m0',sku:'KAO-CRW-BS-XXL',name:'Kaos Crew Basic · XXL',rack:'C-04',qty:3,from:'ALT-0409 · Store Bintaro',by:'Agus',when:'Yesterday',state:'open',price:64000,unf:'u0'}];
+let fseq=0;
+function confirmPicked(){
+  const c=C.find(x=>x.id===PQ.cid), L=linesOf(c);
+  const short=L.reduce((s,l,i)=>s+(l.qty-PQ.got[i]),0);
+  L.forEach((l,i)=>{const d=l.qty-PQ.got[i];if(!d)return;const u='u'+(++fseq);
+    UNF.unshift({id:u,a:c.a,s:c.s,sku:l.sku,name:l.name+' · '+l.size,qty:d,state:'open'});
+    MIS.unshift({id:'m'+fseq,sku:l.sku,name:l.name+' · '+l.size,rack:l.rack,qty:d,from:c.a+' · '+c.s,by:'Agus',when:'Just now',state:'open',price:142000,unf:u})});
+  c.lines=L.map((l,i)=>({...l,qty:PQ.got[i]})).filter(l=>l.qty>0);c.pcs-=short;
+  closeDlg();move(c,'picked');render();
+  toast(short?c.s+' · '+short+' pcs short → MD: unfilled · Inventory: missing':c.s+' picked');
+}
+function pick(cid){if(C.find(x=>x.id===cid).cancelled)return;S.sel.has(cid)?S.sel.delete(cid):S.sel.add(cid);render()}
+function closeDlg(){$('dlg').innerHTML=''}
+/* Pack: fill one koli at a time from what was picked. Each koli says what
+   is in it; the card is Packed when nothing is left outside a koli. */
+const PK={cid:null,koli:[],cur:{}};
+function openPack(cid){const c=C.find(x=>x.id===cid);PK.cid=cid;PK.koli=[];PK.cur={};renderPack()}
+function leftOf(l,i){return l.qty-PK.koli.reduce((s,k)=>s+(k[i]||0),0)-(PK.cur[i]||0)}
+function renderPack(){
+  const c=C.find(x=>x.id===PK.cid), L=linesOf(c);
+  const left=L.reduce((s,l,i)=>s+leftOf(l,i),0), inCur=Object.values(PK.cur).reduce((a,b)=>a+b,0), n=PK.koli.length+1;
+  let h='<div class="veil" onmousedown="if(event.target===this)closeDlg()"><div class="dlg packw"><div class="dh"><div class="g"><h2>'+c.s+'</h2><p class="mono">'+c.a+' · '+id(c.pcs)+' pcs</p></div><button class="ib" onclick="closeDlg()" aria-label="Close"><i data-lucide="x"></i></button></div><div class="db">';
+  if(PK.koli.length)h+='<div class="kdone">'+PK.koli.map((k,i)=>'<span><b class="mono">K'+String(i+1).padStart(2,'0')+'</b>'+Object.values(k).reduce((a,b)=>a+b,0)+' pcs</span>').join('')+'</div>';
+  if(left+inCur>0){
+    h+='<div class="khead"><b>Koli '+n+'</b><button class="link" onclick="allIn()">Put everything left in</button></div>'
+      +'<div class="tcard"><table><thead><tr><th class="n">No.</th><th>SKU</th><th class="r">Left</th><th class="r" style="width:13rem">In koli '+n+'</th></tr></thead><tbody>'
+      +L.map((l,i)=>{const q=PK.cur[i]||0, lf=leftOf(l,i);return '<tr'+(lf+q===0?' class="gone"':'')+'><td class="n">'+(i+1)+'</td><td><span class="nm">'+l.name+' · '+l.size+'</span><span class="sk">'+l.sku+'</span></td><td class="r">'+lf+'</td><td class="r"><span class="qs"><button onclick="kq('+i+',-1)"'+(q?'':' disabled')+' aria-label="One less"><i data-lucide="minus"></i></button><input value="'+q+'" inputmode="numeric" onchange="kset('+i+',this.value)"><button onclick="kq('+i+',1)"'+(lf?'':' disabled')+' aria-label="One more"><i data-lucide="plus"></i></button></span></td></tr>'}).join('')
+      +'</tbody></table></div>';
+  } else h+='<div class="alldone"><i data-lucide="check"></i>Everything is in a koli.</div>';
+  h+='</div><div class="df">';
+  if(left+inCur>0)h+='<span class="g">'+id(left)+' pcs left</span><button class="btn pri" onclick="closeKoli()"'+(inCur?'':' disabled')+'>Close koli '+n+(inCur?' · '+inCur+' pcs':'')+'</button>';
+  else h+='<button class="btn pri big" onclick="doPack()">Done · '+PK.koli.length+' koli</button>';
+  h+='</div></div></div>';
+  $('dlg').innerHTML=h;icons();
+}
+function kq(i,d){const c=C.find(x=>x.id===PK.cid),l=linesOf(c)[i];const q=(PK.cur[i]||0)+d;if(q<0||d>0&&leftOf(l,i)<=0)return;PK.cur[i]=q;renderPack()}
+function kset(i,v){const c=C.find(x=>x.id===PK.cid),l=linesOf(c)[i];const max=leftOf(l,i)+(PK.cur[i]||0);PK.cur[i]=Math.max(0,Math.min(max,parseInt(v)||0));renderPack()}
+function allIn(){const c=C.find(x=>x.id===PK.cid);linesOf(c).forEach((l,i)=>{PK.cur[i]=(PK.cur[i]||0)+leftOf(l,i)});renderPack()}
+function closeKoli(){const k={};Object.entries(PK.cur).forEach(([i,q])=>{if(q)k[i]=q});if(!Object.keys(k).length)return;PK.koli.push(k);PK.cur={};renderPack();toast('Koli '+PK.koli.length+' closed · label printing')}
+function doPack(){const c=C.find(x=>x.id===PK.cid);c.kolis=PK.koli.map(k=>Object.values(k).reduce((a,b)=>a+b,0));move(c,'packed',{koli:PK.koli.length});closeDlg();render();toast(c.s+' · '+PK.koli.length+' koli')}
+function openDispatch(){
+  const cs=C.filter(c=>S.sel.has(c.id)&&c.lane==='packed');
+  if(!cs.length){toast('Tick the stores going out first');return}
+  $('dlg').innerHTML='<div class="veil" onmousedown="if(event.target===this)closeDlg()"><div class="dlg"><div class="dh"><div class="g"><h2>Dispatch</h2></div><button class="ib" onclick="closeDlg()"><i data-lucide="x"></i></button></div>'
+    +'<div class="db"><label class="tlabel" for="trip">Trip notes</label><textarea id="trip" class="trip" placeholder="Driver, vehicle, anything the stores should know"></textarea><div class="tcard"><table><thead><tr><th>Store</th><th>Allotment</th><th class="r">Koli</th><th class="r">Pcs</th></tr></thead><tbody>'+cs.map(c=>'<tr><td style="font-weight:500;color:var(--ink)">'+c.s+'</td><td class="mono">'+c.a+'</td><td class="r">'+c.koli+'</td><td class="r">'+id(c.pcs)+'</td></tr>').join('')+'</tbody></table></div></div>'
+    +'<div class="df"><span class="g">'+cs.length+' surat jalan · '+cs.reduce((s,c)=>s+c.koli,0)+' koli</span><button class="btn pri" onclick="doDispatch()"><i data-lucide="printer"></i>Dispatch and print</button></div></div></div>';
+  icons();
+}
+function doDispatch(){
+  const cs=C.filter(c=>S.sel.has(c.id)&&c.lane==='packed');
+  const note=($('trip').value||'').trim();
+  cs.forEach((c,i)=>move(c,'transit',{sj:'SJ-011026-00'+(i+5),trip:note}));
+  S.sel.clear();closeDlg();render();toast(cs.length+' surat jalan printed · in transit');
+}
+/* The store's Confirm receive is what moves a card to Received — here, a stand-in. */
+function storeConfirms(cid,missing){const c=C.find(x=>x.id===cid);move(c,'recv',{got:c.pcs-(missing||0)});render();toast(c.s+' confirmed receipt'+(missing?' · '+missing+' pcs missing':''))}
+$('q').oninput=e=>{S.q=e.target.value;render()};
+$('st').innerHTML+=STORES.map(s=>'<option>'+s+'</option>').join('');
+$('st').onchange=e=>{S.store=e.target.value;render()};
+addEventListener('keydown',e=>{if(e.key==='Escape'){if($('dlg').innerHTML)closeDlg();else closeDetail()}});
+/* MD · Allotments: what wasn't picked, and the one decision it needs. */
+function mdView(){
+  const open=UNF.filter(u=>u.state==='open'), rest=UNF.filter(u=>u.state!=='open');
+  const st=u=>u.state==='wait'?'<span class="pill info">Waiting for stock</span>':u.state==='again'?'<span class="pill ok">Pick again issued</span>':u.state==='closed'?'<span class="pill">Closed short</span>':'';
+  const row=(u,i)=>'<tr><td class="n">'+(i+1)+'</td><td class="mono">'+u.a+'</td><td class="strong">'+u.s+'</td><td><span class="nm">'+u.name+'</span><span class="sk">'+u.sku+'</span></td><td class="r">'+u.qty+' pcs</td><td class="act">'+(u.state==='open'?'<button class="btn" onclick="mdDecide(\''+u.id+'\',\'wait\')">Wait</button> <button class="btn" onclick="mdDecide(\''+u.id+'\',\'closed\')">Close short</button>':st(u))+'</td></tr>';
+  return '<div class="vh"><h1>Allotments</h1></div>'
+    +'<h3 class="vt">Unfilled <span>'+open.length+'</span></h3>'
+    +(open.length?'<div class="tcard"><table><thead><tr><th class="n">No.</th><th>Allotment</th><th>Store</th><th>SKU</th><th class="r">Unfilled</th><th class="act"></th></tr></thead><tbody>'+open.map(row).join('')+'</tbody></table></div>':'<div class="none">Nothing unfilled.</div>')
+    +(rest.length?'<h3 class="vt">Decided</h3><div class="tcard"><table><tbody>'+rest.map(row).join('')+'</tbody></table></div>':'');
+}
+/* Inventory · Missing: stock the system had on a rack that wasn't there. */
+function invView(){
+  const open=MIS.filter(m=>m.state==='open'), rest=MIS.filter(m=>m.state!=='open');
+  const row=(m,i)=>'<tr><td class="n">'+(i+1)+'</td><td><span class="nm">'+m.name+'</span><span class="sk">'+m.sku+'</span></td><td>Unallotted</td><td class="r">'+m.qty+' pcs</td><td><span class="nm" style="font-weight:400">'+m.from+'</span><span class="sk">'+m.by+' · '+m.when+'</span></td><td class="act">'+(m.state==='open'?'<button class="btn" onclick="invDecide(\''+m.id+'\',\'found\')">Found</button> <button class="btn" onclick="invDecide(\''+m.id+'\',\'lost\')">Lost</button>':m.state==='found'?'<span class="pill ok">Found · back on '+m.rack+'</span>':'<span class="pill bad">Lost · Rp '+id(m.qty*m.price)+'</span>')+'</td></tr>';
+  return '<div class="vh"><h1>Missing</h1></div>'
+    +'<h3 class="vt">Open <span>'+open.length+'</span></h3>'
+    +(open.length?'<div class="tcard"><table><thead><tr><th class="n">No.</th><th>SKU</th><th>Pool</th><th class="r">Qty</th><th>From</th><th class="act"></th></tr></thead><tbody>'+open.map(row).join('')+'</tbody></table></div>':'<div class="none">Nothing missing.</div>')
+    +(rest.length?'<h3 class="vt">Resolved</h3><div class="tcard"><table><tbody>'+rest.map(row).join('')+'</tbody></table></div>':'');
+}
+/* Wait + Found = the remainder comes back to the board as a Pick again card. */
+function pickAgain(u){
+  if(u.state!=='wait')return;
+  const m=MIS.find(x=>x.unf===u.id);if(!m||m.state!=='found')return;
+  u.state='again';
+  C.unshift({id:++seq,s:u.s,a:u.a,pcs:u.qty,lane:'pick',age:0,again:true,lines:[{name:u.name.split(' · ')[0],size:u.name.split(' · ')[1],sku:u.sku,rack:m.rack,qty:u.qty}]});
+  toast('Pick again · '+u.s+' · '+u.qty+' pcs on the board');
+}
+function mdDecide(uid,what){const u=UNF.find(x=>x.id===uid);u.state=what;if(what==='wait')pickAgain(u);paintView();toast(what==='wait'?'Waiting for stock':'Closed short · the store gets '+u.qty+' pcs less')}
+function invDecide(mid,what){const m=MIS.find(x=>x.id===mid);m.state=what;const u=UNF.find(x=>x.id===m.unf);if(what==='found'&&u)pickAgain(u);paintView();toast(what==='found'?m.qty+' pcs back in stock':m.qty+' pcs written off')}
+let VIEW='ops';
+function setV(v){VIEW=v;paintView()}
+function paintView(){
+  const ops=VIEW==='ops';
+  $('obhead').hidden=!ops;$('board').style.display=ops?'':'none';$('tabs').style.display=ops?'':'none';$('other').hidden=ops;
+  const nUnf=UNF.filter(u=>u.state==='open').length,nMis=MIS.filter(m=>m.state==='open').length;
+  $('vseg').innerHTML=[['ops','Ops · Outbound',0],['md','MD · Allotments',nUnf],['inv','Inventory · Missing',nMis]].map(x=>'<button class="'+(VIEW===x[0]?'on':'')+'" onclick="setV(\''+x[0]+'\')">'+x[1]+(x[2]?' <b>'+x[2]+'</b>':'')+'</button>').join('');
+  $('crumb').innerHTML=(ops?'Ops':VIEW==='md'?'Merchandise':'Inventory')+'<i data-lucide="chevron-right"></i><b>'+(ops?'Outbound':VIEW==='md'?'Allotments':'Missing')+'</b>';
+  if(ops)render();else{$('other').innerHTML=VIEW==='md'?mdView():invView();icons()}
+}
+paintView();
+</script>
+</body>
+</html>

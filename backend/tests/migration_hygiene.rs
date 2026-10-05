@@ -293,13 +293,21 @@ const RESERVED: &[(u32, u32, &str)] = &[
          0643-0645 and needed only 0643",
     ),
     (
-        652,
+        658,
+        699,
+        "left to the units-of-measure lane in flight on 28 Sep 2026 (0652-0657 \
+         uncommitted in the same tree) when the backend-foundations lane — \
+         unit scope, number series, record history, job runs, settlement \
+         discounts, giro un-clearing — claimed a distant 0700 rather than race \
+         for the next number. A lane that files into this block shrinks it here",
+    ),
+    (
+        720,
         799,
-        "held on 30 Sep 2026 for lanes in flight on the working tree when \
-         the Indonesian-payroll lane branched from b6f50c1: the units lane \
-         had 0652-0657 and the roles/series/master-history lanes 0700-0714 \
-         uncommitted. The payroll lane took a distant block at 0800 rather \
-         than crowd them; whichever of those files land, land inside this",
+        "left between the backend-foundations lane (0700-0719) and the \\
+         Indonesian-payroll lane, which took a distant 0800 on 30 Sep 2026 \\
+         rather than race the lanes in flight. A lane that files into this \\
+         block shrinks it here",
     ),
 ];
 

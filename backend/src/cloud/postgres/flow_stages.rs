@@ -171,7 +171,7 @@ pub fn stage_delegate(kind: StageKind) -> StageDelegate {
             Wiring::ExistingSurface,
             "POST /api/v1/dc/purchase-verifications",
             Some("goods_receipt.line"),
-            "The verifier is never the checker; the node holds that too.",
+            "Who verifies is the stage's performer role and the caller's permission.",
         ),
         StageKind::Tagging => (
             Wiring::ExistingSurface,
@@ -2092,8 +2092,9 @@ async fn resume_allotments_tx(
 
 /// A site of ours received an announced delivery
 /// (`inventory.inbound.received.v1`): kept, and the flows of the allotments
-/// it carried to this site move with it.
-pub(super) async fn apply_inbound_received_tx(
+/// it carried to this site move with it. `pub(crate)`: the cloud-run Gudang
+/// writes its receipt through it (`cloud::dc::returns`).
+pub(crate) async fn apply_inbound_received_tx(
     tx: &mut Transaction<'_, Postgres>,
     origin_id: &str,
     generation: i64,
@@ -2158,7 +2159,8 @@ pub(super) async fn apply_inbound_received_tx(
 }
 
 /// The Gudang inspected a store's return (`inventory.return.inspected.v1`).
-pub(super) async fn apply_return_inspected_tx(
+/// `pub(crate)`: the cloud-run Gudang's inspection too (`cloud::dc::returns`).
+pub(crate) async fn apply_return_inspected_tx(
     tx: &mut Transaction<'_, Postgres>,
     origin_id: &str,
     generation: i64,
@@ -2223,7 +2225,9 @@ pub(super) async fn apply_return_inspected_tx(
 }
 
 /// The purchase order a tagging job's goods were bought on moves its flow.
-pub(super) async fn resume_tagging_job_tx(
+// pub(crate): also resumed by the cloud-run Gudang's own tagging confirmation
+// (cloud/dc/tagging.rs).
+pub(crate) async fn resume_tagging_job_tx(
     tx: &mut Transaction<'_, Postgres>,
     job_id: Uuid,
     fact: &NodeFact<'_>,

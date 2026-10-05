@@ -45,9 +45,11 @@ use uuid::Uuid;
 /// Where a bill that disagrees with the order puts the difference.
 const VARIANCE: &str = "purchase_price_variance";
 /// Money paid to a supplier before there is anything to owe them for.
-const ADVANCE: &str = "advance_purchase";
+pub(super) const ADVANCE: &str = "advance_purchase";
 /// The bank's own charge for making the transfer.
 const BANK_CHARGE: &str = "bank_admin_fee";
+/// Where the POTONGAN a supplier bill was settled with is booked (0704).
+pub(super) const SETTLEMENT_DISCOUNT: &str = "settlement_discount";
 
 // ---------------------------------------------------------------------------
 // The two ledgers this one has to meet
@@ -247,11 +249,15 @@ pub(super) async fn cost_layer_on_setup(
     receipt_line_id: Uuid,
 ) -> Result<(), AppError> {
     let Some(line) = sqlx::query(
-        "SELECT l.receipt_id, pl.article_code, l.quantity, pl.unit_price_minor,
+        "SELECT l.receipt_id, pl.article_code, l.matched_quantity AS quantity,
+                purchase_receipt_value(l.matched_quantity, l.agreed_unit_price_minor,
+                                       pl.unit_price_minor, pl.order_unit_price_minor,
+                                       pl.unit_factor) AS value_minor,
                 site_local_date(l.verified_at, (SELECT gr.site_id FROM goods_receipt gr WHERE gr.receipt_id = l.receipt_id)) AS accepted_on
            FROM goods_receipt_line l
            JOIN purchase_order_line pl ON pl.po_line_id = l.po_line_id
-          WHERE l.receipt_line_id = $1 AND l.posting_id IS NOT NULL",
+          WHERE l.receipt_line_id = $1 AND l.posting_id IS NOT NULL
+            AND l.matched_quantity > 0",
     )
     .bind(receipt_line_id)
     .fetch_optional(&mut **tx)
@@ -263,7 +269,7 @@ pub(super) async fn cost_layer_on_setup(
         tx,
         line.try_get("article_code")?,
         line.try_get("quantity")?,
-        line.try_get("unit_price_minor")?,
+        line.try_get("value_minor")?,
         line.try_get("accepted_on")?,
         line.try_get("receipt_id")?,
         receipt_line_id,
@@ -278,7 +284,9 @@ pub(super) async fn lane_i_cost_layer(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     article_code: &str,
     quantity: i64,
-    unit_cost_minor: i64,
+    // What these pieces are worth, by the one rule (`purchase_receipt_value`,
+    // 0823) — never quantity × a rounded piece price.
+    gross_cost_minor: i64,
     economic_date: NaiveDate,
     receipt_id: Uuid,
     receipt_line_id: Uuid,
@@ -291,26 +299,71 @@ pub(super) async fn lane_i_cost_layer(
     // only thing that knows the two are the same goods. So: the code itself
     // first (a re-order of an existing article), then the article the setup of
     // this very receipt line minted.
-    let Some(article_id) = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM (
-             SELECT id, 0 AS rank FROM article WHERE article_code = $1
-             UNION ALL
-             SELECT a.id, 1 AS rank
-               FROM article_setup_session s
-               JOIN article a ON a.article_code = s.article_code
-              WHERE s.receipt_line_id = $2
-         ) found ORDER BY rank LIMIT 1",
+    //
+    // A line split into several sibling articles at setup (0825) has one
+    // session per article, each with its own share of the pieces. Each article
+    // gets a layer for its share and the same share of the value, cut so the
+    // parts add up to the line's value exactly. A line with one session takes
+    // the whole quantity and value, as it always did.
+    let shares: Vec<(Uuid, i64, i64)> = match sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM article WHERE article_code = $1",
     )
     .bind(article_code)
-    .bind(receipt_line_id)
     .fetch_optional(&mut **tx)
     .await?
-    else {
+    {
+        Some(article_id) => vec![(article_id, quantity, gross_cost_minor)],
+        None => {
+            let sessions = sqlx::query(
+                "SELECT a.id AS article_id, s.receipt_quantity
+                   FROM article_setup_session s
+                   LEFT JOIN article a ON a.article_code = s.article_code
+                  WHERE s.receipt_line_id = $1
+                  ORDER BY s.article_code, s.session_id",
+            )
+            .bind(receipt_line_id)
+            .fetch_all(&mut **tx)
+            .await?;
+            if sessions.len() <= 1 {
+                sessions
+                    .iter()
+                    .map(|row| row.try_get::<Option<Uuid>, _>("article_id"))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .flatten()
+                    .map(|article_id| (article_id, quantity, gross_cost_minor))
+                    .collect()
+            } else {
+                let mut whole = 0i64;
+                for row in &sessions {
+                    whole += row.try_get::<i64, _>("receipt_quantity")?;
+                }
+                let mut shares = Vec::with_capacity(sessions.len());
+                let mut running = 0i64;
+                for row in &sessions {
+                    let part: i64 = row.try_get("receipt_quantity")?;
+                    let before = running;
+                    running += part;
+                    let value = (i128::from(gross_cost_minor) * i128::from(running)
+                        / i128::from(whole.max(1))
+                        - i128::from(gross_cost_minor) * i128::from(before)
+                            / i128::from(whole.max(1))) as i64;
+                    // An article not minted yet gets its layer when its own
+                    // session is issued.
+                    if let Some(article_id) = row.try_get::<Option<Uuid>, _>("article_id")? {
+                        shares.push((article_id, part, value));
+                    }
+                }
+                shares
+            }
+        }
+    };
+    if shares.is_empty() {
         // Not set up yet. The valuation entry beside it still stands, and the
         // layer is opened when the setup is issued (`cost_layer_on_setup`).
         tracing::info!(article = article_code, receipt = %receipt_id, "receipt line not set up yet; its cost layer opens at setup");
         return Ok(());
-    };
+    }
     let (site_id, supplier_id): (String, Option<String>) = sqlx::query_as(
         "SELECT site_id, supplier_id::text FROM goods_receipt WHERE receipt_id = $1",
     )
@@ -327,31 +380,39 @@ pub(super) async fn lane_i_cost_layer(
     .fetch_optional(&mut **tx)
     .await?
     .unwrap_or_else(|| format!("{site_id}.warehouse"));
-    super::stock_ledger::cost_layer_create(
-        tx,
-        &super::stock_ledger::NewCostLayer {
-            article_id,
-            quantity,
-            gross_cost_minor: quantity.saturating_mul(unit_cost_minor),
-            discount_minor: 0,
-            economic_date,
-            site_id,
-            to_pool_id: pool_id,
-            receipt_id: Some(receipt_id),
-            receipt_line_id: Some(receipt_line_id),
-            source_reference: None,
-            supplier_id,
-            source_kind: "GOODS_RECEIPT".into(),
-            // Per LINE, not per article: the DC keeps a supplier's receipt open
-            // across deliveries, and the same shirt in the same quantity twice
-            // on one receipt is two layers — keyed by article, the second would
-            // have been handed the first one back and never costed (0390).
-            source_id: receipt_line_id.to_string(),
-        },
-        "system:goods-receipt",
-    )
-    .await?;
-    super::stock_ledger::cost_pending_true_up(tx, article_id, economic_date).await
+    for (article_id, quantity, gross_cost_minor) in shares {
+        if quantity <= 0 {
+            continue;
+        }
+        super::stock_ledger::cost_layer_create(
+            tx,
+            &super::stock_ledger::NewCostLayer {
+                article_id,
+                quantity,
+                gross_cost_minor,
+                discount_minor: 0,
+                economic_date,
+                site_id: site_id.clone(),
+                to_pool_id: pool_id.clone(),
+                receipt_id: Some(receipt_id),
+                receipt_line_id: Some(receipt_line_id),
+                source_reference: None,
+                supplier_id: supplier_id.clone(),
+                source_kind: "GOODS_RECEIPT".into(),
+                // Per LINE, not per article: the DC keeps a supplier's receipt
+                // open across deliveries, and the same shirt in the same
+                // quantity twice on one receipt is two layers — keyed by
+                // article, the second would have been handed the first one back
+                // and never costed (0390). The layer's own key still carries
+                // the article, so the parts of a split line are distinct.
+                source_id: receipt_line_id.to_string(),
+            },
+            "system:goods-receipt",
+        )
+        .await?;
+        super::stock_ledger::cost_pending_true_up(tx, article_id, economic_date).await?;
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -457,37 +518,52 @@ pub async fn receipt_posting(
 /// When a delivery's debt falls due, before any bill says so.
 ///
 /// Payment terms count from the bill, and a delivery has none yet. Until it
-/// does, the delivery stands in for it: the supplier's standing terms are
-/// counted from the day the goods were accepted, to the LAST instalment — the
-/// balance this delivery leaves owing. A supplier with no terms is owed on
-/// delivery. The bill, when it posts, replaces this with its own schedule.
+/// does, the delivery stands in for it: the terms of the order the goods were
+/// ordered on (0827 — the order decides, the owner 2026-10-03) are counted
+/// from the day the goods were accepted, to the LAST instalment — the balance
+/// this delivery leaves owing. An order with no terms falls back to the
+/// supplier's standing terms, and a supplier with none is owed on delivery. A
+/// delivery spanning orders on different terms falls due on the latest of
+/// them. The bill, when it posts, replaces this with its own schedule.
 async fn receipt_due_date(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     supplier_code: &str,
+    line_ids: &[Uuid],
     accepted_on: NaiveDate,
 ) -> Result<NaiveDate, AppError> {
     let due: Option<NaiveDate> = sqlx::query_scalar(
-        "SELECT CASE t.basis
-                    WHEN 'DAYS_AFTER_BILL' THEN $2::date + t.offset_value
+        "WITH terms AS (
+             SELECT DISTINCT COALESCE(po.payment_terms_code,
+                                      s.payment_terms_template_code,
+                                      s.default_payment_terms_code) AS template_code
+               FROM goods_receipt_line l
+               JOIN purchase_order_line pl ON pl.po_line_id = l.po_line_id
+               JOIN purchase_order po ON po.purchase_order_id = pl.purchase_order_id
+               JOIN supplier s ON s.supplier_code = $1
+              WHERE l.receipt_line_id = ANY($3)
+         ), last_instalment AS (
+             SELECT DISTINCT ON (terms.template_code)
+                    terms.template_code, t.basis, t.offset_value
+               FROM terms
+               JOIN payment_terms_template_line tl ON tl.template_code = terms.template_code
+               JOIN payment_term t ON t.code = tl.term_code
+              ORDER BY terms.template_code, tl.seq DESC
+         )
+         SELECT MAX(CASE basis
+                    WHEN 'DAYS_AFTER_BILL' THEN $2::date + offset_value
                     WHEN 'DAYS_AFTER_BILL_MONTH_END'
                         THEN (date_trunc('month', $2::date) + interval '1 month - 1 day')::date
-                             + t.offset_value
+                             + offset_value
                     WHEN 'MONTHS_AFTER_BILL_MONTH_END'
                         THEN (date_trunc('month', $2::date)
-                              + make_interval(months => t.offset_value + 1)
+                              + make_interval(months => offset_value + 1)
                               - interval '1 day')::date
-                END
-           FROM supplier s
-           JOIN payment_terms_template_line tl
-             ON tl.template_code = COALESCE(s.payment_terms_template_code,
-                                            s.default_payment_terms_code)
-           JOIN payment_term t ON t.code = tl.term_code
-          WHERE s.supplier_code = $1
-          ORDER BY tl.seq DESC
-          LIMIT 1",
+                END)
+           FROM last_instalment",
     )
     .bind(supplier_code)
     .bind(accepted_on)
+    .bind(line_ids)
     .fetch_optional(&mut **tx)
     .await?
     .flatten();
@@ -527,6 +603,7 @@ pub async fn receipt_post(
         "SELECT DISTINCT site_local_date(l.verified_at, (SELECT gr.site_id FROM goods_receipt gr WHERE gr.receipt_id = l.receipt_id))
            FROM goods_receipt_line l
           WHERE l.receipt_id = $1 AND l.posting_id IS NULL
+            AND l.matched_quantity > 0
           ORDER BY 1",
     )
     .bind(receipt_id)
@@ -600,12 +677,19 @@ async fn receipt_post_tranche(
     let tranches: i64 = header.try_get("tranches")?;
 
     let lines = sqlx::query(
-        "SELECT l.receipt_line_id, pl.article_code, l.quantity, pl.unit_price_minor,
+        // The MATCHED quantity, not what came off the lorry: pieces beyond the
+        // order are not bought — they go back to the supplier (0178, and the
+        // owner 2026-09-29) — so they are neither stock value nor payable.
+        "SELECT l.receipt_line_id, pl.article_code, l.matched_quantity AS quantity,
+                purchase_receipt_value(l.matched_quantity, l.agreed_unit_price_minor,
+                                       pl.unit_price_minor, pl.order_unit_price_minor,
+                                       pl.unit_factor) AS value_minor,
                 site_local_date(l.verified_at, (SELECT gr.site_id FROM goods_receipt gr WHERE gr.receipt_id = l.receipt_id)) AS accepted_on
            FROM goods_receipt_line l
            JOIN purchase_order_line pl ON pl.po_line_id = l.po_line_id
           WHERE l.receipt_id = $1
             AND l.posting_id IS NULL
+            AND l.matched_quantity > 0
             AND ($2::date IS NULL OR site_local_date(l.verified_at, (SELECT gr.site_id FROM goods_receipt gr WHERE gr.receipt_id = l.receipt_id)) = $2)
           ORDER BY pl.line_number, l.receipt_line_id",
     )
@@ -621,9 +705,8 @@ async fn receipt_post_tranche(
     let mut value: i64 = 0;
     let mut line_ids = Vec::with_capacity(lines.len());
     for line in &lines {
-        let quantity: i64 = line.try_get("quantity")?;
-        let price: i64 = line.try_get("unit_price_minor")?;
-        value = value.saturating_add(quantity.saturating_mul(price));
+        let line_value: Option<i64> = line.try_get("value_minor")?;
+        value = value.saturating_add(line_value.unwrap_or(0));
         line_ids.push(line.try_get::<Uuid, _>("receipt_line_id")?);
     }
     if value <= 0 {
@@ -687,7 +770,7 @@ async fn receipt_post_tranche(
         .execute(&mut *tx)
         .await?;
 
-    let due = receipt_due_date(&mut tx, &supplier_id, date).await?;
+    let due = receipt_due_date(&mut tx, &supplier_id, &line_ids, date).await?;
     payable_opened(
         &mut tx,
         "trade_payable",
@@ -714,7 +797,7 @@ async fn receipt_post_tranche(
             &mut tx,
             line.try_get("article_code")?,
             line.try_get("quantity")?,
-            line.try_get("unit_price_minor")?,
+            line.try_get::<Option<i64>, _>("value_minor")?.unwrap_or(0),
             line.try_get("accepted_on")?,
             receipt_id,
             line.try_get("receipt_line_id")?,
@@ -743,6 +826,7 @@ pub async fn receipts_post_pending(
            FROM goods_receipt r
           WHERE EXISTS (SELECT 1 FROM goods_receipt_line l
                          WHERE l.receipt_id = r.receipt_id AND l.posting_id IS NULL
+                           AND l.matched_quantity > 0
                            AND (NOT $1 OR l.received_at > now() - interval '5 minutes'))
           ORDER BY r.arrived_at
           LIMIT 200",
@@ -873,11 +957,14 @@ pub async fn receipts_awaiting_posting(
         // DC keeps open can be in the books and still gain lines (0390).
         "SELECT r.receipt_id, r.receipt_number, r.supplier_id, r.site_id, r.arrived_at,
                 COUNT(l.receipt_line_id)::bigint AS line_count,
-                COALESCE(SUM(l.quantity * pl.unit_price_minor), 0)::bigint AS value_minor,
+                COALESCE(SUM(purchase_receipt_value(l.matched_quantity, l.agreed_unit_price_minor,
+                                                    pl.unit_price_minor, pl.order_unit_price_minor,
+                                                    pl.unit_factor)), 0)::bigint AS value_minor,
                 (CURRENT_DATE - MIN(l.verified_at)::date)::int AS days_waiting
            FROM goods_receipt r
            JOIN goods_receipt_line l
              ON l.receipt_id = r.receipt_id AND l.posting_id IS NULL
+            AND l.matched_quantity > 0
            LEFT JOIN purchase_order_line pl ON pl.po_line_id = l.po_line_id
           GROUP BY r.receipt_id
           ORDER BY r.arrived_at
@@ -1133,12 +1220,18 @@ pub async fn bill_match(
             )));
         }
         let row = sqlx::query(
-            "SELECT l.quantity, l.po_line_id, pl.unit_price_minor, l.receipt_id
+            // What the billed pieces are worth at the ordered price, by the one
+            // rule (0823): a line priced per lusin is not pieces × a rounded
+            // piece price.
+            "SELECT l.matched_quantity AS quantity, l.po_line_id, pl.unit_price_minor, l.receipt_id,
+                    purchase_value($2, pl.unit_price_minor, pl.order_unit_price_minor,
+                                   pl.unit_factor) AS ordered_value_minor
                FROM goods_receipt_line l
                JOIN purchase_order_line pl ON pl.po_line_id = l.po_line_id
               WHERE l.receipt_line_id = $1",
         )
         .bind(line.receipt_line_id)
+        .bind(line.quantity)
         .fetch_optional(pool)
         .await?
         .ok_or_else(|| {
@@ -1161,6 +1254,7 @@ pub async fn bill_match(
                 billed_unit_price_minor: line.unit_price_minor,
                 accepted_quantity: row.try_get("quantity")?,
                 ordered_unit_price_minor: row.try_get("unit_price_minor")?,
+                ordered_value_minor: row.try_get("ordered_value_minor")?,
             },
         ));
     }
@@ -1834,10 +1928,16 @@ pub async fn credit_note_create(
         };
 
     let credit_note_id = Uuid::new_v4();
-    let number: i64 = sqlx::query("SELECT nextval('supplier_credit_note_number_seq') AS n")
-        .fetch_one(pool)
-        .await?
-        .try_get("n")?;
+    // In the books of the unit whose site the bill was for (0701).
+    let bill_unit =
+        super::sites::unit_of_site(pool, &bill.try_get::<String, _>("site_id")?).await?;
+    let number = super::number_series::next_number(
+        &mut *pool.acquire().await?,
+        super::number_series::SUPPLIER_CREDIT_NOTE,
+        request.credit_date,
+        Some(&bill_unit),
+    )
+    .await?;
 
     sqlx::query(
         "INSERT INTO supplier_credit_note
@@ -1847,7 +1947,7 @@ pub async fn credit_note_create(
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
     )
     .bind(credit_note_id)
-    .bind(format!("CN-{number:08}"))
+    .bind(&number)
     .bind(request.their_number.as_deref().map(str::trim))
     .bind(request.invoice_id)
     .bind(bill.try_get::<String, _>("supplier_id")?)
@@ -2264,10 +2364,13 @@ pub async fn supplier_advance_issue(
     super::ledger::resolve_account_code(pool, &key, unit_id, qualifier).await?;
 
     let advance_id = Uuid::new_v4();
-    let number: i64 = sqlx::query("SELECT nextval('supplier_advance_number_seq') AS n")
-        .fetch_one(pool)
-        .await?
-        .try_get("n")?;
+    let number = super::number_series::next_number(
+        &mut *pool.acquire().await?,
+        super::number_series::SUPPLIER_ADVANCE,
+        request.advance_date,
+        Some(unit_id),
+    )
+    .await?;
     sqlx::query(
         "INSERT INTO supplier_advance
            (advance_id, advance_number, supplier_id, unit_id, purchase_order_id, advance_date,
@@ -2275,7 +2378,7 @@ pub async fn supplier_advance_issue(
          VALUES ($1,$2,$3,$4,$5,$6,'IDR',$7,$8,$9,$10,$11,$12)",
     )
     .bind(advance_id)
-    .bind(format!("AV-{number:08}"))
+    .bind(&number)
     .bind(&supplier_id)
     .bind(unit_id)
     .bind(request.purchase_order_id)
@@ -2472,7 +2575,10 @@ pub struct PaymentDeductions {
     /// `pph23_payable` or `pph_final_payable`, or nothing when none was kept.
     pub withholding_key: Option<String>,
     pub bank_charge_minor: i64,
-    /// `total_minor - withholding_minor + bank_charge_minor`.
+    /// What the bills were settled for without money (0704): the POTONGAN on
+    /// each allocation, summed. Booked to `settlement_discount`.
+    pub settlement_discount_minor: i64,
+    /// `total_minor - withholding_minor - settlement_discount_minor + bank_charge_minor`.
     pub leaving_the_bank_minor: i64,
     /// One sentence per bill that was withheld from, for the certificate.
     pub explanation: Vec<String>,
@@ -2642,6 +2748,13 @@ pub async fn payment_deductions(
     let total_minor: i64 = row.try_get("total_minor")?;
     let withholding_minor: i64 = row.try_get("withholding_minor")?;
     let bank_charge_minor: i64 = row.try_get("bank_charge_minor")?;
+    let settlement_discount_minor: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(discount_minor), 0)::bigint
+           FROM supplier_payment_allocation WHERE payment_id = $1",
+    )
+    .bind(payment_id)
+    .fetch_one(pool)
+    .await?;
     Ok(PaymentDeductions {
         payment_id,
         payment_number: row.try_get("payment_number")?,
@@ -2649,7 +2762,9 @@ pub async fn payment_deductions(
         withholding_minor,
         withholding_key: row.try_get("withholding_key")?,
         bank_charge_minor,
-        leaving_the_bank_minor: total_minor - withholding_minor + bank_charge_minor,
+        settlement_discount_minor,
+        leaving_the_bank_minor: total_minor - withholding_minor - settlement_discount_minor
+            + bank_charge_minor,
         explanation: Vec::new(),
     })
 }
@@ -2662,9 +2777,14 @@ pub async fn payment_deductions(
 /// side is that function's own — one line per allocation, against the payable
 /// the bill credited — and is untouched.
 ///
-///     Dr bank_admin_fee  the bank's charge, when there is one
-///     Cr bank            total - withheld + charge
-///     Cr pph_payable     what was kept back
+///     Dr bank_admin_fee       the bank's charge, when there is one
+///     Cr bank                 total - withheld - discount + charge
+///     Cr pph_payable          what was kept back
+///     Cr settlement_discount  the POTONGAN the bills were settled with (0704)
+///
+/// The settlement discount is booked in head office's books, beside the
+/// payable it reduces (I4), whichever unit's bank paid: it is a fact about the
+/// purchase, not about the bank.
 ///
 /// The payable is debited for the whole allocation, not the net, because the
 /// whole debt is settled: a vendor who has been withheld from is not still owed
@@ -2679,7 +2799,16 @@ pub async fn payment_money_lines(
     total_minor: i64,
 ) -> Result<Vec<PostingLine>, AppError> {
     let deductions = payment_deductions(pool, payment_id).await?;
-    let mut lines = Vec::with_capacity(3);
+    if deductions.leaving_the_bank_minor <= 0 {
+        return Err(AppError::Validation(format!(
+            "payment {} settles {} and keeps back {} in tax and {} in discount; nothing would              leave the bank, and a settlement that pays nothing is a write-off, not a payment",
+            deductions.payment_number,
+            deductions.total_minor,
+            deductions.withholding_minor,
+            deductions.settlement_discount_minor
+        )));
+    }
+    let mut lines = Vec::with_capacity(4);
     if deductions.bank_charge_minor > 0 {
         lines.push(PostingLine::debit(
             BANK_CHARGE,
@@ -2702,6 +2831,14 @@ pub async fn payment_money_lines(
             PostingLine::credit("withholding_payable", unit_id, deductions.withholding_minor)
                 .from_source("TAX_TEMPLATE", &key),
         );
+    }
+    if deductions.settlement_discount_minor > 0 {
+        let head_office = super::sites::head_office_unit_id(pool).await?;
+        lines.push(PostingLine::credit(
+            SETTLEMENT_DISCOUNT,
+            &head_office,
+            deductions.settlement_discount_minor,
+        ));
     }
     debug_assert_eq!(
         total_minor + deductions.bank_charge_minor,
@@ -2765,7 +2902,9 @@ pub async fn three_way_report(pool: &PgPool, limit: i64) -> Result<ThreeWayRepor
     let receipt_rows = sqlx::query(
         "SELECT r.receipt_id, r.receipt_number, r.supplier_id, r.site_id, r.arrived_at,
                 (CURRENT_DATE - r.arrived_at::date)::int AS days_waiting,
-                COALESCE(SUM(l.quantity * pl.unit_price_minor), 0)::bigint AS value_minor,
+                COALESCE(SUM(purchase_receipt_value(l.matched_quantity, l.agreed_unit_price_minor,
+                                                    pl.unit_price_minor, pl.order_unit_price_minor,
+                                                    pl.unit_factor)), 0)::bigint AS value_minor,
                 -- A sub-select, not a join: a receipt valued in tranches (0390)
                 -- would otherwise multiply its own lines.
                 (SELECT SUM(p.value_minor) FROM goods_receipt_posting p

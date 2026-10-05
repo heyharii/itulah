@@ -234,7 +234,7 @@ const MATRIX: &[Authority] = &[
         writers: &["src/cloud/postgres/poster.rs"],
         reason: "as journal_entry, and it is the half that matters more. A \
                  header is a claim about lines; the lines are the ledger. \
-                 `counter_site_id` in particular is written only by the \
+                 `counter_unit_id` in particular is written only by the \
                  balancer in `domain::interunit` — a line that named a \
                  counterparty by hand would put a figure in the inter-unit \
                  check that no document caused, and that check is the one place \

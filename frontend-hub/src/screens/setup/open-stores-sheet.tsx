@@ -2,9 +2,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { SavedDialog } from "@/components/ui/dialog"
 import { Sheet } from "@/components/ui/sheet"
 import { Problem } from "@/components/ui/states"
-import { toast } from "@/lib/toast"
 import { gaKeys } from "@/lib/queries/ga"
 import {
   openStores,
@@ -60,20 +60,24 @@ export function OpenStoresSheet({
       const codes = answer.created.map((store) => store.unit_code)
       // Created, not open — opening is a separate decision, made from the
       // store's own page once its checklist is green (`overview-tab.tsx`).
-      toast.success(
-        codes.length === 1
-          ? `Store ${codes[0]} created`
-          : `${codes.length} stores created · ${codes[0]}–${codes[codes.length - 1]}`,
-        {
-          description:
-            codes.length === 1
-              ? `Install its server from ${codes[0]}’s own page.`
-              : "Install each server from its own store page.",
-        }
-      )
+      // The codes stay in the receipt dialog until they are read (the owner,
+      // 2026-10-04); the links screen waits underneath.
+      setSaved({
+        codes,
+        note:
+          codes.length === 1
+            ? `Install its server from ${codes[0]}’s own page.`
+            : "Install each server from its own store page.",
+      })
       setCreated(answer.created)
     },
   })
+  /// The stores the save minted, held in the receipt dialog until they are
+  /// read.
+  const [saved, setSaved] = useState<{
+    readonly codes: readonly string[]
+    readonly note: string
+  } | null>(null)
 
   function reset() {
     setRows([draftStore()])
@@ -83,79 +87,100 @@ export function OpenStoresSheet({
   }
 
   return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) {
-          reset()
-          onClose()
+    <>
+      <Sheet
+        open={open}
+        onOpenChange={(next) => {
+          if (!next) {
+            reset()
+            onClose()
+          }
+        }}
+        title={created ? "Send these links" : "Open store"}
+        caption={
+          created
+            ? undefined
+            : "A name, a city and a manager for each. Paste a list to open several at once."
         }
-      }}
-      title={created ? "Send these links" : "Open store"}
-      caption={
-        created
-          ? undefined
-          : "A name, a city and a manager for each. Paste a list to open several at once."
-      }
-      footer={
-        created ? (
-          <div className="flex justify-end">
-            <Button
-              onClick={() => {
-                reset()
-                onClose()
-              }}
-            >
-              Done
-            </Button>
-          </div>
+        footer={
+          created ? (
+            <div className="flex justify-end">
+              <Button
+                onClick={() => {
+                  reset()
+                  onClose()
+                }}
+              >
+                Done
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="quiet"
+                onClick={() => {
+                  reset()
+                  onClose()
+                }}
+              >
+                Cancel
+              </Button>
+              <span className="flex-1" />
+              <Button
+                variant="primary"
+                disabled={!ready}
+                pending={save.isPending}
+                onClick={() => save.mutate()}
+              >
+                {save.isPending
+                  ? "Opening stores…"
+                  : toOpen.length > 1
+                    ? `Open ${toOpen.length} stores`
+                    : "Open store"}
+              </Button>
+            </div>
+          )
+        }
+      >
+        {created ? (
+          <ManagerLinks stores={created} />
         ) : (
-          <div className="flex items-center gap-2">
-            <Button
-              variant="quiet"
-              onClick={() => {
-                reset()
-                onClose()
-              }}
-            >
-              Cancel
-            </Button>
-            <span className="flex-1" />
-            <Button
-              variant="primary"
-              disabled={!ready}
-              pending={save.isPending}
-              onClick={() => save.mutate()}
-            >
-              {save.isPending
-                ? "Opening stores…"
-                : toOpen.length > 1
-                  ? `Open ${toOpen.length} stores`
-                  : "Open store"}
-            </Button>
-          </div>
-        )
-      }
-    >
-      {created ? (
-        <ManagerLinks stores={created} />
-      ) : (
-        <>
-          <StoreList
-            existing={setup.data?.stores ?? null}
-            showExisting={false}
-            rows={rows}
-            onChange={setRows}
-          />
-          <p className="mt-4 text-meta text-body">
-            Each store gets its own cash and reports, floor, back-room and
-            reject stock, a return pool at the central warehouse, a code to
-            pair its server, and a manager invited by link — the same link
-            every other invitation sends.
-          </p>
-          <Problem error={save.error} className="mt-4" />
-        </>
-      )}
-    </Sheet>
+          <>
+            <StoreList
+              existing={setup.data?.stores ?? null}
+              showExisting={false}
+              rows={rows}
+              onChange={setRows}
+            />
+            <p className="mt-4 text-meta text-body">
+              Each store gets its own cash and reports, floor, back-room and
+              reject stock, a return pool at the Gudang, a code to pair its
+              server, and a manager invited by link — the same link every other
+              invitation sends.
+            </p>
+            <Problem error={save.error} className="mt-4" />
+          </>
+        )}
+      </Sheet>
+      <SavedDialog
+        open={saved !== null}
+        onOpenChange={(next) => {
+          if (!next) setSaved(null)
+        }}
+        title={
+          saved !== null &&
+          (saved.codes.length === 1 ? (
+            <>Store {saved.codes[0]} created</>
+          ) : (
+            <>
+              {saved.codes.length} stores created · {saved.codes[0]}–
+              {saved.codes[saved.codes.length - 1]}
+            </>
+          ))
+        }
+      >
+        {saved?.note}
+      </SavedDialog>
+    </>
   )
 }

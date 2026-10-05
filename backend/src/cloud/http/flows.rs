@@ -71,10 +71,21 @@ async fn reach_of(state: &AppState, principal: &Principal) -> Result<Reach, AppE
     let posting = caller.posting.as_ref().and_then(|(unit_id, kind)| {
         let unit = UnitId::try_new(unit_id).ok()?;
         // A kind this build has not been taught is read as a store's: the
-        // narrow reading, as `http::employment` reads it.
+        // narrow reading, as `http::employment` reads it — and said out loud
+        // there, for the reason given at that site.
         Some(Posting::new(
             unit,
-            UnitKind::parse(kind).unwrap_or(UnitKind::Store),
+            match UnitKind::parse(kind) {
+                Some(kind) => kind,
+                None => {
+                    tracing::warn!(
+                        unit = %unit_id,
+                        kind,
+                        "unit kind is not one this build knows; read as a store's, which grants nothing"
+                    );
+                    UnitKind::Store
+                }
+            },
         ))
     });
     Ok(store::stage_reach(

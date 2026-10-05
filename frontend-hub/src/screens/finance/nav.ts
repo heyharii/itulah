@@ -1,78 +1,65 @@
 import {
-  Archive,
+  SlidersHorizontal,
+  Truck,
+  ArchiveX,
   ArrowLeftRight,
+  ArrowLeftToLine,
+  ArrowRightFromLine,
   BadgeDollarSign,
   BadgePercent,
   Banknote,
   BookOpenCheck,
   Boxes,
   Building2,
-  Calculator,
   CalendarCheck,
   CalendarClock,
   CalendarDays,
   CalendarRange,
   ChartColumn,
-  CircleDollarSign,
-  ClipboardList,
   Coins,
+  HandCoins,
   Copy,
   CreditCard,
   FileClock,
-  FileSpreadsheet,
-  FileStack,
-  FileText,
-  Files,
-  FolderTree,
-  Gauge,
-  GitBranch,
-  HandCoins,
   HardHat,
+  FileMinus,
+  Files,
+  FileSpreadsheet,
+  Filter,
+  FolderTree,
+  GitBranch,
   Hourglass,
+  Kanban,
   KeyRound,
   Landmark,
-  Layers,
-  ListChecks,
+  Laptop,
+  ListTree,
   Lock,
-  Merge,
-  Network,
   Package,
-  PackageCheck,
-  PenLine,
   Percent,
+  PieChart,
   PiggyBank,
   Printer,
   Receipt,
   ReceiptText,
-  Recycle,
-  RefreshCw,
   Repeat,
   Scale,
-  ScrollText,
-  Send,
+  ScanSearch,
   Settings,
   Shapes,
   ShieldCheck,
-  ShoppingBag,
   Sigma,
-  SlidersHorizontal,
   Split,
   Store,
   Table2,
   Tags,
-  Trash2,
-  TrendingDown,
   TrendingUp,
-  Truck,
-  UserRoundCheck,
   Users,
-  UsersRound,
-  Vault,
   Wallet,
   WalletCards,
-  Warehouse,
   Waves,
   Workflow,
+  Wrench,
 } from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
@@ -83,136 +70,126 @@ import {
 } from "@/screens/finance/badges"
 import { useUnagreedLineCount } from "@/screens/finance-lab-2/hooks"
 
-/// Finance, as the owner froze it on 2026-09-26.
+/// Finance, as a menu and its sub-menus (owner, 2026-09-29: "kita ga mau ada
+/// ini" of the sidebar switcher; "tiru saja … tapi kita mau menunya grouping
+/// seperti biasa saja, seperti menu sub menu").
 ///
-/// The groups and the rows under them are the structure, and they are not
-/// re-argued screen by screen: from here what changes is a screen's fields,
-/// workflow and posting rules, never where it sits. The one addition to the
-/// frozen tree is **Setup**, added on the owner's say-so the same day —
-/// Account Map is a stoppage (a posting whose meaning has no account is
-/// refused), and a stoppage with nowhere in the sidebar to wear its badge is
-/// one nobody sees until the till does.
+/// # ERPNext's groups
 ///
-/// On 2026-09-27 the owner asked for the setup rows to follow ERPNext's
-/// Accounting workspace: Setup (Chart of Accounts moved in, and the masters
-/// Finance now edits without a developer), Opening & Closing, Tax Setup and
-/// Settings. Those four groups are the second addition.
+/// Copied from ERPNext's Accounting as its demo site draws it
+/// (erpnext-demo.frappe.cloud, `/app/accounting` and the three workspaces
+/// under it): Payables, Receivables and Financial Reports, and the Accounting
+/// workspace's own cards — Payments, Banking, Tax Masters, Accounting
+/// Masters. ERPNext's labels, ERPNext's rows in ERPNext's order within each
+/// group, each screen once. A row ERPNext has and we have no screen for is
+/// left out. The one row of ours standing in ERPNext's place is Sales
+/// Postings, where ERPNext has Sales Invoice: the day's till receipts are how
+/// a sale reaches the ledger here.
 ///
-/// # What it replaced
+/// # What ERPNext does not have
 ///
-/// Four modules under two chips — Finance, Finance baru (`finance-lab`, a
-/// simulation with no network calls), Finance final and Finance lab 2 — which
-/// between them drew Trial Balance four times and Journal three. The live
-/// screens that answer a row below are routed here from wherever they were
-/// written (`index.ts` names each one's file); the rest are still on disk and
-/// routed nowhere. A row with no screen yet renders `Placeholder`, which says
-/// so, rather than a plausible page over nothing.
-///
-/// # Rows the tree names twice
-///
-/// **Payments** is two jobs. Under Cash & Bank it is money actually leaving a
-/// bank — the execution, `payment-batches` on the node. Under Payables it is
-/// the Payment Entry that settles bills. **Trial Balance**, **General Ledger**
-/// and the two agings sit under Reports as well as under the work that
-/// produces them, and those are one screen with two doors, not two
-/// implementations that can disagree.
+/// Our own screens — Card & EDC, petty cash, loans, accruals, the month-end
+/// checklist, Finance's half of assets, and the setup behind account links —
+/// sit under the department's **More**, each under the heading of the group
+/// it is kin to. Not deleted: routed, linkable and in ⌘K as before.
 ///
 /// # Paths
 ///
-/// `/finance/<group>/<row>`, and no row's path is a prefix of another's: the
-/// sidebar lights a row when the address equals its path OR starts with it
-/// plus a slash, so a prefix would light two rows at once. The groups are
-/// headings and own no path — `/finance/assets` is a redirect, not a screen.
+/// `/finance/<group>/<row>`, kept from the frozen tree of 2026-09-26 so every
+/// link and bookmark still lands — a row moving to another group does not
+/// move its URL. No row's path is a prefix of another's: the sidebar lights a
+/// row when the address equals its path OR starts with it plus a slash.
 export const financeNav: AppModule = {
   id: "finance",
   label: "Finance",
   icon: Landmark,
-  home: "/finance",
-  // The modules this one replaced. Their bases land on Overview; the old
-  // `/finance/*` screens that moved are redirected row by row, below.
-  moved: ["/finance-lab", "/finance-lab-2", "/finance-final"],
+  home: "/finance/dashboard",
+  base: "/finance",
+  moved: [
+    // The modules the frozen tree replaced on 2026-09-26.
+    "/finance-lab",
+    "/finance-lab-2",
+    "/finance-final",
+    // Rows of the frozen tree that never had a screen, and whose job is not
+    // Accounting's in ERPNext either: payroll runs are HR's (Payroll Entry
+    // lives in HRMS), and stock value is the Stock app's.
+    "/finance/payroll/runs",
+    "/finance/reports/payroll-cost",
+    "/finance/reports/inventory-valuation",
+    "/finance/reports/interunit",
+  ],
   sections: [
     {
-      items: [{ path: "/finance", label: "Overview", icon: Gauge }],
-    },
-    {
-      /// Where money actually moves. Every external bank account is head
-      /// office's; a store holds Cash on Hand, Petty Cash and Modal Kasir, and
-      /// that is not a banking menu of its own.
-      label: "Cash & Bank",
       items: [
+        // Home is gone (owner, 2026-10-01); the Dashboard is the front page
+        // and is called Overview. `/finance` is still routed, just not a row.
         {
-          path: "/finance/cash-bank/bank-accounts",
-          label: "Bank Accounts",
-          icon: Building2,
-        },
-        {
-          path: "/finance/cash-bank/cash-transactions",
-          label: "Cash Transactions",
-          icon: ArrowLeftRight,
-        },
-        { path: "/finance/cash-bank/payments", label: "Payments", icon: Send },
-        {
-          path: "/finance/cash-bank/transfers",
-          label: "Transfers",
-          icon: Repeat,
-        },
-        {
-          path: "/finance/cash-bank/petty-cash",
-          label: "Petty Cash",
-          icon: Coins,
-        },
-        { path: "/finance/cash-bank/giro", label: "Giro", icon: ScrollText },
-        {
-          path: "/finance/cash-bank/deposits",
-          label: "Deposits",
-          icon: PiggyBank,
-        },
-        {
-          path: "/finance/cash-bank/bank-reconciliation",
-          label: "Bank Reconciliation",
-          icon: Scale,
-          // Amber: an unagreed bank line is a backlog, not a stoppage.
-          badge: "warn",
-          useCount: useUnagreedLineCount,
-          moved: ["/finance/bank"],
+          path: "/finance/dashboard",
+          label: "Overview",
+          icon: ChartColumn,
         },
       ],
     },
     {
-      /// Not a debtor book: a till sale settles as it is rung up. What is owed
-      /// here is mostly the acquirer's — POS / EDC → card receivable →
-      /// settlement → bank HO — plus employees and the odd other party.
-      label: "Receivables",
+      // Each shop's money (owner, 2026-10-01): the three cash boxes, daily
+      // sales against the drawer and the bank, and the cash counts.
+      label: "Stores",
+      fold: true,
       items: [
+        { path: "/finance/stores", label: "Overview", icon: Store },
+        { path: "/finance/stores/sales", label: "Sales by day", icon: Receipt },
         {
-          path: "/finance/receivables/card-settlement",
-          label: "Card & EDC Settlement",
-          icon: CreditCard,
+          path: "/finance/stores/cash-on-hand",
+          label: "Cash on hand",
+          icon: Banknote,
         },
         {
-          path: "/finance/receivables/employee",
-          label: "Employee Receivables",
-          icon: Users,
+          path: "/finance/stores/petty-cash",
+          label: "Petty cash",
+          icon: Wallet,
         },
         {
-          path: "/finance/receivables/other",
-          label: "Other Receivables",
+          path: "/finance/stores/cashier-float",
+          label: "Cashier float",
+          icon: Coins,
+        },
+        {
+          path: "/finance/stores/cash-counts",
+          label: "Cash counts",
           icon: HandCoins,
         },
+      ],
+    },
+    {
+      // What the stock is worth, and whether the books agree (owner,
+      // 2026-10-01): one article is bought once, so value = pieces × PO cost.
+      label: "Inventory",
+      fold: true,
+      items: [
         {
-          path: "/finance/receivables/aging",
-          label: "Aging",
-          icon: Hourglass,
+          path: "/finance/inventory/valuation",
+          label: "Inventory valuation",
+          icon: Boxes,
         },
-        // The daily bridge from POS receipts to the ledger. Not a row of the
-        // frozen tree, and still a screen Executive links into, so it stays
-        // routed beside the settlement it feeds.
         {
-          path: "/finance/receivables/sales-postings",
-          label: "Sales Postings",
-          icon: FileSpreadsheet,
-          hidden: true,
+          path: "/finance/inventory/stock-vs-ledger",
+          label: "Stock vs ledger",
+          icon: Scale,
+        },
+        {
+          path: "/finance/inventory/goods-in-transit",
+          label: "Goods in transit",
+          icon: Truck,
+        },
+        {
+          path: "/finance/inventory/cogs",
+          label: "Cost of goods sold",
+          icon: Percent,
+        },
+        {
+          path: "/finance/inventory/adjustments",
+          label: "Stock adjustments",
+          icon: SlidersHorizontal,
         },
       ],
     },
@@ -221,445 +198,457 @@ export const financeNav: AppModule = {
       /// store's own expense arrives here as HO's bill and reaches the store
       /// through Interunit, never as a store payable.
       label: "Payables",
+      fold: true,
       items: [
         {
           path: "/finance/payables/bills",
-          label: "Supplier Bills",
+          label: "Purchase Invoice",
           icon: Receipt,
-          // Recorded, not posted, and past due. Amber: the money is late, but
-          // nothing is stopped by it.
           badge: "warn",
           useCount: useOverdueBillCount,
           moved: ["/finance/bills"],
         },
+        // Goods sent back, or a price corrected after the bill was agreed:
+        // the supplier's credit, absorbed by the next bill or refunded
+        // (Jurnal's Kredit Memo, owner 2026-10-01: "credit memo perlu").
         {
-          path: "/finance/payables/advances",
-          label: "Supplier Advances",
-          icon: Wallet,
+          path: "/finance/payables/credit-notes",
+          label: "Credit Note",
+          icon: FileMinus,
+        },
+        // What a supplier is expected to invoice every month: the promise a
+        // draft bill is raised from, and what Payment Projection reads.
+        {
+          path: "/finance/payables/recurring-bills",
+          label: "Recurring Bills",
+          icon: Repeat,
+        },
+        // Costs booked before their bill, each waiting for the bill that
+        // replaces it (owner, 2026-10-01). Beside Recurring Bills: those are
+        // the bills that will come, these are the ones that have not yet.
+        {
+          path: "/finance/payables/accruals",
+          label: "Accruals",
+          icon: FileClock,
         },
         {
-          path: "/finance/payables/payments",
-          label: "Payments",
-          icon: Banknote,
-          moved: ["/finance/payments"],
-        },
-        { path: "/finance/payables/aging", label: "Aging", icon: Hourglass },
-      ],
-    },
-    {
-      /// HR computes the result; Finance accrues it, owes it and pays it.
-      label: "Payroll",
-      items: [
-        {
-          path: "/finance/payroll/runs",
-          label: "Payroll Runs",
-          icon: ClipboardList,
+          path: "/finance/payables/aging",
+          label: "Accounts Payable",
+          icon: Hourglass,
+          moved: ["/finance/reports/ap-aging", "/finance/payroll/payables"],
         },
         {
-          path: "/finance/payroll/payables",
-          label: "Payroll Payables",
-          icon: ReceiptText,
+          path: "/finance/reports/accounts-payable-summary",
+          // Was "AP Summary" (owner, 2026-10-01): everything owed, per supplier.
+          label: "Supplier bills",
+          icon: Hourglass,
         },
+        // Kartu Hutang: one supplier's movements with a running balance.
         {
-          path: "/finance/payroll/payments",
-          label: "Employee Payments",
-          icon: UserRoundCheck,
-        },
-        {
-          path: "/finance/payroll/posting",
-          label: "Payroll Posting",
+          path: "/finance/payables/supplier-ledger",
+          label: "Supplier Ledger",
+          hidden: true, // owner, 2026-10-01: same as Supplier bills
           icon: BookOpenCheck,
         },
-      ],
-    },
-    {
-      /// Inventory owns quantity and lifecycle; Finance owns the value, and
-      /// never edits stock.
-      label: "Inventory Valuation",
-      items: [
+        // Owner, 2026-09-29 (`FINANCE-CONNECT-BRIEF.md`): "kita di payables
+        // perlu projection ya ... atau ada calendar payment jg biar enak? ...
+        // both digabung lah ya". One screen, not two: a calendar with no
+        // itemised list under it cannot be read for what to pay, and a list
+        // with no calendar answers a different question than the owner asked.
         {
-          path: "/finance/inventory/value",
-          label: "Inventory Value",
-          icon: Boxes,
+          path: "/finance/payables/projection",
+          label: "Payment Projection",
+          icon: CalendarClock,
         },
-        {
-          path: "/finance/inventory/in-transit",
-          label: "Goods in Transit",
-          icon: Truck,
-        },
-        { path: "/finance/inventory/cogs", label: "COGS", icon: ShoppingBag },
-        {
-          path: "/finance/inventory/adjustments",
-          label: "Stock Adjustments",
-          icon: SlidersHorizontal,
-        },
-        {
-          path: "/finance/inventory/reconciliation",
-          label: "Reconciliation",
-          icon: ListChecks,
-        },
-      ],
-    },
-    {
-      /// Asset identity is GA's register; book value is Finance's.
-      label: "Assets",
-      items: [
-        {
-          path: "/finance/assets/capitalization",
-          label: "Capitalization",
-          icon: Archive,
-          moved: ["/finance/assets"],
-        },
-        { path: "/finance/assets/cip", label: "CIP", icon: HardHat },
-        {
-          path: "/finance/assets/depreciation",
-          label: "Depreciation",
-          icon: TrendingDown,
-        },
-        {
-          path: "/finance/assets/amortisation",
-          label: "Amortisation",
-          icon: CalendarRange,
-        },
-        {
-          path: "/finance/assets/replacement",
-          label: "Replacement Accounting",
-          icon: Recycle,
-        },
-        { path: "/finance/assets/disposal", label: "Disposal", icon: Trash2 },
-      ],
-    },
-    {
-      /// HO ↔ store, in three lanes and only three: financing (1057 / 2028),
-      /// goods (1058 / 2029) and other (1059). The balancer writes these
-      /// entries; nobody keys an interunit journal for a normal event.
-      label: "Interunit",
-      items: [
-        {
-          path: "/finance/interunit/financing",
-          label: "Financing",
-          icon: Network,
-        },
-        {
-          path: "/finance/interunit/goods",
-          label: "Goods",
-          icon: PackageCheck,
-        },
-        { path: "/finance/interunit/other", label: "Other", icon: Split },
-        {
-          path: "/finance/interunit/reconciliation",
-          label: "Reconciliation",
-          icon: Merge,
-        },
-      ],
-    },
-    {
-      /// The company and an outside lender or principal. Not Interunit →
-      /// Financing, which is head office and a store.
-      label: "Financing",
-      items: [
+        // ERPNext keeps loans in its Lending app. Ours are owed like a bill
+        // and paid like one.
         {
           path: "/finance/financing/loans",
           label: "Loans",
           icon: Landmark,
-        },
-        {
-          path: "/finance/financing/principal",
-          label: "Principal / Owner Funding",
-          icon: Vault,
-        },
-        {
-          path: "/finance/financing/installments",
-          label: "Installments",
-          icon: CalendarDays,
-        },
-        {
-          path: "/finance/financing/interest",
-          label: "Interest",
-          icon: Percent,
-        },
-        {
-          path: "/finance/financing/schedules",
-          label: "Schedules",
-          icon: CalendarClock,
+          moved: [
+            "/finance/financing/principal",
+            "/finance/financing/installments",
+            "/finance/financing/interest",
+            "/finance/financing/schedules",
+          ],
         },
       ],
     },
     {
-      label: "Tax",
+      /// Not a debtor book: a till sale settles as it is rung up. What is owed
+      /// here is mostly the acquirer's — POS / EDC → card receivable →
+      /// settlement → bank HO.
+      label: "Receivables",
+      fold: true,
       items: [
+        // Off the menu since 2026-09-29 ("receivable hapus deh") except Card &
+        // EDC Settlement, back on 2026-10-01: the one receivable a shop has.
         {
-          path: "/finance/tax/payables",
-          label: "Tax Payables",
-          icon: BadgePercent,
+          path: "/finance/receivables/sales-postings",
+          label: "Sales Postings",
+          icon: FileSpreadsheet,
+          more: true,
         },
         {
-          path: "/finance/tax/credits",
-          label: "Tax Prepaids / Credits",
-          icon: CircleDollarSign,
+          path: "/finance/receivables/aging",
+          label: "Accounts Receivable",
+          icon: Hourglass,
+          more: true,
+          moved: ["/finance/receivables/other", "/finance/reports/ar-aging"],
         },
-        { path: "/finance/tax/pph", label: "PPh", icon: FileText },
-        { path: "/finance/tax/ppn", label: "PPN", icon: Calculator },
-        { path: "/finance/tax/other", label: "Other Tax", icon: Layers },
+        {
+          path: "/finance/receivables/card-settlement",
+          label: "Card & EDC Settlement",
+          icon: CreditCard,
+        },
+        {
+          path: "/finance/receivables/employee",
+          label: "Employee Advances",
+          icon: Users,
+          more: true,
+        },
       ],
     },
     {
-      /// The kernel, not where transactions start: POS, Inventory,
-      /// Procurement, GA, HR and the bank post themselves. A manual entry is
-      /// for adjustment, reclassification, opening, correction and the
-      /// exceptional event.
-      label: "Accounting",
+      label: "Payments",
+      fold: true,
       items: [
+        {
+          path: "/finance/payables/payments",
+          label: "Payment Entry",
+          // Off the menu (owner, 2026-10-01): BKK pays a bill (Settle bills)
+          // and BKM takes money in. Routed, in ⌘K, and the register of every
+          // supplier payment still reads here.
+          hidden: true,
+          icon: Banknote,
+          moved: [
+            "/finance/payments",
+            "/finance/cash-bank/payments",
+            "/finance/payables/advances",
+            "/finance/payroll/payments",
+          ],
+        },
+        // The client's own cash vouchers from SeventhSoft — Bukti Kas Keluar
+        // and Bukti Kas Masuk — in the Klasik layout the owner picked, beside
+        // Payment Entry (owner, 2026-09-29: "payment entry tetap ada deh,
+        // tapi ada jg bkm bkk").
+        {
+          path: "/finance/cash-bank/bkk",
+          label: "BKK",
+          icon: ArrowRightFromLine,
+          moved: ["/finance/cash-bank/cash-documents"],
+        },
+        {
+          path: "/finance/cash-bank/bkm",
+          label: "BKM",
+          icon: ArrowLeftToLine,
+        },
+        // The document itself, new or existing, is its own page rather than a
+        // sheet over the register above — the owner's call, and the same
+        // device `/stores/$unit` uses for the one other record this app
+        // addresses by path. Routed and findable — the register's own rows
+        // link here, and a pasted link still lands on one — but `hidden` so
+        // it is not four more rows repeating BKK/BKM's own names.
+        {
+          path: "/finance/cash-bank/bkk/new",
+          label: "New BKK",
+          icon: ArrowRightFromLine,
+          hidden: true,
+        },
+        {
+          path: "/finance/cash-bank/bkk/$id",
+          label: "BKK",
+          icon: ArrowRightFromLine,
+          hidden: true,
+        },
+        {
+          path: "/finance/cash-bank/bkm/new",
+          label: "New BKM",
+          icon: ArrowLeftToLine,
+          hidden: true,
+        },
+        {
+          path: "/finance/cash-bank/bkm/$id",
+          label: "BKM",
+          icon: ArrowLeftToLine,
+          hidden: true,
+        },
         {
           path: "/finance/accounting/journal-entries",
-          label: "Journal Entries",
+          label: "Journal Entry",
           icon: BookOpenCheck,
-          moved: ["/finance/journal"],
+          moved: [
+            "/finance/journal",
+            "/finance/accounting/adjustments",
+            "/finance/accounting/recurring",
+            "/finance/payroll/posting",
+            "/finance/interunit/financing",
+            "/finance/interunit/goods",
+            "/finance/interunit/other",
+            "/finance/interunit/reconciliation",
+          ],
         },
+        {
+          path: "/finance/setup/journal-templates",
+          label: "Recurring Journal",
+          icon: Copy,
+        },
+        {
+          path: "/finance/setup/payment-methods",
+          label: "Mode of Payment",
+          icon: WalletCards,
+        },
+        // The cash documents (BKM / BKK) and petty cash: ERPNext's Cash
+        // Entry, kept as the screens the finance team already works in.
+        {
+          path: "/finance/cash-bank/cash-transactions",
+          label: "Cash Transactions",
+          icon: ArrowLeftRight,
+          more: true,
+          moved: ["/finance/cash-bank/transfers"],
+        },
+        {
+          path: "/finance/cash-bank/petty-cash",
+          label: "Petty Cash",
+          icon: Coins,
+          more: true,
+        },
+        {
+          path: "/finance/payments-dashboard",
+          label: "Payments Dashboard",
+          icon: ChartColumn,
+          more: true,
+        },
+      ],
+    },
+    {
+      /// Every external bank account is head office's; a store holds Cash on
+      /// Hand, Petty Cash and Modal Kasir, and deposits it here.
+      label: "Banking",
+      fold: true,
+      items: [
+        {
+          path: "/finance/cash-bank/bank-accounts",
+          label: "Bank Account",
+          icon: Building2,
+        },
+        // The giros, as a board: each one moves Written → Delivered → Due →
+        // Cleared or Bounced, and a board shows where every one stands.
+        {
+          path: "/finance/cash-bank/giro",
+          label: "Giro Board",
+          icon: Kanban,
+        },
+        {
+          path: "/finance/cash-bank/bank-clearance",
+          label: "Bank Clearance",
+          icon: BookOpenCheck,
+          // Off the menu (owner, 2026-10-01): a giro clears on the Giro Board,
+          // and money from the card schemes is Card & EDC Settlement.
+          hidden: true,
+        },
+        // The statement lines as uploaded, reconciled or not yet — ERPNext's
+        // Bank Transaction list (owner, 2026-09-29: "bisa jadi upload
+        // transaction tapi belum recon").
+        {
+          path: "/finance/cash-bank/bank-transactions",
+          label: "Bank Transactions",
+          icon: Landmark,
+        },
+        {
+          path: "/finance/cash-bank/bank-reconciliation",
+          label: "Bank Reconciliation",
+          icon: Wrench,
+          // Amber: an unagreed bank line is a backlog, not a stoppage.
+          badge: "warn",
+          useCount: useUnagreedLineCount,
+          moved: ["/finance/bank"],
+        },
+        // What a recurring narration means ("BIAYA ADM" is always bank
+        // charges): a rule proposes, a person accepts on the reconciliation.
+        {
+          path: "/finance/cash-bank/bank-rules",
+          label: "Bank Rules",
+          icon: Filter,
+        },
+        {
+          path: "/finance/cash-bank/deposits",
+          label: "Deposits",
+          icon: PiggyBank,
+          more: true,
+        },
+        // ERPNext's Cheque Print Template, for the giro.
+        {
+          path: "/finance/setup/giro-templates",
+          label: "Giro Templates",
+          icon: Printer,
+          more: true,
+          moved: ["/finance/giro-print"],
+        },
+      ],
+    },
+    {
+      label: "Financial Reports",
+      fold: true,
+      items: [
         {
           path: "/finance/accounting/general-ledger",
           label: "General Ledger",
           icon: Files,
-          moved: ["/finance/ledger"],
+          moved: ["/finance/ledger", "/finance/reports/general-ledger"],
         },
         {
           path: "/finance/accounting/trial-balance",
           label: "Trial Balance",
           icon: Sigma,
+          moved: ["/finance/reports/trial-balance"],
         },
         {
-          path: "/finance/accounting/accruals",
-          label: "Accruals",
-          icon: FileClock,
+          path: "/finance/reports/profit-and-loss",
+          label: "Profit and Loss",
+          icon: TrendingUp,
+          moved: ["/finance/reports", "/finance/reports/site-pl"],
         },
-        {
-          path: "/finance/accounting/prepaids",
-          label: "Prepaids",
-          icon: CalendarRange,
-        },
-        {
-          path: "/finance/accounting/recurring",
-          label: "Recurring Entries",
-          icon: RefreshCw,
-        },
-        {
-          path: "/finance/accounting/adjustments",
-          label: "Adjustments",
-          icon: PenLine,
-        },
-      ],
-    },
-    {
-      /// A control centre, not a posting menu: every check the month waits
-      /// on, then the close. No monthly P&L → retained earnings.
-      items: [
-        { path: "/finance/period-close", label: "Period Close", icon: Lock },
-      ],
-    },
-    {
-      label: "Reports",
-      items: [
         {
           path: "/finance/reports/balance-sheet",
           label: "Balance Sheet",
           icon: Table2,
         },
         {
-          path: "/finance/reports/profit-and-loss",
-          label: "Profit & Loss",
-          icon: TrendingUp,
-          moved: ["/finance/reports"],
-        },
-        {
           path: "/finance/reports/cash-flow",
           label: "Cash Flow",
           icon: Waves,
         },
+        /// The client's own two comparison reports from 7Soft, kept so nobody
+        /// has to learn a new way to read the year against the last:
+        /// "Laba Rugi GL per Cabang 2 Tahunan" and "Laporan Neraca Central 2
+        /// Tahunan". A year read up to a month, beside the year before it.
         {
-          path: "/finance/reports/trial-balance",
-          label: "Trial Balance",
-          icon: Sigma,
+          path: "/finance/reports/profit-and-loss-by-unit",
+          label: "Profit and Loss by Unit",
+          icon: Split,
         },
         {
-          path: "/finance/reports/general-ledger",
-          label: "General Ledger",
-          icon: Files,
+          path: "/finance/reports/balance-sheet-2-years",
+          label: "Balance Sheet 2 Years",
+          icon: Scale,
         },
+        /// The P&L cut by an accounting dimension (division, cost center,
+        /// project) — ours, where ERPNext has Profitability Analysis.
         {
-          path: "/finance/reports/ap-aging",
-          label: "AP Aging",
-          icon: Hourglass,
-        },
-        {
-          path: "/finance/reports/ar-aging",
-          label: "AR Aging",
-          icon: Hourglass,
+          path: "/finance/reports/dimension-results",
+          label: "Dimension Results",
+          icon: ChartColumn,
+          more: true,
         },
         {
           path: "/finance/reports/cash-bank",
           label: "Cash & Bank",
           icon: Wallet,
+          more: true,
+        },
+        /// 7Soft's "Summary Penjualan per Divisi by HPP rata-rata": sales,
+        /// cost and gross profit per division.
+        {
+          path: "/finance/reports/sales-by-division",
+          label: "Sales by Division",
+          icon: Shapes,
+        },
+        // Picked from the Mekari Jurnal comparison (owner, 2026-10-01).
+        {
+          path: "/finance/reports/changes-in-equity",
+          label: "Statement of Changes in Equity",
+          icon: Scale,
+        },
+        // Every expense account month by month, grouped by its heading in
+        // the chart — Jurnal's "pengeluaran per kategori".
+        {
+          path: "/finance/reports/expenses-by-month",
+          label: "Expenses by Month",
+          icon: PieChart,
         },
         {
-          path: "/finance/reports/payroll-cost",
-          label: "Payroll Cost",
-          icon: UsersRound,
-        },
-        {
-          path: "/finance/reports/inventory-valuation",
-          label: "Inventory Valuation",
-          icon: Warehouse,
-        },
-        {
-          path: "/finance/reports/asset-nbv",
-          label: "Asset / NBV",
-          icon: Archive,
-        },
-        { path: "/finance/reports/tax", label: "Tax", icon: Percent },
-        {
-          path: "/finance/reports/interunit",
-          label: "Interunit",
-          icon: Network,
-        },
-        {
-          path: "/finance/reports/site-pl",
-          label: "Store / Site P&L",
-          icon: Store,
-        },
-        // The P&L cut by an accounting dimension (division, cost center,
-        // project) — the report beside Accounting Dimensions in Setup.
-        {
-          path: "/finance/reports/dimension-results",
-          label: "Dimension Results",
-          icon: ChartColumn,
+          path: "/finance/reports/bank-reconciliation-summary",
+          label: "Bank Reconciliation Summary",
+          icon: ScanSearch,
         },
       ],
     },
     {
-      /// Done once and then not thought about — until it is wrong, and then
-      /// every posting that leans on it is wrong the same way.
-      ///
-      /// Ordered as ERPNext's Accounting workspace orders its Setup card
-      /// (Chart of Accounts, Accounting Dimension, Mode of Payment, Journal
-      /// Entry Template, …), with our own masters beside them. Every master
-      /// here decides where money lands through an account link, and each row
-      /// has a "Link accounts" that opens Account Links on it.
-      label: "Setup",
+      /// ERPNext's Assets, filed under Finance (owner, 2026-09-29: "assets masuk
+      /// accounting saja"). The book-value half: identity, locations and
+      /// maintenance are GA's register.
+      label: "Assets",
+      fold: true,
       items: [
         {
-          // Moved here from Accounting on the owner's say-so (ERPNext keeps
-          // the chart under Setup). The path is kept, so every link to it
-          // still lands.
-          path: "/finance/accounting/chart-of-accounts",
-          label: "Chart of Accounts",
-          icon: FileStack,
-          moved: ["/finance/accounts"],
+          path: "/finance/assets/capitalization",
+          label: "Asset",
+          icon: Laptop,
+          moved: [
+            "/finance/assets",
+            "/finance/assets/cip",
+            "/finance/assets/depreciation",
+            "/finance/assets/amortisation",
+            "/finance/assets/replacement",
+            "/finance/assets/disposal",
+            "/finance/reports/asset-nbv",
+          ],
         },
+        // Work paid ahead to a contractor and invoiced over months, split
+        // into assets at the end (owner, 2026-10-01).
         {
-          path: "/finance/setup/dimensions",
-          label: "Accounting Dimensions",
-          icon: Shapes,
-        },
-        {
-          path: "/finance/setup/payment-methods",
-          label: "Payment Methods",
-          icon: WalletCards,
-        },
-        {
-          path: "/finance/setup/shop-payment-methods",
-          label: "Shop Payment Methods",
-          icon: Store,
-        },
-        {
-          path: "/finance/setup/journal-templates",
-          label: "Journal Entry Templates",
-          icon: Copy,
-        },
-        {
-          path: "/finance/setup/expense-categories",
-          label: "Expense Categories",
-          icon: FolderTree,
-        },
-        {
-          path: "/finance/setup/pay-components",
-          label: "Pay Components",
-          icon: BadgeDollarSign,
+          path: "/finance/assets/contractor-projects",
+          label: "Contractor projects",
+          icon: HardHat,
         },
         {
           path: "/finance/setup/asset-classes",
-          label: "Asset Classes",
+          label: "Asset Category",
           icon: Package,
         },
         {
-          path: "/finance/setup/account-links",
-          label: "Account Links",
-          icon: GitBranch,
-          // The old per-site map lived at both of these. Its decisions are
-          // links now, and a bookmark to the map lands on them.
-          moved: ["/finance/account-map", "/finance/setup/account-map"],
+          path: "/finance/reports/asset-register",
+          label: "Fixed Asset Register",
+          icon: Table2,
         },
         {
-          path: "/finance/setup/posting-readiness",
-          label: "Posting Readiness",
-          icon: ShieldCheck,
-          // Red rather than amber: a posting that needs a role with no
-          // account is refused outright, so this is a stoppage and not a
-          // backlog. The badge sits on the screen that counts the gaps.
-          badge: "bad",
-          useCount: useUnmappedMeaningCount,
-        },
-        {
-          path: "/finance/setup/line-categories",
-          label: "Line Categories",
-          icon: Tags,
-          moved: ["/finance/categories"],
-        },
-        {
-          path: "/finance/setup/edc-mdr",
-          label: "EDC & MDR",
-          icon: CreditCard,
-          moved: ["/finance/sales-setup"],
-        },
-        {
-          path: "/finance/setup/giro-templates",
-          label: "Giro Templates",
-          icon: Printer,
-          moved: ["/finance/giro-print"],
+          path: "/finance/reports/asset-disposals",
+          label: "Asset Disposals",
+          icon: ArchiveX,
         },
       ],
     },
     {
-      /// ERPNext's Opening & Closing: the months that exist, and a range's
-      /// result moved into retained earnings.
-      label: "Opening & Closing",
-      items: [
-        // The only screen that OPENS a month. Nothing can be posted into a
-        // month that does not exist, which somebody usually discovers at the
-        // till rather than here — hence the badge.
-        {
-          path: "/finance/setup/periods",
-          label: "Fiscal Periods",
-          icon: CalendarDays,
-          badge: "warn",
-          useCount: useMonthNotOpenCount,
-          moved: ["/finance/periods"],
-        },
-        {
-          path: "/finance/closing/period-closing-voucher",
-          label: "Period Closing Voucher",
-          icon: CalendarCheck,
-        },
-      ],
-    },
-    {
-      /// ERPNext's Taxes card: the tax masters. Labelled apart from the Tax
-      /// group above, which is where tax is owed, paid and filed.
-      label: "Tax Setup",
+      // "Tax", not "Tax Masters" (owner, 2026-10-01): every tax the client
+      // owes — PPh 21, 23, 25, 29, PPN, PBB — not only what is withheld.
+      label: "Tax",
+      fold: true,
       items: [
         {
           path: "/finance/tax-setup/withholding",
-          label: "Tax Withholding Category",
+          label: "Tax Withholding",
           icon: Percent,
+        },
+        // PPh 23 / 4(2) kept back at payment, the list behind the monthly
+        // return. ERPNext's Tax Withholding Details.
+        {
+          path: "/finance/reports/tax-withholding",
+          label: "Tax Withholding Details",
+          icon: BadgePercent,
+        },
+        {
+          path: "/finance/tax/payables",
+          label: "Tax Payables",
+          icon: BadgePercent,
+          moved: [
+            "/finance/tax/credits",
+            "/finance/tax/pph",
+            "/finance/tax/ppn",
+            "/finance/tax/other",
+            "/finance/reports/tax",
+          ],
         },
         {
           path: "/finance/tax-setup/types",
@@ -669,24 +658,130 @@ export const financeNav: AppModule = {
       ],
     },
     {
-      /// ERPNext's Settings card: Accounts Settings, and the two policies
-      /// that sit beside it here — how posting runs, and who may do what.
-      label: "Settings",
+      /// Done once and then not thought about — until it is wrong, and then
+      /// every posting that leans on it is wrong the same way.
+      label: "Accounting Masters",
+      fold: true,
       items: [
+        {
+          path: "/finance/accounting/chart-of-accounts",
+          label: "Chart of Accounts",
+          icon: ListTree,
+          moved: ["/finance/accounts"],
+        },
         {
           path: "/finance/settings/accounts",
           label: "Accounts Settings",
           icon: Settings,
         },
+        // The only screen that OPENS a month. Nothing can be posted into a
+        // month that does not exist, which somebody usually discovers at the
+        // till rather than here — hence the badge.
+        {
+          path: "/finance/setup/periods",
+          label: "Accounting Period",
+          icon: CalendarDays,
+          badge: "warn",
+          useCount: useMonthNotOpenCount,
+          moved: ["/finance/periods"],
+        },
+        {
+          path: "/finance/setup/dimensions",
+          label: "Accounting Dimension",
+          icon: Shapes,
+          more: true,
+        },
+        {
+          path: "/finance/setup/account-links",
+          label: "Account Links",
+          icon: GitBranch,
+          more: true,
+          // The old per-site map lived at both of these. Its decisions are
+          // links now, and a bookmark to the map lands on them.
+          moved: ["/finance/account-map", "/finance/setup/account-map"],
+        },
+        {
+          path: "/finance/setup/posting-readiness",
+          label: "Posting Readiness",
+          icon: ShieldCheck,
+          more: true,
+          // Red rather than amber: a posting that needs a role with no
+          // account is refused outright, so this is a stoppage and not a
+          // backlog. Home's "Needs attention" carries it too.
+          badge: "bad",
+          useCount: useUnmappedMeaningCount,
+        },
+        {
+          path: "/finance/setup/shop-payment-methods",
+          label: "Shop Payment Methods",
+          icon: Store,
+          more: true,
+        },
+        {
+          path: "/finance/setup/edc-mdr",
+          label: "EDC & MDR",
+          icon: CreditCard,
+          more: true,
+          moved: ["/finance/sales-setup"],
+        },
+        {
+          path: "/finance/setup/expense-categories",
+          label: "Expense Categories",
+          icon: FolderTree,
+          more: true,
+        },
+        {
+          path: "/finance/setup/line-categories",
+          label: "Line Categories",
+          icon: Tags,
+          more: true,
+          moved: ["/finance/categories"],
+        },
+        {
+          path: "/finance/setup/pay-components",
+          label: "Pay Components",
+          icon: BadgeDollarSign,
+        },
         {
           path: "/finance/settings/posting-policies",
           label: "Posting Policies",
           icon: Workflow,
+          more: true,
         },
         {
           path: "/finance/settings/permissions",
-          label: "Role Permissions",
+          label: "Permissions",
           icon: KeyRound,
+          more: true,
+        },
+      ],
+    },
+    {
+      /// The month-end work that leads up to the closing voucher.
+      label: "Closing",
+      fold: true,
+      items: [
+        {
+          path: "/finance/accounting/accruals",
+          label: "Accruals",
+          icon: FileClock,
+          more: true,
+        },
+        {
+          path: "/finance/accounting/prepaids",
+          label: "Prepaids",
+          icon: CalendarRange,
+          more: true,
+        },
+        {
+          path: "/finance/period-close",
+          label: "Period Close",
+          icon: Lock,
+        },
+        {
+          path: "/finance/closing/period-closing-voucher",
+          label: "Period Closing Voucher",
+          icon: CalendarCheck,
         },
       ],
     },

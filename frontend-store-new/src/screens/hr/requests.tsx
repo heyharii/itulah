@@ -70,7 +70,6 @@ export function HrLeave() {
   const [recording, setRecording] = useState(false)
   return (
     <HrWorkspace
-      sub="Leave is decided by the store head and does not go up to head office. Balances are read from the ledger: allowance, taken, asked for."
       actions={
         <Button variant="primary" onClick={() => setRecording(true)}>
           <Plus />
@@ -99,8 +98,8 @@ function Leave({
   const [tab, setTab] = useState<Tab>("requests")
   const team = useTeam(scope)
   const pending = useQuery({
-    queryKey: hrKeys.leave(scope.id),
-    queryFn: ({ signal }) => pendingLeaveAt(scope.id, signal),
+    queryKey: hrKeys.leave(scope.unit_id),
+    queryFn: ({ signal }) => pendingLeaveAt(scope.unit_id, signal),
   })
 
   return (
@@ -148,8 +147,8 @@ function Requests({
   team: EmployeeList | undefined
 }) {
   const pending = useQuery({
-    queryKey: hrKeys.leave(scope.id),
-    queryFn: ({ signal }) => pendingLeaveAt(scope.id, signal),
+    queryKey: hrKeys.leave(scope.unit_id),
+    queryFn: ({ signal }) => pendingLeaveAt(scope.unit_id, signal),
   })
   const people = (team?.rows ?? []).filter(
     (person) => person.status === "ACTIVE",
@@ -181,7 +180,7 @@ function Requests({
   const [open, setOpen] = useState<LeaveRequestView | null>(null)
 
   return centreState(pending, {
-    loading: "Reading what is waiting on a decision…",
+    loading: "Loading…",
     what: "this shop's leave queue",
     render: (queue) => {
       const byId = new Map<string, LeaveRequestView>()
@@ -201,12 +200,12 @@ function Requests({
 
       return (
         <>
-          <Fenced dropped={queue.elsewhere} place={scope.id} />
+          <Fenced dropped={queue.elsewhere} place={scope.unit_id} />
           <PeopleTable
             rows={rows}
             rowKey={(request) => request.id}
             onRowClick={setOpen}
-            empty={`No leave has been asked for at ${scope.label}.`}
+            empty="No leave requests."
             columns={[
               {
                 key: "who",
@@ -357,18 +356,11 @@ function LeaveSheet({
       </SheetSection>
       <SheetSection title="Balance">
         {centreState(balances, {
-          loading: "Reading the balance…",
+          loading: "Loading…",
           what: "this person's leave balance",
           render: (rows) => <BalanceFacts rows={rows} />,
         })}
       </SheetSection>
-      {request.state === "PENDING" && (
-        <p className="text-meta text-mute">
-          Decided here, not at head office. Approved: the balance and the
-          attendance sheet follow at once. The person who filed a request cannot
-          also decide it.
-        </p>
-      )}
     </PeopleSheet>
   )
 }
@@ -457,11 +449,7 @@ function Balances({ team }: { team: EmployeeList | undefined }) {
           })),
         ]}
       />
-      <p className="mt-3 text-meta text-mute">
-        Days left, folded to today from the ledger. A figure in brackets is
-        asked for and not yet decided. Allowances and carry-over are head
-        office's rules.
-      </p>
+      <p className="mt-3 text-meta text-mute">(…) = requested, not decided</p>
     </>
   )
 }
@@ -479,19 +467,20 @@ function Calendar({ scope }: { scope: StoreScope }) {
     <>
       <Heading>Public holidays {year}</Heading>
       {centreState(calendar, {
-        loading: "Reading the holiday calendar…",
+        loading: "Loading…",
         what: `the ${year} holiday calendar`,
         render: (view) => {
-          // Regional days apply to some places only; this shop's are the ones
-          // with no place list or with this shop on it.
+          // Regional days apply to some UNITS only (`HolidayView.units`); this
+          // shop's are the ones with no list at all (a nationwide day) or with
+          // the unit this session is posted to on it.
           const days = view.holidays.filter(
-            (day) => day.places === null || day.places.includes(scope.id),
+            (day) => day.units === null || day.units.includes(scope.unit_id),
           )
           return (
             <PeopleTable
               rows={days}
               rowKey={(day) => day.date}
-              empty={`Head office has published no holidays for ${year}.`}
+              empty={`No holidays for ${year}.`}
               columns={[
                 {
                   key: "name",
@@ -515,7 +504,7 @@ function Calendar({ scope }: { scope: StoreScope }) {
                       <Pill tone="warn">Joint leave · from annual</Pill>
                     ) : (
                       <Pill tone="neutral">
-                        {day.places === null ? "National" : "Regional"}
+                        {day.units === null ? "National" : "Regional"}
                       </Pill>
                     ),
                 },
@@ -524,11 +513,6 @@ function Calendar({ scope }: { scope: StoreScope }) {
           )
         },
       })}
-      <p className="mt-3 text-meta text-mute">
-        Working on a public holiday is paid as holiday overtime. Joint leave (
-        <i>cuti bersama</i>) is taken from the annual allowance. The calendar is
-        published by head office.
-      </p>
     </>
   )
 }
@@ -564,7 +548,7 @@ function RecordLeave({
   const file = useMutation({
     mutationFn: () =>
       fileLeave({
-        place: scope.id,
+        place: scope.unit_id,
         employeeId,
         leaveType,
         from,
@@ -586,7 +570,6 @@ function RecordLeave({
       }}
       crumb="Leave"
       title="Record leave"
-      sub="Filed for the person, decided by the store head."
       foot={
         <Submit
           label="File the request"
@@ -647,7 +630,7 @@ function RecordLeave({
         {chosen?.requires_evidence === true && (
           <Field
             label="Evidence"
-            hint="This kind needs it — a doctor's letter number, for example."
+            hint="Required for this kind"
           >
             <Input
               value={evidence}
@@ -655,7 +638,7 @@ function RecordLeave({
             />
           </Field>
         )}
-        <Field label="Why">
+        <Field label="Reason">
           <Input
             value={reason}
             placeholder="Family wedding in Solo"
@@ -664,13 +647,9 @@ function RecordLeave({
         </Field>
         {types.isError && (
           <Banner tone="warn">
-            The kinds of leave could not be read from head office.
+            Couldn't load leave types.
           </Banner>
         )}
-        <p className="text-meta text-mute">
-          Days off on the rota are left out of the count, and head office counts
-          the rest under the holiday calendar.
-        </p>
       </div>
     </PeopleSheet>
   )

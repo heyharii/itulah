@@ -3,11 +3,11 @@
 /**
  * A figure that was handed over and has nowhere to land.
  */
-export type OpeningUnmapped = {
+export type OpeningUnmapped = { 
 /**
  * The books the figure was meant for.
  */
-unit_id: string,
+unit_id: string, 
 /**
  * The client's account code, or — for an open item, which names its
  * control account by meaning — the semantic key that resolved to nothing.

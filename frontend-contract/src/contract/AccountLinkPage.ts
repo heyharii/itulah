@@ -5,11 +5,11 @@ import type { SemanticKeyDoc } from "./SemanticKeyDoc";
 
 /**
  * The links, with the two lists they are read against: the roles the
- * posting rules use (with their labels) and the sites books are kept for.
+ * posting rules use (with their labels) and the units books are kept for.
  */
 export type AccountLinkPage = { rows: Array<AccountLink>, total: number, roles: Array<SemanticKeyDoc>, locations: Array<BookLocation>, 
 /**
- * (role, source, site) combinations that resolve nowhere — the number the
+ * (role, source, unit) combinations that resolve nowhere — the number the
  * readiness screen breaks down. Never narrowed by the search.
  */
 gaps: number, };

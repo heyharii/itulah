@@ -31,6 +31,8 @@ import { useEffect, useSyncExternalStore } from "react"
 import { claimFinger, claimPin, login, logout, me, roster, type Me } from "@/api"
 import { identifyFinger, NODE_MOVED } from "@/edge"
 import type { Peripherals } from "@/peripherals"
+import { isWeb } from "@/edition"
+import { webConfig, webSetConfig } from "@/web"
 
 /// The shell's copy of what this terminal is. Field names are the Rust
 /// struct's — `NodeConfig` in `src-tauri/src/edge.rs` — because they cross the
@@ -138,12 +140,24 @@ export async function shellCall<T>(
 ): Promise<ShellReply<T>> {
   const invoke = bridge()
   if (invoke === null) {
+    // The web till keeps its own small config (`web.ts`): the node is this
+    // page's origin and the token lives in the tab. Every other shell command
+    // is about the machine — joining, devices — and has no browser answer.
+    if (isWeb && command === "node_config") {
+      return { ok: true, value: webConfig() as T }
+    }
+    if (isWeb && command === "set_node_config") {
+      return { ok: true, value: webSetConfig(args?.next as NodeConfig) as T }
+    }
     return {
       ok: false,
       problem:
-        `Jendela ini dibuka di browser biasa, bukan di aplikasi kasir, ` +
-        `jadi setelan terminal tidak bisa dibaca. ` +
-        `Jalankan lewat “npm run tauri dev”.`,
+        isWeb
+          ? `Ini kasir versi web, jadi pengaturan mesin kasir tidak tersedia — ` +
+            `hanya bisa lewat aplikasi kasir di mesin kasir.`
+          : `Jendela ini dibuka di browser biasa, bukan di aplikasi kasir, ` +
+            `jadi setelan terminal tidak bisa dibaca. ` +
+            `Jalankan lewat “npm run tauri dev”.`,
     }
   }
   try {

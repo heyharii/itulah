@@ -2,7 +2,7 @@
 """Put a small, consistent trading history behind every menu of the demo.
 
     python3 scripts/demo-populate.py --cloud http://127.0.0.1:8180 \
-        --dc http://127.0.0.1:8182 --store http://127.0.0.1:8181 --printer-port 9109
+        --dc http://127.0.0.1:8181 --store http://127.0.0.1:8182 --printer-port 9109
 
 Runs after `demo-seed.sh` (suppliers, people, HR setup, open period). Every
 stage goes through the routes the apps use, in the only order the domain
@@ -120,6 +120,9 @@ RETAIL = {  # supplier_item_code → retail price (IDR)
 def stage_goods(cloud: Node, dc: Node, printer_port: int, as_user=None):
     nina = as_user("dc", "nina") if as_user else dc
     yusuf = as_user("dc", "yusuf") if as_user else dc
+    # Only whoever raised the order may verify its counts (buying rules, Sep
+    # 2026): the orders below are rina's, so rina verifies at the DC.
+    rina = as_user("dc", "rina") if as_user else dc
     step("goods — PO → receive → count → verify → invoice → article → tagging → labels")
     existing = {po["po_number"] for po in rows(cloud.get("/api/v1/purchase-orders?limit=200"))}
     suppliers = rows(cloud.get("/api/v1/suppliers?limit=50"))
@@ -160,8 +163,8 @@ def stage_goods(cloud: Node, dc: Node, printer_port: int, as_user=None):
                 "idempotency_key": str(uuid.uuid4())})
             # The price agreed on the order, not whatever the DC listing echoes.
             price = ordered_price[line["article_code"]]
-            yusuf.post("/api/v1/dc/purchase-verifications", {
-                "count_id": count["count_id"], "verifier_actor_id": "yusuf",
+            rina.post("/api/v1/dc/purchase-verifications", {
+                "count_id": count["count_id"], "verifier_actor_id": "rina",
                 "decision": "Accept", "invoice_unit_price_minor": price,
                 "idempotency_key": str(uuid.uuid4())})
             total += price * QTY
@@ -169,7 +172,7 @@ def stage_goods(cloud: Node, dc: Node, printer_port: int, as_user=None):
             "receipt_id": receipt["receipt_id"], "invoice_number": f"INV-{code}-{n:03d}",
             "invoice_total_minor": total, "actor_id": "yusuf",
             "idempotency_key": str(uuid.uuid4())})
-        print(f"    received, counted by nina, verified by yusuf, invoice Rp {total:,}")
+        print(f"    received, counted by nina, verified by rina, invoice Rp {total:,}")
 
     # Every verified line waits in Cloud as "unidentified" until merchandising
     # says what it is: colours, sizes, how many of each, and the retail price.
@@ -238,8 +241,8 @@ def stage_goods(cloud: Node, dc: Node, printer_port: int, as_user=None):
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--cloud", default="http://127.0.0.1:8180")
-    parser.add_argument("--dc", default="http://127.0.0.1:8182")
-    parser.add_argument("--store", default="http://127.0.0.1:8181")
+    parser.add_argument("--dc", default="http://127.0.0.1:8181")
+    parser.add_argument("--store", default="http://127.0.0.1:8182")
     parser.add_argument("--printer-port", type=int, default=9109)
     parser.add_argument("--password", help="demo password on a sign-in rig (or DEMO_PASSWORD)")
     parser.add_argument("--only", help="comma-separated stages to run (default: all)")
@@ -311,10 +314,12 @@ def tidy_notices(as_user) -> None:
           flush=True)
 
 
-# finance is last on purpose: its bank statement mirrors every movement on the
-# head-office bank account, so the payroll paid by `people`, the shop's
-# deposits from `sales` and anything else touching the bank must exist first.
-ORDER = ["goods", "outbound", "commercial", "sales", "ga", "people", "finance"]
+# finance is last of the small, one-example-of-everything stages on purpose:
+# its bank statement mirrors every movement on the head-office bank account,
+# so the payroll paid by `people`, the shop's deposits from `sales` and
+# anything else touching the bank must exist first. finance_volume runs after
+# it and piles months of extra volume on top, through the same routes.
+ORDER = ["goods", "outbound", "commercial", "sales", "ga", "people", "finance", "finance_volume"]
 STAGES_DIR = Path(__file__).with_name("demo_stages")
 
 

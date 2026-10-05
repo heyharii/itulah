@@ -70,22 +70,60 @@ fn rupiah(minor: i64) -> String {
 // The policy
 // ════════════════════════════════════════════════════════════════════════════
 
-/// Up to this, the shop's own manager approves. Above it, head office does.
+/// Above this, an expense needs a one-time code from Finance at head office
+/// (owner, 2026-10-02). Whoever is signed in records an expense on their own;
+/// nobody else signs.
 ///
-/// Five hundred thousand rupiah, the owner's own line (2026-09-07). A constant
-/// rather than a settings row, because it is company policy and not a per-shop
-/// preference, and a settings table nobody has a screen for is a number nobody
-/// can change anyway.
+/// The line itself is Finance's setting at the centre
+/// (`store_expense.code_above_minor`). The node keeps the last value it learned
+/// in `petty_cash_policy` (0073) and uses this until it has learned one.
 ///
-/// **In this node's unit, which is the rupiah.** Every `_minor` on the edge is
-/// a whole rupiah — a Rp 500.000 opening float is `500_000`, a Rp 149.000
-/// garment is `149_000` — and `money()` in the browser treats IDR as a
-/// zero-decimal currency to match. The centre's unmerged `store_cash.rs` spells
-/// the same policy `500_000_00`, which is a hundred times this number in the
-/// unit the centre stores sales in; whoever merges the two lanes has to settle
-/// that, and this side is the one that agrees with every other figure a till
-/// has ever written.
-pub const STORE_EXPENSE_MANAGER_LIMIT_MINOR: i64 = 500_000;
+/// In this node's unit, the whole rupiah.
+pub const DEFAULT_CODE_ABOVE_MINOR: i64 = 500_000;
+
+/// The line above which an expense needs Finance's code, as last learned.
+pub fn code_above(connection: &Connection) -> Result<i64, EdgeError> {
+    Ok(connection
+        .query_row(
+            "SELECT code_above_minor FROM petty_cash_policy WHERE singleton=1",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map_err(db)?
+        .unwrap_or(DEFAULT_CODE_ABOVE_MINOR))
+}
+
+/// Keep the line the centre just said.
+pub fn learn_code_above(
+    connection: &Connection,
+    code_above_minor: i64,
+    now: DateTime<Utc>,
+) -> Result<(), EdgeError> {
+    if code_above_minor < 0 {
+        return Ok(());
+    }
+    connection
+        .execute(
+            "INSERT INTO petty_cash_policy(singleton,code_above_minor,learned_at)
+             VALUES(1,?1,?2)
+             ON CONFLICT(singleton) DO UPDATE
+                SET code_above_minor=excluded.code_above_minor, learned_at=excluded.learned_at",
+            params![code_above_minor, stamp(now)],
+        )
+        .map_err(db)?;
+    Ok(())
+}
+
+/// Finance's code, already checked and used up at the centre by the HTTP
+/// layer. Never taken from the request body: the handler builds it from the
+/// centre's answer.
+#[derive(Clone, Debug)]
+pub struct ExpenseApproval {
+    pub code: String,
+    /// Who at head office issued the code.
+    pub issued_by: String,
+}
 
 /// The shape of an expense category's code. Which categories exist is head
 /// office's master data (0465): the centre refuses a code it does not know
@@ -120,8 +158,8 @@ fn is_category_code(code: &str) -> bool {
 /// in November.
 ///
 /// What must NOT happen is the opposite: an arm added at the centre that posts
-/// these to the ledger without the maker/checker and the limit being re-checked
-/// there. The refusals in this module protect a till, not a general ledger.
+/// these to the ledger without the code rule being re-checked there. The
+/// refusals in this module protect a till, not a general ledger.
 pub const FACT_STORE_EXPENSE_RECORDED: &str = "store.expense.recorded";
 
 /// See `FACT_STORE_EXPENSE_RECORDED`. The same applies: captured, uploaded,
@@ -146,10 +184,10 @@ pub struct RecordExpenseRequest {
     pub reason: String,
     #[serde(default)]
     pub actor_id: String,
-    /// The second pair of eyes. Not optional: every rupiah out of the tin is
-    /// signed for, which is the control that survives the manager being the
-    /// only person in the building.
-    pub supervisor: Supervisor,
+    /// Finance's one-time code. Needed only above `code_above_minor`; the
+    /// node checks and uses it up at the centre before the row is written.
+    #[serde(default)]
+    pub approval_code: Option<String>,
     pub idempotency_key: String,
 }
 
@@ -238,10 +276,13 @@ pub struct StoreExpenseView {
     pub payee: String,
     pub reason: String,
     pub claimed_by: String,
-    pub approved_by: String,
-    /// Which rung said yes, kept because the limit may move and an audit six
-    /// months later asks who was allowed to approve this, then.
-    pub approved_role: String,
+    /// Who issued Finance's code, for an expense above the line. Empty for an
+    /// ordinary one; older rows keep the manager who signed for them.
+    pub approved_by: Option<String>,
+    /// `FINANCE` for a code; `SUPERVISOR` / `ADMIN` on rows from before
+    /// 2026-10-02.
+    pub approved_role: Option<String>,
+    pub approval_code: Option<String>,
     pub spent_at: String,
 }
 
@@ -276,10 +317,9 @@ pub struct PettyCashPosition {
     pub top_up_count: i64,
     pub expense_count: i64,
     pub last_top_up_at: Option<String>,
-    /// Sent so the screen can show the ceiling BEFORE somebody types past it.
-    /// A limit a person only meets as a refusal is a limit they meet with the
-    /// receipt already in their hand and the money already gone.
-    pub manager_limit_minor: i64,
+    /// Above this an expense needs Finance's code. Sent so the form asks for
+    /// the code only when it is needed.
+    pub code_above_minor: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -344,29 +384,19 @@ pub struct ExpenseWindow {
 
 /// Record an expense paid out of petty cash.
 ///
-/// Five refusals live here and none of them lives ONLY in the browser. A
-/// ceiling a screen enforces is a ceiling that holds for exactly one client,
-/// and this node answers a tablet running last month's build, a second app
-/// nobody here wrote, and curl.
+/// Whoever is signed in records it; nobody else signs (owner, 2026-10-02).
+/// Refused here, not only in the browser:
 ///
 ///   1. a category the chart knows, or nothing;
-///   2. an amount, a payee and a reason — a row without any of the three is a
-///      receipt nobody can audit;
-///   3. a supervisor who is really a supervisor, verified against `edge_user`
-///      the same way a void's is;
-///   4. an approver who is not the claimant, at any amount and with no
-///      override — an override is the only feature of this control that ever
-///      gets used;
-///   5. a rung high enough for the size: above Rp 500.000 a store manager may
-///      not say yes, and head office has to.
-///
-/// And one more that is arithmetic rather than policy: an expense larger than
-/// what is in the tin is money that did not come out of the tin. It is refused
-/// with the balance named, because the honest fix is to record the top-up head
-/// office already made, not to let the float go negative and call it petty cash.
+///   2. an amount, a payee and a reason;
+///   3. more than the tin holds;
+///   4. above `code_above_minor`, no Finance code. The code itself is checked
+///      and used up at the centre by the HTTP layer, which hands the result in
+///      as `approval`.
 pub fn record_expense(
     tx: &Transaction<'_>,
     request: &RecordExpenseRequest,
+    approval: Option<&ExpenseApproval>,
     now: DateTime<Utc>,
 ) -> Result<ExpenseRecorded, EdgeError> {
     let category = request.category.trim().to_string();
@@ -376,66 +406,50 @@ pub fn record_expense(
         )));
     }
     if request.amount_minor <= 0 {
-        return Err(EdgeError::Validation(
-            "an expense of nothing records nothing".into(),
-        ));
+        return Err(EdgeError::Validation("Enter an amount.".into()));
     }
     let payee = request.payee.trim();
     if payee.is_empty() {
-        return Err(EdgeError::Validation(
-            "an expense needs a payee — who was handed the money".into(),
-        ));
+        return Err(EdgeError::Validation("Enter who was paid.".into()));
     }
     let reason = request.reason.trim();
     if reason.is_empty() {
-        return Err(EdgeError::Validation(
-            "an expense needs a reason — what the money was for".into(),
-        ));
+        return Err(EdgeError::Validation("Enter what it was for.".into()));
     }
 
-    // Before the password is asked for. Somebody standing at a counter typing
-    // a supervisor's credentials only to be told the tin is empty has been
-    // asked for a secret for nothing.
     let tin = position(tx)?;
     if request.amount_minor > tin.balance_minor {
         return Err(EdgeError::Conflict(format!(
-            "petty cash holds {} and this is {}. The drawer and the day's takings are not \
-             available for it: record the top-up head office handed over, or send this to head \
-             office to pay by transfer.",
+            "Petty cash holds {}. This is {}.",
             rupiah(tin.balance_minor),
             rupiah(request.amount_minor)
         )));
     }
 
-    // The same verification a void takes, and the same one function. A second
-    // implementation of "is this really a supervisor" is a second place for the
-    // answer to drift, and this one already refuses an inactive account, a
-    // cashier, and a wrong password with one indistinguishable message.
-    let approver = verify_supervisor(tx, Some(&request.supervisor))?;
+    let line = tin.code_above_minor;
+    let approval = if request.amount_minor > line {
+        Some(approval.ok_or_else(|| {
+            EdgeError::Forbidden(format!(
+                "Above {} an expense needs an approval code from Finance.",
+                rupiah(line)
+            ))
+        })?)
+    } else {
+        None
+    };
+
     let claimant =
         crate::security::normalize_username(&request.actor_id).map_err(EdgeError::Validation)?;
-    if approver == claimant {
-        return Err(EdgeError::Forbidden(
-            "the person who spent the money does not approve it. Somebody else signs.".into(),
-        ));
-    }
-
-    let role = role_of(tx, &approver)?;
-    if request.amount_minor > STORE_EXPENSE_MANAGER_LIMIT_MINOR && role != "ADMIN" {
-        return Err(EdgeError::Forbidden(format!(
-            "a store manager may approve up to {} out of petty cash. {} is above that, and head \
-             office has to approve it.",
-            rupiah(STORE_EXPENSE_MANAGER_LIMIT_MINOR),
-            rupiah(request.amount_minor)
-        )));
-    }
+    let approved_by = approval.map(|one| one.issued_by.clone());
+    let approved_role = approval.map(|_| "FINANCE".to_string());
+    let approval_code = approval.map(|one| one.code.clone());
 
     let id = Uuid::new_v4().to_string();
     let spent_at = stamp(now);
     tx.execute(
         "INSERT INTO store_expense(id,idempotency_key,category,amount_minor,payee,reason,
-                                   claimed_by,approved_by,approved_role,spent_at)
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+                                   claimed_by,approved_by,approved_role,approval_code,spent_at)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
         params![
             id,
             request.idempotency_key,
@@ -444,8 +458,9 @@ pub fn record_expense(
             payee,
             reason,
             claimant,
-            approver,
-            role,
+            approved_by,
+            approved_role,
+            approval_code,
             spent_at
         ],
     )
@@ -459,8 +474,9 @@ pub fn record_expense(
             payee: payee.to_owned(),
             reason: reason.to_owned(),
             claimed_by: claimant,
-            approved_by: approver,
-            approved_role: role,
+            approved_by,
+            approved_role,
+            approval_code,
             spent_at,
         },
         position: position(tx)?,
@@ -576,7 +592,7 @@ pub fn position(connection: &Connection) -> Result<PettyCashPosition, EdgeError>
         top_up_count,
         expense_count,
         last_top_up_at,
-        manager_limit_minor: STORE_EXPENSE_MANAGER_LIMIT_MINOR,
+        code_above_minor: code_above(connection)?,
     })
 }
 
@@ -646,7 +662,7 @@ pub fn window(
         let mut statement = connection
             .prepare(
                 "SELECT id,category,amount_minor,payee,reason,claimed_by,approved_by,
-                        approved_role,spent_at
+                        approved_role,approval_code,spent_at
                    FROM store_expense
                   WHERE spent_at >= ?1 AND spent_at < ?2
                   ORDER BY spent_at DESC, id DESC
@@ -664,7 +680,8 @@ pub fn window(
                     claimed_by: row.get(5)?,
                     approved_by: row.get(6)?,
                     approved_role: row.get(7)?,
-                    spent_at: row.get(8)?,
+                    approval_code: row.get(8)?,
+                    spent_at: row.get(9)?,
                 })
             })
             .map_err(db)?;
@@ -750,15 +767,16 @@ fn book_page(
     let mut statement = connection
         .prepare(
             "SELECT kind,id,at,amount_minor,category,party,reason,claimed_by,
-                    approved_by,approved_role
+                    approved_by,approved_role,approval_code
                FROM (
                  SELECT 'EXPENSE' AS kind,id,spent_at AS at,amount_minor,category,
-                        payee AS party,reason,claimed_by,approved_by,approved_role
+                        payee AS party,reason,claimed_by,approved_by,approved_role,
+                        approval_code
                    FROM store_expense
                   WHERE spent_at >= ?1 AND spent_at < ?2
                  UNION ALL
                  SELECT 'TOP_UP',id,received_at,amount_minor,NULL,
-                        reference,note,received_by,approved_by,NULL
+                        reference,note,received_by,approved_by,NULL,NULL
                    FROM petty_cash_top_up
                   WHERE received_at >= ?1 AND received_at < ?2
                )
@@ -780,8 +798,9 @@ fn book_page(
                 row.get::<_, Option<String>>(5)?,
                 row.get::<_, Option<String>>(6)?,
                 row.get::<_, String>(7)?,
-                row.get::<_, String>(8)?,
+                row.get::<_, Option<String>>(8)?,
                 row.get::<_, Option<String>>(9)?,
+                row.get::<_, Option<String>>(10)?,
             ))
         })
         .map_err(db)?
@@ -799,8 +818,19 @@ fn book_page(
 
     let mut expenses = Vec::new();
     let mut top_ups = Vec::new();
-    for (kind, id, at, amount_minor, category, party, reason, claimed_by, approved_by, role) in
-        lines
+    for (
+        kind,
+        id,
+        at,
+        amount_minor,
+        category,
+        party,
+        reason,
+        claimed_by,
+        approved_by,
+        role,
+        approval_code,
+    ) in lines
     {
         if kind == "EXPENSE" {
             expenses.push(StoreExpenseView {
@@ -811,7 +841,8 @@ fn book_page(
                 reason: reason.unwrap_or_default(),
                 claimed_by,
                 approved_by,
-                approved_role: role.unwrap_or_default(),
+                approved_role: role,
+                approval_code,
                 spent_at: at,
             });
         } else {
@@ -821,34 +852,10 @@ fn book_page(
                 reference: party,
                 note: reason,
                 received_by: claimed_by,
-                approved_by,
+                approved_by: approved_by.unwrap_or_default(),
                 received_at: at,
             });
         }
     }
     Ok((expenses, top_ups, next_cursor))
-}
-
-/// Which rung an approver holds.
-///
-/// Read after `verify_supervisor` rather than instead of it. That function
-/// returns a username and nothing else — on purpose, because every other caller
-/// only needs to know that somebody signed — and the size limit is the one rule
-/// in this estate that needs to know WHICH somebody. Reading the row twice is
-/// cheaper than a second credential check, and far cheaper than a copy of
-/// `verify_supervisor` that returns more and drifts.
-fn role_of(connection: &Connection, username: &str) -> Result<String, EdgeError> {
-    connection
-        .query_row(
-            "SELECT role FROM edge_user WHERE username=?1",
-            [username],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(db)?
-        // Unreachable through the handler: `verify_supervisor` has just read
-        // this row. Refused rather than defaulted, because a default here would
-        // be a default APPROVAL RUNG, and the safe direction for one of those
-        // is "no".
-        .ok_or_else(|| EdgeError::Unauthorized("supervisor authorisation refused".into()))
 }

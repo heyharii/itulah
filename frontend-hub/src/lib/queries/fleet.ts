@@ -333,7 +333,8 @@ export const fleetKeys = {
   status: () => ["fleet", "status"] as const,
   statusOf: (unit: string) => ["fleet", "status", unit] as const,
   sync: () => ["fleet", "sync"] as const,
-  incidents: (query: FleetIncidentQuery) => ["fleet", "incidents", query] as const,
+  incidents: (query: FleetIncidentQuery) =>
+    ["fleet", "incidents", query] as const,
   settings: () => ["fleet", "settings"] as const,
 }
 

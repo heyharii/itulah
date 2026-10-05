@@ -10,20 +10,29 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Panel } from "@/components/ui/dialog"
+import { Pill } from "@/components/ui/pill"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
-import { money } from "@/lib/format"
+import { count, money } from "@/lib/format"
 import {
   describeBankAccount,
   financeKeys,
+  listAllBills,
   listCompanyBankAccounts,
+  listGiros,
 } from "@/lib/queries/finance"
+import { CardRow, NumberCard } from "@/screens/finance-final/parts"
+import { isoDay, todayIso } from "@/screens/finance/chart"
 import { useUnitName } from "@/screens/finance/hooks"
-import { BANK_POTS, useMoneyRows } from "@/screens/finance-lab-2/hooks"
-import { Grid, LabNote, Td, Th } from "@/screens/finance-lab-2/parts"
+import { UnitSelect } from "@/screens/finance/parts"
+import {
+  BANK_POTS,
+  useMoney,
+  useMoneyRows,
+} from "@/screens/finance-lab-2/hooks"
+import { Grid, Td, Th } from "@/screens/finance-lab-2/parts"
 
 /// The company's bank accounts — what they are, not where they post.
 ///
@@ -69,19 +78,34 @@ export function BankAccounts() {
     },
   })
 
-  const undescribed = ledger.filter(
-    (row) => !byBinding.has(`${row.account_code}@${row.unit_id}`)
-  ).length
+  const [needle, setNeedle] = useState("")
+  const [unit, setUnit] = useState("")
+
+  // Every account the chart keeps money in, used or not (owner, 2026-10-01).
+  // About two hundred of them, so the list can be narrowed by what somebody
+  // remembers: the bank, the number, the name or the code, and by the unit.
+  const shown = useMemo(() => {
+    const text = needle.trim().toLowerCase()
+    return ledger.filter((row) => {
+      if (unit !== "" && row.unit_id !== unit) return false
+      if (text === "") return true
+      const known = byBinding.get(`${row.account_code}@${row.unit_id}`)
+      return [
+        known?.bank_name ?? row.qualifier,
+        known?.account_no,
+        row.account_name,
+        row.account_code,
+      ].some((field) => (field ?? "").toLowerCase().includes(text))
+    })
+  }, [ledger, byBinding, needle, unit])
 
   return (
     <PageContent>
-      <PageHeader
-        crumb="Finance · Cash &amp; Bank"
-        title="Bank Accounts"
-        sub="Every account the books keep money in, and what the bank knows it as."
-      />
+      <PageHeader crumb="Finance · Banking" title="Bank Account" />
 
       <div className="flex flex-col gap-4">
+        <Summary />
+
         {/* No Suppliers tab.
             
             It held one sentence pointing at the supplier record, which is a
@@ -90,15 +114,6 @@ export function BankAccounts() {
             the party we pay; this screen is the accounts we own and control.
             Two different objects, and a tab made them look like two halves of
             one. */}
-        <Toolbar>
-          <Toolbar.Spacer />
-          {undescribed > 0 && (
-            <span className="text-[0.875rem] text-warn-fg">
-              {undescribed} account(s) nobody has described
-            </span>
-          )}
-        </Toolbar>
-
         {save.error instanceof Error && (
           <Banner tone="bad">{save.error.message}</Banner>
         )}
@@ -112,94 +127,96 @@ export function BankAccounts() {
           </EmptyState>
         ) : (
           <>
-            <Card className="overflow-hidden">
-              <Grid>
-                <thead>
-                  <tr>
-                    {/* The bank and the number are one column, because they
+            <Toolbar>
+              <Input
+                value={needle}
+                onChange={(event) => setNeedle(event.target.value)}
+                aria-label="Search"
+                className="h-control w-64"
+              />
+              <UnitSelect
+                value={unit}
+                onChange={setUnit}
+                className="h-control w-44"
+                aria-label="Unit"
+              />
+              <Toolbar.Spacer />
+              <span className="text-[0.875rem] text-mute">
+                {count(shown.length)}{" "}
+                {shown.length === 1 ? "account" : "accounts"}
+              </span>
+            </Toolbar>
+            {shown.length === 0 ? (
+              <EmptyState>
+                {needle.trim() !== ""
+                  ? `No bank account matches “${needle.trim()}”.`
+                  : "No bank account in this unit."}
+              </EmptyState>
+            ) : (
+              <Card className="overflow-hidden">
+                <Grid>
+                  <thead>
+                    <tr>
+                      {/* The bank and the number are one column, because they
                       are one answer: "BCA 2233445566" is how somebody says
                       which account, and splitting it made the eye travel to
                       finish a phrase. */}
-                    <Th>Account</Th>
-                    <Th width="11rem">Held by</Th>
-                    <Th width="6rem">Type</Th>
-                    <Th width="9rem">Unit</Th>
-                    {/* The balance keeps its figures and loses its heading.
-                      "Per books" is bookkeeping's word for "what we think we
-                      have", and the column of money under it needs no label
-                      to be read as money. */}
-                    <Th align="right" width="9.5rem" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {ledger.map((row) => {
-                    const known = byBinding.get(
-                      `${row.account_code}@${row.unit_id}`
-                    )
-                    return (
-                      <tr key={`${row.account_code}-${row.unit_id}`}>
-                        <Td>
-                          <span className="font-medium text-ink">
-                            {known?.bank_name ?? (row.qualifier || "—")}
-                            {known !== undefined && (
-                              <span className="ml-2 font-mono text-[0.875rem] font-normal text-text">
-                                {known.account_no}
-                              </span>
-                            )}
-                          </span>
-                          {known === undefined ? (
-                            <span className="block text-[0.875rem] text-warn-fg">
-                              not described yet
+                      <Th>Account</Th>
+                      <Th width="9rem">Unit</Th>
+                      <Th align="right" width="10rem">
+                        Balance
+                      </Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shown.map((row) => {
+                      const known = byBinding.get(
+                        `${row.account_code}@${row.unit_id}`
+                      )
+                      return (
+                        <tr key={`${row.account_code}-${row.unit_id}`}>
+                          <Td>
+                            <span className="font-medium text-ink">
+                              {known?.bank_name ?? (row.qualifier || "—")}
+                              {known !== undefined && (
+                                <span className="ml-2 font-mono text-[0.875rem] font-normal text-text">
+                                  {known.account_no}
+                                </span>
+                              )}
+                              {known?.kind === "GIRO" && (
+                                <Pill
+                                  tone="neutral"
+                                  className="ml-2 align-middle"
+                                >
+                                  Giro
+                                </Pill>
+                              )}
                             </span>
-                          ) : (
+                            {/* Most accounts are not described yet, so the gap
+                              is said once in the toolbar and quietly here. */}
                             <span className="block text-[0.875rem] text-mute">
                               {row.account_name}
+                              {known === undefined && (
+                                <span className="text-faint">
+                                  {" "}
+                                  · not described
+                                </span>
+                              )}
                             </span>
-                          )}
-                        </Td>
-                        <Td>
-                          {known?.account_holder ?? (
-                            <span className="text-mute">—</span>
-                          )}
-                          {known?.branch != null && (
-                            <span className="block text-[0.875rem] text-mute">
-                              {known.branch}
-                            </span>
-                          )}
-                        </Td>
-                        <Td>
-                          {known === undefined ? (
-                            <span className="text-mute">—</span>
-                          ) : (
-                            <Pill>
-                              {known.kind === "GIRO" ? "Giro" : "Tabungan"}
-                            </Pill>
-                          )}
-                        </Td>
-                        <Td>
-                          {unitName(row.unit_id)}
-                          {known?.is_primary && (
-                            <span className="block text-[0.875rem] text-ok-fg">
-                              primary here
-                            </span>
-                          )}
-                        </Td>
-                        <Td align="right">{money(row.per_books_minor)}</Td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </Grid>
-            </Card>
-
-            <LabNote>
-              The bank column falls back to <code>account_link.source_id</code>{" "}
-              — free text, typed on the link — until somebody describes the
-              account. Describing it is what gives the number, the holder, the
-              branch and the primary flag a home, and it is the same shape 0221
-              gave supplier accounts, on purpose: one bank name normalises the
-              same way on both halves.
-            </LabNote>
+                          </Td>
+                          {/* The unit's name alone: its code ("HO") is ours, not
+                            what anyone calls it. */}
+                          <Td>
+                            {unitName(row.unit_id).replace(/^[^·]*· /, "")}
+                          </Td>
+                          <Td align="right">{money(row.per_books_minor)}</Td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </Grid>
+              </Card>
+            )}
           </>
         )}
       </div>
@@ -232,6 +249,118 @@ export function BankAccounts() {
     </PageContent>
   )
 }
+
+/// The three figures above the list: what is held, what is about to leave, and
+/// what has left on paper but not yet through the bank.
+///
+/// # Three figures, not four
+///
+/// "Coming in" was asked for and is not here, on purpose. Nothing in the
+/// backend dates an expected receipt: this client is a cash-and-card retailer,
+/// so there is no customer invoice to fall due, a card settlement carries no
+/// due date, and the only dated money owed TO us is the odd giro received —
+/// which, shown alone, would read as "all we expect" and be wrong. The day
+/// the books know when a receivable lands, it is one more card in this row.
+///
+/// Going out is read exactly as Payment Projection reads its payable rows —
+/// posted bills still outstanding, and giros we issued that have not cleared —
+/// through the same two queries, so the figure here and the page it came from
+/// cannot differ. Only what is payable counts: drafts, recurring templates and
+/// open orders are estimates, and are left on that page.
+function Summary() {
+  const overview = useMoney()
+  const bills = useQuery({
+    queryKey: [...financeKeys.bills("POSTED", null), "projection"],
+    queryFn: ({ signal }) => listAllBills("POSTED", undefined, signal),
+    staleTime: 30_000,
+  })
+  const giros = useQuery({
+    queryKey: ["finance", "giros", "projection", "OUT"] as const,
+    queryFn: ({ signal }) =>
+      listGiros({ direction: "OUT", limit: 1000 }, signal),
+    staleTime: 30_000,
+  })
+
+  // Held, in every pot the money is physically or contractually ours in.
+  // Card receivables are owed by a scheme and not held, so they are not here.
+  // A giro we have written and the bank has not paid is a negative row in
+  // the bank pot (`giro_outstanding`), and it is counted: it is already
+  // promised, which is what makes this the figure that is actually free.
+  const held = useMemo(() => {
+    if (overview.data === undefined) return null
+    return overview.data.rows
+      .filter((row) => row.pot !== "CARD_RECEIVABLE")
+      .reduce((sum, row) => sum + row.per_books_minor, 0)
+  }, [overview.data])
+
+  const out = useMemo(() => {
+    if (bills.data === undefined || giros.data === undefined) return null
+    const today = todayIso()
+    const horizon = new Date()
+    horizon.setDate(horizon.getDate() + 30)
+    const until = isoDay(horizon)
+    let ahead = 0
+    let overdue = 0
+    const add = (due: string, amount: number) => {
+      if (due < today) overdue += amount
+      else if (due <= until) ahead += amount
+    }
+    for (const bill of bills.data) {
+      if (bill.outstanding_minor <= 0 || bill.due_date === null) continue
+      add(bill.due_date, bill.outstanding_minor)
+    }
+    for (const giro of giros.data) {
+      if (!NOT_CLEARED.has(giro.status)) continue
+      add(giro.due_date, giro.amount_minor)
+    }
+    return { ahead, overdue }
+  }, [bills.data, giros.data])
+
+  const waiting = useMemo(() => {
+    if (giros.data === undefined) return null
+    const open = giros.data.filter((giro) => NOT_CLEARED.has(giro.status))
+    return {
+      count: open.length,
+      amount: open.reduce((sum, giro) => sum + giro.amount_minor, 0),
+      late: open.filter((giro) => giro.days_overdue > 0).length,
+    }
+  }, [giros.data])
+
+  return (
+    <CardRow>
+      <NumberCard label="Cash & bank balance" value={held} />
+      <NumberCard
+        label="Going out · next 30 days"
+        value={out === null ? null : out.ahead}
+        note={
+          out !== null && out.overdue > 0
+            ? `+ ${money(out.overdue)} overdue`
+            : "Bills and giros that fall due"
+        }
+        tone={out !== null && out.overdue > 0 ? "warn" : undefined}
+      />
+      <NumberCard
+        label="Giros not cleared"
+        value={waiting === null ? null : waiting.amount}
+        note={
+          waiting === null
+            ? undefined
+            : waiting.count === 0
+              ? "Every giro we issued has cleared"
+              : `${count(waiting.count)} issued${
+                  waiting.late > 0 ? ` · ${count(waiting.late)} past due` : ""
+                }`
+        }
+        tone={waiting !== null && waiting.late > 0 ? "warn" : undefined}
+      />
+    </CardRow>
+  )
+}
+
+/// Issued, delivered or due — written on paper and not yet through the bank.
+/// `CLEARED` is done, `REJECTED` bounced, `VOIDED` was cancelled before it
+/// could clear; none of them is money still to leave.
+const NOT_CLEARED: ReadonlySet<string> = new Set(["ISSUED", "DELIVERED", "DUE"])
 
 function DescribeForm({
   existing,

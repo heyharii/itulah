@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Returns (prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+/* Returns: Buying · Return to supplier (with what the supplier gives back) and
+   Merchandise · Return from store (MD asks, the store sends, Ops counts in).
+   Hub tokens, 16px root, nothing under 14px, English copy. */
+:root{
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f8f9; --soft-2:#f0f0f2; --soft-3:#f6f6f7;
+  --hairline:#e6e6e9; --hairline-2:#dadade; --hairline-strong:#c6c6cc;
+  --rail:#242526; --rail-3:#393b3d; --rail-text:#c3c4c7;
+  --scrim:rgba(246,246,247,.72);
+  --accent:#2563eb; --accent-bg:#eff5ff; --cta:#2563eb; --cta-hover:#1d4ed8;
+  --ok:#36b827; --ok-bg:#e8f6ee; --ok-fg:#15803d;
+  --warn:#c9892e; --warn-bg:#fdf1dd; --warn-fg:#b45309;
+  --bad:#d05151; --bad-bg:#fbeaea; --bad-fg:#be123c; --info:#2f86d8;
+  --r-card:.75rem; --r-inner:.4375rem;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);
+  --shadow-float:0 2px 6px rgb(24 39 60/5%),0 24px 64px rgb(24 39 60/16%);
+}
+*{box-sizing:border-box}
+html{font-size:16px}
+html,body{height:100%;margin:0}
+body{font-family:Inter,system-ui,sans-serif;font-size:15px;color:var(--text);background:var(--soft-3);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:left}
+input,textarea{font:inherit;color:var(--ink)}
+svg.lucide{width:17px;height:17px;stroke-width:1.7;flex-shrink:0}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px}
+.shell{display:flex;height:100vh}
+.col{width:68px;background:var(--rail);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:6px;flex-shrink:0}
+.mark{width:30px;height:30px;border-radius:8px;background:#0b0b0b;color:#fff;display:grid;place-items:center;font-weight:600;position:relative;margin-bottom:10px}
+.mark::after{content:"";position:absolute;right:5px;bottom:5px;width:5px;height:5px;border-radius:50%;background:#3b82f6}
+.ci{width:40px;height:40px;border-radius:9px;display:grid;place-items:center;color:var(--rail-text)}
+.ci.on{background:var(--rail-3);color:#fff}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.bar{height:52px;display:flex;align-items:center;gap:8px;padding:0 32px;border-bottom:1px solid var(--hairline);color:var(--body);flex-shrink:0}
+.bar b{color:var(--ink);font-weight:500}
+.bar svg{width:15px;height:15px;color:var(--faint)}
+.page{flex:1;overflow-y:auto}
+.page.beside{padding-right:42rem}
+.page.beside .hb{display:none}
+.content{max-width:100rem;margin:0 auto;padding:28px 32px 120px}
+.ph{display:flex;align-items:flex-end;gap:16px;margin-bottom:20px}
+.ph h1{margin:0;font-size:28px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+.ph p{margin:6px 0 0;color:var(--body)}
+.ph .act{margin-left:auto;display:flex;gap:8px}
+.back{display:inline-flex;align-items:center;gap:6px;color:var(--body);margin-bottom:8px}
+.back:hover{color:var(--ink)}
+.btn{height:40px;padding:0 14px;border-radius:var(--r-inner);border:1px solid var(--hairline-2);background:var(--canvas);color:var(--ink);display:inline-flex;align-items:center;gap:8px;font-weight:500;white-space:nowrap}
+.btn:hover{background:var(--soft)}
+.btn.pri{background:var(--cta);color:#fff;border-color:var(--cta)}
+.btn.pri:hover{background:var(--cta-hover)}
+.btn.sm{height:36px;padding:0 12px}
+.btn.danger{color:var(--bad-fg)}
+.btn:disabled{opacity:.4;cursor:default}
+.btn svg{width:16px;height:16px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--hairline);margin-bottom:16px}
+.tabs button{height:44px;padding:0 12px;color:var(--body);font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;gap:8px;align-items:center}
+.tabs button.on{color:var(--ink);border-color:var(--ink)}
+.tabs button span{color:var(--mute);font-weight:400}
+.card{background:var(--canvas);border-radius:var(--r-card);border:1px solid var(--hairline);overflow:clip}
+table{width:100%;border-collapse:collapse}
+th{height:44px;text-align:left;font-weight:500;color:var(--body);padding:0 16px;border-bottom:1px solid var(--hairline);background:var(--soft);font-size:14px;white-space:nowrap;position:sticky;top:0;z-index:2}
+td{height:56px;padding:0 16px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+tbody tr.click{cursor:pointer}
+tbody tr.click:hover td{background:var(--soft)}
+tbody tr.sel td{background:var(--accent-bg)}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+td.n,th.n{width:56px;color:var(--mute);text-align:right;padding-right:8px}
+td.strong{color:var(--ink);font-weight:500}
+td.act,th.act{text-align:right;width:1%}
+tfoot td{position:sticky;bottom:0;background:var(--soft);font-weight:600;color:var(--ink);border-top:1px solid var(--hairline);border-bottom:0}
+.nm{display:block;color:var(--ink);font-weight:500}
+.sk{display:block;color:var(--mute);font-size:14px}
+.st{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;display:inline-block}
+.need{color:var(--warn-fg);font-weight:500}
+.empty{padding:28px;text-align:center;color:var(--mute)}
+.fld{display:inline-flex;height:40px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);overflow:hidden;background:var(--canvas)}
+.fld:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgb(37 99 235/.12)}
+.fld input{width:5rem;border:0;outline:none;text-align:right;padding:0 10px;font-variant-numeric:tabular-nums}
+.fld span{display:flex;align-items:center;padding:0 10px;border-left:1px solid var(--hairline);background:var(--soft);color:var(--body)}
+.split{display:grid;grid-template-columns:17rem 1fr;gap:16px;align-items:start}
+.pickl{padding:6px}
+.pickl button{width:100%;display:flex;flex-direction:column;padding:10px 12px;border-radius:var(--r-inner)}
+.pickl button:hover{background:var(--soft)}
+.pickl button.on{background:var(--accent-bg)}
+.pickl button.on .nm{color:#1e40af}
+.foot{position:sticky;bottom:0;margin-top:16px;display:flex;align-items:center;gap:12px;padding:14px 0;background:var(--soft-3);border-top:1px solid var(--hairline);color:var(--body)}
+.foot .g{flex:1}
+
+/* the allotment sheet */
+.sheet{position:fixed;z-index:30;top:20px;right:20px;bottom:20px;width:40rem;max-width:calc(100vw - 40px);background:var(--canvas);border:1px solid var(--hairline);border-radius:1rem;box-shadow:var(--shadow-float);display:flex;flex-direction:column;overflow:hidden;animation:slide 260ms cubic-bezier(.32,.72,0,1)}
+@keyframes slide{from{transform:translateX(calc(100% + 20px))}}
+.sh{display:flex;align-items:flex-start;gap:12px;padding:20px 16px 16px 28px;border-bottom:1px solid var(--hairline)}
+.sh .g{flex:1}
+.sh h2{margin:0;font-size:20px;font-weight:600;color:var(--ink)}
+.sh p{margin:4px 0 0;color:var(--body)}
+.ib{width:36px;height:36px;border-radius:var(--r-inner);display:grid;place-items:center;color:var(--line-ico)}
+.ib:hover{background:var(--soft-2)}
+.sb{flex:1;overflow-y:auto;padding:20px 28px}
+.sf{border-top:1px solid var(--hairline);padding:14px 28px;display:flex;gap:8px;align-items:center}
+.sf .g{flex:1;color:var(--body)}
+.sb td{height:64px}
+.unf{display:flex;align-items:center;gap:8px;justify-content:flex-end}
+.unf .need{margin-right:4px}
+.rowact{display:flex;gap:6px;justify-content:flex-end}
+
+/* dialog */
+.veil{position:fixed;inset:0;background:var(--scrim);z-index:40;display:flex;align-items:center;justify-content:center;padding:24px;animation:fade 160ms}
+@keyframes fade{from{opacity:0}}
+.dlg{width:min(34rem,100%);background:var(--canvas);border:1px solid var(--hairline);border-radius:1rem;box-shadow:var(--shadow-float);overflow:hidden}
+.dh{padding:20px 24px 4px}
+.dh h2{margin:0;font-size:20px;font-weight:600;color:var(--ink)}
+.db{padding:12px 24px 20px;color:var(--body);line-height:1.6}
+.db ul{margin:8px 0 0;padding-left:18px}
+.df{display:flex;justify-content:flex-end;gap:8px;padding:14px 24px;border-top:1px solid var(--hairline)}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#191b20;color:#fff;padding:12px 18px;border-radius:10px;z-index:80;box-shadow:var(--shadow-pop)}
+.proto{position:fixed;left:84px;bottom:16px;z-index:90;background:#191b20;border-radius:12px;padding:4px;box-shadow:var(--shadow-float);font-size:14px}
+.proto .seg{display:flex;background:#2a2c31;border-radius:9px;padding:3px}
+.proto .seg button{height:32px;padding:0 12px;border-radius:6px;color:#a9abb1;white-space:nowrap}
+.proto .seg button.on{background:#fff;color:#191b20;font-weight:500}
+
+/* ── returns-prototype additions ─────────────────────────────────────── */
+.kv{display:grid;grid-template-columns:11rem 1fr;gap:10px 16px;margin:0 0 20px}
+.kv dt{color:var(--body)}
+.kv dd{margin:0;color:var(--ink)}
+.h3{margin:22px 0 10px;font-weight:600;color:var(--ink)}
+.bar2{height:8px;border-radius:4px;background:var(--soft-2);overflow:hidden;display:flex;min-width:9rem}
+.bar2 i{display:block;height:100%}
+.prog{display:flex;flex-direction:column;gap:6px}
+.prog .t{color:var(--body);font-size:14px}
+.prog .t b{color:var(--ink);font-weight:500}
+.seg2{display:inline-flex;background:var(--soft-2);border-radius:var(--r-inner);padding:2px}
+.seg2 button{height:32px;padding:0 12px;border-radius:6px;color:var(--body);font-weight:500;display:inline-flex;align-items:center;gap:6px}
+.seg2 button.on{background:var(--canvas);color:var(--ink);box-shadow:0 1px 2px rgb(24 39 60/8%)}
+.seg2 button svg{width:15px;height:15px}
+.inp{height:40px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 12px;outline:none;background:var(--canvas);width:100%}
+.inp:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgb(37 99 235/.12)}
+.form{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px;margin-top:12px}
+.form label{display:flex;flex-direction:column;gap:6px;color:var(--body)}
+.form .full{grid-column:1/-1}
+.tl{list-style:none;margin:0;padding:0;position:relative}
+.tl li{display:grid;grid-template-columns:20px 1fr auto;gap:10px;padding:0 0 16px;position:relative}
+.tl li::before{content:"";position:absolute;left:5px;top:16px;bottom:0;width:2px;background:var(--hairline)}
+.tl li:last-child::before{display:none}
+.tl .d{width:12px;height:12px;border-radius:50%;margin-top:5px;border:2px solid var(--canvas);box-shadow:0 0 0 1px var(--hairline-2)}
+.tl .w{color:var(--ink)}
+.tl .w small{display:block;color:var(--mute);font-size:14px}
+.tl .when{color:var(--mute);font-size:14px}
+.chip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:var(--r-inner);border:1px solid var(--hairline-2);color:var(--body);font-weight:500;font-size:14px;white-space:nowrap}
+.chip svg{width:14px;height:14px}
+.note{background:var(--soft);border:1px solid var(--hairline);border-radius:var(--r-inner);padding:12px 14px;color:var(--body);line-height:1.55}
+.radio{display:flex;flex-direction:column;gap:8px}
+.radio label{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);cursor:pointer;background:var(--canvas)}
+.radio label.on{border-color:var(--accent);background:var(--accent-bg)}
+.radio label b{display:block;color:var(--ink);font-weight:500}
+.radio label span{color:var(--body);font-size:14px}
+.radio input{margin-top:4px}
+/* board */
+.board{display:flex;gap:12px;align-items:flex-start;overflow-x:auto;padding-bottom:8px}
+.lane{flex:1 1 0;min-width:15rem;background:var(--soft-2);border-radius:var(--r-card);display:flex;flex-direction:column}
+.lane.slim{flex:0 0 3.25rem;min-width:3.25rem;align-items:center;padding:16px 0;gap:10px;min-height:16rem}
+.lane.slim .vt{writing-mode:vertical-rl;color:var(--body);font-weight:500;white-space:nowrap}
+.lh{padding:16px 16px 12px}
+.lt{display:flex;align-items:center;gap:8px;color:var(--text);font-weight:500}
+.lt .n{margin-left:auto;background:var(--canvas);border-radius:11px;padding:0 8px;line-height:22px;font-size:14px;color:var(--body)}
+.lq{margin-top:8px;display:flex;align-items:baseline;gap:6px}
+.lq b{font-size:20px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.lq span{color:var(--mute);font-size:14px}
+.lb{padding:0 10px 10px;display:flex;flex-direction:column;gap:10px}
+.kc{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);padding:14px 16px 12px;display:flex;flex-direction:column;position:relative}
+.kc:hover{border-color:var(--hairline-strong)}
+.kc .t{display:flex;align-items:center;gap:8px}
+.kc .t b{flex:1;min-width:0;color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kc .s{color:var(--mute);font-size:14px;margin-top:2px}
+.kc .f{margin-top:12px;padding-top:10px;border-top:1px solid var(--hairline);display:flex;justify-content:space-between;color:var(--mute);font-size:14px}
+.kc .f b{color:var(--ink);font-weight:600}
+.kc.dim{background:var(--soft);box-shadow:none}
+.kc.dim>*:not(.stamp){opacity:.6}
+.kc.warnc{border-color:color-mix(in srgb,var(--warn-fg) 40%,transparent);background:color-mix(in srgb,var(--warn-bg) 50%,var(--canvas))}
+.stamp{position:absolute;right:12px;bottom:10px;transform:rotate(-8deg);border:2px solid currentColor;outline:1px solid currentColor;outline-offset:2px;border-radius:6px;padding:1px 8px 2px;font-size:14px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;background:rgb(255 255 255/.7);display:flex;flex-direction:column;align-items:center;line-height:1.2}
+.stamp small{font-family:"JetBrains Mono",monospace;letter-spacing:0;text-transform:none;font-weight:500}
+.pill{display:inline-flex;align-items:center;height:25px;padding:0 9px;border-radius:var(--r-inner);border:1px solid var(--hairline-2);font-size:14px;font-weight:500;color:var(--body);white-space:nowrap;background:var(--canvas)}
+.pill.warn{color:var(--warn-fg);border-color:color-mix(in srgb,var(--warn-fg) 30%,transparent)}
+.pill.info{color:var(--info);border-color:color-mix(in srgb,var(--info) 30%,transparent)}
+
+/* spacious: every row breathes, and a two-line cell (name over SKU) gets room above and below */
+td{padding-top:14px!important;padding-bottom:14px!important;min-height:64px}
+tbody td{height:64px}
+.tree td{height:52px}
+.nm{line-height:1.4}
+.sk{line-height:1.4;margin-top:4px}
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="col"><span class="mark">C</span><span class="ci"><i data-lucide="house"></i></span><span class="ci" id="nBuy"><i data-lucide="shopping-cart"></i></span><span class="ci" id="nMd"><i data-lucide="shirt"></i></span><span class="ci" id="nOps"><i data-lucide="truck"></i></span><span class="ci" id="nFin"><i data-lucide="landmark"></i></span><span class="ci"><i data-lucide="boxes"></i></span></nav>
+  <div class="main">
+    <header class="bar" id="crumb"></header>
+    <div class="page" id="page"><div class="content" id="view"></div></div>
+  </div>
+</div>
+<div id="side"></div><div id="dlg"></div>
+<div class="proto"><div class="seg" id="seg"></div></div>
+
+<script>
+/* ═════════════════════════════════════════════════════════════════════════
+   Two returns, two owners:
+
+   Buying · Return to supplier — HO → supplier. Buying raises it and reviews
+   it, Ops hands the goods over, and then the return stays open until the
+   supplier has made it good:
+     · Over-delivery — goods the supplier sent beyond the PO. Nothing comes
+       back: the return closes when the goods are handed over.
+     · Defect / wrong item / unsold — the supplier owes something back, in any
+       mix of: replacement goods (the same SKU, counted at Receiving),
+       money (a refund, booked by Finance as a BKM) or a credit note (taken
+       off what HO owes the supplier). Tracked in rupiah against the
+       return's value until nothing is owed.
+
+   Merchandise · Return from store — store → HO. Only MD raises it (a store
+   never sends on its own). The store picks and sends; Ops sees it on the
+   road and counts it at the door: Asked → Picked → In transit → Received.
+   ═════════════════════════════════════════════════════════════════════════ */
+const $=id=>document.getElementById(id);
+const rp=n=>'Rp '+Math.round(n).toLocaleString('id-ID');
+const fmt=n=>Math.round(n).toLocaleString('id-ID');
+const icons=()=>lucide.createIcons();
+const dot=(c,l)=>`<span class="st"><span class="dot" style="background:${c}"></span>${l}</span>`;
+function toast(t){const d=document.createElement('div');d.className='toast';d.textContent=t;document.body.appendChild(d);setTimeout(()=>d.remove(),2400)}
+
+/* ── Return to supplier data ──────────────────────────────────────────── */
+const KIND={
+  replace:{l:'Replacement',i:'repeat',c:'var(--accent)',w:'The same goods, counted in at Receiving'},
+  money:{l:'Refund',i:'banknote',c:'var(--ok)',w:'Money back, booked by Finance (BKM)'},
+  credit:{l:'Credit note',i:'receipt-text',c:'var(--info)',w:'Finance takes it off what we owe the supplier'},
+  none:{l:'None',i:'circle-slash',c:'var(--faint)',w:'Over-delivery — never ours to pay for'},
+};
+const REASON={over:'Over-delivery',defect:'Defect',wrong:'Wrong item',unsold:'Unsold'};
+const RSST={
+  pick:{l:'To hand over',c:'var(--faint)'},
+  handed:{l:'Waiting on supplier',c:'var(--warn)'},
+  part:{l:'Partly made good',c:'var(--accent)'},
+  done:{l:'Settled',c:'var(--ok)'},
+  short:{l:'Closed short',c:'var(--bad)'},
+  closed:{l:'Closed',c:'#4a5261'},
+};
+const RTS=[
+  {no:'RS-00000021',sup:'PT Sinar Garmen',reason:'defect',expect:'replace',by:'Dimas',made:'24 Sep',handed:'26 Sep',sj:'SJ-RS-0021',
+   lines:[['KMJ-OXF-SL-L','Kemeja Oxford Slim · L',12,145000],['KMJ-OXF-SL-M','Kemeja Oxford Slim · M',8,145000]],
+   rec:[{k:'replace',pcs:12,val:12*145000,ref:'GR-00001882',who:'Receiving · Ayu',when:'29 Sep'}]},
+  {no:'RS-00000020',sup:'PT Tekstil Jaya',reason:'wrong',expect:'money',by:'Dimas',made:'22 Sep',handed:'23 Sep',sj:'SJ-RS-0020',
+   lines:[['CLN-CHN-TP-32','Celana Chino Tapered · 32',15,178000]],
+   rec:[{k:'money',val:1500000,ref:'BKM-2609-0114',who:'Finance · Lina',when:'27 Sep'},{k:'credit',val:1170000,ref:'CN-TJ-0045',who:'Finance · Lina',when:'30 Sep'}]},
+  {no:'RS-00000019',sup:'Konveksi Anugerah',reason:'unsold',expect:'credit',by:'Rina',made:'20 Sep',handed:'22 Sep',sj:'SJ-RS-0019',
+   lines:[['PLO-PQ-BS-XXL','Polo Pique Basic · XXL',30,98000],['PLO-PQ-BS-XL','Polo Pique Basic · XL',10,98000]],rec:[]},
+  {no:'RS-00000018',sup:'CV Kain Nusantara',reason:'over',expect:'none',po:'PO-00000233',by:'Rina',made:'19 Sep',handed:'19 Sep',sj:'SJ-RS-0018',
+   lines:[['UNTAGGED','Over-delivery · unidentified pcs',50,0]],rec:[]},
+  {no:'RS-00000022',sup:'UD Rajut Bandung',reason:'defect',expect:'replace',by:'Dimas',made:'30 Sep',
+   lines:[['KAO-CRW-BS-S','Kaos Crew Basic · S',12,65000]],rec:[]},
+  {no:'RS-00000023',sup:'PT Sinar Garmen',reason:'over',expect:'none',po:'PO-00000241',by:'Rina',made:'1 Oct',
+   lines:[['UNTAGGED','Over-delivery · unidentified pcs',20,0]],rec:[]},
+  {no:'RS-00000017',sup:'PT Tekstil Jaya',reason:'defect',expect:'credit',by:'Dimas',made:'12 Sep',handed:'13 Sep',sj:'SJ-RS-0017',
+   lines:[['JKT-BMB-LT-M','Jaket Bomber Light · M',6,265000]],rec:[{k:'credit',val:1590000,ref:'CN-TJ-0041',who:'Finance · Lina',when:'18 Sep'}]},
+];
+const pcsOf=r=>r.lines.reduce((s,l)=>s+l[2],0);
+const valOf=r=>r.lines.reduce((s,l)=>s+l[2]*l[3],0);
+const backOf=r=>r.rec.reduce((s,x)=>s+x.val,0);
+function rsState(r){
+  if(!r.handed)return 'pick';
+  if(r.reason==='over')return 'closed';
+  const v=valOf(r),b=backOf(r);
+  if(b>=v)return 'done';
+  if(r.cs)return 'short';
+  return b>0?'part':'handed';
+}
+/* where the supplier's answer stands, as one bar: each kind in its colour */
+function progress(r,wide){
+  if(r.reason==='over')return `<span class="st" style="color:var(--mute)"><i data-lucide="circle-slash" style="width:15px;height:15px"></i>None needed</span>`;
+  const v=valOf(r),b=backOf(r),by={};r.rec.forEach(x=>by[x.k]=(by[x.k]||0)+x.val);
+  const segs=Object.entries(by).map(([k,x])=>`<i style="width:${(x/v*100).toFixed(1)}%;background:${KIND[k].c}"></i>`).join('');
+  return `<div class="prog" style="${wide?'':'min-width:12rem'}"><div class="bar2">${segs}</div><span class="t"><b>${rp(b)}</b> of ${rp(v)}${b<v?` · <span class="need">${rp(v-b)} owed</span>`:''}</span></div>`;
+}
+
+/* ── Return from store data ───────────────────────────────────────────── */
+const STAGE={asked:{l:'Asked by MD',c:'var(--faint)'},picked:{l:'Picked',c:'var(--warn)'},transit:{l:'In transit',c:'var(--accent)'},received:{l:'Received',c:'var(--ok)'}};
+const RFS=[
+  {no:'RT-KMG-0044',from:'Store Kemang',pcs:18,by:'Sari',made:'1 Oct',st:'asked',why:'Slow moving'},
+  {no:'RT-BTR-0012',from:'Store Bintaro',pcs:3,by:'Sari',made:'30 Sep',st:'asked',why:'Damaged'},
+  {no:'RT-SNY-0031',from:'Store Senayan',pcs:18,by:'Dimas',made:'29 Sep',st:'picked',why:'Recall',picked:'30 Sep'},
+  {no:'RT-PIK-0019',from:'Store PIK',pcs:4,by:'Rina',made:'27 Sep',st:'transit',why:'Slow moving',sj:'SJ-PIK-R-0019',left:'29 Sep',koli:1},
+  {no:'RT-KMG-0043',from:'Store Kemang',pcs:22,by:'Sari',made:'24 Sep',st:'transit',why:'Slow moving',sj:'SJ-KMG-R-0043',left:'26 Sep',koli:2},
+  {no:'RT-PIK-0018',from:'Store PIK',pcs:8,by:'Dimas',made:'20 Sep',st:'received',why:'Damaged',sj:'SJ-PIK-R-0018',got:8,at:'23 Sep'},
+  {no:'RT-BSD-0009',from:'Store BSD',pcs:10,by:'Rina',made:'18 Sep',st:'received',why:'Recall',sj:'SJ-BSD-R-0009',got:9,at:'21 Sep'},
+];
+const STOCK={'Store Kemang':[['KMJ-OXF-SL-XL','Kemeja Oxford Slim · XL','Slow moving',7],['CLN-CHN-TP-36','Celana Chino Tapered · 36','Slow moving',5],['PLO-PQ-BS-S','Polo Pique Basic · S','Damaged',2]],
+  'Store PIK':[['JKT-BMB-LT-S','Jaket Bomber Light · S','Slow moving',4]],
+  'Store Senayan':[['PLO-PQ-BS-XXL','Polo Pique Basic · XXL','Slow moving',6]],
+  'Store Bintaro':[['KMJ-OXF-SL-S','Kemeja Oxford Slim · S','Damaged',3]]};
+
+const S={view:'rts',tab:'open',open:null,ns:{sup:'Konveksi Anugerah',reason:'defect',expect:'replace',q:{}},cnt:null,nr:{store:'Store Kemang',q:{}}};
+
+/* ═══ Buying · Return to supplier ═══════════════════════════════════════ */
+function rtsList(){
+  const g={open:RTS.filter(r=>['pick','handed','part'].includes(rsState(r))),done:RTS.filter(r=>['done','closed','short'].includes(rsState(r)))};
+  const owed=RTS.filter(r=>['handed','part'].includes(rsState(r))).reduce((s,r)=>s+valOf(r)-backOf(r),0);
+  const list=g[S.tab];
+  return `<div class="ph"><div><h1>Return to supplier</h1></div><div class="act"><button class="btn pri" onclick="S.view='newrts';paint()"><i data-lucide="plus"></i>New return</button></div></div>
+  <div class="tabs"><button class="${S.tab==='open'?'on':''}" onclick="S.tab='open';paint()">Open <span>${g.open.length}</span></button><button class="${S.tab==='done'?'on':''}" onclick="S.tab='done';paint()">Settled and closed <span>${g.done.length}</span></button>
+  <span style="margin-left:auto;align-self:center;color:var(--body)">Suppliers still owe <b style="color:var(--ink)">${rp(owed)}</b></span></div>
+  <div class="card"><table><thead><tr><th class="n">No.</th><th>Return</th><th>Supplier</th><th>Reason</th><th class="r">Pcs</th><th>Settle by</th><th>Settled</th><th>Status</th></tr></thead><tbody>
+  ${list.map((r,i)=>{const s=RSST[rsState(r)],k=KIND[r.expect];return `<tr class="click${S.open===r.no?' sel':''}" onclick="S.open='${r.no}';paint()"><td class="n">${i+1}</td>
+  <td><span class="mono" style="color:var(--ink)">${r.no}</span><span class="sk">${r.made} · ${r.by}</span></td><td class="strong">${r.sup}</td>
+  <td>${REASON[r.reason]}${r.po?`<span class="sk mono">${r.po}</span>`:''}</td><td class="r">${pcsOf(r)}</td>
+  <td><span class="chip"><i data-lucide="${k.i}"></i>${k.l}</span></td><td>${rsState(r)==='pick'?'<span class="sk">—</span>':progress(r)}</td><td>${dot(s.c,s.l)}</td></tr>`}).join('')||`<tr><td colspan="8" class="empty">Nothing here.</td></tr>`}
+  </tbody></table></div>`;
+}
+
+function rtsSheet(){
+  const r=RTS.find(x=>x.no===S.open);if(!r)return '';
+  const st=rsState(r),v=valOf(r),b=backOf(r),over=r.reason==='over';
+  const tl=[
+    {c:'var(--ink)',w:`Raised by Buying · ${r.by}`,s:`${REASON[r.reason]}${r.po?' on '+r.po:''} · settle by ${KIND[r.expect].l.toLowerCase()}`,when:r.made},
+    r.handed?{c:'var(--accent)',w:'Handed over by Ops',s:`Surat jalan ${r.sj}`,when:r.handed}:{c:'var(--faint)',w:'To hand over'},
+    ...r.rec.map(x=>({c:KIND[x.k].c,w:`${KIND[x.k].l} · ${x.k==='replace'?x.pcs+' pcs, worth '+rp(x.val):rp(x.val)}`,s:`${x.ref} · ${x.who}`,when:x.when})),
+    over&&r.handed?{c:'#4a5261',w:'Closed',when:r.handed}:null,
+    !over&&st==='done'?{c:'var(--ok)',w:'Settled'}:null,
+    r.cs?{c:'var(--bad)',w:`Closed short by Buying · ${rp(r.cs.val)} written off`,s:r.cs.why,when:'1 Oct'}:null,
+  ].filter(Boolean);
+  const open=!over&&r.handed&&b<v&&!r.cs;
+  return `<div class="sheet"><div class="sh"><div class="g"><span class="mono" style="color:var(--mute)">${r.no}</span><h2>${r.sup}</h2><p>${REASON[r.reason]} · ${pcsOf(r)} pcs${v?' · '+rp(v):''}</p></div><button class="ib" onclick="S.open=null;paint()"><i data-lucide="x"></i></button></div>
+  <div class="sb">
+    <dl class="kv"><dt>Status</dt><dd>${dot(RSST[st].c,RSST[st].l)}</dd><dt>Settle by</dt><dd><span class="chip"><i data-lucide="${KIND[r.expect].i}"></i>${KIND[r.expect].l}</span></dd>
+    ${st!=='pick'?`<dt>Settled</dt><dd>${progress(r,true)}</dd>`:''}</dl>
+    <div class="h3">Goods</div>
+    <div class="card"><table><thead><tr><th>SKU</th><th class="r">Pcs</th><th class="r">Cost</th><th class="r">Value</th></tr></thead><tbody>
+    ${r.lines.map(l=>`<tr><td><span class="nm">${l[1]}</span><span class="sk mono">${l[0]}</span></td><td class="r">${l[2]}</td><td class="r">${l[3]?rp(l[3]):'—'}</td><td class="r">${l[3]?rp(l[2]*l[3]):'—'}</td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="h3">History</div>
+    <ul class="tl">${tl.map(x=>`<li><span class="d" style="background:${x.c}"></span><span class="w">${x.w}<small>${x.s||''}</small></span><span class="when">${x.when||''}</span></li>`).join('')}</ul>
+  </div>
+  ${open?`<div class="sf"><span class="g">${rp(v-b)} owed</span><button class="btn danger" onclick="closeShortDlg()"><i data-lucide="circle-x"></i>Close short</button></div>`:''}
+  </div>`;
+}
+function closeShortDlg(){
+  const r=RTS.find(x=>x.no===S.open),left=valOf(r)-backOf(r);
+  $('dlg').innerHTML=`<div class="veil" onclick="if(event.target===this)$('dlg').innerHTML=''"><div class="dlg"><div class="dh"><h2>Close ${r.no} short?</h2></div>
+  <div class="db">${rp(left)} owed is written off.
+  <textarea id="csWhy" class="inp" style="height:84px;padding:10px 12px;margin-top:12px;resize:vertical" placeholder="Reason"></textarea></div>
+  <div class="df"><button class="btn" onclick="$('dlg').innerHTML=''">Keep chasing</button><button class="btn pri" onclick="closeShort()">Close short</button></div></div></div>`;
+}
+function closeShort(){
+  const why=$('csWhy').value.trim();if(!why)return toast('Say why — Finance reads it');
+  const r=RTS.find(x=>x.no===S.open);r.cs={val:valOf(r)-backOf(r),why};$('dlg').innerHTML='';paint();toast(r.no+' closed short · '+rp(r.cs.val)+' to Finance as a loss');
+}
+
+/* New return to supplier: choose a supplier, the goods, why, and what we expect back. */
+const HO_STOCK=[
+  {sup:'Konveksi Anugerah',sku:'PLO-PQ-BS-S',name:'Polo Pique Basic · S',src:'HO return stock · from Store Kemang',qty:2,cost:98000},
+  {sup:'Konveksi Anugerah',sku:'PLO-PQ-BS-M',name:'Polo Pique Basic · M',src:'HO return stock · from Store PIK',qty:9,cost:98000},
+  {sup:'PT Sinar Garmen',sku:'KMJ-OXF-SL-S',name:'Kemeja Oxford Slim · S',src:'HO return stock · from Store Bintaro',qty:3,cost:145000},
+  {sup:'UD Rajut Bandung',sku:'KAO-CRW-BS-M',name:'Kaos Crew Basic · M',src:'HO return stock · from Store Senayan',qty:12,cost:65000},
+];
+const OVER=[{sup:'Konveksi Anugerah',po:'PO-00000244',qty:30,at:'30 Sep'},{sup:'PT Tekstil Jaya',po:'PO-00000239',qty:15,at:'28 Sep'}];
+function newRts(){
+  const sups=[...new Set([...HO_STOCK.map(x=>x.sup),...OVER.map(x=>x.sup)])],ns=S.ns,sup=ns.sup;
+  const over=ns.reason==='over';
+  const lines=over?OVER.filter(x=>x.sup===sup).map(x=>({k:'o'+x.po,name:'Over-delivery on '+x.po,sku:'Unidentified pcs · counted '+x.at,src:'Unidentified (not ours)',qty:x.qty,cost:0}))
+                  :HO_STOCK.filter(x=>x.sup===sup).map(x=>({...x,k:'h'+x.sku}));
+  const q=l=>ns.q[l.k]??l.qty,total=lines.reduce((s,l)=>s+q(l),0),value=lines.reduce((s,l)=>s+q(l)*l.cost,0);
+  const reasons=Object.entries(REASON).map(([k,l])=>`<button class="${ns.reason===k?'on':''}" onclick="S.ns.reason='${k}';S.ns.expect='${k==='over'?'none':'replace'}';S.ns.q={};paint()">${l}</button>`).join('');
+  return `<button class="back" onclick="S.view='rts';paint()"><i data-lucide="arrow-left"></i>Return to supplier</button>
+  <div class="ph"><div><h1>New return to supplier</h1></div></div>
+  <div class="split"><div class="card pickl">${sups.map(s=>`<button class="${s===sup?'on':''}" onclick="S.ns.sup='${s}';S.ns.q={};paint()"><span class="nm">${s}</span><span class="sk">${HO_STOCK.filter(x=>x.sup===s).reduce((t,x)=>t+x.qty,0)} in return stock${OVER.some(x=>x.sup===s)?' · over-delivery':''}</span></button>`).join('')}</div>
+  <div>
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px"><span style="color:var(--body)">Why</span><div class="seg2">${reasons}</div></div>
+    <div class="card"><table><thead><tr><th class="n">No.</th><th>Goods</th><th>From</th><th class="r">Available</th><th class="r">To return</th></tr></thead><tbody>
+    ${lines.map((l,i)=>`<tr><td class="n">${i+1}</td><td><span class="nm">${l.name}</span><span class="sk ${over?'':'mono'}">${l.sku}</span></td><td>${l.src}</td><td class="r">${l.qty}</td><td class="r"><span class="fld"><input value="${q(l)}" inputmode="numeric" onchange="S.ns.q['${l.k}']=Math.max(0,Math.min(${l.qty},parseInt(this.value)||0));paint()"><span>pcs</span></span></td></tr>`).join('')||`<tr><td colspan="5" class="empty">${over?'No over-delivery from this supplier.':'Nothing of this supplier in HO return stock.'}</td></tr>`}
+    </tbody></table></div>
+    <div class="h3">Settle by</div>
+    ${over?`<p style="margin:0;color:var(--ink)">None</p>`
+    :`<div class="radio">${['replace','money','credit'].map(k=>`<label class="${ns.expect===k?'on':''}" onclick="S.ns.expect='${k}';paint()"><input type="radio" ${ns.expect===k?'checked':''}><span><b>${KIND[k].l}</b></span></label>`).join('')}</div>`}
+  </div></div>
+  <div class="foot"><span class="g">${total} pcs${value?' · '+rp(value):''}</span><button class="btn pri" onclick="createRts(${total})"${total?'':' disabled'}><i data-lucide="check"></i>Create return</button></div>`;
+}
+function createRts(n){
+  const ns=S.ns,over=ns.reason==='over';
+  const lines=over?[['UNTAGGED','Over-delivery · unidentified pcs',n,0]]:HO_STOCK.filter(x=>x.sup===ns.sup).map(x=>[x.sku,x.name,ns.q['h'+x.sku]??x.qty,x.cost]).filter(l=>l[2]>0);
+  const no='RS-000000'+(24+RTS.length-7);
+  RTS.unshift({no,sup:ns.sup,reason:ns.reason,expect:over?'none':ns.expect,po:over?OVER.find(x=>x.sup===ns.sup)?.po:undefined,by:'Rina',made:'1 Oct',lines,rec:[]});
+  S.ns.q={};S.view='rts';S.tab='open';S.open=no;paint();toast(no+' raised · on Ops\' Outbound › To suppliers');
+}
+
+/* ═══ Ops · Receiving: replacements arrive like any expected delivery ════ */
+const PO_DUE=[{no:'PO-00000247',sup:'PT Sinar Garmen',pcs:480,due:'2 Oct'},{no:'PO-00000248',sup:'CV Kain Nusantara',pcs:300,due:'3 Oct'}];
+const replOwed=r=>pcsOf(r)-r.rec.filter(x=>x.k==='replace').reduce((t,x)=>t+x.pcs,0);
+function recvList(){
+  const repl=RTS.filter(r=>r.expect==='replace'&&['handed','part'].includes(rsState(r))&&replOwed(r)>0);
+  const rows=[...PO_DUE.map(p=>({kind:'po',no:p.no,sup:p.sup,what:'Purchase order',due:p.due})),...repl.map(r=>({kind:'rs',no:r.no,sup:r.sup,what:'Replacement for '+r.no,due:'—'}))];
+  return `<div class="ph"><div><h1>Receiving</h1></div></div>
+  <div class="card"><table><thead><tr><th class="n">No.</th><th>Delivery</th><th>Supplier</th><th>Due</th><th class="act"></th></tr></thead><tbody>
+  ${rows.map((x,i)=>`<tr><td class="n">${i+1}</td><td><span class="nm">${x.what}</span><span class="sk mono">${x.no}</span></td><td class="strong">${x.sup}</td><td>${x.due}</td><td class="act">${x.kind==='rs'?`<button class="btn sm" onclick="S.cnt='${x.no}';S.view='count';paint()"><i data-lucide="scan-barcode"></i>Count</button>`:'<span class="sk">—</span>'}</td></tr>`).join('')}
+  </tbody></table></div>`;
+}
+function countView(){
+  const r=RTS.find(x=>x.no===S.cnt);
+  return `<button class="back" onclick="S.view='recv';paint()"><i data-lucide="arrow-left"></i>Receiving</button>
+  <div class="ph"><div><h1>Count · Replacement for ${r.no}</h1></div></div>
+  <div class="card"><table><thead><tr><th class="n">No.</th><th>SKU</th><th class="r">Counted</th></tr></thead><tbody>
+  ${r.lines.map((l,i)=>`<tr><td class="n">${i+1}</td><td><span class="nm">${l[1]}</span><span class="sk mono">${l[0]}</span></td><td class="r"><span class="fld"><input id="c${i}" inputmode="numeric" placeholder="0"><span>pcs</span></span></td></tr>`).join('')}
+  </tbody></table></div>
+  <div class="foot"><span class="g">${r.sup}</span><button class="btn pri" onclick="saveCount()"><i data-lucide="check"></i>Save count</button></div>`;
+}
+function saveCount(){
+  const r=RTS.find(x=>x.no===S.cnt);let pcs=0,val=0;
+  r.lines.forEach((l,i)=>{const n=Math.max(0,parseInt($('c'+i).value)||0);pcs+=n;val+=n*l[3]});
+  if(!pcs)return toast('Nothing counted');
+  r.rec.push({k:'replace',pcs,val,ref:'GR-0000'+(1902+r.rec.length),who:'Receiving · Ayu',when:'1 Oct'});
+  S.view='rts';S.open=r.no;paint();toast(pcs+' pcs counted in · recorded on '+r.no);
+}
+
+/* ═══ Finance: refunds and credit notes are booked against a return ═════ */
+function finView(){
+  const due=RTS.filter(r=>['handed','part'].includes(rsState(r))&&r.reason!=='over');
+  return `<div class="ph"><div><h1>Supplier returns</h1></div></div>
+  <div class="card"><table><thead><tr><th class="n">No.</th><th>Return</th><th>Supplier</th><th>Settle by</th><th class="r">Still owed</th><th class="act"></th></tr></thead><tbody>
+  ${due.map((r,i)=>`<tr><td class="n">${i+1}</td><td><span class="mono" style="color:var(--ink)">${r.no}</span><span class="sk">${REASON[r.reason]}</span></td><td class="strong">${r.sup}</td><td><span class="chip"><i data-lucide="${KIND[r.expect].i}"></i>${KIND[r.expect].l}</span></td><td class="r need">${rp(valOf(r)-backOf(r))}</td>
+  <td class="act"><span class="rowact"><button class="btn sm" onclick="finDlg('${r.no}','money')"><i data-lucide="banknote"></i>Refund (BKM)</button><button class="btn sm" onclick="finDlg('${r.no}','credit')"><i data-lucide="receipt-text"></i>Credit note</button></span></td></tr>`).join('')||`<tr><td colspan="6" class="empty">No supplier owes anything.</td></tr>`}
+  </tbody></table></div>`;
+}
+function finDlg(no,k){
+  const r=RTS.find(x=>x.no===no),left=valOf(r)-backOf(r);
+  $('dlg').innerHTML=`<div class="veil" onclick="if(event.target===this)$('dlg').innerHTML=''"><div class="dlg"><div class="dh"><h2>${k==='money'?'Refund':'Credit note'} · ${r.no}</h2></div>
+  <div class="db">${rp(left)} owed.
+  <div class="form"><label>Amount<input id="fAmt" class="inp" inputmode="numeric" value="${left}"></label><label>${k==='money'?'BKM':'Credit note no.'}<input id="fRef" class="inp" placeholder="${k==='money'?'BKM-…':'CN-…'}"></label></div></div>
+  <div class="df"><button class="btn" onclick="$('dlg').innerHTML=''">Cancel</button><button class="btn pri" onclick="finSave('${no}','${k}')">Book</button></div></div></div>`;
+}
+function finSave(no,k){
+  const r=RTS.find(x=>x.no===no),v=Math.min(valOf(r)-backOf(r),parseInt($('fAmt').value.replace(/\D/g,''))||0);if(!v)return toast('How much?');
+  r.rec.push({k,val:v,ref:$('fRef').value||(k==='money'?'BKM-0110-0004':'CN-NEW-0002'),who:'Finance · Lina',when:'1 Oct'});$('dlg').innerHTML='';paint();
+  toast(rsState(r)==='done'?r.no+' settled':'Booked · '+rp(valOf(r)-backOf(r))+' still owed');
+}
+
+/* ═══ Merchandise · Return from store ═══════════════════════════════════ */
+function rfsList(){
+  return `<div class="ph"><div><h1>Return from store</h1></div><div class="act"><button class="btn pri" onclick="S.view='newrfs';paint()"><i data-lucide="plus"></i>New return</button></div></div>
+  <div class="card"><table><thead><tr><th class="n">No.</th><th>Return</th><th>Store</th><th>Why</th><th class="r">Pcs</th><th>Where it is</th></tr></thead><tbody>
+  ${RFS.map((r,i)=>{const s=STAGE[r.st],short=r.st==='received'&&r.got<r.pcs;return `<tr><td class="n">${i+1}</td><td><span class="mono" style="color:var(--ink)">${r.no}</span><span class="sk">${r.made} · ${r.by}</span></td><td class="strong">${r.from}</td><td>${r.why}</td><td class="r">${r.pcs}</td><td>${dot(s.c,s.l)}${short?` <span class="need">· ${r.pcs-r.got} short</span>`:''}</td></tr>`}).join('')}
+  </tbody></table></div>`;
+}
+function newRfs(){
+  const st=S.nr.store,lines=STOCK[st]||[],q=(l,i)=>S.nr.q[st+i]??l[3],total=lines.reduce((s,l,i)=>s+q(l,i),0);
+  return `<button class="back" onclick="S.view='rfs';paint()"><i data-lucide="arrow-left"></i>Return from store</button>
+  <div class="ph"><div><h1>New return from store</h1></div></div>
+  <div class="split"><div class="card pickl">${Object.keys(STOCK).map(s=>`<button class="${s===st?'on':''}" onclick="S.nr.store='${s}';paint()"><span class="nm">${s}</span><span class="sk">${STOCK[s].reduce((t,x)=>t+x[3],0)} pcs in return stock</span></button>`).join('')}</div>
+  <div class="card"><table><thead><tr><th class="n">No.</th><th>SKU</th><th>Why</th><th class="r">At the store</th><th class="r">Send back</th></tr></thead><tbody>
+  ${lines.map((l,i)=>`<tr><td class="n">${i+1}</td><td><span class="nm">${l[1]}</span><span class="sk mono">${l[0]}</span></td><td>${l[2]}</td><td class="r">${l[3]}</td><td class="r"><span class="fld"><input value="${q(l,i)}" inputmode="numeric" onchange="S.nr.q['${st}${i}']=Math.max(0,Math.min(${l[3]},parseInt(this.value)||0));paint()"><span>pcs</span></span></td></tr>`).join('')}
+  </tbody></table></div></div>
+  <div class="foot"><span class="g">${total} pcs</span><button class="btn pri" onclick="createRfs(${total})"${total?'':' disabled'}><i data-lucide="check"></i>Ask the store</button></div>`;
+}
+function createRfs(n){const st=S.nr.store,code={Kemang:'KMG',PIK:'PIK',Senayan:'SNY',Bintaro:'BTR'}[st.split(' ')[1]];RFS.unshift({no:'RT-'+code+'-00'+(45+RFS.length),from:st,pcs:n,by:'Sari',made:'1 Oct',st:'asked',why:'Slow moving'});S.nr.q={};S.view='rfs';paint();toast(st+' is asked to pick and send it')}
+
+/* ═══ Ops · Return from store (board) ═══════════════════════════════════ */
+function opsBoard(){
+  const lane=(k,unit,cards,body)=>{const s=STAGE[k];if(!cards.length)return `<section class="lane slim"><span class="dot" style="background:${s.c}"></span><span class="vt">${s.l}</span><span class="pill">0</span></section>`;
+    return `<section class="lane"><div class="lh"><div class="lt"><span class="dot" style="background:${s.c}"></span>${s.l}<span class="n">${cards.length}</span></div><div class="lq"><b>${fmt(cards.reduce((t,r)=>t+(k==='received'?r.got:r.pcs),0))}</b><span>pcs ${unit}</span></div></div><div class="lb">${cards.map(body).join('')}</div></section>`};
+  const by=k=>RFS.filter(r=>r.st===k);
+  const card=(r,extra='',pill='',stamp='',cls='')=>`<div class="kc ${cls}"><div class="t"><b>${r.from}</b>${pill}</div><span class="s mono">${r.sj||r.no}</span><div class="f"><span><b>${r.st==='received'?r.got:r.pcs}</b> ${r.st==='received'?'of '+r.pcs+' pcs':'pcs'}${extra}</span><span>${r.st==='asked'?r.made:r.st==='picked'?r.picked:r.st==='transit'?'':r.at}</span></div>${stamp}</div>`;
+  return `<div class="ph"><div><h1>Return from store</h1></div></div>
+  <div class="board">
+  ${lane('asked','to pick at the store',by('asked'),r=>card(r,'',`<span class="pill">${r.why}</span>`))}
+  ${lane('picked','picked, not sent',by('picked'),r=>card(r))}
+  ${lane('transit','on the road',by('transit'),r=>card(r,` · ${r.koli} koli`,`<span class="pill info">left ${r.left}</span>`))}
+  ${lane('received','counted in',by('received'),r=>{const short=r.got<r.pcs;return card(r,'','',short?`<span class="stamp" style="color:var(--warn-fg)">Short<small>−${r.pcs-r.got} pcs</small></span>`:`<span class="stamp" style="color:var(--ok-fg)">Received<small>${r.at}</small></span>`,short?'warnc':'dim')})}
+  </div>`;
+}
+
+/* ── shell ─────────────────────────────────────────────────────────────── */
+const VIEWS={rts:['Buying','Return to supplier',rtsList],newrts:['Buying','New return to supplier',newRts],rfs:['Merchandise','Return from store',rfsList],newrfs:['Merchandise','New return from store',newRfs],ops:['Operations','Return from store',opsBoard],recv:['Operations','Receiving',recvList],count:['Operations','Count',countView],fin:['Finance','Supplier returns',finView]};
+function paint(){
+  const v=VIEWS[S.view];
+  $('crumb').innerHTML=`${v[0]}<i data-lucide="chevron-right"></i><b>${v[1]}</b>`;
+  $('view').innerHTML=v[2]();
+  $('side').innerHTML=S.view==='rts'&&S.open?rtsSheet():'';
+  $('page').className='page'+(S.view==='rts'&&S.open&&innerWidth>=1380?' beside':'');
+  $('nBuy').className='ci'+(v[0]==='Buying'?' on':'');$('nMd').className='ci'+(v[0]==='Merchandise'?' on':'');$('nOps').className='ci'+(v[0]==='Operations'?' on':'');$('nFin').className='ci'+(v[0]==='Finance'?' on':'');
+  const base=S.view==='count'?'recv':S.view.replace('new','');
+  $('seg').innerHTML=[['rts','Buying · Return to supplier'],['recv','Ops · Receiving'],['fin','Finance'],['rfs','MD · Return from store'],['ops','Ops · Return from store']].map(x=>`<button class="${base===x[0]?'on':''}" onclick="S.view='${x[0]}';S.open=null;paint()">${x[1]}</button>`).join('');
+  icons();
+}
+addEventListener('keydown',e=>{if(e.key==='Escape'&&S.open){S.open=null;paint()}});
+addEventListener('resize',paint);
+paint();
+</script>
+</body>
+</html>

@@ -7,11 +7,49 @@ import { setEdgeToken } from "@/lib/api"
 import {
   edgeLocalLogin,
   useEdgeCloudSignIn,
+  useDcHosting,
   useEdgeIdentity,
   useEdgeNodeIdentity,
 } from "@/lib/edge-session"
 import { useIdentity } from "@/lib/session"
 import { ApiError } from "@itulah/contract/client"
+
+/// Where the Gudang lives decides whether there is anything to sign in to.
+///
+/// Run by the cloud (`dc_hosting: "cloud"`), it is the same server as the rest
+/// of the hub and the ordinary session already covers it: children render
+/// straight away, and no DC ticket is ever asked for. Run on a DC server, the
+/// gate below does its work exactly as before. The split is a component and
+/// not an early return inside the gate because the gate's hooks and effects
+/// are the DC sign-in itself — in cloud mode they must not run at all.
+export function OperationsGate({ children }: { children: React.ReactNode }) {
+  const hosting = useDcHosting()
+  if (hosting === undefined) {
+    return (
+      <PageContent>
+        <p className="text-meta text-body">Checking where the Gudang runs…</p>
+      </PageContent>
+    )
+  }
+  if (hosting === "cloud") return <>{children}</>
+  return <EdgeGate>{children}</EdgeGate>
+}
+
+/// A page that only means something on a DC server (its outbox, its local
+/// account). In cloud mode it says so in one line instead of asking a node
+/// that does not exist.
+export function edgeOnly(
+  Screen: () => React.ReactNode
+): () => React.ReactNode {
+  return function EdgeOnly() {
+    if (useDcHosting() !== "cloud") return <Screen />
+    return (
+      <PageContent>
+        <p className="text-meta text-body">The Gudang runs in the cloud.</p>
+      </PageContent>
+    )
+  }
+}
 
 /// Ensure every Operations screen has a local DC session.
 ///
@@ -26,7 +64,7 @@ import { ApiError } from "@itulah/contract/client"
 /// It sits in one place rather than in each screen because the alternative is
 /// nineteen screens each discovering the 401 for themselves, at different
 /// moments, in whatever shape their own error state happens to take.
-export function OperationsGate({ children }: { children: React.ReactNode }) {
+function EdgeGate({ children }: { children: React.ReactNode }) {
   const cloud = useIdentity()
   const session = useEdgeIdentity()
   const where = useEdgeNodeIdentity()
@@ -109,15 +147,21 @@ export function OperationsGate({ children }: { children: React.ReactNode }) {
   // another building on a link that goes down, is a thing to say plainly
   // rather than a login box that will fail again for reasons nobody can see.
   const problem =
-    cloudSignIn.error instanceof ApiError
-      ? cloudSignIn.error.message
-      : cloudSignIn.error !== null
-        ? "could not complete automatic DC sign-in"
-        : session.error === null
-          ? null
-          : session.error instanceof ApiError
-            ? session.error.message
-            : "could not reach the warehouse node"
+    // The one refusal with a known cause and a known fix, said as such
+    // rather than as the server's "not found: registered Edge origin".
+    cloudSignIn.error instanceof ApiError &&
+    cloudSignIn.error.status === 404 &&
+    cloudSignIn.error.message.includes("registered Edge origin")
+      ? "This warehouse node is not registered with Central yet. Register it under System › Servers, or use a local recovery account."
+      : cloudSignIn.error instanceof ApiError
+        ? cloudSignIn.error.message
+        : cloudSignIn.error !== null
+          ? "could not complete automatic Gudang sign-in"
+          : session.error === null
+            ? null
+            : session.error instanceof ApiError
+              ? session.error.message
+              : "could not reach the warehouse node"
 
   // A node running with authentication **off** — a bench, a recovery, a bay
   // with no route to the centre — has nobody to sign in as, and its login
@@ -158,7 +202,7 @@ export function OperationsGate({ children }: { children: React.ReactNode }) {
         <PageContent>
           <LoginForm
             title="Warehouse recovery"
-            caption={`A local account on ${where.data?.site_id ?? where.data?.node_id ?? "the DC node"}, for when the Central Dashboard cannot sign you in there.`}
+            caption={`A local account on ${where.data?.site_id ?? where.data?.node_id ?? "the Gudang node"}, for when the Central Dashboard cannot sign you in there.`}
             signIn={edgeLocalLogin}
             onSignedIn={(signedIn) => {
               // The token is what authorises everything after this, and it is

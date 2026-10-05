@@ -133,7 +133,7 @@ export function ExpensesOverview() {
         {items.length === 0 ? (
           <EmptyState>Nothing outstanding.</EmptyState>
         ) : (
-          <Table head={["Item", "Who", "Why it is here", ">Amount", ""]}>
+          <Table head={["Item", "Who", "Why It Is Here", ">Amount", ""]}>
             {items.map((i) => (
               <Row key={i.id} tone={i.tone}>
                 <Cell>
@@ -259,7 +259,7 @@ export function Advances() {
               "Unit",
               "Purpose",
               "Issued",
-              "Days out",
+              "Days Out",
               ">Issued",
               ">Accounted",
               ">Outstanding",
@@ -365,7 +365,6 @@ export function Advances() {
             name: "holder",
             label: "Who is holding it",
             required: true,
-            placeholder: "Store manager C006",
           },
           {
             name: "unit_id",
@@ -382,14 +381,12 @@ export function Advances() {
             name: "purpose",
             label: "What it is for",
             required: true,
-            placeholder: "Store supplies purchase",
           },
           {
             name: "amount",
             label: "Amount",
             kind: "money",
             required: true,
-            placeholder: "1500000",
             hint: "Settled by producing receipts, not by paying it back.",
           },
         ]}
@@ -482,7 +479,6 @@ function AdvanceDetail({
             <Input
               value={receipts}
               onChange={(e) => setReceipts(e.target.value)}
-              placeholder={`Up to ${rp(left)}`}
               className="min-w-[12rem] flex-1"
             />
             <Button

@@ -109,10 +109,11 @@ export function BottomBar() {
                 aria-current={on ? "page" : undefined}
                 className={cn(
                   "group flex h-full flex-col items-center justify-center gap-[0.1875rem] text-[0.875rem] font-medium tracking-[0.005em]",
-                  // The lit tab takes the accent — the one colour this
-                  // system reserves for "this one" — the way a phone's own
-                  // tab bar tints where you are.
-                  on ? "text-accent" : "text-mute"
+                  // The lit tab is ink, not the accent (2026-09-28): the
+                  // desk's charcoal column says "here" in its own ink, and
+                  // blue is kept for the one thing to press and the counts
+                  // that want somebody — which here are the badges.
+                  on ? "text-ink" : "text-mute"
                 )}
               >
                 <span className="relative transition-[scale] duration-(--t-press) ease-(--ease-out) group-active:scale-[0.9]">

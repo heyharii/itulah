@@ -991,10 +991,12 @@ pub async fn redeem_voucher(
             )));
         }
     }
-    if request.amount_minor > balance {
+    let available = available_minor(&mut tx, voucher_id, balance).await?;
+    if request.amount_minor > available {
         return Err(AppError::Conflict(format!(
-            "the voucher has {balance} left and the basket asked for {}",
-            request.amount_minor
+            "the voucher has {available} available and the basket asked for {} \
+             (balance {balance}, the difference is held by another checkout)",
+            request.amount_minor,
         )));
     }
 
@@ -1130,7 +1132,8 @@ async fn append_movement(
     site_id: Option<&str>,
     actor: &str,
     note: Option<&str>,
-) -> Result<(), AppError> {
+ ) -> Result<Uuid, AppError> {
+    let movement_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO voucher_movement (movement_id, voucher_id, seq, kind,
                                        amount_minor, balance_after_minor,
@@ -1139,7 +1142,7 @@ async fn append_movement(
                 COALESCE(max(seq) + 1, 0), $3, $4, $5, $6, $7, $8, $9
            FROM voucher_movement WHERE voucher_id = $2",
     )
-    .bind(Uuid::new_v4())
+    .bind(movement_id)
     .bind(voucher_id)
     .bind(kind)
     .bind(amount_minor)
@@ -1151,7 +1154,7 @@ async fn append_movement(
     .execute(&mut **tx)
     .await
     .map_err(map_voucher_write_error)?;
-    Ok(())
+    Ok(movement_id)
 }
 
 async fn detail_in_transaction(
@@ -1398,7 +1401,7 @@ pub async fn commit_voucher_hold(
         lock_voucher(&mut tx, &code).await?;
 
     let row = sqlx::query(
-        "SELECT authorization_id, amount_minor, status, expires_at, site_id
+        "SELECT authorization_id, amount_minor, status, expires_at, site_id, movement_id
            FROM voucher_authorization
           WHERE voucher_id = $1 AND checkout_id = $2
           FOR UPDATE",
@@ -1417,10 +1420,65 @@ pub async fn commit_voucher_hold(
     let amount: i64 = row.try_get("amount_minor")?;
     let authorization_id: Uuid = row.try_get("authorization_id")?;
     let site_id: Option<String> = row.try_get("site_id")?;
+    let linked_movement: Option<Uuid> = row.try_get("movement_id")?;
 
     if held_status == "COMMITTED" {
-        // Already taken. Say so and move nothing — the till retrying after a
-        // lost response must not spend the card a second time.
+        // A checkout retry is idempotent only when it names the sale that
+        // originally consumed this hold. Older rows did not store the
+        // movement_id, so recover the unique movement by the checkout note
+        // and nullable sale id, then persist the link for the next retry.
+        let movement_rows = if let Some(movement_id) = linked_movement {
+            sqlx::query(
+                "SELECT movement_id, voucher_id, kind, sale_id, amount_minor, site_id
+                   FROM voucher_movement WHERE movement_id = $1",
+            )
+            .bind(movement_id)
+            .fetch_all(&mut *tx)
+            .await?
+        } else {
+            sqlx::query(
+                "SELECT movement_id, voucher_id, kind, sale_id, amount_minor, site_id
+                   FROM voucher_movement
+                  WHERE voucher_id = $1 AND kind = 'REDEEM'
+                    AND note = $2 AND sale_id IS NOT DISTINCT FROM $3",
+            )
+            .bind(voucher_id)
+            .bind(format!("checkout {checkout_id}"))
+            .bind(request.sale_id)
+            .fetch_all(&mut *tx)
+            .await?
+        };
+        if movement_rows.len() != 1 {
+            return Err(AppError::Conflict(
+                "that committed hold is bound to a different sale".into(),
+            ));
+        }
+        let movement = &movement_rows[0];
+        let movement_id: Uuid = movement.try_get("movement_id")?;
+        let movement_voucher_id: Uuid = movement.try_get("voucher_id")?;
+        let movement_kind: String = movement.try_get("kind")?;
+        let movement_sale_id: Option<Uuid> = movement.try_get("sale_id")?;
+        let movement_amount: i64 = movement.try_get("amount_minor")?;
+        let movement_site_id: Option<String> = movement.try_get("site_id")?;
+        if movement_voucher_id != voucher_id
+            || movement_kind != "REDEEM"
+            || movement_sale_id != request.sale_id
+            || movement_amount != -amount
+            || movement_site_id != site_id
+        {
+            return Err(AppError::Conflict(
+                "that committed hold is bound to a different sale".into(),
+            ));
+        }
+        if linked_movement.is_none() {
+            sqlx::query(
+                "UPDATE voucher_authorization SET movement_id = $2 WHERE authorization_id = $1",
+            )
+            .bind(authorization_id)
+            .bind(movement_id)
+            .execute(&mut *tx)
+            .await?;
+        }
         let detail = detail_in_transaction(&mut tx, voucher_id).await?;
         tx.commit().await?;
         return Ok(detail);
@@ -1462,7 +1520,7 @@ pub async fn commit_voucher_hold(
     .await
     .map_err(map_voucher_write_error)?;
 
-    append_movement(
+    let movement_id = append_movement(
         &mut tx,
         voucher_id,
         "REDEEM",
@@ -1477,10 +1535,11 @@ pub async fn commit_voucher_hold(
 
     sqlx::query(
         "UPDATE voucher_authorization
-            SET status = 'COMMITTED', settled_at = now()
+            SET status = 'COMMITTED', settled_at = now(), movement_id = $2
           WHERE authorization_id = $1",
     )
     .bind(authorization_id)
+    .bind(movement_id)
     .execute(&mut *tx)
     .await
     .map_err(map_voucher_write_error)?;
@@ -1506,13 +1565,16 @@ pub async fn commit_voucher_hold_for_fact(
     tx: &mut Transaction<'_, Postgres>,
     authorization_id: Uuid,
     sale_id: Uuid,
+    tender_amount_minor: i64,
+    sale_site_id: &str,
+    tender_code: Option<&str>,
     actor: &str,
 ) -> Result<(), AppError> {
-    let hold = sqlx::query(
-        "SELECT authorization_id, voucher_id, amount_minor, status, site_id, expires_at
-           FROM voucher_authorization
-          WHERE authorization_id = $1
-          FOR UPDATE",
+    // Lock in the same order as every other path that moves voucher money:
+    // voucher first, authorization second. The id lookup is deliberately
+    // unlocked and only discovers the immutable parent key.
+    let voucher_id: Uuid = sqlx::query_scalar(
+        "SELECT voucher_id FROM voucher_authorization WHERE authorization_id = $1",
     )
     .bind(authorization_id)
     .fetch_optional(&mut **tx)
@@ -1522,10 +1584,107 @@ pub async fn commit_voucher_hold_for_fact(
             "sale {sale_id} names a voucher hold that was never granted ({authorization_id})"
         ))
     })?;
+    let voucher = sqlx::query(
+        "SELECT code, balance_minor FROM voucher WHERE voucher_id = $1 FOR UPDATE",
+    )
+    .bind(voucher_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| AppError::Conflict(format!("sale {sale_id} names a missing voucher")))?;
+    let actual_code: String = voucher.try_get("code")?;
+    let balance: i64 = voucher.try_get("balance_minor")?;
+
+    let hold = sqlx::query(
+        "SELECT amount_minor, status, site_id, expires_at, movement_id
+           FROM voucher_authorization
+          WHERE authorization_id = $1 AND voucher_id = $2
+          FOR UPDATE",
+    )
+    .bind(authorization_id)
+    .bind(voucher_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| AppError::Conflict(format!("sale {sale_id} names a changed voucher hold")))?;
+
+    let amount: i64 = hold.try_get("amount_minor")?;
+    let site_id: Option<String> = hold.try_get("site_id")?;
+    let expires_at: DateTime<Utc> = hold.try_get("expires_at")?;
+    if amount != tender_amount_minor {
+        return Err(AppError::Conflict(format!(
+            "sale {sale_id} tenders {tender_amount_minor} against a hold for exactly {amount}"
+        )));
+    }
+    let sale_site_id = sale_site_id.trim();
+    if sale_site_id.is_empty() || site_id.as_deref() != Some(sale_site_id) {
+        return Err(AppError::Conflict(format!(
+            "sale {sale_id} came from {sale_site_id:?}, but this voucher hold is bound to {site_id:?}"
+        )));
+    }
+    if let Some(tender_code) = tender_code {
+        if actual_code != tender_code.trim().to_ascii_uppercase() {
+            return Err(AppError::Conflict(format!(
+                "sale {sale_id} names voucher code {:?}, but its hold belongs to {:?}",
+                tender_code, actual_code
+            )));
+        }
+    }
 
     let status: String = hold.try_get("status")?;
+    let linked_movement: Option<Uuid> = hold.try_get("movement_id")?;
     if status == "COMMITTED" {
-        // A resent fact: the sale was already recorded, and the money with it.
+        // A repeated fact is idempotent only for the sale that actually took
+        // this hold. Old rows did not persist movement_id, so recover the
+        // binding from their unique redemption movement and write it down.
+        let movement_rows = if let Some(movement_id) = linked_movement {
+            sqlx::query(
+                "SELECT movement_id, voucher_id, kind, sale_id, amount_minor, site_id
+                   FROM voucher_movement WHERE movement_id = $1",
+            )
+            .bind(movement_id)
+            .fetch_all(&mut **tx)
+            .await?
+        } else {
+            sqlx::query(
+                "SELECT movement_id, voucher_id, kind, sale_id, amount_minor, site_id
+                   FROM voucher_movement
+                  WHERE voucher_id = $1 AND kind = 'REDEEM' AND sale_id = $2",
+            )
+            .bind(voucher_id)
+            .bind(sale_id)
+            .fetch_all(&mut **tx)
+            .await?
+        };
+        if movement_rows.len() != 1 {
+            return Err(AppError::Conflict(format!(
+                "sale {sale_id} does not match the sale bound to this committed voucher hold"
+            )));
+        }
+        let movement = &movement_rows[0];
+        let movement_id: Uuid = movement.try_get("movement_id")?;
+        let movement_voucher_id: Uuid = movement.try_get("voucher_id")?;
+        let movement_kind: String = movement.try_get("kind")?;
+        let movement_sale_id: Option<Uuid> = movement.try_get("sale_id")?;
+        let movement_amount: i64 = movement.try_get("amount_minor")?;
+        let movement_site_id: Option<String> = movement.try_get("site_id")?;
+        if movement_voucher_id != voucher_id
+            || movement_kind != "REDEEM"
+            || movement_sale_id != Some(sale_id)
+            || movement_amount != -amount
+            || movement_site_id.as_deref() != Some(sale_site_id)
+        {
+            return Err(AppError::Conflict(format!(
+                "sale {sale_id} does not match the redemption bound to this voucher hold"
+            )));
+        }
+        if linked_movement.is_none() {
+            sqlx::query(
+                "UPDATE voucher_authorization SET movement_id = $2 WHERE authorization_id = $1",
+            )
+            .bind(authorization_id)
+            .bind(movement_id)
+            .execute(&mut **tx)
+            .await?;
+        }
         return Ok(());
     }
     if status != "AUTHORIZED" {
@@ -1534,20 +1693,24 @@ pub async fn commit_voucher_hold_for_fact(
         )));
     }
 
-    let voucher_id: Uuid = hold.try_get("voucher_id")?;
-    let amount: i64 = hold.try_get("amount_minor")?;
-    let site_id: Option<String> = hold.try_get("site_id")?;
-    let expires_at: DateTime<Utc> = hold.try_get("expires_at")?;
-
-    let balance: i64 =
-        sqlx::query_scalar("SELECT balance_minor FROM voucher WHERE voucher_id = $1 FOR UPDATE")
-            .bind(voucher_id)
-            .fetch_one(&mut **tx)
-            .await?;
-    if amount > balance {
+    // Expired sales may arrive late, but a late fact cannot spend value that
+    // another live checkout has since reserved. Exclude this authorization
+    // and protect all current holds before settling it.
+    let held_elsewhere: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(sum(amount_minor), 0)::bigint
+           FROM voucher_authorization
+          WHERE voucher_id = $1 AND authorization_id <> $2
+            AND status = 'AUTHORIZED' AND expires_at > now()",
+    )
+    .bind(voucher_id)
+    .bind(authorization_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    let available = balance - held_elsewhere;
+    if amount > available {
         return Err(AppError::Conflict(format!(
-            "sale {sale_id} took {amount} from a card holding {balance} — the hold was \
-             there to stop exactly this, so the stream stops here until somebody looks"
+            "sale {sale_id} took {amount}, but the voucher has only {available} unheld \
+             (balance {balance}, {held_elsewhere} remains reserved by other checkouts)"
         )));
     }
 
@@ -1576,7 +1739,7 @@ pub async fn commit_voucher_hold_for_fact(
     } else {
         format!("settled by sale {sale_id}")
     };
-    append_movement(
+    let movement_id = append_movement(
         tx,
         voucher_id,
         "REDEEM",
@@ -1591,10 +1754,11 @@ pub async fn commit_voucher_hold_for_fact(
 
     sqlx::query(
         "UPDATE voucher_authorization
-            SET status = 'COMMITTED', settled_at = now()
+            SET status = 'COMMITTED', settled_at = now(), movement_id = $2
           WHERE authorization_id = $1",
     )
     .bind(authorization_id)
+    .bind(movement_id)
     .execute(&mut **tx)
     .await
     .map_err(map_voucher_write_error)?;

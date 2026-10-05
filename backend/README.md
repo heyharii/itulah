@@ -12,18 +12,19 @@ DC dan Store dapat beroperasi tanpa berkomunikasi satu sama lain. Store mencatat
 
 Pool tetap menjadi lokasi stok authoritative. `movement_group` dan `movement` adalah ledger append-only; `inventory_projection` adalah saldo turunan yang diperbarui dalam transaksi SQLite yang sama.
 
-Lifecycle DC untuk tujuan `store-07`:
+Lifecycle DC (penerimaan sampai In Transit):
 
 ```text
 dc-01.pending.unidentified
-dc-01.pending.untagged
 dc-01.warehouse
-dc-01.outbound.picked.store-07
-dc-01.outbound.packed.store-07
-dc-01.outbound.shipment.store-07
-dc-01.outbound.dispatched.store-07
-dc-01.outbound.in-transit.store-07
+dc-01.outbound.picking
+dc-01.outbound.packed
+dc-01.outbound.shipment
+dc-01.outbound.loaded
+dc-01.outbound.in-transit
 ```
+
+`pending.untagged` sudah dihapus (0651: barang yang sudah teridentifikasi langsung menjadi stok Gudang) dan `outbound.picked.{store}` digantikan satu Pick Area bersama `outbound.picking` yang tidak menyebut tujuan (0252).
 
 Lifecycle Store:
 
@@ -38,13 +39,14 @@ Ledger DC dan Store sengaja independen. Setelah Store menerima barang, saldo DC 
 ## Struktur workspace aktif
 
 ```text
-src/cloud/       domain, application, HTTP, dan adapter PostgreSQL Cloud
-src/edge/        domain/contracts, HTTP, dan adapter SQLite Edge
-src/bin/         composition root cloud, dc, dan store
+src/cloud/            domain, application, intake, reports, HTTP, dan adapter PostgreSQL Cloud
+src/edge/             domain/contracts, node, sync, HTTP, dan adapter SQLite Edge
+src/sync/             engine sync bersama (port, handshake, transfer, workflow)
+src/bin/              composition root cloud, dc, dan store
 migrations/postgres/  versioned PostgreSQL migrations
 migrations/sqlite/    schema ledger/projection SQLite Edge
 config/               contoh environment DC dan Store
-crates/inventory-time-machine/  satu-satunya auxiliary crate aktif
+crates/               auxiliary crates: inventory-time-machine, object-store, pricing-engine, sim, tax
 ```
 
 Kode PostgreSQL lama sengaja dipreservasi di `src/cloud/` dan `migrations/postgres/`; Pool, allotment, movement, count, observation, Sales/POS, returns, auth, sync, reports, dan time-machine tetap dikompilasi sebagai runtime `cloud`. Binary `dc` dan `store` hanya menyusun namespace `edge` dan tidak memerlukan Cloud/PostgreSQL untuk startup atau operasi lokal.
@@ -53,7 +55,7 @@ Kode PostgreSQL lama sengaja dipreservasi di `src/cloud/` dan `migrations/postgr
 
 Runtime SQLite Edge saat ini menyediakan:
 
-- DC intake dan movement bertahap sampai `Dispatched` lalu `InTransit`;
+- DC intake dan movement bertahap sampai `Loaded` lalu `In Transit`;
 - Store receipt lokal langsung ke Warehouse tanpa inbound pending;
 - Store movement Warehouse → Floor dan cash sale sederhana;
 - pembacaan Pool/projection dan movement ledger;
@@ -109,7 +111,7 @@ cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 DATABASE_URL=postgresql:///postgres cargo test --locked --workspace
 ```
 
-Workspace test mencakup unit/property tests, auth Cloud/DC/Store/RFID, catalog dan workflow sync, Edge↔Cloud, Inventory, POS, reconciliation, purchase/tagging, time-machine, API flow, doc tests, serta suite auxiliary inventory-time-machine. Smoke tiga proses Cloud/DC/Store juga memverifikasi bahwa kedua Edge tetap menerima movement saat Cloud mati, restart mempertahankan file SQLite/outbox, lalu backlog generation 1 drain tanpa rejection. Fleet Cloud menampilkan owner DC dan Store secara terpisah; quantity berasal dari fact positions, sedangkan snapshot hanya menentukan kesehatan checkpoint/certification. Static frontend `/`, `app.js`, `styles.css`, serta `auth.js` tersedia di ketiga role.
+Workspace test mencakup unit/property tests, auth Cloud/DC/Store/RFID, catalog dan workflow sync, Edge↔Cloud, Inventory, POS, reconciliation, purchase/tagging, time-machine, API flow, doc tests, serta suite auxiliary inventory-time-machine. Smoke tiga proses Cloud/DC/Store juga memverifikasi bahwa kedua Edge tetap menerima movement saat Cloud mati, restart mempertahankan file SQLite/outbox, lalu backlog generation 1 drain tanpa rejection. Fleet Cloud menampilkan owner DC dan Store secara terpisah; quantity berasal dari fact positions, sedangkan snapshot hanya menentukan kesehatan checkpoint/certification. Binary tidak lagi membundel `app.js`, `styles.css`, atau `auth.js`: node melayani berkas SPA dari `FRONTEND_DIR` (instalasi terpasang memakai `<exe>/web`, default dev `../api-only` yang memang kosong), dan konsol node loopback disajikan dari `console.html` yang di-embed.
 
 ## Menjalankan tiga server
 
@@ -183,7 +185,7 @@ curl -X POST http://127.0.0.1:8081/api/v1/dc/intake \
   }'
 ```
 
-Gerakkan EPC satu tahap per request. Contoh Shipment ke Dispatched:
+Gerakkan EPC satu tahap per request. Contoh Shipment ke Loaded:
 
 ```zsh
 curl -X POST http://127.0.0.1:8081/api/v1/dc/movements \
@@ -192,7 +194,7 @@ curl -X POST http://127.0.0.1:8081/api/v1/dc/movements \
     "epc":"EPC-0001",
     "quantity":1,
     "from":"dc-01.outbound.shipment.store-07:on_hand",
-    "to":"dc-01.outbound.dispatched.store-07:on_hand",
+    "to":"dc-01.outbound.loaded.store-07:on_hand",
     "cause":"NORMAL_MOVE",
     "reason":"Dispatch confirmed",
     "actor_id":"dc-operator",
@@ -202,7 +204,7 @@ curl -X POST http://127.0.0.1:8081/api/v1/dc/movements \
   }'
 ```
 
-Tahap berikutnya adalah Dispatched ke In Transit dengan endpoint yang sama dan idempotency key baru.
+Tahap berikutnya adalah Loaded ke In Transit dengan endpoint yang sama dan idempotency key baru.
 
 Store menerima langsung ke warehouse, tanpa pending dan tanpa membaca database DC:
 

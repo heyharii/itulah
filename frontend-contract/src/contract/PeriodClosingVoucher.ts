@@ -10,7 +10,7 @@ status: string,
  */
 entry_id: string | null, reversal_entry_id: string | null, 
 /**
- * What moved into retained earnings over every site: a profit is
+ * What moved into retained earnings over every unit: a profit is
  * positive, a loss negative.
  */
 profit_minor: number, remarks: string | null, created_by: string, created_at: string, cancelled_by: string | null, cancelled_at: string | null, };

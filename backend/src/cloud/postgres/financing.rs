@@ -264,13 +264,14 @@ pub async fn financing_facility_create(
     }
 
     let facility_id = Uuid::new_v4();
-    let number: String = sqlx::query_scalar(
-        "SELECT 'FAC-' || to_char(nextval('financing_facility_number_seq'), 'FM0000')",
-    )
-    .fetch_one(pool)
-    .await?;
-
     let mut tx = pool.begin().await?;
+    let number = super::number_series::next_number(
+        &mut tx,
+        super::number_series::FINANCING_FACILITY,
+        request.start_date,
+        None,
+    )
+    .await?;
     sqlx::query(
         "INSERT INTO financing_facility
            (facility_id, facility_number, kind, bank_id, principal_id, lender_name,

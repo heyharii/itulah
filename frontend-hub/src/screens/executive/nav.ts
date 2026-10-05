@@ -23,6 +23,8 @@ export const executiveNav: AppModule = {
   label: "Executive",
   icon: LayoutDashboard,
   home: "/executive",
+  // Out of the sidebar for now (owner, 2026-10-01); still reachable by URL and ⌘K.
+  hidden: true,
   sections: [
     {
       items: [

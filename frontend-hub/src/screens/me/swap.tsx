@@ -41,7 +41,6 @@ export function Swap() {
               value={onDate}
               onChange={setOnDate}
               label="The day you want to give"
-              placeholder="Choose a day"
               clearable={false}
               className={TAP}
             />

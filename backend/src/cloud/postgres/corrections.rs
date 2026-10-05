@@ -291,12 +291,19 @@ pub async fn correction_list(
 // Creating
 // ---------------------------------------------------------------------------
 
-async fn next_number(tx: &mut Transaction<'_, Postgres>) -> Result<String, AppError> {
-    let number: i64 = sqlx::query("SELECT nextval('correction_document_number_seq') AS n")
-        .fetch_one(&mut **tx)
-        .await?
-        .try_get("n")?;
-    Ok(format!("COR-{number:08}"))
+/// The next correction number, from its series (0701). A correction is head
+/// office's and names no single unit, so the series cannot print `{UNIT}`.
+async fn next_number(
+    tx: &mut Transaction<'_, Postgres>,
+    document_date: NaiveDate,
+) -> Result<String, AppError> {
+    super::number_series::next_number(
+        &mut **tx,
+        super::number_series::CORRECTION,
+        document_date,
+        None,
+    )
+    .await
 }
 
 fn checked_reason(reason: &str) -> Result<&str, AppError> {
@@ -456,7 +463,7 @@ pub async fn reclass_create(
     let document_date = request
         .document_date
         .unwrap_or_else(|| Utc::now().date_naive());
-    let number = next_number(&mut tx).await?;
+    let number = next_number(&mut tx, document_date).await?;
     let correction_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO correction_document
@@ -539,7 +546,7 @@ pub async fn adjustment_create(
         .unwrap_or_else(|| Utc::now().date_naive());
     let mut tx = pool.begin().await?;
     checked_unit(&mut tx, request.unit_id.trim()).await?;
-    let number = next_number(&mut tx).await?;
+    let number = next_number(&mut tx, document_date).await?;
     let correction_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO correction_document
@@ -614,7 +621,7 @@ pub async fn write_off_create(
         &request.balance_qualifier,
     )
     .await?;
-    let number = next_number(&mut tx).await?;
+    let number = next_number(&mut tx, document_date).await?;
     let correction_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO correction_document

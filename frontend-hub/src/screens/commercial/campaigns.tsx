@@ -7,21 +7,32 @@ import {
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useNavigate, type LinkProps } from "@tanstack/react-router"
-import { Check, Circle } from "lucide-react"
+import {
+  Check,
+  CalendarRange,
+  Circle,
+  ClipboardList,
+  Image as ImageIcon,
+  Megaphone,
+  Percent,
+  Store,
+} from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Dialog } from "@/components/ui/dialog"
+import { ConfirmButton, Dialog, SavedDialog } from "@/components/ui/dialog"
+import { RecordPanel } from "@/components/ui/record-panel"
 import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
 import { cn } from "@/lib/utils"
 import { Day } from "@/components/ui/day"
 import { Meter } from "@/components/ui/meter"
+import { ROOMY } from "@/screens/operations/roomy"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
-import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
+import { Status } from "@/components/ui/pill"
+import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { DockedFilters } from "@/components/ui/list-chrome"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, ErrorState } from "@/components/ui/states"
@@ -34,7 +45,6 @@ import {
 } from "@/lib/filters"
 import { useDebounced } from "@/lib/use-debounced"
 import { count, day, label, money, moment } from "@/lib/format"
-import { toast } from "@/lib/toast"
 import {
   BookWrittenNotPublished,
   campaignById,
@@ -72,19 +82,29 @@ import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { Switch } from "@/components/ui/form"
 import { Named, Quiet } from "@/screens/commercial/parts"
-import { endOfDay, shift, startOfDay, today } from "@/lib/calendar"
+import { endOfDay, isoOf, shift, startOfDay, today } from "@/lib/calendar"
 import { Section, Stepper } from "@/components/ui/form"
 import { More, Terms } from "@/screens/commercial/controls"
 import {
   consumed,
   describeEffect,
   describeScope,
-  percent,
   useActor,
 } from "@/screens/commercial/shared"
 import { HardCap } from "@/screens/commercial/allocation"
-import { CampaignOutcome } from "@/screens/commercial/campaign-outcome"
-import { LIMITS_ANCHOR, PLAN_ANCHOR } from "@/screens/commercial/campaign-plan"
+import {
+  Block,
+  CampaignGoal,
+  CampaignResults,
+  Gauge,
+  GOAL_ANCHOR,
+  Pair,
+} from "@/screens/commercial/campaign-outcome"
+import {
+  CampaignPlan,
+  LIMITS_ANCHOR,
+  PLAN_ANCHOR,
+} from "@/screens/commercial/campaign-plan"
 import {
   drawMetric,
   metricOf,
@@ -197,8 +217,8 @@ function sentTo(response: unknown): number | null {
   return Array.isArray(sent) ? sent.length : null
 }
 
-function shopsWord(n: number): string {
-  return `${count(n)} shop${n === 1 ? "" : "s"}`
+function storesWord(n: number): string {
+  return `${count(n)} store${n === 1 ? "" : "s"}`
 }
 
 interface CampaignLine {
@@ -233,10 +253,7 @@ const BAND_OPERATORS: readonly Operator[] = [
 ]
 
 /// A number clause as the whole-number band the server takes, rounded inward.
-function bandOf(
-  filters: readonly Filter[],
-  column: string
-): Band | undefined {
+function bandOf(filters: readonly Filter[], column: string): Band | undefined {
   const clause = filters.find((one) => one.column === column)
   if (clause === undefined) return undefined
   const [first, second] = clause.values.map(Number)
@@ -321,7 +338,8 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     id: "campaign",
     accessorFn: (row) => row.row.campaign.name,
     header: "Campaign",
-    size: 210,
+    size: 240,
+    meta: { grow: 280 },
     // No text clause: the search box asks the server for the name and the id,
     // and a clause here could only narrow the pages already loaded.
     // The filing code is gone from the row. `backtoschool` under "Back to
@@ -371,9 +389,9 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
       const meta = actionsOf<CampaignLine>(table)
       const campaign = row.original.row.campaign
       const phase = phaseOf(campaign, Date.now())
-      if (!phase.lever) return <Pill tone={phase.tone}>{phase.label}</Pill>
+      if (!phase.lever) return <Status tone={phase.tone}>{phase.label}</Status>
       return (
-        <span className="flex min-w-0 items-center gap-2">
+        <span className="flex min-w-0 items-center gap-3">
           <Switch
             on={campaign.status === "ACTIVE"}
             busy={meta?.busy === campaign.campaign_id}
@@ -389,7 +407,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     id: "objective",
     accessorFn: (row) => row.intent?.objective ?? "",
     header: "Objective",
-    size: 170,
+    size: 180,
     // Joined from the intents read for the cell. Not a sort: an objective is a
     // category, and ordering by its code orders nothing anybody asked about.
     enableSorting: false,
@@ -402,6 +420,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     // counts every objective — `none` included, the campaign nobody has said
     // the purpose of. Hence "is any of" and the two emptiness tests only.
     meta: {
+      priority: 2,
       filter: {
         kind: "option",
         label: "Objective",
@@ -420,7 +439,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
         // Not blank. A campaign nobody can say the purpose of is the one to
         // question or delete, and a quiet dash would let it sit there for a
         // year.
-        <Pill tone="warn">Not stated</Pill>
+        <span className="text-warn-fg">Not stated</span>
       ) : (
         <span className="text-text">
           {objectiveOf(stated.objective)?.label ?? stated.objective}
@@ -432,7 +451,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     id: "target",
     accessorFn: (row) => row.intent?.target_value ?? 0,
     header: "Target",
-    size: 160,
+    size: 210,
     enableSorting: false,
     // The LINE, not the distance from it. Where a campaign stands against its
     // target is scored over that campaign's OWN window — Lebaran over
@@ -459,7 +478,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     id: "rules",
     accessorFn: (row) => row.offers,
     header: "Offers",
-    size: 80,
+    size: 90,
     // Sorted and filtered by the SERVER (`offers`, `offers_min`/`offers_max`),
     // which counts the live promotions naming the campaign exactly as the
     // `campaign` facet this cell reads does.
@@ -468,6 +487,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     // on — published, switchable, and incapable of doing anything. That is a
     // fault, and it is invisible in a list sorted by spend.
     meta: {
+      priority: 3,
       align: "right",
       filter: {
         kind: "number",
@@ -484,8 +504,8 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     accessorFn: (row) =>
       consumed(row.usage?.spent_minor ?? 0, row.row.campaign.budget_minor) ??
       UNLIMITED,
-    header: "Budget used",
-    size: 200,
+    header: "Budget Used",
+    size: 220,
     // Sorted by the SERVER's `budget_used`: this accessor's share, spent ÷
     // budget off the same usage counter, with a campaign that has no limit
     // sorting last whichever way round. (Its `budget` sort is the limit, not
@@ -511,7 +531,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
         )
       }
       return (
-        <span className="flex items-center gap-2">
+        <span className="flex items-center gap-3">
           <Meter
             value={share}
             tone={share >= 0.9 ? "bad" : share >= 0.7 ? "warn" : "accent"}
@@ -541,11 +561,12 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     // "is 0" is the warning pill this cell already draws, asked as a question
     // instead of read one row at a time: a campaign published to nobody.
     meta: {
+      priority: 3,
       align: "right",
       filter: {
         kind: "number",
         label: "Stores",
-        unit: "shops",
+        unit: "stores",
         operators: BAND_OPERATORS,
         single: true,
       },
@@ -555,11 +576,11 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
       const reached = row.original.reached
       const of = total === null ? null : ` / ${count(total)}`
       return reached === 0 ? (
-        <Pill tone="warn">0{of ?? " shops"}</Pill>
+        <span className="text-warn-fg tabular-nums">0{of ?? " stores"}</span>
       ) : (
         <span className="text-text tabular-nums">
           {count(reached)}
-          {of === null ? " shops" : <span className="text-mute">{of}</span>}
+          {of === null ? " stores" : <span className="text-mute">{of}</span>}
         </span>
       )
     },
@@ -568,7 +589,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     id: "window",
     accessorFn: (row) => row.row.campaign.valid_to ?? "",
     header: "Runs",
-    size: 180,
+    size: 190,
     // The accessor is the END of the window, so that is what the clause asks
     // about and what the label says. `is empty` is the open-ended campaign —
     // one running until somebody remembers to stop it, which is the row worth
@@ -661,8 +682,22 @@ export function Campaigns() {
   const setQuery = (next: string) =>
     next === "" ? search.close() : search.replace(next)
   const [writing, setWriting] = useState(false)
+  /// The campaign the form starts from — Change or Duplicate — or none for a
+  /// blank one. `formKey` makes every opening read its answers afresh.
+  const [seed, setSeed] = useState<CampaignSeed | null>(null)
+  const [formKey, setFormKey] = useState(0)
   const [busy, setBusy] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<PublishReceipt | null>(null)
+  /// A switch or publish that went through, held in the receipt dialog until
+  /// it is read. One state for the three writes — pause, end, publish —
+  /// because only one of them can land at a time.
+  const [switched, setSwitched] = useState<
+    | {
+        readonly title: string
+        readonly note?: string
+      }
+    | null
+  >(null)
   /// Budget used, highest first, ordered by the server — which joins the usage
   /// counter now. Cleared, it is the server's house order, by campaign id.
   const [sorting, setSorting] = useState<SortingState>(DEFAULT_SORT)
@@ -779,8 +814,7 @@ export function Campaigns() {
   /// which today is all of them. A subtraction rather than nothing, so a
   /// browser-side clause added to a column later still narrows.
   const tableFilters = useMemo(
-    () =>
-      filters.columnFilters.filter((one) => !SERVER_FILTERED.has(one.id)),
+    () => filters.columnFilters.filter((one) => !SERVER_FILTERED.has(one.id)),
     [filters.columnFilters]
   )
 
@@ -845,7 +879,7 @@ export function Campaigns() {
       (fleet.data?.items ?? []).map((one) => [one.origin_id, one.label])
     )
     return (originId: string, siteId: string | null) =>
-      byOrigin.get(originId) ?? siteId ?? "Till not assigned to a shop"
+      byOrigin.get(originId) ?? siteId ?? "Till not assigned to a store"
   }, [fleet.data])
 
   const lineOf = useCallback(
@@ -861,8 +895,7 @@ export function Campaigns() {
 
   /// The pages loaded so far — never "every campaign".
   const lines: CampaignLine[] = useMemo(
-    () =>
-      (list.data?.pages ?? []).flatMap((page) => page.rows.map(lineOf)),
+    () => (list.data?.pages ?? []).flatMap((page) => page.rows.map(lineOf)),
     [list.data, lineOf]
   )
 
@@ -927,13 +960,15 @@ export function Campaigns() {
       }),
     onSuccess: (response, line) => {
       const sent = sentTo(response)
-      const did = line.row.campaign.status === "ACTIVE" ? "Paused" : "Live again"
-      toast.success(
-        sent === null
-          ? `${did} — no shop to send it to yet`
-          : `${did} — sent to ${shopsWord(sent)}`,
-        { description: line.row.campaign.name }
-      )
+      const did =
+        line.row.campaign.status === "ACTIVE" ? "Paused" : "Live again"
+      setSwitched({
+        title:
+          sent === null
+            ? `${did} — no store to send it to yet`
+            : `${did} — sent to ${storesWord(sent)}`,
+        note: line.row.campaign.name,
+      })
     },
     onSettled: () => {
       setBusy(null)
@@ -945,6 +980,42 @@ export function Campaigns() {
   // object on every status change of the mutation, and depending on it would
   // rebuild the whole table each time somebody flipped a switch.
   const flip = toggle.mutate
+
+  /// Pausing stops the discounts at the tills, so it is asked first. Resuming
+  /// puts back what somebody already approved of.
+  const requestToggle = useCallback(
+    (line: CampaignLine) => {
+      if (line.row.campaign.status === "ACTIVE") {
+        setPausing(line)
+        return
+      }
+      setBusy(line.row.campaign.campaign_id)
+      flip(line)
+    },
+    [flip]
+  )
+
+  /// Ending is for good: the status the books call Cancelled, written by the
+  /// same switch as Pause. Returns the promise so the confirm waits on it.
+  const end = useMutation({
+    mutationFn: (line: CampaignLine) =>
+      setCampaignStatus({
+        campaign: asInput(line.row),
+        status: "CANCELLED",
+        actorId: actor,
+      }),
+    onSuccess: (response, line) => {
+      const sent = sentTo(response)
+      setSwitched({
+        title:
+          sent === null
+            ? "Ended — no store to send it to yet"
+            : `Ended — sent to ${storesWord(sent)}`,
+        note: line.row.campaign.name,
+      })
+    },
+    onSettled: () => client.invalidateQueries({ queryKey: commercialKeys.all }),
+  })
 
   const table = useTable(
     useMemo(
@@ -964,16 +1035,7 @@ export function Campaigns() {
         meta: {
           busy,
           shops,
-          onToggle: (line: CampaignLine) => {
-            // Pausing stops the discounts at the tills, so it is asked first.
-            // Resuming puts back what somebody already approved of.
-            if (line.row.campaign.status === "ACTIVE") {
-              setPausing(line)
-              return
-            }
-            setBusy(line.row.campaign.campaign_id)
-            flip(line)
-          },
+          onToggle: requestToggle,
         },
       }),
       [
@@ -983,26 +1045,31 @@ export function Campaigns() {
         sorting,
         busy,
         shops,
-        flip,
+        requestToggle,
       ]
     )
   )
+
+  /// Open the form, blank or from a published campaign.
+  const startForm = (from: CampaignSeed | null) => {
+    setSeed(from)
+    setFormKey((one) => one + 1)
+    setWriting(true)
+  }
 
   return (
     <PageContent>
       <PageHeader
         crumb="Marketing"
         title="Campaigns"
-        sub="One window, one budget and one switch over a set of offers the business runs as one thing."
         actions={
           <>
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search"
-              className="h-8 w-44"
+              className="h-9 w-56"
             />
-            <Button variant="primary" onClick={() => setWriting(true)}>
+            <Button variant="primary" onClick={() => startForm(null)}>
               New campaign
             </Button>
           </>
@@ -1019,8 +1086,7 @@ export function Campaigns() {
 
       {receipt && receipt.delivered_to.length === 0 && (
         <Banner tone="warn" className="mb-4" onDismiss={() => setReceipt(null)}>
-          Published, but no shop is registered yet — nothing in this campaign
-          applies anywhere until one is.
+          Published, but no store is registered yet.
         </Banner>
       )}
 
@@ -1039,14 +1105,12 @@ export function Campaigns() {
                 needle === "" && everyCount === 0 ? (
                   <EmptyState
                     action={
-                      <Button variant="soft" onClick={() => setWriting(true)}>
+                      <Button variant="soft" onClick={() => startForm(null)}>
                         New campaign
                       </Button>
                     }
                   >
-                    No campaign yet. A promotion does not need one — a campaign
-                    is for when several offers share a window and a budget and
-                    stop together.
+                    No campaigns.
                   </EmptyState>
                 ) : (
                   <DataTable<CampaignLine>
@@ -1063,7 +1127,7 @@ export function Campaigns() {
                         ? "No campaign matches those filters."
                         : "No campaign matches that search."
                     }
-                    className="max-h-[calc(100vh-15rem)]"
+                    className={`max-h-[calc(100vh-15rem)] ${ROOMY}`}
                   />
                 ),
             })}
@@ -1079,10 +1143,22 @@ export function Campaigns() {
 
       <CampaignSheet
         line={sheetLine}
+        subject={sheet.subject}
         rules={openOffers.data ?? null}
         campaigns={everyCampaign}
         shopName={shopName}
+        at={list.dataUpdatedAt}
+        busy={busy === sheetLine?.row.campaign.campaign_id}
+        canWrite={actor !== ""}
         onClose={sheet.close}
+        onChange={(line) =>
+          startForm({ mode: "change", campaign: line.row.campaign })
+        }
+        onDuplicate={(line) =>
+          startForm({ mode: "duplicate", campaign: line.row.campaign })
+        }
+        onToggle={requestToggle}
+        onEnd={(line) => end.mutateAsync(line)}
       />
 
       <Dialog
@@ -1098,27 +1174,43 @@ export function Campaigns() {
           setPausing(null)
         }}
       >
-        Every offer inside it stops at the tills as soon as each shop receives
-        the switch. You can resume it here.
+        Offers inside it stop at the tills.
       </Dialog>
 
       <CampaignForm
+        key={
+          seed === null
+            ? `new:${formKey}`
+            : `${seed.mode}:${seed.campaign.campaign_id}:${formKey}`
+        }
         open={writing}
+        seed={seed}
         nextVersion={books.data === undefined ? 1 : nextBookVersion(books.data)}
         onClose={() => setWriting(false)}
         onPublished={(published, campaignId) => {
           setReceipt(published)
           setWriting(false)
           const reached = published.delivered_to.length
-          toast.success(
-            reached === 0
-              ? "Campaign published — no shop to send it to yet"
-              : `Campaign published — sent to ${shopsWord(reached)}`
-          )
+          setSwitched({
+            title:
+              reached === 0
+                ? "Published — no store to send it to yet"
+                : `Published — sent to ${storesWord(reached)}`,
+          })
           fresh.current = { id: campaignId, opened: false }
           sheet.open(campaignId)
         }}
       />
+
+      <SavedDialog
+        open={switched !== null}
+        onOpenChange={(next) => {
+          if (!next) setSwitched(null)
+        }}
+        title={switched?.title ?? ""}
+      >
+        {switched?.note}
+      </SavedDialog>
     </PageContent>
   )
 }
@@ -1181,14 +1273,9 @@ function asInput(row: CampaignRow): CampaignInput {
 
 /// The poster a shop puts in front of a shopper.
 ///
-/// The only part of a published campaign that may be edited, alongside the
-/// switch — and that is not an oversight in the freeze, it is the point. A
-/// banner describes the offer; it does not decide money. Migration 0073 froze
-/// everything that does, and left these writable so a typo in a headline can be
-/// fixed without cutting a price book.
-///
-/// Saving dispatches to the fleet in the same call, on the switch lane, so the
-/// corrected poster reaches the shop floor without waiting for a season.
+/// The only part of a published campaign that may be edited in place, alongside
+/// the switch — a banner describes the offer; it does not decide money. Saving
+/// dispatches to the fleet in the same call, on the switch lane.
 function Poster({ line }: { line: CampaignLine }) {
   const client = useQueryClient()
   const actor = useActor()
@@ -1201,10 +1288,9 @@ function Poster({ line }: { line: CampaignLine }) {
     mutationFn: () =>
       setCampaignStatus({
         campaign: asInput(line.row),
-        // Its own status, unchanged. This endpoint takes the switch and the
-        // poster together because they are the same two things a published
-        // campaign is allowed to change; sending the current status is how a
-        // poster edit says "leave the lever where it is".
+        // Its own status, unchanged: this endpoint takes the switch and the
+        // poster together, and sending the current status is how a poster edit
+        // says "leave the lever where it is".
         status: campaign.status,
         actorId: actor,
         headline,
@@ -1220,317 +1306,276 @@ function Poster({ line }: { line: CampaignLine }) {
     terms !== (campaign.terms ?? "")
 
   return (
-    <div>
-      <SubHead>What the shop shows</SubHead>
+    <Block icon={ImageIcon} title="Poster">
       {image !== "" && (
         <img
           src={image}
           alt=""
-          className="mb-2.5 aspect-[3/1] w-full rounded-inner border border-hairline bg-soft-2 object-cover"
+          className="aspect-[3/1] w-full rounded-inner border border-hairline bg-soft-2 object-cover"
         />
       )}
-      <div className="flex flex-col gap-2.5">
-        <Field label="Headline">
+      <div className="flex flex-col gap-5">
+        <Field label="Headline" className="gap-2">
           <Input
             value={headline}
             onChange={(event) => setHeadline(event.target.value)}
-            placeholder={campaign.name}
           />
         </Field>
-        <Field label="Banner image URL">
+        <Field label="Image URL" className="gap-2">
           <Input
             value={image}
             onChange={(event) => setImage(event.target.value)}
-            placeholder="https://…"
           />
         </Field>
-        {/* A block, not a line. `CommercialCampaignInput.terms` is one block
-            of text on purpose — "terms differ per promotion, per season and per
-            regulator, and a schema that modelled them would be wrong on
-            arrival" — and a single-line box made that field look like a
-            sentence when a shop prints a paragraph. */}
-        <Field label="Terms">
+        {/* A block, not a line: a shop prints a paragraph. */}
+        <Field label="Terms" className="gap-2">
           <Textarea
             value={terms}
             rows={3}
             onChange={(event) => setTerms(event.target.value)}
-            placeholder="Selama persediaan masih ada. Tidak dapat digabung dengan promo lain."
           />
         </Field>
       </div>
-      {save.isError && (
-        <div className="mt-2.5">
-          <ErrorState error={save.error} />
-        </div>
-      )}
-      <div className="mt-2.5 flex items-center gap-2">
+      {save.isError && <ErrorState error={save.error} />}
+      <div className="flex items-center gap-3">
         <Button
           variant="primary"
           pending={save.isPending}
           disabled={!changed || actor === ""}
           onClick={() => save.mutate()}
         >
-          {save.isPending ? "Sending…" : "Save and send to shops"}
+          {save.isPending ? "Submitting…" : "Submit"}
         </Button>
         {save.isSuccess && !changed && (
-          <span className="text-[0.875rem] text-mute">Sent.</span>
+          <span className="text-[0.875rem] text-mute">Sent to stores.</span>
         )}
       </div>
-    </div>
+    </Block>
   )
 }
 
-/// What this envelope holds, what it has cost, and how far it has got.
-/// One campaign, read back.
-///
-/// ## Sections: Overview · Offers · Goal & results · Shops
-///
-/// A campaign is an envelope, and the four questions asked of it are asked by
-/// four different people: what is it and what is it costing (Overview), what is
-/// inside it (Offers), did it work (Goal & results), and have the shops
-/// actually taken it (Shops). Renamed 2026-09-27 from Activities · Measurement ·
-/// Activity, which were two near-identical words for two different things.
+/// One campaign, read back as three tabs: Details (Campaign, Offers, Goal,
+/// Results, Plan, Poster), Stores and Activity. Change, Duplicate, Pause and
+/// End sit in the head. No comments.
 ///
 /// **Results are the campaign's own window, never the screen's.** "Did
-/// Lebaran hit its target" is asked over Lebaran's dates whatever today is;
-/// scoring a finished campaign against the last thirty days would report every
-/// past one as a failure the month after it ended. That is why the outcome
-/// panel takes the campaign rather than the page's date range.
+/// Lebaran hit its target" is asked over Lebaran's dates whatever today is.
 function CampaignSheet({
   line,
+  subject,
   rules,
   campaigns,
   shopName,
+  at,
+  busy,
+  canWrite,
   onClose,
+  onChange,
+  onDuplicate,
+  onToggle,
+  onEnd,
 }: {
   line: CampaignLine | null
+  /// The record's `{kind,id}`, for the Activity tab. Not passed to the Sheet,
+  /// which would add a Comments tab.
+  subject: { kind: string; id: string } | undefined
+  /// The instant the phase is read at — the list's, as the rows read it. A
+  /// clock read during render gives two answers on two renders.
+  at: number
   /// The promotions filed under this campaign, read for the open sheet.
   /// `null` while they are on their way.
   rules: readonly PromotionRow[] | null
-  /// Every campaign in the books. The outcome panel needs them to resolve the
-  /// one named as this campaign's precedent, and to read it over ITS window.
+  /// Every campaign in the books, for the goal's precedent picker.
   campaigns: readonly BookCampaign[]
   /// A shop as a person names it, from the fleet read.
   shopName: (originId: string, siteId: string | null) => string
+  busy: boolean
+  canWrite: boolean
   onClose: () => void
+  onChange: (line: CampaignLine) => void
+  onDuplicate: (line: CampaignLine) => void
+  onToggle: (line: CampaignLine) => void
+  onEnd: (line: CampaignLine) => Promise<unknown>
 }) {
   const spent = line?.usage?.spent_minor ?? 0
-  const share = consumed(spent, line?.row.campaign.budget_minor ?? null)
-  // Held here only so the checklist can move it; a different campaign opens
-  // on its Overview, as the sheet itself would do.
+  const uses = line?.usage?.uses ?? 0
+  const budget = line?.row.campaign.budget_minor ?? null
+  const maxUses = line?.row.campaign.max_uses ?? null
+  // The tab is remembered WITH the campaign it was picked on, so opening a
+  // different one reads as no pick — its Details — without an effect resetting
+  // it one render late.
   const campaignId = line?.row.campaign.campaign_id
-  const [tab, setTab] = useState<string | null>(null)
-  useEffect(() => setTab(null), [campaignId])
-  /// Open Goal & results, and bring a part of it into view once it mounts.
-  const showGoal = (anchor?: string) => {
-    setTab("measurement")
-    if (anchor === undefined) return
+  const [picked, setPicked] = useState<{
+    campaignId: string | undefined
+    tab: string | null
+  }>({ campaignId: undefined, tab: null })
+  const tab = picked.campaignId === campaignId ? picked.tab : null
+  const setTab = (next: string | null) => setPicked({ campaignId, tab: next })
+  /// Bring a part of Details into view once it mounts.
+  const show = (anchor: string) => {
+    setTab("details")
     window.setTimeout(() => {
-      const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      document
-        .getElementById(anchor)
-        ?.scrollIntoView({ block: "start", behavior: still ? "auto" : "smooth" })
+      const still = window.matchMedia(
+        "(prefers-reduced-motion: reduce)"
+      ).matches
+      document.getElementById(anchor)?.scrollIntoView({
+        block: "start",
+        behavior: still ? "auto" : "smooth",
+      })
     }, 80)
   }
 
-  const sections =
-    line === null
-      ? undefined
-      : [
-          {
-            value: "overview",
-            label: "Overview",
-            content: (
-              <div className="flex flex-col gap-5">
-                <NextSteps line={line} onShowGoal={showGoal} />
+  const phase = line === null ? null : phaseOf(line.row.campaign, at)
+  const stores = line?.row.campaign.site_ids ?? []
 
-                <Facts>
-                  <Fact term="Runs from">
-                    {line.row.campaign.valid_from
-                      ? day(line.row.campaign.valid_from)
-                      : "Always"}
-                  </Fact>
-                  <Fact term="Until">
-                    {line.row.campaign.valid_to
-                      ? day(line.row.campaign.valid_to)
-                      : "Open"}
-                  </Fact>
-                  <Fact term="Budget">
-                    {line.row.campaign.budget_minor === null
-                      ? "Unlimited"
-                      : money(line.row.campaign.budget_minor)}
-                  </Fact>
-                  <Fact term="Given away">{money(spent)}</Fact>
-                  <Fact term="Uses">
-                    {count(line.usage?.uses ?? 0)}
-                    {line.row.campaign.max_uses === null
-                      ? ""
-                      : ` / ${count(line.row.campaign.max_uses)}`}
-                  </Fact>
-                  <Fact term="Customers">
-                    {count(line.usage?.customer_count ?? 0)}
-                  </Fact>
-                  <Fact term="Price change">{line.row.book.name}</Fact>
-                </Facts>
+  const details =
+    line === null ? undefined : (
+      <div className="flex flex-col gap-8 pb-6">
+        <NextSteps line={line} onShow={show} />
 
-                {(line.row.campaign.budget_minor !== null ||
-                  line.row.campaign.max_uses !== null) && (
-                  <HardCap
-                    kind="CAMPAIGN"
-                    subject={line.row.campaign.campaign_id}
-                  />
-                )}
+        <Block icon={Megaphone} title="Campaign">
+          <Facts className="gap-y-5">
+            <Fact term="Status">{phase?.label}</Fact>
+            <Fact term="Period">
+              {line.row.campaign.valid_from
+                ? day(line.row.campaign.valid_from)
+                : "Always"}{" "}
+              →{" "}
+              {line.row.campaign.valid_to
+                ? day(line.row.campaign.valid_to)
+                : "Open"}
+            </Fact>
+            <Fact term="Stores">
+              {stores.length === 0 ? "Everywhere" : count(stores.length)}
+            </Fact>
+          </Facts>
+          {budget === null ? (
+            <Pair label="Given away">
+              {money(spent)}{" "}
+              <span className="font-normal text-mute">· No budget</span>
+            </Pair>
+          ) : (
+            <Gauge
+              label="Budget used"
+              figures={`${money(spent)} / ${money(budget)}`}
+              ratio={budget > 0 ? spent / budget : 1}
+            />
+          )}
+          {maxUses === null ? (
+            <Pair label="Transactions">{count(uses)}</Pair>
+          ) : (
+            <Gauge
+              label="Transactions"
+              figures={`${count(uses)} / ${count(maxUses)}`}
+              ratio={maxUses > 0 ? uses / maxUses : 1}
+            />
+          )}
+          {(budget !== null || maxUses !== null) && (
+            <HardCap kind="CAMPAIGN" subject={line.row.campaign.campaign_id} />
+          )}
+        </Block>
 
-                <Poster line={line} />
-              </div>
-            ),
-          },
-          {
-            value: "offers",
-            label: `Offers (${count(line.offers)})`,
-            content: (
-              <div>
-                <SubHead aside={`${count(line.offers)} offers`}>
-                  What is inside it
-                </SubHead>
-                {rules === null ? (
-                  <Quiet>Reading the offers…</Quiet>
-                ) : rules.length === 0 ? (
-                  <Quiet>No offer in this campaign yet.</Quiet>
-                ) : (
-                  <MiniTable
-                    head={[
-                      "Promotion",
-                      { label: "Applies to", align: "left" },
-                      "Does",
-                    ]}
-                  >
-                    {rules.map((rule) => (
-                      <MiniRow key={rule.rule_id}>
-                        <MiniCell>
-                          <Named
-                            name={
-                              <AppLink
-                                to="/commercial/promotions"
-                                sheet={{ key: "rule", value: rule.rule_id }}
-                                className="hover:text-accent"
-                              >
-                                {rule.name}
-                              </AppLink>
-                            }
-                            code={stateOf(rule.status).label}
-                          />
-                        </MiniCell>
-                        <MiniCell>
-                          <span className="text-[0.875rem] text-body">
-                            {describeScope(rule.definition)}
-                          </span>
-                        </MiniCell>
-                        <MiniCell align="right">
-                          <span className="text-[0.875rem] text-text">
-                            {describeEffect(rule.definition.effect)}
-                          </span>
-                        </MiniCell>
-                      </MiniRow>
-                    ))}
-                  </MiniTable>
-                )}
-                {/* No dead ends. Pausing the campaign stops every offer at
-                    once; pausing just one is done on Promotions. */}
-                <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1 text-meta">
-                  <NewOfferLink
-                    campaignId={line.row.campaign.campaign_id}
-                    className="text-accent hover:underline"
-                  >
-                    New offer in this campaign
-                  </NewOfferLink>
-                  {line.offers > 0 && (
-                    <AppLink
-                      to="/commercial/promotions"
-                      sheet={{
-                        key: "campaign",
-                        value: line.row.campaign.campaign_id,
-                      }}
-                      className="text-accent hover:underline"
-                    >
-                      See them on Promotions
-                    </AppLink>
-                  )}
-                </div>
-              </div>
-            ),
-          },
-          {
-            value: "measurement",
-            label: "Goal & results",
-            content: (
-              <div className="flex flex-col gap-5">
-                <CampaignOutcome
-                  campaign={line.row.campaign}
-                  campaigns={campaigns}
-                />
-
-                {share !== null && (
-                  <div>
-                    <SubHead aside={percent(Math.round(share * 10_000))}>
-                      Budget
-                    </SubHead>
-                    <Meter
-                      value={share}
-                      tone={
-                        share >= 0.9 ? "bad" : share >= 0.7 ? "warn" : "accent"
+        <Block
+          icon={Percent}
+          title="Offers"
+          aside={
+            <NewOfferLink
+              campaignId={line.row.campaign.campaign_id}
+              className="text-accent hover:underline"
+            >
+              New offer
+            </NewOfferLink>
+          }
+        >
+          {rules === null ? (
+            <Quiet>Loading…</Quiet>
+          ) : rules.length === 0 ? (
+            <Quiet>No offers.</Quiet>
+          ) : (
+            <MiniTable
+              head={[
+                "Promotion",
+                { label: "Applies to", align: "left" },
+                "Does",
+              ]}
+            >
+              {rules.map((rule) => (
+                <MiniRow key={rule.rule_id}>
+                  <MiniCell className="py-4">
+                    <Named
+                      name={
+                        <AppLink
+                          to="/commercial/promotions"
+                          sheet={{ key: "rule", value: rule.rule_id }}
+                          className="hover:text-accent"
+                        >
+                          {rule.name}
+                        </AppLink>
                       }
+                      code={stateOf(rule.status).label}
                     />
-                  </div>
-                )}
-              </div>
-            ),
-          },
-          {
-            value: "shops",
-            label: `Shops (${count(line.row.book.activated_by.length)})`,
-            content: (
-              <div>
-                <SubHead>In service at</SubHead>
-                {line.row.book.activated_by.length === 0 ? (
-                  <Quiet>Not in service at any shop yet.</Quiet>
-                ) : (
-                  <MiniTable
-                    head={[
-                      "Shop",
-                      { label: "Since", align: "left" },
-                      "Rules received",
-                    ]}
-                  >
-                    {line.row.book.activated_by.map((activation) => (
-                      <MiniRow key={activation.origin_id}>
-                        <MiniCell>
-                          <Named
-                            name={shopName(
-                              activation.origin_id,
-                              activation.site_id
-                            )}
-                          />
-                        </MiniCell>
-                        <MiniCell>
-                          <span className="text-[0.875rem] text-body">
-                            {moment(activation.activated_at)}
-                          </span>
-                        </MiniCell>
-                        <MiniCell align="right">
-                          {count(activation.price_rule_count)}
-                        </MiniCell>
-                      </MiniRow>
-                    ))}
-                  </MiniTable>
-                )}
-              </div>
-            ),
-          },
-        ]
+                  </MiniCell>
+                  <MiniCell className="py-4">
+                    <span className="text-[0.9375rem] text-body">
+                      {describeScope(rule.definition)}
+                    </span>
+                  </MiniCell>
+                  <MiniCell align="right" className="py-4">
+                    <span className="text-[0.9375rem] text-ink">
+                      {describeEffect(rule.definition.effect)}
+                    </span>
+                  </MiniCell>
+                </MiniRow>
+              ))}
+            </MiniTable>
+          )}
+        </Block>
 
-  const phase =
-    line === null ? null : phaseOf(line.row.campaign, Date.now())
+        <CampaignGoal campaign={line.row.campaign} campaigns={campaigns} />
+        <CampaignResults campaign={line.row.campaign} />
+        <CampaignPlan campaignId={line.row.campaign.campaign_id} />
+        <Poster line={line} />
+      </div>
+    )
+
+  const storesTab =
+    line === null ? undefined : (
+      <div className="pb-6">
+        {line.row.book.activated_by.length === 0 ? (
+          <Quiet>No stores yet.</Quiet>
+        ) : (
+          <MiniTable
+            head={["Store", { label: "Since", align: "left" }, "Offers"]}
+          >
+            {line.row.book.activated_by.map((activation) => (
+              <MiniRow key={activation.origin_id}>
+                <MiniCell className="py-4">
+                  <Named
+                    name={shopName(activation.origin_id, activation.site_id)}
+                  />
+                </MiniCell>
+                <MiniCell className="py-4">
+                  <span className="text-[0.9375rem] text-body">
+                    {moment(activation.activated_at)}
+                  </span>
+                </MiniCell>
+                <MiniCell align="right" className="py-4">
+                  {count(activation.price_rule_count)}
+                </MiniCell>
+              </MiniRow>
+            ))}
+          </MiniTable>
+        )}
+      </div>
+    )
+
+  const ongoing =
+    line !== null &&
+    (line.row.campaign.status === "ACTIVE" ||
+      line.row.campaign.status === "PAUSED" ||
+      line.row.campaign.status === "SCHEDULED" ||
+      line.row.campaign.status === "DRAFT") &&
+    phase?.label !== "Ended"
 
   return (
     <Sheet
@@ -1538,12 +1583,81 @@ function CampaignSheet({
       onOpenChange={(next) => !next && onClose()}
       id={line?.row.campaign.campaign_id}
       title={line?.row.campaign.name ?? "Campaign"}
-      tabs={sections}
+      tabs={
+        line === null
+          ? undefined
+          : [
+              { value: "details", label: "Details", content: details },
+              {
+                value: "stores",
+                label: `Stores (${count(line.row.book.activated_by.length)})`,
+                content: storesTab,
+              },
+              {
+                value: "activity",
+                label: "Activity",
+                content:
+                  subject === undefined ? undefined : (
+                    <RecordPanel subject={subject} />
+                  ),
+              },
+            ]
+      }
       tab={tab}
       onTabChange={setTab}
+      // Nothing published is edited: Change publishes the next version under
+      // the same id, Duplicate a new campaign. Both open the form filled in.
+      actions={
+        line === null ? undefined : (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!canWrite}
+              onClick={() => onChange(line)}
+            >
+              Change
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!canWrite}
+              onClick={() => onDuplicate(line)}
+            >
+              Duplicate
+            </Button>
+            {phase?.lever === true && (
+              <Button
+                variant="ghost"
+                size="sm"
+                pending={busy}
+                disabled={!canWrite}
+                onClick={() => onToggle(line)}
+              >
+                {line.row.campaign.status === "ACTIVE" ? "Pause" : "Resume"}
+              </Button>
+            )}
+            {/* Ending is not a pause: it is for good, and the only way back is
+                Change with new dates. */}
+            {ongoing && (
+              <ConfirmButton
+                label="End now"
+                title={`End ${line.row.campaign.name} now?`}
+                description="Every offer inside it stops at the tills for good."
+                confirmLabel="End now"
+                tone="danger"
+                variant="danger"
+                size="sm"
+                disabled={!canWrite}
+                onConfirm={() => onEnd(line)}
+              />
+            )}
+          </>
+        )
+      }
       badge={
         phase === null ? undefined : (
-          <Pill tone={phase.tone}>{phase.label}</Pill>
+          <Status tone={phase.tone}>{phase.label}</Status>
         )
       }
     >
@@ -1560,11 +1674,11 @@ function CampaignSheet({
 /// limit are offered beside them as optional.
 function NextSteps({
   line,
-  onShowGoal,
+  onShow,
 }: {
   line: CampaignLine
-  /// Opens Goal & results, scrolled to `anchor` when one is given.
-  onShowGoal: (anchor?: string) => void
+  /// Scrolls Details to the part with this id.
+  onShow: (anchor: string) => void
 }) {
   const id = line.row.campaign.campaign_id
   const plan = useQuery({
@@ -1587,14 +1701,14 @@ function NextSteps({
         one.measure === "SPEND_MINOR" || one.measure === "SPEND_PER_DAY_MINOR"
     )
 
-  const go = (anchor?: string) => () => onShowGoal(anchor)
+  const go = (anchor: string) => () => onShow(anchor)
 
   return (
-    <div className="rounded-card border border-hairline px-3.5 py-3">
-      <div className="mb-1.5 text-eyebrow font-medium text-body">
+    <div className="rounded-card border border-hairline px-5 py-5">
+      <div className="mb-3 text-[0.9375rem] font-semibold text-ink">
         Next steps
       </div>
-      <ul className="flex flex-col">
+      <ul className="flex flex-col gap-1">
         <Step
           done={hasOffer}
           label="Add an offer"
@@ -1610,12 +1724,12 @@ function NextSteps({
         <Step
           done={hasGoal}
           label="Set a goal"
-          action={<StepButton onClick={go()}>Set</StepButton>}
+          action={<StepButton onClick={go(GOAL_ANCHOR)}>Set</StepButton>}
         />
         <Step
           done={planned}
           optional
-          label="Plan the activities"
+          label="Plan activities"
           action={<StepButton onClick={go(PLAN_ANCHOR)}>Plan</StepButton>}
         />
         <Step
@@ -1641,7 +1755,7 @@ function Step({
   action: React.ReactNode
 }) {
   return (
-    <li className="flex items-center gap-2.5 py-1">
+    <li className="flex min-h-10 items-center gap-3">
       {done ? (
         <Check aria-hidden className="size-4 shrink-0 text-ok-fg" />
       ) : (
@@ -1649,7 +1763,7 @@ function Step({
       )}
       <span
         className={cn(
-          "min-w-0 flex-1 truncate text-[0.875rem]",
+          "min-w-0 flex-1 truncate text-[0.9375rem]",
           done ? "text-mute" : "text-ink"
         )}
       >
@@ -1657,7 +1771,7 @@ function Step({
         {label}
         {optional === true && <span className="text-mute"> · optional</span>}
       </span>
-      {!done && <span className="shrink-0 text-[0.875rem]">{action}</span>}
+      {!done && <span className="shrink-0 text-[0.9375rem]">{action}</span>}
     </li>
   )
 }
@@ -1722,6 +1836,40 @@ function NewOfferLink({
   )
 }
 
+/// A published campaign the form starts from.
+///
+/// `change` publishes under the SAME `campaign_id` in a newer book, which is
+/// how the fleet already reads an amendment — a campaign row is restated per
+/// book and the newest wins — so it is a new version, never an edit of the old
+/// one, and the offers that name the id stay inside it. `duplicate` mints a
+/// new id and copies no offers.
+export interface CampaignSeed {
+  readonly mode: "change" | "duplicate"
+  readonly campaign: BookCampaign
+}
+
+/// The form's answers, read off a published campaign.
+function startingPoint(seed: CampaignSeed) {
+  const campaign = seed.campaign
+  const dayOf = (iso: string | null) =>
+    iso === null ? "" : isoOf(new Date(iso))
+  return {
+    name: seed.mode === "duplicate" ? `${campaign.name} (copy)` : campaign.name,
+    // An ended campaign starts again Live; one still running keeps its switch.
+    status: (campaign.status === "EXPIRED" || campaign.status === "CANCELLED"
+      ? "ACTIVE"
+      : campaign.status) as CampaignState,
+    from: dayOf(campaign.valid_from),
+    to: dayOf(campaign.valid_to),
+    budget: campaign.budget_minor === null ? "" : String(campaign.budget_minor),
+    maxUses: campaign.max_uses === null ? "" : String(campaign.max_uses),
+    headline: campaign.headline ?? "",
+    image: campaign.image_url ?? "",
+    terms: campaign.terms ?? "",
+    stores: [...(campaign.site_ids ?? [])],
+  }
+}
+
 /// Writing an envelope.
 ///
 /// A campaign-only book is a legal book: the server's "must change something"
@@ -1729,58 +1877,66 @@ function NewOfferLink({
 /// before anything is put in it — which is the order people actually work in.
 ///
 /// **Only the minimum up front** (owner, 2026-09-27): a name, the dates and
-/// the shops. Status, budget and a basket cap are folded under More options;
-/// the goal is not asked here at all — it is the sheet's checklist, asked once
-/// the campaign exists, by the same editor that changes it later.
+/// the stores. The goal is not asked here at all — it is the sheet's
+/// checklist, asked once the campaign exists.
+///
+/// The same shape as New promotion: icon headings, the form on the left and a
+/// Summary card pinned on the right.
 function CampaignForm({
   open,
   nextVersion,
+  seed,
   onClose,
   onPublished,
 }: {
   open: boolean
   nextVersion: number
+  /// Where the answers start. Read once, on mount — the caller keys the form
+  /// by it.
+  seed: CampaignSeed | null
   onClose: () => void
   /// With the id the campaign was published under, so its sheet can open.
   onPublished: (receipt: PublishReceipt, campaignId: string) => void
 }) {
   const client = useQueryClient()
   const actor = useActor()
-  const [name, setName] = useState("")
-  const [status, setStatus] = useState<CampaignState>("ACTIVE")
-  const [from, setFrom] = useState(() => today())
-  const [to, setTo] = useState("")
-  const [budget, setBudget] = useState("")
-  const [maxUses, setMaxUses] = useState("")
+  const [start] = useState(() => (seed === null ? null : startingPoint(seed)))
+  const changing = seed?.mode === "change"
+  const [name, setName] = useState(start?.name ?? "")
+  const [status, setStatus] = useState<CampaignState>(start?.status ?? "ACTIVE")
+  const [from, setFrom] = useState(() => start?.from ?? today())
+  const [to, setTo] = useState(start?.to ?? "")
+  const [budget, setBudget] = useState(start?.budget ?? "")
+  const [maxUses, setMaxUses] = useState(start?.maxUses ?? "")
   // The three a SHOPPER reads. They ride on the campaign and nowhere else —
-  // `PublicationCampaign` says so in as many words: a price rule describes a
-  // number, a markdown describes a garment, a campaign describes an event, and
   // a shop cannot put "Lebaran Sale, ends Sunday" on a screen out of an id and
-  // a percentage. Until now nothing wrote them at creation, so every campaign
-  // reached thirty shops with a blank banner and had to be opened again to fix
-  // it.
-  const [headline, setHeadline] = useState("")
-  const [image, setImage] = useState("")
-  const [terms, setTerms] = useState("")
-  // Empty is everywhere, which is what a campaign that names no shop has
+  // a percentage.
+  const [headline, setHeadline] = useState(start?.headline ?? "")
+  const [image, setImage] = useState(start?.image ?? "")
+  const [terms, setTerms] = useState(start?.terms ?? "")
+  // Empty is everywhere, which is what a campaign that names no store has
   // always meant.
-  const [stores, setStores] = useState<readonly string[]>([])
+  const [stores, setStores] = useState<readonly string[]>(start?.stores ?? [])
+  /// Problems are said at their fields once somebody has pressed Publish.
+  const [tried, setTried] = useState(false)
 
   /// The tail of the id, held so the id does not move between attempts.
   ///
   /// The id used to be minted inside the mutation, which meant a retry after a
   /// halted publish asked for a second campaign under a second id — two
   /// envelopes for one intention. Only the random tail is held: the readable
-  /// half still follows the name, because an id that travels to every till and
-  /// shows on a panel should be sayable out loud.
-  const [tail, setTail] = useState(() => crypto.randomUUID().slice(0, 4))
+  /// half still follows the name. A change keeps the id it already has.
+  const [tail] = useState(() => crypto.randomUUID().slice(0, 4))
 
   const fleet = useQuery({
     queryKey: commercialKeys.fleet(),
     queryFn: ({ signal }) => commercialFleet(signal),
   })
 
-  const campaignId = `${slug(name)}-${tail}`
+  const campaignId =
+    changing && seed !== null
+      ? seed.campaign.campaign_id
+      : `${slug(name)}-${tail}`
 
   // A whole day each end, so "until 30 September" includes the thirtieth. A
   // `datetime-local` left at 00:00 quietly meant it did not.
@@ -1795,13 +1951,11 @@ function CampaignForm({
   /// A fresh key for each attempt, made where the command is built rather than
   /// held for the life of the sheet.
   ///
-  /// Reusing one key across attempts is what an idempotency key is usually for,
-  /// and here it would be wrong: a halted publish leaves a book behind, so the
-  /// *next* attempt asks for a higher version — a different payload under the
-  /// same key, which `command_deduplication` refuses outright. The guard
-  /// against a double click is the disabled button, and the guard against a
-  /// lost response is the version check, which refuses a second book at a
-  /// number already taken.
+  /// Reusing one key across attempts would be wrong: a halted publish leaves a
+  /// book behind, so the *next* attempt asks for a higher version — a
+  /// different payload under the same key, which `command_deduplication`
+  /// refuses outright. The guard against a double click is the disabled
+  /// button, and against a lost response the version check.
   const publish = useMutation({
     // The id rides as the mutation's variable, so the one reported on success
     // is the one that was published even if the name was edited meanwhile.
@@ -1809,14 +1963,14 @@ function CampaignForm({
       writeAndPublish({
         ...NOTHING_TO_PUBLISH,
         version: nextVersion,
-        name: `Campaign: ${name.trim()}`,
+        name: `${changing ? "Change" : "Campaign"}: ${name.trim()}`,
         effective_from: validFrom ?? new Date().toISOString(),
         effective_to: null,
         campaigns: [
           {
             // Readable, and unique enough: the id travels to every till and
             // shows on the sheet, so a slug beats a uuid nobody can say out
-            // loud.
+            // loud. A change restates the id it already has.
             campaign_id: id,
             name: name.trim(),
             status,
@@ -1832,8 +1986,7 @@ function CampaignForm({
             terms: terms.trim() === "" ? null : terms.trim(),
             // A shared CONSTRAINT, not a default. An offer inside this campaign
             // runs where BOTH lists allow, so naming six here cannot be widened
-            // back to thirteen by a rule that names thirteen — the same way the
-            // window above already binds.
+            // back to thirteen by a rule that names thirteen.
             site_ids: stores,
           },
         ],
@@ -1848,42 +2001,27 @@ function CampaignForm({
     onSuccess: (receipt, id) => {
       client.invalidateQueries({ queryKey: commercialKeys.all })
       onPublished(receipt, id)
-      setName("")
-      setBudget("")
-      setMaxUses("")
-      setTo("")
-      setHeadline("")
-      setImage("")
-      setTerms("")
-      setStores([])
-      setStatus("ACTIVE")
-      setTail(crypto.randomUUID().slice(0, 4))
     },
   })
 
+  const nameProblem = name.trim() === "" ? "Give it a name." : undefined
+  const windowProblem = windowBroken ? "Ends before it starts." : undefined
+  const budgetProblem =
+    budget.trim() !== "" && budgetMinor === null
+      ? "Whole rupiah only."
+      : undefined
   const problem =
     actor === ""
       ? "Sign in to publish."
-      : name.trim() === ""
-        ? "Give the campaign a name."
-        : windowBroken
-          ? "The end date has to be after the start."
-          : budget.trim() !== "" && budgetMinor === null
-            ? "The budget has to be whole rupiah."
-            : undefined
+      : (nameProblem ?? windowProblem ?? budgetProblem)
 
   const halted =
     publish.error instanceof BookWrittenNotPublished ? publish.error : null
 
-  /// How many settings inside each fold are set — the folds say so while
-  /// they are closed.
+  /// How many settings inside the poster fold are set.
   const shown = [headline, terms, image].filter(
     (one) => one.trim() !== ""
   ).length
-  const optioned =
-    Number(status !== "ACTIVE") +
-    Number(budget.trim() !== "") +
-    Number(maxUses.trim() !== "")
   const everyShop =
     stores.length > 0 &&
     stores.length ===
@@ -1893,34 +2031,55 @@ function CampaignForm({
     <Sheet
       open={open}
       onOpenChange={(next) => !next && onClose()}
-      title="New campaign"
-      id={`v${nextVersion}`}
-      width="wide"
-      // Two thirds of the glass, and the same panel the promotion form gets:
-      // the two are written together and joined to each other, and a campaign
-      // opening half the width of the offer it holds reads as a lesser thing.
-      className="md:w-[clamp(32rem,66vw,58rem)]"
+      title={
+        changing
+          ? "Change campaign"
+          : seed?.mode === "duplicate"
+            ? "Duplicate campaign"
+            : "New campaign"
+      }
+      id={changing ? seed?.campaign.campaign_id : `v${nextVersion}`}
+      width="workspace"
+      // The form and the summary it reads back sit side by side, each with
+      // room — the same panel New promotion gets.
+      className="md:w-[clamp(32rem,92vw,80rem)]"
       footer={
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-4">
+          {/* Nothing until the form can be published, then the offer in one
+              line; what is stopping the button is said BESIDE it, once
+              somebody has pressed it. */}
           <span
             className={cn(
-              "min-w-0 truncate text-[0.875rem]",
-              problem !== undefined ? "text-bad" : "text-text"
+              "min-w-0 text-[0.9375rem] leading-snug",
+              tried && problem !== undefined ? "text-bad" : "text-text"
             )}
           >
-            {problem ??
-              readsCampaign(
-                status,
-                from === "" ? null : from,
-                to === "" ? null : to,
-                budgetMinor
+            {tried && problem !== undefined
+              ? problem
+              : problem === undefined
+                ? readsCampaign(
+                    status,
+                    from === "" ? null : from,
+                    to === "" ? null : to,
+                    budgetMinor
+                  )
+                : null}
+            {changing &&
+              seed?.campaign.status === "PAUSED" &&
+              !(tried && problem !== undefined) && (
+                <span className="text-mute"> · Stays paused</span>
               )}
           </span>
           <Button
+            className="ml-auto"
             variant="primary"
             pending={publish.isPending}
-            disabled={problem !== undefined}
-            onClick={() => publish.mutate(campaignId)}
+            disabled={actor === ""}
+            onClick={() =>
+              problem === undefined
+                ? publish.mutate(campaignId)
+                : setTried(true)
+            }
           >
             {publish.isPending ? "Publishing…" : "Publish"}
           </Button>
@@ -1928,40 +2087,62 @@ function CampaignForm({
       }
     >
       {halted !== null ? (
-        <Banner tone="bad" className="mb-4">
+        <Banner tone="bad" className="mb-5">
           {halted.message}
         </Banner>
       ) : publish.isError ? (
-        <div className="mb-4">
+        <div className="mb-5">
           <ErrorState error={publish.error} />
         </div>
       ) : null}
 
-      {/* Measured on the sheet, not on the window — this panel is 66vw at a
-          desk and the whole glass on a phone. */}
+      {/* Measured on the sheet, not on the window. */}
       <div className="@container">
-        <div className="grid gap-6 @3xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] @3xl:gap-x-8">
-          <div className="flex flex-col gap-6">
-            <Section title="Campaign">
-              <Field label="Name" required>
-                <Input
-                  value={name}
-                  autoFocus
-                  placeholder="Lebaran"
-                  onChange={(event) => setName(event.target.value)}
-                />
-              </Field>
+        <div className="grid gap-8 @3xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] @3xl:gap-x-10">
+          <div className="flex flex-col gap-10">
+            <Section title="Campaign" icon={Megaphone}>
+              <div className="grid gap-5 @lg:grid-cols-2">
+                <Field
+                  className="gap-2"
+                  label="Name"
+                  required
+                  problem={tried ? nameProblem : undefined}
+                >
+                  <Input
+                    value={name}
+                    autoFocus
+                    onChange={(event) => setName(event.target.value)}
+                  />
+                </Field>
+                {/* Ended and Cancelled are not a way to start. */}
+                <Field className="gap-2" label="Status">
+                  <Select
+                    value={status}
+                    onChange={(next) => setStatus(next as CampaignState)}
+                  >
+                    {CAMPAIGN_STATES.filter(
+                      (one) =>
+                        one.value !== "EXPIRED" && one.value !== "CANCELLED"
+                    ).map((one) => (
+                      <option key={one.value} value={one.value}>
+                        {one.label}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
             </Section>
 
             {/* A whole day each end, so "until 30 September" includes the
-                thirtieth. */}
-            <Section title="Schedule">
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Starts">
+                thirtieth. The budget and the limit are shared by every offer
+                inside, not given to each; a per-customer limit is not offered
+                — the server refuses one on a campaign. */}
+            <Section title="Schedule and budget" icon={CalendarRange}>
+              <div className="grid gap-5 @lg:grid-cols-2">
+                <Field className="gap-2" label="Starts">
                   <Day
                     value={from}
                     onChange={setFrom}
-                    placeholder="Straight away"
                     label="The day this campaign starts"
                     presets={[
                       { label: "Today", value: today() },
@@ -1971,17 +2152,13 @@ function CampaignForm({
                   />
                 </Field>
                 <Field
+                  className="gap-2"
                   label="Ends"
-                  problem={
-                    windowBroken
-                      ? "The end date has to be after the start."
-                      : undefined
-                  }
+                  problem={tried ? windowProblem : undefined}
                 >
                   <Day
                     value={to}
                     onChange={setTo}
-                    placeholder="No end date"
                     label="The last day this campaign runs"
                     notBefore={from}
                     presets={[
@@ -1993,13 +2170,37 @@ function CampaignForm({
                     ]}
                   />
                 </Field>
+                <Field
+                  className="gap-2"
+                  label="Budget"
+                  problem={tried ? budgetProblem : undefined}
+                >
+                  <Money
+                    value={budget}
+                    onChange={setBudget}
+                    prefix="Rp"
+                    label="Budget for the whole window"
+                  />
+                </Field>
+                <Field className="gap-2" label="Transactions limit">
+                  <Stepper
+                    value={maxUses}
+                    onChange={setMaxUses}
+                    min={1}
+                    label="Most transactions"
+                  />
+                </Field>
               </div>
             </Section>
 
             {/* Naming none means everywhere. Naming some is a CONSTRAINT, not a
                 default: an offer inside this campaign runs where both its own
                 list and this one allow. */}
-            <Section title="Shops">
+            <Section
+              title="Stores"
+              icon={Store}
+              aside={stores.length === 0 ? "Everywhere" : undefined}
+            >
               <Stores
                 chosen={stores}
                 onToggle={(id) =>
@@ -2014,128 +2215,84 @@ function CampaignForm({
               />
             </Section>
 
-            <div className="flex flex-col gap-2.5">
-              {/* Settings most campaigns leave alone: it goes out Live, with
-                  no budget and no basket cap. The limits are shared by every
-                  offer inside, not given to each; a per-customer limit is not
-                  offered — the server refuses one on a campaign. */}
-              <More label="More options" count={optioned}>
-                {/* Ended and Cancelled are not a way to start. */}
-                <Field label="Status">
-                  <Select
-                    value={status}
-                    onChange={(next) => setStatus(next as CampaignState)}
-                  >
-                    {CAMPAIGN_STATES.filter(
-                      (one) => one.value !== "EXPIRED" && one.value !== "CANCELLED"
-                    ).map((one) => (
-                      <option key={one.value} value={one.value}>
-                        {one.label}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                <div className="grid gap-3 @lg:grid-cols-2">
-                  <Field label="Budget">
-                    <Money
-                      value={budget}
-                      onChange={setBudget}
-                      prefix="Rp"
-                      placeholder="Unlimited"
-                      label="Budget for the whole window"
-                    />
-                  </Field>
-                  <Field label="Max. baskets">
-                    <Stepper
-                      value={maxUses}
-                      onChange={setMaxUses}
-                      min={1}
-                      placeholder="Unlimited"
-                      label="Most baskets"
-                    />
-                  </Field>
-                </div>
-              </More>
-
-              {/* The three a SHOPPER reads. They ride on the campaign and
-                  nowhere else — a campaign is the one thing in a price book a
-                  shopper is meant to read. Empty headline means shops show the
-                  name above. */}
-              <More label="What shoppers see" count={shown}>
-                <Field label="Headline">
-                  <Input
-                    value={headline}
-                    placeholder={
-                      name.trim() === ""
-                        ? "Diskon Lebaran — sampai 30 September"
-                        : name.trim()
-                    }
-                    onChange={(event) => setHeadline(event.target.value)}
-                  />
-                </Field>
-                <Field label="Terms">
-                  <Textarea
-                    value={terms}
-                    rows={3}
-                    placeholder={
-                      "Selama persediaan masih ada.\nTidak dapat digabung dengan promo lain."
-                    }
-                    onChange={(event) => setTerms(event.target.value)}
-                  />
-                </Field>
-                <Field label="Banner image URL">
-                  <Input
-                    value={image}
-                    placeholder="https://…"
-                    onChange={(event) => setImage(event.target.value)}
-                  />
-                </Field>
-              </More>
-            </div>
+            {/* The three a SHOPPER reads. Empty headline means stores show the
+                name above. */}
+            <More label="Poster" count={shown}>
+              <Field className="gap-2" label="Headline">
+                <Input
+                  value={headline}
+                  onChange={(event) => setHeadline(event.target.value)}
+                />
+              </Field>
+              <Field className="gap-2" label="Terms">
+                <Textarea
+                  value={terms}
+                  rows={3}
+                  onChange={(event) => setTerms(event.target.value)}
+                />
+              </Field>
+              <Field className="gap-2" label="Image URL">
+                <Input
+                  value={image}
+                  onChange={(event) => setImage(event.target.value)}
+                />
+              </Field>
+            </More>
           </div>
 
-          {/* The poster as the shop will print it, and under it what the
-              envelope does to whatever is filed inside — the half people get
-              wrong, because a campaign looks like a bigger promotion and is
-              not one. Pinned while the form scrolls. */}
-          <div className="@3xl:sticky @3xl:top-0 @3xl:self-start">
-            <Section title="Summary">
+          {/* The combination, read back. Pinned while the form scrolls, so it
+              is read beside the answers that change it. */}
+          <div className="flex flex-col gap-10 rounded-card border border-hairline bg-soft p-6 @3xl:sticky @3xl:top-0 @3xl:self-start">
+            <Section title="Summary" icon={ClipboardList}>
               <Terms
-                headline={
-                  headline.trim() !== ""
-                    ? headline.trim()
-                    : validFrom === null
-                      ? "Open ended"
-                      : validTo === null
-                        ? `From ${day(validFrom)}`
-                        : `${day(validFrom)} – ${day(validTo)}`
-                }
+                variant="rows"
+                headline=""
                 name={name}
-                prose={terms}
-                empty="Name the campaign to see its summary."
-                clauses={[
-                  name.trim() !== "" &&
-                    "An offer filed under it runs only while this campaign is active.",
-                  validFrom !== null &&
-                    validTo !== null &&
-                    "Offers inside it cannot run outside these dates.",
-                  stores.length > 0 &&
-                    `Runs in ${count(stores.length)} shop${stores.length === 1 ? "" : "s"} only.`,
-                  // Naming all of them and naming none behave identically today
-                  // and diverge the moment a new shop opens.
-                  everyShop &&
-                    "Every shop is named, so a shop opened later is not included.",
-                  budgetMinor !== null &&
-                    `${money(budgetMinor)} is shared by every offer inside it.`,
-                  maxUses.trim() !== "" &&
-                    `${count(Number(maxUses))} baskets across every offer inside it.`,
-                  "Offers join it by naming this campaign on their own form.",
+                empty="Nothing to show yet."
+                clauses={[]}
+                rows={[
+                  [
+                    name.trim() !== "" && {
+                      label: "Name",
+                      value: name.trim(),
+                    },
+                    { label: "Status", value: stateOf(status).label },
+                    {
+                      label: "Period",
+                      value:
+                        validFrom !== null && validTo !== null
+                          ? `${day(validFrom)} – ${day(validTo)}`
+                          : validFrom !== null
+                            ? `From ${day(validFrom)}`
+                            : validTo !== null
+                              ? `Until ${day(validTo)}`
+                              : "Always on",
+                    },
+                    {
+                      label: "Stores",
+                      value:
+                        stores.length === 0
+                          ? "Everywhere"
+                          : everyShop
+                            ? `All ${count(stores.length)}`
+                            : count(stores.length),
+                    },
+                  ].filter((row) => row !== false),
+                  [
+                    budgetMinor !== null && {
+                      label: "Budget",
+                      value: money(budgetMinor),
+                    },
+                    maxUses.trim() !== "" && {
+                      label: "Transactions",
+                      value: count(Number(maxUses)),
+                    },
+                    headline.trim() !== "" && {
+                      label: "Headline",
+                      value: headline.trim(),
+                    },
+                  ].filter((row) => row !== false),
                 ]}
-                foot={
-                  headline.trim() === "" && terms.trim() === ""
-                    ? "No headline: shops will show the campaign name."
-                    : undefined
-                }
               />
             </Section>
           </div>
@@ -2166,20 +2323,16 @@ function readsCampaign(
   }`
 }
 
-/// The shops a campaign runs in, as a row of switches rather than a list box.
+/// The stores a campaign runs in, as tiles rather than a list box.
 ///
-/// Thirteen of them, which is small enough that seeing all thirteen at once is
-/// the affordance — a multi-select would hide twelve behind a click to save
-/// space this panel has. "Everywhere" is the absence of a choice rather than a
-/// fourteenth option: naming every shop and naming none behave identically at
-/// the till, and only one of them survives a shop being opened next year.
+/// "Everywhere" is the absence of a choice rather than another option: naming
+/// every store and naming none behave identically at the till, and only one of
+/// them survives a store being opened next year.
 ///
-/// **It reports the shop toggled, never the whole new list.** Handing back a
-/// list computed from `chosen` looks simpler and is wrong: two chips pressed in
-/// one tick both read the list as it was before either press, so the second
-/// overwrites the first and one of the two shops is silently dropped. React
-/// batches, and a closure over state is a closure over stale state. Reporting
-/// the single change lets the holder apply it functionally, which cannot race.
+/// **It reports the store toggled, never the whole new list.** Two tiles
+/// pressed in one tick both read the list as it was before either press, so
+/// the second would overwrite the first. Reporting the single change lets the
+/// holder apply it functionally, which cannot race.
 function Stores({
   chosen,
   onToggle,
@@ -2192,17 +2345,20 @@ function Stores({
   shops: readonly { site_id: string | null; label: string | null }[]
 }) {
   const everywhere = chosen.length === 0
+  const tile = (on: boolean) =>
+    cn(
+      "flex min-h-12 items-center rounded-inner border px-4 py-2 text-left text-[0.9375rem] transition-colors",
+      on
+        ? "border-accent bg-accent-bg font-medium text-accent"
+        : "border-hairline text-body hover:text-ink"
+    )
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="grid grid-cols-2 gap-3 @lg:grid-cols-3">
       <button
         type="button"
+        aria-pressed={everywhere}
         onClick={onClear}
-        className={cn(
-          "rounded-full border px-2.5 py-1 text-meta transition-colors",
-          everywhere
-            ? "border-accent bg-accent-bg font-medium text-accent"
-            : "border-hairline text-mute hover:text-ink"
-        )}
+        className={tile(everywhere)}
       >
         Everywhere
       </button>
@@ -2214,13 +2370,9 @@ function Stores({
           <button
             key={id}
             type="button"
+            aria-pressed={on}
             onClick={() => onToggle(id)}
-            className={cn(
-              "rounded-full border px-2.5 py-1 text-meta transition-colors",
-              on
-                ? "border-accent bg-accent-bg font-medium text-accent"
-                : "border-hairline text-body hover:text-ink"
-            )}
+            className={tile(on)}
           >
             {shop.label ?? id}
           </button>

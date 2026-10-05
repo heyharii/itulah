@@ -24,20 +24,21 @@ import {
 import { count, money } from "@/lib/format"
 import { procurementKeys, supplierPage } from "@/lib/queries/procurement"
 import {
+  gaAssets,
   gaContracts,
   gaKeys,
   gaRepairObjects,
   gaRepairs,
-  gaAssets,
   recordGaRepair,
+  useGaSites,
 } from "@/lib/queries/ga"
-import { financeKeys, listAssets } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { RepairSheet } from "@/screens/maintenance/hub"
 import { RepairStagePill } from "@/screens/maintenance/parts"
 import { repairObjectTiles, repairOver } from "@/screens/maintenance/format"
 import { FinanceMark } from "@/screens/contracts/parts"
+import { SupplierName } from "@/screens/procurement/supplier-name"
 import type { GaAssetRow, GaRepairRow, GaRepairSummary } from "@itulah/contract"
 
 /// Perbaikan — the book of things that broke.
@@ -238,7 +239,7 @@ function RepairLine({
       </span>
       <span className="truncate text-meta text-body">{row.site_id}</span>
       <span className="min-w-0 truncate text-meta text-body">
-        {row.supplier_name}
+        <SupplierName code={row.supplier_id} name={row.supplier_name} />
       </span>
       <span className="min-w-0 truncate text-right text-meta text-body tabular-nums">
         {money(row.estimated_cost_minor)}
@@ -306,12 +307,7 @@ export function RepairComposer({
 
   // Sites, from Finance's facet — the same list the asset register and the
   // contract composer offer, because a site is a site in every form.
-  const shape = useQuery({
-    queryKey: financeKeys.assets(false, null),
-    queryFn: ({ signal }) => listAssets({ limit: 1 }, signal),
-    enabled: open,
-    staleTime: 5 * 60 * 1000,
-  })
+  const { sites: siteOptions } = useGaSites(open)
 
   // The eleven objects and their accounts — the server's list, the same one
   // the request is validated against.
@@ -411,7 +407,7 @@ export function RepairComposer({
               Cancel
             </Button>
             <Button variant="primary" pending={save.isPending} onClick={submit}>
-              {save.isPending ? "Saving…" : "Save repair"}
+              {save.isPending ? "Submitting…" : "Submit"}
             </Button>
           </div>
         </div>
@@ -427,7 +423,6 @@ export function RepairComposer({
             <Input
               value={form.title ?? ""}
               onChange={(event) => set("title", event.target.value)}
-              placeholder="e.g. AC cassette not cooling"
               autoFocus
             />
           </Field>
@@ -486,7 +481,7 @@ export function RepairComposer({
                 aria-label="Location"
               >
                 <option value="">Choose…</option>
-                {(shape.data?.facets.sites ?? []).map((one) => (
+                {siteOptions.map((one) => (
                   <option key={one.value} value={one.value}>
                     {one.label ?? one.value}
                   </option>
@@ -518,7 +513,14 @@ export function RepairComposer({
               {(contracts.data?.rows ?? []).map((one) => (
                 <option key={one.contract_id} value={one.contract_id}>
                   {one.contract_number ?? one.contract_id.slice(0, 8)} ·{" "}
-                  {one.supplier_name ?? one.counterparty_name}
+                  {one.supplier_name === null ? (
+                    one.counterparty_name
+                  ) : (
+                    <SupplierName
+                      code={one.supplier_id}
+                      name={one.supplier_name}
+                    />
+                  )}
                 </option>
               ))}
             </Select>
@@ -534,7 +536,6 @@ export function RepairComposer({
               <Money
                 value={form.estimate ?? ""}
                 onChange={(next) => set("estimate", next)}
-                placeholder="5000000"
               />
             </Field>
             <Field label="Reported">
@@ -549,7 +550,6 @@ export function RepairComposer({
             <Input
               value={form.notes ?? ""}
               onChange={(event) => set("notes", event.target.value)}
-              placeholder="e.g. unit 1-04, floor 2"
             />
           </Field>
           <p className="flex items-center gap-1.5 text-pill text-mute">

@@ -288,19 +288,17 @@ export function Payables() {
         open={creating}
         onOpenChange={setCreating}
         title="New bill"
-        submitLabel="Record the bill"
+        submitLabel="Submit"
         fields={[
           {
             name: "supplier",
             label: "Supplier or vendor",
             required: true,
-            placeholder: "PT Pancasakti Sandang",
           },
           {
             name: "number",
             label: "Invoice number",
             required: true,
-            placeholder: "INV/PS/26-08/1201",
           },
           {
             name: "unit_id",
@@ -333,20 +331,17 @@ export function Payables() {
             name: "issued_on",
             label: "Issued",
             required: true,
-            placeholder: "2026-08-01",
           },
           {
             name: "due_on",
             label: "Due",
             required: true,
-            placeholder: "2026-08-31",
           },
           {
             name: "total",
             label: "Amount",
             kind: "money",
             required: true,
-            placeholder: "12500000",
             hint: "In rupiah. Recognised as a cost now; the money leaves when you pay it.",
           },
         ]}
@@ -367,13 +362,12 @@ export function Payables() {
         open={Boolean(giroFor)}
         onOpenChange={(o) => !o && setGiroFor(null)}
         title="Write a giro"
-        submitLabel="Issue it"
+        submitLabel="Submit"
         fields={[
           {
             name: "number",
             label: "Giro number",
             required: true,
-            placeholder: "BCA 442192",
             hint: "The number printed on the leaf you are about to write.",
           },
           {
@@ -390,7 +384,6 @@ export function Payables() {
             name: "value_on",
             label: "Value date",
             required: true,
-            placeholder: "2026-08-20",
             hint: "Nothing leaves the bank until this date — that is what makes it a giro and not a cheque.",
           },
         ]}
@@ -480,7 +473,7 @@ function BillDetail({ bill }: { bill: Bill }) {
       {giro && (
         <div>
           <SubHead>Paid by giro</SubHead>
-          <Table head={["Number", "Issued", "Value date", "Status", ">Amount"]}>
+          <Table head={["Number", "Issued", "Value Date", "Status", ">Amount"]}>
             <Row tone={giro.status === "OUTSTANDING" ? "warn" : undefined}>
               <Cell mono>{giro.number}</Cell>
               <Cell className="whitespace-nowrap">{giro.issued_on}</Cell>

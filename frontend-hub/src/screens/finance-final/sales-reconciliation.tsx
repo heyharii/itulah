@@ -88,8 +88,7 @@ export function SalesReconciliation() {
   const scoped = site !== ""
   const register = useUnits()
   const unit =
-    register.data?.find((one) => one.sites.some((s) => s.id === site))?.id ??
-    ""
+    register.data?.find((one) => one.sites.some((s) => s.id === site))?.id ?? ""
   // What each role resolves to in that unit's books, as the server resolves
   // it.
   const map = useQuery({

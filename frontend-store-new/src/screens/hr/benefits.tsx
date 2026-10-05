@@ -14,7 +14,6 @@ import { PeopleSheet } from "@/components/ui/people-sheet"
 import { PeopleTable } from "@/components/ui/people-table"
 import { PeopleTabs } from "@/components/ui/people-tabs"
 import { Pill } from "@/components/ui/pill"
-import { Banner } from "@/components/ui/states"
 import {
   hrKeys,
   isoDay,
@@ -54,7 +53,7 @@ import type {
 /// that would read as "nobody is registered".
 export function HrBenefits() {
   return (
-    <HrWorkspace sub="The shop administers benefits under head office's rules: it records uniforms handed over. Rates, allowances and ceilings are head office's. Medical claims are under Expenses.">
+    <HrWorkspace>
       {(scope) => <Benefits scope={scope} />}
     </HrWorkspace>
   )
@@ -99,13 +98,13 @@ function Benefits({ scope }: { scope: StoreScope }) {
       )}
       {tab === "bpjs" &&
         centreState(statutory, {
-          loading: "Reading the contribution rates…",
+          loading: "Loading…",
           what: "the BPJS rates",
           render: (rows) => <Bpjs rates={rows} team={team.data} />,
         })}
       {tab === "other" &&
         centreState(benefit, {
-          loading: "Reading the benefit rules…",
+          loading: "Loading…",
           what: "the benefit rules",
           render: (rows) => <Other rules={rows} />,
         })}
@@ -159,7 +158,7 @@ function Uniforms({
       <PeopleTable
         rows={rows}
         rowKey={(row) => row.id}
-        empty="Nobody is posted here."
+        empty="Nobody posted here."
         columns={[
           {
             key: "who",
@@ -211,11 +210,6 @@ function Uniforms({
           },
         ]}
       />
-      <p className="mt-3 text-meta text-mute">
-        The allowance is head office's rule
-        {allowance === null ? "" : ` — ${allowance} sets a year`}. The cost is
-        booked by Finance.
-      </p>
       {recording !== null && (
         <RecordUniform
           employeeId={recording}
@@ -302,8 +296,7 @@ function RecordUniform({
           </Field>
         </div>
         <Field
-          label="Why"
-          hint="Required — new joiner, a worn set, a size change."
+          label="Reason"
         >
           <Input
             value={reason}
@@ -340,16 +333,10 @@ function Bpjs({
 
   return (
     <>
-      <Banner tone="info" className="mb-4">
-        Who is registered, and their BPJS numbers, sit with pay details at head
-        office, which a shop's sign-in cannot read — so registration is not
-        shown or done here. A new joiner's BPJS is on head office's onboarding
-        checklist.
-      </Banner>
       <PeopleTable
         rows={people}
         rowKey={(person) => person.employee_id}
-        empty="Nobody is posted here."
+        empty="Nobody posted here."
         columns={[
           {
             key: "who",
@@ -396,10 +383,6 @@ function Bpjs({
           ]}
         />
       </Card>
-      <p className="mt-3 text-meta text-mute">
-        Percentages of base pay, as head office has set them. The figures in
-        rupiah are worked out in payroll at head office.
-      </p>
     </>
   )
 }
@@ -424,7 +407,7 @@ function Other({ rules: rows }: { rules: readonly PolicyView[] }) {
       <Card className="divide-y divide-hairline">
         <Line
           title="THR (religious holiday allowance)"
-          sub="One month's base after 12 months' service, pro rata below that · paid seven days before the holiday"
+          sub="1 month's base after 12 months · pro rata"
         />
         {shown.map((rule) => (
           <Line
@@ -439,13 +422,9 @@ function Other({ rules: rows }: { rules: readonly PolicyView[] }) {
         ))}
         <Line
           title="Severance and entitlements"
-          sub="Worked out at head office in the full-and-final statement when somebody leaves"
+          sub="Set at head office on leaving"
         />
       </Card>
-      <p className="mt-3 text-meta text-mute">
-        Every figure here is head office's rule; the shop neither sets nor pays
-        any of them.
-      </p>
     </>
   )
 }

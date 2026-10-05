@@ -3,11 +3,11 @@
 /**
  * What the handheld submits: every tag it read, nothing it expected.
  */
-export type StoreInboundReceiveRequest = {
+export type StoreInboundReceiveRequest = { 
 /**
  * Up to 20 000; normalised (trimmed, uppercased) and de-duplicated here.
  */
-epcs: Array<string>,
+epcs: Array<string>, 
 /**
  * Replaced by the signed-in principal when the node enforces auth.
  */

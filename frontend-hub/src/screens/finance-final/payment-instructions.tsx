@@ -363,9 +363,7 @@ function AskRow({ row }: { row: PaymentInstruction }) {
               name={row.supplier_name}
               className="text-ink"
             />
-            <span className="block text-[0.875rem] text-mute">
-              {row.payee}
-            </span>
+            <span className="block text-[0.875rem] text-mute">{row.payee}</span>
           </>
         )}
       </Td>

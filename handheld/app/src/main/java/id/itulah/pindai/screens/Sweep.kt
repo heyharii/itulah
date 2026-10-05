@@ -914,14 +914,22 @@ class SweepViewModel(
     fun setDestination(v: String) = update { it.copy(destination = v.trim()) }
     fun setCountId(v: String) = update { it.copy(countId = v.trim()) }
 
-    /** What Official Count work this DC actually holds. */
+    /**
+     * Where this node keeps its count work. The Gudang's DC walks it under
+     * `/dc/official-counts`; a shop counts its own stock under `/store/counts`,
+     * which never tells the sweep what the book expects (owner, 2 Oct 2026).
+     */
+    private fun countsPath(role: NodeRole): String =
+        if (role == NodeRole.STORE) "/api/v1/store/counts" else "/api/v1/dc/official-counts"
+
+    /** What Official Count work this node actually holds. */
     fun loadCounts() {
         val settings = settings()
         if (!settings.isConfigured) return
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching {
-                    val json = Api(settings).get("/api/v1/dc/official-counts")
+                    val json = Api(settings).get(countsPath(state.value.nodeRole))
                     val items = json.optJSONArray("items") ?: org.json.JSONArray()
                     (0 until items.length()).map { i ->
                         val row = items.getJSONObject(i)
@@ -2219,7 +2227,7 @@ class SweepViewModel(
             put("actor_id", "handheld")
             put("idempotency_key", "hh-count-" + sessionId.take(12))
         }
-        api.post("/api/v1/dc/official-counts/${s.countId}/entries", payload)
+        api.post("${countsPath(s.nodeRole)}/${s.countId}/entries", payload)
         return "${entries.length()} count entries"
     }
 

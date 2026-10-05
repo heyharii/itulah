@@ -30,6 +30,8 @@ pub struct KnownSite {
     /// (`0061`, postgres 0630). `None`: head office has not said — an older
     /// centre, or a directory written before the column — read as open.
     pub opened: Option<bool>,
+    /// Head office's number of till seats (`0070`). `None`: not said yet.
+    pub till_count: Option<u32>,
 }
 
 impl KnownSite {
@@ -56,8 +58,8 @@ pub fn replace(
         tx.execute(
             "INSERT INTO site_directory
                  (site_id, kind, code, name, timezone, utc_offset_minutes, is_own,
-                  policy_version, received_at, opened)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                  policy_version, received_at, opened, till_count)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(site_id) DO UPDATE SET
                  kind = excluded.kind, code = excluded.code, name = excluded.name,
                  timezone = excluded.timezone,
@@ -65,7 +67,8 @@ pub fn replace(
                  is_own = MAX(site_directory.is_own, excluded.is_own),
                  policy_version = excluded.policy_version,
                  received_at = excluded.received_at,
-                 opened = excluded.opened",
+                 opened = excluded.opened,
+                 till_count = excluded.till_count",
             params![
                 profile.site_id,
                 profile.kind,
@@ -77,6 +80,7 @@ pub fn replace(
                 policy_version,
                 received_at,
                 profile.opened.map(i64::from),
+                profile.till_count.map(|count| i64::from(count.min(50))),
             ],
         )
         .map(|_| ())
@@ -90,7 +94,8 @@ pub fn replace(
     Ok(())
 }
 
-const COLUMNS: &str = "SELECT site_id, kind, code, name, timezone, utc_offset_minutes, opened
+const COLUMNS: &str = "SELECT site_id, kind, code, name, timezone, utc_offset_minutes, opened,
+                                till_count
                          FROM site_directory";
 
 fn known_site(row: &rusqlite::Row<'_>) -> rusqlite::Result<KnownSite> {
@@ -102,6 +107,9 @@ fn known_site(row: &rusqlite::Row<'_>) -> rusqlite::Result<KnownSite> {
         timezone: row.get(4)?,
         utc_offset_minutes: row.get(5)?,
         opened: row.get::<_, Option<i64>>(6)?.map(|opened| opened == 1),
+        till_count: row
+            .get::<_, Option<i64>>(7)?
+            .and_then(|count| u32::try_from(count).ok()),
     })
 }
 

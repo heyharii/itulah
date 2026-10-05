@@ -91,6 +91,9 @@ data class TillState(
     /// taking scans on a dead session is a till that will fail at the moment
     /// money is taken, in front of the customer.
     val signedOut: Boolean = false,
+    /// The site this node owns, as the node's own identity named it. Null
+    /// until the node has answered; a null site files no floor movement.
+    val site: String? = null,
     /// Baskets parked so the next customer can be served.
     ///
     /// Local, and deliberately so. A held basket is a list of tags nobody has
@@ -156,13 +159,36 @@ class TillViewModel(private val api: Api, private val store: ConfigStore) : View
         // again, works, and then never notices the *next* expiry, because the
         // effect watching it sees no change.
         _state.update {
-            it.copy(cashier = config.cashier, namesKnown = names.size, signedOut = false)
+            it.copy(
+                cashier = config.cashier,
+                namesKnown = names.size,
+                signedOut = false,
+                site = config.siteId.takeIf { id -> id.isNotBlank() },
+            )
         }
         viewModelScope.launch {
             withContext(Dispatchers.IO) { api.warm() }
+            rememberSite()
             refreshShift()
             refreshPaymentMethods()
         }
+    }
+
+    /**
+     * Learn which shop this node owns, from the node itself.
+     *
+     * Persisted so a later start that cannot reach the node still knows, and
+     * refreshed every start in case the tablet was re-pointed. A failure keeps
+     * whatever is already known; a till that has never been told files no
+     * floor movement rather than a guessed one.
+     */
+    private suspend fun rememberSite() {
+        val answer = runCatching {
+            withContext(Dispatchers.IO) { api.nodeIdentity() }
+        }.getOrNull() ?: return
+        val site = answer.optString("site_id").takeIf { it.isNotBlank() } ?: return
+        store.saveSite(site)
+        _state.update { it.copy(site = site) }
     }
 
     /**
@@ -529,8 +555,24 @@ class TillViewModel(private val api: Api, private val store: ConfigStore) : View
             // the node had already written the sale.
             val refusal = result.exceptionOrNull() as? ApiError
             if (refusal?.status == 409 && refusal.message?.contains("floor") == true) {
+                val site = siteOf(_state.value)
+                if (site == null) {
+                    // The node has not said which shop this is. Moving stock
+                    // anyway would file it against somebody else's floor.
+                    _state.update {
+                        it.copy(
+                            busy = false,
+                            note = Note(
+                                true,
+                                "Node belum menyebut sitenya — gudangkan ulang dan coba lagi " +
+                                    "setelah koneksi ke node tersedia",
+                            ),
+                        )
+                    }
+                    return@launch
+                }
                 val laid = withContext(Dispatchers.IO) {
-                    epcs.count { api.layOnFloor(it, siteOf(_state.value)) }
+                    epcs.count { api.layOnFloor(it, site) }
                 }
                 if (laid > 0) {
                     _state.update { it.copy(note = Note(false, "$laid barang digelar dari gudang")) }
@@ -664,15 +706,15 @@ class TillViewModel(private val api: Api, private val store: ConfigStore) : View
     }
 
     /**
-     * Which shop this till stands in, as the pool names spell it.
+     * Which shop this till stands in, as the node itself named it.
      *
-     * Read off the shift rather than configured twice: the terminal already
-     * belongs to a site, and a second copy of that fact is a second thing that
-     * can be wrong.
+     * Learned from the node's identity at start, not inferred from a terminal
+     * id: a name that does not spell its shop used to fall through to a
+     * default and file a floor movement against whichever shop that default
+     * named. Null means unknown, and unknown files nothing.
      */
-    private fun siteOf(state: TillState): String =
-        state.shift?.terminalId?.substringBefore('.')?.takeIf { it.startsWith("store") }
-            ?: DEFAULT_SITE
+    private fun siteOf(state: TillState): String? =
+        state.site?.takeIf { it.isNotBlank() }
 
     private fun reason(error: Throwable): String =
         error.message?.takeIf { it.isNotBlank() } ?: error::class.java.simpleName
@@ -703,8 +745,5 @@ class TillViewModel(private val api: Api, private val store: ConfigStore) : View
 
         /** Names held at once. A shift meets a few hundred; this is headroom. */
         const val NAME_CACHE = 4_000
-
-        /** Used only until a shift names the site. Dev nodes are store-07. */
-        const val DEFAULT_SITE = "store-07"
     }
 }

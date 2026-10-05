@@ -91,7 +91,7 @@ export function PriceAmendmentsView() {
           </ScreenState>
         ) : rows.length === 0 ? (
           <ScreenState>
-            Nothing is waiting. A warehouse raises one of these when a supplier's invoice
+            Nothing is waiting. The Gudang raises one of these when a supplier's invoice
             disagrees with what the order says.
           </ScreenState>
         ) : (
@@ -185,7 +185,7 @@ function AmendmentRow({
 
       <p className="text-muted-foreground text-[10.5px]">
         Approving changes the order's price to the invoice and tells {row.origin_id} in the same
-        step. Rejecting leaves the order as it stands — the warehouse may still accept the
+        step. Rejecting leaves the order as it stands — the Gudang may still accept the
         delivery, and the disagreement is on record against the supplier.
       </p>
     </li>

@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { ChartNoAxesColumn, Target, type LucideIcon } from "lucide-react"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Field, Money, Select } from "@/components/ui/field"
 import { Meter } from "@/components/ui/meter"
-import { SubHead } from "@/components/ui/rows"
 import { ErrorState } from "@/components/ui/states"
 import { count, day, money } from "@/lib/format"
 import { queryState } from "@/lib/query-state"
@@ -34,9 +34,8 @@ import {
   targetModelOf,
   type TargetUnit,
 } from "@/screens/commercial/objective"
-import { CampaignPlan } from "@/screens/commercial/campaign-plan"
 import { Quiet } from "@/screens/commercial/parts"
-import { useActor } from "@/screens/commercial/shared"
+import { percent, useActor } from "@/screens/commercial/shared"
 
 /// Did this campaign do what it was run for?
 ///
@@ -65,264 +64,314 @@ import { useActor } from "@/screens/commercial/shared"
 /// campaign against the last thirty days would report every past campaign as a
 /// failure the month after it ended. The server resolves that window from the
 /// book; this screen cannot override it and has no parameter to try.
-export function CampaignOutcome({
+/// The head of a part of the sheet: a small line icon, the heading, a
+/// hairline. The same shape as the blocks of the Promotions sheet.
+export function BlockHead({
+  icon: Icon,
+  title,
+  aside,
+  className,
+}: {
+  icon: LucideIcon
+  title: string
+  aside?: React.ReactNode
+  className?: string
+}) {
+  return (
+    <div
+      className={cn(
+        "flex min-h-9 items-center gap-3 border-b border-hairline pb-3",
+        className
+      )}
+    >
+      <Icon className="size-5 shrink-0 text-line-ico" strokeWidth={1.7} />
+      <h4 className="flex-1 text-[0.9375rem] font-semibold text-ink">
+        {title}
+      </h4>
+      {aside !== undefined && aside !== "" && (
+        <span className="text-[0.875rem] text-mute">{aside}</span>
+      )}
+    </div>
+  )
+}
+
+/// A part of the sheet: its head, then the content 20px below.
+export function Block({
+  icon,
+  title,
+  aside,
+  children,
+}: {
+  icon: LucideIcon
+  title: string
+  aside?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <section className="flex flex-col gap-5">
+      <BlockHead icon={icon} title={title} aside={aside} />
+      {children}
+    </section>
+  )
+}
+
+/// A plain label / value row.
+export function Pair({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-6">
+      <span className="shrink-0 text-[0.9375rem] text-body">{label}</span>
+      <span className="min-w-0 text-right text-[0.9375rem] font-medium text-ink tabular-nums">
+        {children}
+      </span>
+    </div>
+  )
+}
+
+/// A labelled bar: what it measures, the figures, the share.
+export function Gauge({
+  label,
+  figures,
+  ratio,
+  tone,
+}: {
+  label: string
+  figures: React.ReactNode
+  ratio: number
+  tone?: "accent" | "ok" | "warn" | "bad"
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-baseline gap-4 text-[0.9375rem] text-body tabular-nums">
+        <span className="flex-1">{label}</span>
+        <span>{figures}</span>
+        <span className="w-12 text-right text-ink">
+          {percent(Math.round(ratio * 10_000))}
+        </span>
+      </div>
+      <Meter
+        value={ratio}
+        label={label}
+        tone={tone ?? (ratio >= 1 ? "bad" : ratio >= 0.8 ? "warn" : "accent")}
+        className="h-2"
+      />
+    </div>
+  )
+}
+
+/// The id the Goal block answers to, so a checklist can scroll to it.
+export const GOAL_ANCHOR = "campaign-goal"
+
+/// The goal: what the campaign is for, the line, and how far it has got.
+///
+/// **Results are the campaign's own window, never the screen's.** "Did Lebaran
+/// hit its target" is asked over Lebaran's dates whatever today is; scoring a
+/// finished campaign against the last thirty days would report every past one
+/// as a failure. The server resolves that window from the book.
+export function CampaignGoal({
   campaign,
   campaigns,
 }: {
   campaign: BookCampaign
-  /// Every campaign in the books, so a precedent can be named. Only the ids and
-  /// names are used — the comparison itself is the server's, over the
-  /// precedent's own dates.
+  /// Every campaign in the books, so a precedent can be named.
   campaigns: readonly BookCampaign[]
 }) {
   const id = campaign.campaign_id
-
   const outcome = useQuery({
     queryKey: campaignKeys.outcome(id),
     queryFn: ({ signal }) => campaignOutcome(id, null, signal),
     retry: false,
   })
+  const [editing, setEditing] = useState(false)
 
   return (
-    <div className="flex flex-col gap-5">
+    <div id={GOAL_ANCHOR} className="scroll-mt-4">
       {queryState(outcome, {
-        loading: "Reading the tills…",
-        render: (scored) => (
-          <>
-            <Objective
-              campaign={campaign}
-              campaigns={campaigns}
-              outcome={scored}
-              pending={false}
-            />
-            <Did scored={scored} />
-          </>
-        ),
+        loading: "Loading…",
+        render: (scored) => {
+          const stated = scored.target
+          if (editing || stated === null) {
+            return (
+              <Block icon={Target} title="Goal">
+                <IntentEditor
+                  campaign={campaign}
+                  campaigns={campaigns}
+                  stated={stated}
+                  baselineId={scored.baseline?.campaign_id ?? null}
+                  onDone={() => setEditing(false)}
+                  onCancel={
+                    stated === null ? undefined : () => setEditing(false)
+                  }
+                />
+              </Block>
+            )
+          }
+          return (
+            <Block
+              icon={Target}
+              title="Goal"
+              aside={
+                <Button
+                  variant="quiet"
+                  size="sm"
+                  onClick={() => setEditing(true)}
+                >
+                  Change
+                </Button>
+              }
+            >
+              <GoalRows stated={stated} />
+            </Block>
+          )
+        },
       })}
-
-      <CampaignPlan campaignId={id} />
     </div>
   )
 }
 
-/// What the campaign did over its own window.
-function Did({ scored }: { scored: CampaignOutcomeView }) {
+/// The objective and its line as rows, with a bar toward the line.
+function GoalRows({ stated }: { stated: CampaignTargetScore }) {
+  const objective = objectiveOf(stated.objective)
+  const metric = metricOf(stated.success_metric)
+  const model = targetModelOf(stated.target_model)
+  // The unit the LINE is stated in, which is not always the metric's: a target
+  // relative to a precedent is a percentage whatever the metric is measured in.
+  const unit = model?.unitOf(metric) ?? metric?.unit ?? "count"
+  const readingUnit = metric?.unit ?? "count"
+  const share =
+    stated.progress_bps === null ? null : stated.progress_bps / 10_000
+
   return (
-    <div>
-      <SubHead aside={<Dates window={scored.window} />}>
-        What it did
-      </SubHead>
-      {scored.reading.sale_count === 0 ? (
-        <Quiet>
-          No sale in this window named this campaign. Either nothing has been
-          sold against it yet, or no shop has received it.
-        </Quiet>
-      ) : (
-        <>
-          {/* Three across only where three fit. A sheet is a third of the
-              glass, and "Rp 5.600.000" clipped to "Rp 5.600…" in a tile that
-              was sized for a page — a truncated amount is worse than a
-              stacked one, because it still looks like a number. */}
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
-            <Figure
-              label="Promo sales"
-              value={money(scored.reading.basket_revenue_minor)}
-              note={perDay(scored.reading, scored.window)}
-            />
-            <Figure
-              label="Given away"
-              value={money(scored.reading.spend_minor)}
-              note={
-                scored.reading.clearance_minor > 0
-                  ? `${money(scored.reading.benefit_minor)} discounted, ${money(scored.reading.clearance_minor)} cleared`
-                  : undefined
-              }
-            />
-            <Figure
-              label="Gross profit"
-              // Revenue less a cost of nought is revenue, and under the word
-              // "profit" that is the most flattering number on the panel,
-              // produced by the absence of data rather than by trading. The
-              // server answers `null` for exactly that case.
-              value={
-                scored.reading.costed_units === 0
-                  ? "—"
-                  : money(
-                      scored.reading.basket_revenue_minor -
-                        scored.reading.cost_minor
-                    )
-              }
-              note={
-                scored.reading.costed_units === 0
-                  ? "no cost on file"
-                  : scored.reading.costed_units < scored.reading.units
-                    ? `costed for ${count(scored.reading.costed_units)} of ${count(scored.reading.units)}`
-                    : undefined
-              }
-            />
-          </div>
-          {scored.baseline !== null && (
-            <Against
-              mine={scored.reading}
-              window={scored.window}
-              before={scored.baseline}
-            />
-          )}
-        </>
+    <div className="flex flex-col gap-5">
+      <Pair label={objective?.label ?? stated.objective}>
+        <Line score={stated} unit={unit} readingUnit={readingUnit} />{" "}
+        <span className="font-normal text-mute">
+          {metric?.label.toLowerCase() ?? stated.success_metric}
+        </span>
+      </Pair>
+      {stated.notes !== null && <Pair label="Notes">{stated.notes}</Pair>}
+      {share !== null && (
+        <Gauge
+          label="Progress"
+          figures={
+            <>
+              {drawMetric(readingUnit, stated.current)}
+              {stated.target_model === "REACH_PER_DAY" && " a day"}
+              <span className="text-mute">
+                {" / "}
+                <Line score={stated} unit={unit} readingUnit={readingUnit} />
+              </span>
+            </>
+          }
+          ratio={share}
+          tone={stated.met === true ? "ok" : share >= 0.7 ? "warn" : "accent"}
+        />
+      )}
+      {stated.note !== null && (
+        <p className="text-[0.9375rem] text-warn-fg">{stated.note}</p>
+      )}
+    </div>
+  )
+}
+
+/// What the campaign did over its own window, as a short list of rows.
+export function CampaignResults({ campaign }: { campaign: BookCampaign }) {
+  const id = campaign.campaign_id
+  const outcome = useQuery({
+    queryKey: campaignKeys.outcome(id),
+    queryFn: ({ signal }) => campaignOutcome(id, null, signal),
+    retry: false,
+  })
+  return queryState(outcome, {
+    loading: "Loading…",
+    render: (scored) => (
+      <Block
+        icon={ChartNoAxesColumn}
+        title="Results"
+        aside={<Dates window={scored.window} />}
+      >
+        <Did scored={scored} />
+      </Block>
+    ),
+  })
+}
+
+function Did({ scored }: { scored: CampaignOutcomeView }) {
+  const reading = scored.reading
+  if (reading.sale_count === 0) return <Quiet>No sales yet.</Quiet>
+  return (
+    <div className="flex flex-col gap-5">
+      <Pair label="Sales">{money(reading.basket_revenue_minor)}</Pair>
+      <Pair label="Given away">{money(reading.spend_minor)}</Pair>
+      <Pair label="Transactions">{count(reading.sale_count)}</Pair>
+      {/* Revenue less a cost of nought is revenue, and under the word "profit"
+          that is the most flattering number on the panel. Only where costed. */}
+      {reading.costed_units > 0 && (
+        <Pair label="Gross profit">
+          {money(reading.basket_revenue_minor - reading.cost_minor)}
+        </Pair>
+      )}
+      {scored.baseline !== null && scored.baseline.reading.sale_count > 0 && (
+        <Against mine={reading} before={scored.baseline} />
       )}
     </div>
   )
 }
 
 /// The dates a figure is true of, said out loud beside it.
-///
-/// A figure over an unstated period is the kind of number that ends up in a
-/// slide, and an undated campaign is read over the server's own default.
 function Dates({ window }: { window: CampaignWindowView | null }) {
   if (window === null) return null
-  if (!window.dated) return <>last 30 days</>
+  if (!window.dated) return <>Last 30 days</>
   return (
     <>
       {day(window.measured_from)} – {day(window.measured_to)}
-      {window.days_planned !== null && (
-        <span className="text-mute">
-          {" "}
-          · day {count(window.days_elapsed)} of {count(window.days_planned)}
-        </span>
-      )}
     </>
   )
 }
 
-function perDay(
-  reading: CampaignReadingView,
-  window: CampaignWindowView
-): string | undefined {
-  if (reading.per_day === null) return undefined
-  return `${money(reading.per_day.basket_revenue_minor)} a day over ${count(window.days_elapsed)}`
-}
-
-function Figure({
-  label,
-  value,
-  note,
-}: {
-  label: string
-  value: string
-  note?: string
-}) {
-  return (
-    <div className="min-w-0 rounded-inner bg-soft px-3 py-2.5">
-      <div className="truncate text-eyebrow text-mute">{label}</div>
-      <div className="mt-1 text-[0.9375rem] leading-tight font-semibold tracking-[-0.02em] text-ink tabular-nums">
-        {value}
-      </div>
-      {note !== undefined && (
-        <div className="mt-1 truncate text-[0.875rem] text-mute">{note}</div>
-      )}
-    </div>
-  )
-}
-
-/// This campaign against the one somebody said it should be read against.
-///
-/// **The day counts are not decoration.** A campaign that ran twenty-three days
-/// against one that ran twenty-one will beat it on totals by simply being
-/// longer, and the per-day line underneath is the only reading that is not
-/// flattered by length. Both are drawn: totals are what was actually spent and
-/// taken, and per day is what is comparable — and both come from the server, so
-/// the figure here and the figure a guardrail fired on are one figure.
+/// This campaign against the one it should be read against. The day counts
+/// matter: a longer campaign beats a shorter one on totals alone.
 function Against({
   mine,
-  window,
   before,
 }: {
   mine: CampaignReadingView
-  window: CampaignWindowView
   before: CampaignBaselineView
 }) {
   const name = before.name ?? before.campaign_id
-  if (before.reading.sale_count === 0) {
-    return (
-      <p className="mt-3 text-[0.875rem] leading-relaxed text-mute">
-        {before.note ??
-          `Nothing was sold against ${name} in its own window, so there is nothing to read this against.`}
-      </p>
-    )
-  }
   return (
-    <div className="mt-3 rounded-inner border border-hairline px-3 py-2.5">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <span className="text-eyebrow font-medium text-body">
-          Against {name}
-        </span>
-        {before.comparable && (
-          <span className="text-[0.875rem] text-mute tabular-nums">
-            {count(window.days_elapsed)} days vs{" "}
-            {count(before.window.days_elapsed)}
-          </span>
-        )}
-      </div>
-      <dl className="mt-1.5 text-meta">
-        <Row
-          term="Promo sales"
-          now={mine.basket_revenue_minor}
-          was={before.reading.basket_revenue_minor}
-          draw={money}
-        />
-        <Row
-          term="Given away"
-          now={mine.spend_minor}
-          was={before.reading.spend_minor}
-          draw={money}
-          // Spending less to get the same is the good direction here, and the
-          // arrow has to know that or it congratulates an overspend.
-          lowerIsBetter
-        />
-        <Row
-          term="Baskets"
-          now={mine.sale_count}
-          was={before.reading.sale_count}
-          draw={count}
-        />
-      </dl>
-      {before.comparable &&
-        before.revenue_per_day_bps !== null &&
-        mine.per_day !== null &&
-        before.reading.per_day !== null && (
-          <p className="mt-2 text-[0.875rem] leading-relaxed text-mute">
-            Per day, that is{" "}
-            <span className="text-text tabular-nums">
-              {money(mine.per_day.basket_revenue_minor)}
-            </span>{" "}
-            against{" "}
-            <span className="text-text tabular-nums">
-              {money(before.reading.per_day.basket_revenue_minor)}
-            </span>{" "}
-            —{" "}
-            <span
-              className={cn(
-                "font-semibold",
-                before.revenue_per_day_bps >= 0 ? "text-ok-fg" : "text-bad-fg"
-              )}
-            >
-              {swing(before.revenue_per_day_bps)}
-            </span>
-            . The totals above are not comparable on their own when one window
-            is longer than the other.
-          </p>
-        )}
+    <div className="flex flex-col gap-5 border-t border-hairline pt-5">
+      <Pair label="Against">{name}</Pair>
+      <Compare
+        term="Sales"
+        now={mine.basket_revenue_minor}
+        was={before.reading.basket_revenue_minor}
+        draw={money}
+      />
+      <Compare
+        term="Given away"
+        now={mine.spend_minor}
+        was={before.reading.spend_minor}
+        draw={money}
+        // Spending less to get the same is the good direction here.
+        lowerIsBetter
+      />
+      <Compare
+        term="Transactions"
+        now={mine.sale_count}
+        was={before.reading.sale_count}
+        draw={count}
+      />
     </div>
   )
 }
 
-/// A change in basis points, as a person would say it.
-function swing(bps: number): string {
-  const whole = bps / 100
-  return `${bps >= 0 ? "+" : ""}${whole.toFixed(Math.abs(bps) % 100 === 0 ? 0 : 1)}%`
-}
-
-function Row({
+function Compare({
   term,
   now,
   was,
@@ -339,15 +388,15 @@ function Row({
   const good =
     change === null ? null : lowerIsBetter === true ? change <= 0 : change >= 0
   return (
-    <div className="flex items-baseline justify-between gap-3 py-0.5">
-      <dt className="text-mute">{term}</dt>
-      <dd className="flex items-baseline gap-2 tabular-nums">
-        <span className="text-ink">{draw(now)}</span>
+    <div className="flex items-baseline justify-between gap-6">
+      <span className="text-[0.9375rem] text-body">{term}</span>
+      <span className="flex items-baseline gap-3 text-[0.9375rem] tabular-nums">
         <span className="text-mute">was {draw(was)}</span>
+        <span className="font-medium text-ink">{draw(now)}</span>
         {change !== null && (
           <span
             className={cn(
-              "font-semibold",
+              "w-14 text-right font-medium",
               good === true ? "text-ok-fg" : "text-bad-fg"
             )}
           >
@@ -355,117 +404,7 @@ function Row({
             {change}%
           </span>
         )}
-      </dd>
-    </div>
-  )
-}
-
-/// The objective, the line, and where the campaign stands against it.
-function Objective({
-  campaign,
-  campaigns,
-  outcome,
-  pending,
-}: {
-  campaign: BookCampaign
-  campaigns: readonly BookCampaign[]
-  outcome: CampaignOutcomeView | null
-  pending: boolean
-}) {
-  const [editing, setEditing] = useState(false)
-  const stated = outcome?.target ?? null
-
-  if (editing || (!pending && outcome !== null && stated === null)) {
-    return (
-      <IntentEditor
-        campaign={campaign}
-        campaigns={campaigns}
-        stated={stated}
-        baselineId={outcome?.baseline?.campaign_id ?? null}
-        onDone={() => setEditing(false)}
-        onCancel={stated === null ? undefined : () => setEditing(false)}
-      />
-    )
-  }
-  if (stated === null) return <Quiet>Reading what this was run for…</Quiet>
-
-  const objective = objectiveOf(stated.objective)
-  const metric = metricOf(stated.success_metric)
-  const model = targetModelOf(stated.target_model)
-  // The unit the LINE is stated in, which is not always the metric's: a target
-  // relative to a precedent is a percentage whatever the metric is measured in.
-  const unit = model?.unitOf(metric) ?? metric?.unit ?? "count"
-  const readingUnit = metric?.unit ?? "count"
-  const share =
-    stated.progress_bps === null ? null : stated.progress_bps / 10_000
-
-  return (
-    <div>
-      <SubHead
-        aside={
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="text-accent hover:underline"
-          >
-            Change
-          </button>
-        }
-      >
-        What it is for
-      </SubHead>
-      <div className="rounded-card border border-hairline px-3.5 py-3">
-        <div className="text-[0.9375rem] font-semibold text-ink">
-          {objective?.label ?? stated.objective}
-        </div>
-        {stated.notes !== null && (
-          <p className="mt-0.5 text-meta text-body">{stated.notes}</p>
-        )}
-
-        <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-eyebrow text-mute">
-              {model?.label ?? stated.target_model} ·{" "}
-              {metric?.label ?? stated.success_metric}
-            </div>
-            <div className="mt-0.5 text-[1.0625rem] leading-none font-semibold text-ink tabular-nums">
-              <Line score={stated} unit={unit} readingUnit={readingUnit} />
-            </div>
-          </div>
-          <div className="text-right">
-            <div className="text-eyebrow text-mute">Current</div>
-            <div
-              className={cn(
-                "mt-0.5 text-[1.0625rem] leading-none font-semibold tabular-nums",
-                stated.met === null
-                  ? "text-mute"
-                  : stated.met
-                    ? "text-ok-fg"
-                    : "text-bad-fg"
-              )}
-            >
-              {drawMetric(readingUnit, stated.current)}
-              {stated.target_model === "REACH_PER_DAY" && (
-                <span className="text-meta font-normal text-mute"> a day</span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {share !== null && (
-          <Meter
-            className="mt-2.5"
-            value={share}
-            tone={stated.met === true ? "ok" : share >= 0.7 ? "warn" : "accent"}
-          />
-        )}
-
-        {stated.note !== null && (
-          <p className="mt-2 text-[0.875rem] leading-relaxed text-warn-fg">
-            {stated.note}
-          </p>
-        )}
-      </div>
+      </span>
     </div>
   )
 }
@@ -617,30 +556,26 @@ function IntentEditor({
 
   const problem =
     actor === ""
-      ? "Nobody is signed in, so no command can name who did this."
+      ? "Sign in to save."
       : value === null || Number.isNaN(value)
         ? "Set a target."
         : unit === "bps" && value > 10_000
-          ? "A percentage target cannot pass 100%."
+          ? "A percentage can't pass 100%."
           : shape?.needsBaseline === true && baseline === ""
-            ? "Measured against another campaign — name one."
+            ? "Pick a campaign to compare with."
             : shape?.needsUpper === true &&
                 (ceiling === null || Number.isNaN(ceiling))
-              ? "A band needs both ends."
+              ? "Set both ends."
               : shape?.needsUpper === true &&
                   ceiling !== null &&
                   ceiling <= value
-                ? "A band runs upwards: the ceiling has to be above the floor."
+                ? "The top has to be above the bottom."
                 : undefined
 
   return (
     <div>
-      <SubHead>What it is for</SubHead>
-      {/* A campaign without an objective is a folder of promotions. This
-          says what it is chasing and how it will be judged — it changes no
-          price and reaches no shop. */}
-      <div className="rounded-card border border-hairline px-3.5 py-3">
-        <div className="grid gap-3 sm:grid-cols-2">
+      <div>
+        <div className="grid gap-5 sm:grid-cols-2">
           <Field label="Objective" className="sm:col-span-2">
             <Select
               value={objective}
@@ -666,7 +601,7 @@ function IntentEditor({
             </Select>
           </Field>
 
-          <Field label="Success metric">
+          <Field label="Metric">
             <Select
               value={metric}
               onChange={(next) => {
@@ -700,7 +635,7 @@ function IntentEditor({
           <Field
             label={
               shape?.needsUpper === true
-                ? "Band, from"
+                ? "From"
                 : `Target (${
                     chosen?.direction === "AT_MOST" ? "at most" : "at least"
                   })`
@@ -712,13 +647,12 @@ function IntentEditor({
               onChange={setTarget}
               prefix={unit === "money" ? "Rp" : undefined}
               suffix={unit === "bps" ? "%" : undefined}
-              placeholder="Not set"
               label="Target"
             />
           </Field>
 
           {shape?.needsUpper === true && (
-            <Field label="Band, to" required>
+            <Field label="To" required>
               <Money
                 value={upper}
                 onChange={setUpper}
@@ -737,7 +671,7 @@ function IntentEditor({
             className="sm:col-span-2"
           >
             <Select value={baseline} onChange={setBaseline}>
-              <option value="">Nothing — judge it on its own</option>
+              <option value="">Nothing</option>
               {campaigns
                 .filter((one) => one.campaign_id !== campaign.campaign_id)
                 .map((one) => (
@@ -750,16 +684,16 @@ function IntentEditor({
         </div>
 
         {save.isError && (
-          <div className="mt-3">
+          <div className="mt-5">
             <ErrorState error={save.error} />
           </div>
         )}
 
-        <div className="mt-3 flex items-center justify-between gap-3">
+        <div className="mt-6 flex items-center justify-between gap-4">
           <span className="min-w-0 text-[0.875rem] text-bad">
             {problem ?? ""}
           </span>
-          <span className="flex shrink-0 items-center gap-2">
+          <span className="flex shrink-0 items-center gap-3">
             {onCancel !== undefined && (
               <Button variant="ghost" onClick={onCancel}>
                 Cancel
@@ -771,7 +705,7 @@ function IntentEditor({
               disabled={problem !== undefined}
               onClick={() => save.mutate()}
             >
-              {save.isPending ? "Saving…" : "Save goal"}
+              {save.isPending ? "Submitting…" : "Submit"}
             </Button>
           </span>
         </div>

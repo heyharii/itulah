@@ -16,7 +16,9 @@ use std::sync::Once;
 use tower::ServiceExt;
 use uuid::Uuid;
 
-pub const HO: &str = "dc";
+/// Head office's UNIT id: the books (and a bank account's ledger binding) are
+/// keyed by unit since 0605, and 0600 creates exactly this one everywhere.
+pub const HO: &str = "ho";
 pub const STORE: &str = "store-01";
 pub const STORE_B: &str = "store-02";
 pub const PASSWORD: &str = "Rahasia-Finance-2026!";
@@ -76,7 +78,7 @@ fn config() -> AppConfig {
         cors_allowed_origins: None,
         media: None,
         attachments: None,
-        default_destination_site_id: "dc".into(),
+        default_destination_site_id: String::new(),
         assistant_api_key: None,
         assistant_base_url: "https://openrouter.ai/api/v1".into(),
         assistant_model: "anthropic/claude-opus-5".into(),
@@ -422,13 +424,13 @@ impl Api {
     // ── Finance setup, through Finance's own screens ───────────────────────
 
     /// Describe one of our real bank accounts against its ledger leaf.
-    pub async fn bank_account(&self, ledger: &str, site: &str, bank: &str, number: &str) -> Value {
+    pub async fn bank_account(&self, ledger: &str, unit: &str, bank: &str, number: &str) -> Value {
         self.post(
             FINANCE,
             "/api/v1/finance/bank-accounts",
             json!({
                 "ledger_account_code": ledger,
-                "site_id": site,
+                "unit_id": unit,
                 "bank_code": bank,
                 "bank_name": "",
                 "account_no": number,
@@ -470,8 +472,8 @@ impl Api {
                     source_kind: entry["source_kind"].as_str().unwrap_or_default().into(),
                     source_id: entry["source_id"].as_str().unwrap_or_default().into(),
                     account: line["account_code"].as_str().unwrap_or_default().into(),
-                    site: line["site_id"].as_str().unwrap_or_default().into(),
-                    counter: line["counter_site_id"].as_str().map(str::to_string),
+                    site: line["unit_id"].as_str().unwrap_or_default().into(),
+                    counter: line["counter_unit_id"].as_str().map(str::to_string),
                     dr: line["debit_minor"].as_i64().unwrap_or(0),
                     cr: line["credit_minor"].as_i64().unwrap_or(0),
                     party: line["party_id"].as_str().map(str::to_string),

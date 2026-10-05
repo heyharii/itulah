@@ -32,7 +32,7 @@ export function centreState<T>(
     return (
       <div className="mx-auto max-w-[28em] px-4 py-12 text-center">
         <p className="text-meta text-body">
-          {options.loading ?? "Asking head office…"}
+          {options.loading ?? "Loading…"}
         </p>
       </div>
     )
@@ -92,16 +92,16 @@ export function describeCentre(error: unknown, what?: string): string {
     const detail =
       error.message === "" || /^(forbidden|not found)$/i.test(error.message)
         ? ""
-        : ` Head office said: "${error.message}".`
+        : ` ${error.message}`
     if (error.status === 403) {
       return what === undefined
-        ? `Head office does not let this shop's sign-in do this. That is a permission held at the centre, not a fault of this till.${detail}`
-        : `Head office will not show ${what} to this shop's sign-in. That is a permission held at the centre, not a fault of this till.${detail}`
+        ? `Not allowed for this account.${detail}`
+        : `Not allowed to see ${what}.${detail}`
     }
     if (error.status === 404) {
-      return `Head office has no answer for ${subject} — the record is gone, or the centre this till reaches is older than this screen.${detail}`
+      return `Not found: ${subject}.${detail}`
     }
     return error.message
   }
-  return "Head office is not reachable from this till. These screens are answered by the centre, not by this shop's node, so there is nothing to show until the line is back — this is not an empty rota."
+  return "Can't reach head office. Try again when the line is back."
 }

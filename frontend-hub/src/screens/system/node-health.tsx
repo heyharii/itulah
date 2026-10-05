@@ -183,7 +183,7 @@ export function NodeHealthSection({
               )
             return (
               <>
-                <MiniTable head={["When", "What happened"]}>
+                <MiniTable head={["When", "What Happened"]}>
                   {lines.map((line, index) => (
                     <tr key={index} className="border-t border-hairline">
                       <td className="py-2 pr-3 align-top font-mono text-meta whitespace-nowrap text-mute">

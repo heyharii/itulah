@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pricelist · merged</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* Tokens from frontend-hub/src/styles/index.css. Text never below 14px. */
+:root{
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f9fb; --soft-2:#f0f2f5;
+  --hairline:#e7eaf0; --hairline-2:#dce1e8; --hairline-strong:#c7ced8;
+  --backdrop:#dfe3ea; --tooltip:#101012; --scrim:rgba(247,248,250,.72);
+  --accent:#2563eb; --accent-bg:#eff5ff; --accent-hover:#1d4ed8;
+  --ok:#36b827; --warn:#c9892e;
+  --r-shell:1rem; --r-card:.75rem; --r-inner:.4375rem; --r-sheet:1rem;
+  --shadow-soft:0 1px 3px rgb(24 39 60 / 4%);
+  --shadow-pop:0 4px 8px rgb(24 39 60 / 4%),0 12px 32px rgb(24 39 60 / 8%);
+  --shadow-shell:0 10px 34px rgb(24 39 60 / 8%);
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-sheet:cubic-bezier(.32,.72,0,1);
+  /* Grey = the base price, black = the store's own price; colour only for markdown, promotion, upcoming. */
+  --c-md:#d6447e; --c-store:var(--ink); --c-promo:#0f8a7e; --c-next:#2c57bf;
+  font-size:16px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Inter,system-ui,sans-serif;background:var(--backdrop);color:var(--text);font-size:.875rem;
+  line-height:1.45;-webkit-font-smoothing:antialiased;padding:1.25rem;min-height:100vh}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+button:disabled{cursor:default;opacity:.45}
+.num{font-variant-numeric:tabular-nums}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:.875rem}
+.muted{color:var(--mute)}
+
+.pane{max-width:92rem;margin:0 auto;background:var(--canvas);border-radius:var(--r-shell);box-shadow:var(--shadow-shell);padding:1.5rem}
+.ph{display:flex;align-items:flex-end;gap:1rem;margin-bottom:1rem;flex-wrap:wrap}
+.ph .crumb{color:var(--mute)}
+.ph h1{font-size:1.75rem;font-weight:600;color:var(--ink);letter-spacing:-.015em;line-height:1.2}
+.ph .act{margin-left:auto;color:var(--mute)}
+.btn{height:2.25rem;border:1px solid var(--hairline-2);background:var(--canvas);border-radius:var(--r-inner);padding:0 .875rem;
+  color:var(--ink);font-weight:500;transition:background .15s var(--ease-out),transform .1s var(--ease-out);white-space:nowrap}
+.btn:hover:not(:disabled){background:var(--soft)} .btn:active:not(:disabled){transform:scale(.97)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.pri:hover:not(:disabled){background:var(--accent-hover)}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--body)}
+
+.tools{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;margin-bottom:.75rem}
+.search{flex:1;min-width:16rem;display:flex;align-items:center;gap:.5rem;height:2.25rem;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 .75rem}
+.search input{border:0;outline:0;flex:1;min-width:0;background:transparent}
+.search svg{color:var(--line-ico);flex:none}
+.seg{display:inline-flex;background:var(--soft-2);border-radius:var(--r-inner);padding:.1875rem;height:2.25rem}
+.seg button{border:0;background:transparent;border-radius:5px;padding:0 .75rem;color:var(--body);transition:background .15s var(--ease-out)}
+.seg button.on{background:var(--canvas);color:var(--ink);font-weight:500;box-shadow:var(--shadow-soft)}
+.legend{display:flex;gap:1.125rem;flex-wrap:wrap;color:var(--body);margin-bottom:.75rem}
+.legend span{display:inline-flex;align-items:center;gap:.375rem}
+.legend i{width:6px;height:6px;border-radius:50%;background:var(--c)}
+.selbar{display:flex;align-items:center;gap:.75rem;height:2.75rem;padding:0 .5rem 0 .875rem;border-radius:var(--r-inner);background:var(--accent-bg);color:var(--c-next);margin-bottom:.75rem}
+.selbar .btn:first-of-type{margin-left:auto}
+
+/* table */
+.card{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:auto;max-height:calc(100vh - 17rem);min-height:24rem}
+table{border-collapse:separate;border-spacing:0;width:100%}
+th,td{border-bottom:1px solid var(--hairline);padding:.75rem .875rem;white-space:nowrap;vertical-align:top;text-align:left}
+thead th{position:sticky;top:0;z-index:2;background:var(--canvas);color:var(--body);font-weight:400;border-bottom-color:var(--hairline-2);vertical-align:bottom}
+.n{text-align:right}
+.vr{border-right:1px solid var(--hairline)}
+.stick{position:sticky;left:0;z-index:1;background:var(--canvas)}
+thead .stick{z-index:3}
+th .sn{color:var(--ink);font-weight:500}
+th .st{display:flex;align-items:center;justify-content:flex-end;gap:.375rem;color:var(--mute)}
+th .st i{width:6px;height:6px;border-radius:50%;background:var(--c)}
+tr.band-end>td{border-bottom-color:var(--hairline-2)}
+tbody tr:hover>td:not(.span-td){background-color:var(--soft)}
+
+.art{display:flex;gap:.625rem;align-items:flex-start}
+.art input{margin-top:.1875rem;width:1rem;height:1rem;accent-color:var(--accent)}
+.art b{display:block;font-weight:500;color:var(--ink)}
+.art span{display:block;color:var(--mute)}
+.sizes{color:var(--ink)}
+.sizes.all{color:var(--faint)}
+.kind{color:var(--body)}
+.kind.up{color:var(--c-next)}
+
+.base b{font-weight:600;color:var(--ink)}
+.cell{cursor:pointer;min-width:10.5rem}
+.cell:hover{box-shadow:inset 0 0 0 1px var(--hairline-strong)}
+.cell.empty{cursor:default}
+.cell.empty:hover{box-shadow:none}
+.p{display:block;font-weight:600;color:var(--ink)}
+.p.same{font-weight:400;color:var(--line-ico)}
+.why{display:block;color:var(--c)}
+.pct{font-weight:500;color:var(--c);margin-left:.5rem}
+.also{display:block;color:var(--mute);text-decoration:line-through;text-decoration-color:var(--faint)}
+.stk{display:block;color:var(--mute);margin-top:.25rem}
+.stk.zero{color:#be123c}
+.cell .stk:first-child{margin-top:0}
+body.chips .pct{display:inline-block;background:color-mix(in srgb,var(--c) 14%,white);border-radius:5px;padding:0 .375rem;margin-left:.375rem;line-height:1.5}
+.why.quiet{color:var(--mute)}
+.cell.off{color:var(--faint);cursor:default}
+.cell.off:hover{box-shadow:none}
+.hl{background-color:color-mix(in srgb,var(--c) 7%,white)}
+tbody tr:hover>td.hl{background-color:color-mix(in srgb,var(--c) 11%,white)}
+td.hl.src-store,tbody tr:hover>td.hl.src-store{background-color:transparent}
+tbody tr:hover>td.hl.src-store{background-color:var(--soft)}
+.src-md{--c:var(--c-md)} .src-store{--c:var(--c-store)} .src-promo{--c:var(--c-promo)} .src-next{--c:var(--c-next)}
+.st-ok{--c:var(--ok)} .st-pending{--c:var(--warn)} .st-none{--c:var(--faint)}
+td.flash{animation:flash 1.6s var(--ease-out)}
+@keyframes flash{from{box-shadow:inset 0 0 0 2px var(--accent);background-color:var(--accent-bg)}}
+
+.foot{display:flex;justify-content:space-between;color:var(--mute);padding-top:.75rem;flex-wrap:wrap;gap:.5rem}
+
+/* notes for Hari */
+.notes{max-width:92rem;margin:1rem auto 0;display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+.notes>div{background:var(--canvas);border-radius:var(--r-card);padding:1rem 1.25rem;box-shadow:var(--shadow-soft)}
+.notes h2{font-size:.9375rem;font-weight:600;color:var(--ink);margin-bottom:.5rem}
+.notes ul{padding-left:1.125rem;display:grid;gap:.375rem}
+.notes table td,.notes table th{padding:.375rem .5rem;white-space:normal;vertical-align:top}
+.notes table th{position:static;font-weight:500}
+
+/* cell detail */
+.pop{position:absolute;z-index:50;width:22rem;background:var(--canvas);border-radius:var(--r-card);box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);
+  padding:1rem;transform-origin:var(--ox,50%) 0;animation:pop .16s var(--ease-out)}
+.pop h3{font-size:.9375rem;font-weight:600;color:var(--ink)}
+.pop .ctx{color:var(--mute);margin-bottom:.5rem}
+.pop h4{font-size:.875rem;font-weight:500;color:var(--body);margin:.75rem 0 .25rem}
+.pop dl{display:grid;grid-template-columns:1fr auto;gap:.25rem 1rem}
+.pop dd{text-align:right;font-variant-numeric:tabular-nums}
+.pop dl.sum{border-top:1px solid var(--hairline);margin-top:.375rem;padding-top:.375rem}
+.pop dl.sum dt,.pop dl.sum dd{font-weight:600;color:var(--ink)}
+.pop .tl{display:grid;grid-template-columns:4.25rem 1fr auto;gap:.25rem .75rem}
+.pop .tl .d{color:var(--mute)}
+.pop .acts{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.5rem;margin-top:1rem;border-top:1px solid var(--hairline);padding-top:.75rem}
+
+/* change-price sheet */
+.scrim{position:fixed;inset:0;background:var(--scrim);z-index:60;animation:fade .2s var(--ease-out)}
+.sheet{position:fixed;top:.75rem;right:.75rem;bottom:.75rem;width:min(34rem,calc(100vw - 1.5rem));z-index:61;background:var(--canvas);
+  border-radius:var(--r-sheet);box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);display:flex;flex-direction:column;animation:slide .38s var(--ease-sheet)}
+.sheet.stay{animation:none}
+.sheet header{padding:1.25rem 1.5rem .75rem;display:flex;gap:.75rem;align-items:flex-start}
+.sheet header h2{font-size:1.25rem;font-weight:600;color:var(--ink)}
+.sheet header p{color:var(--mute)}
+.sheet header .x{margin-left:auto;border:0;background:none;width:2rem;height:2rem;border-radius:var(--r-inner);color:var(--line-ico);font-size:1.25rem;line-height:1}
+.sheet header .x:hover{background:var(--soft-2)}
+.sheet .body{flex:1;overflow:auto;padding:.25rem 1.5rem 1.5rem;display:flex;flex-direction:column;gap:1.25rem}
+.sheet footer{border-top:1px solid var(--hairline);padding:.875rem 1.5rem;display:flex;align-items:center;gap:.5rem}
+.sheet footer .sum{color:var(--body);margin-right:auto}
+.q{display:flex;flex-direction:column;gap:.5rem}
+.q>.lbl{font-weight:500;color:var(--ink)}
+.q .help{color:var(--mute)}
+.q .seg{height:2.5rem;align-self:flex-start}
+.q .seg button{padding:0 1rem}
+.choice{display:flex;gap:.625rem;align-items:flex-start;padding:.625rem .75rem;border:1px solid var(--hairline-2);border-radius:var(--r-inner);cursor:pointer;transition:border-color .15s var(--ease-out),background .15s var(--ease-out)}
+.choice input{margin-top:.1875rem;accent-color:var(--accent);pointer-events:none}
+.choice b{display:block;font-weight:500;color:var(--ink)}
+.choice span{color:var(--mute)}
+.choice.on{border-color:var(--accent);background:var(--accent-bg)}
+.stores{display:grid;grid-template-columns:1fr 1fr;gap:.25rem .75rem;padding:.25rem 0 0 1.625rem}
+.stores label{display:flex;gap:.5rem;align-items:center;height:2.25rem;padding:0 .5rem;border-radius:var(--r-inner);cursor:pointer}
+.stores label:hover{background:var(--soft)}
+.stores label input{accent-color:var(--accent);width:1rem;height:1rem}
+.stores label span{margin-left:auto;color:var(--mute)}
+.stores label span.own{color:var(--c-store)}
+.stores label.dis{color:var(--faint);cursor:default}
+.money{display:flex;gap:.75rem;flex-wrap:wrap}
+.field{display:flex;flex-direction:column;gap:.25rem;flex:1;min-width:10rem}
+.field small{font-size:inherit;color:var(--mute)}
+.inp{display:flex;align-items:center;gap:.5rem;height:2.9375rem;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 .75rem;background:var(--canvas);
+  transition:border-color .15s,box-shadow .15s}
+.inp:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.inp span{color:var(--mute)}
+.inp input{border:0;outline:0;flex:1;min-width:0;font-size:1rem;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums;background:transparent}
+.inp input[type=date]{font-weight:400;font-size:.875rem}
+.quick{display:flex;gap:.375rem;flex-wrap:wrap}
+.quick button{height:2rem;padding:0 .625rem;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas)}
+.quick button:hover{background:var(--soft)}
+.quick button.on{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
+.pv{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+.pv h3{font-size:.875rem;font-weight:500;color:var(--body);padding:.625rem .75rem;border-bottom:1px solid var(--hairline);background:var(--soft)}
+.pv table td{padding:.5rem .75rem;white-space:nowrap}
+.pv tr:last-child td{border-bottom:0}
+.pv .ch{color:var(--ink);font-weight:600}
+.pv .keep{color:var(--mute)}
+
+.toast{position:fixed;left:50%;bottom:1.25rem;z-index:70;background:var(--tooltip);color:#fff;border-radius:999px;transform:translateX(-50%);
+  padding:.625rem 1.25rem;animation:rise .25s var(--ease-out);box-shadow:var(--shadow-pop);max-width:calc(100vw - 2rem)}
+@keyframes rise{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+@keyframes pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
+@keyframes fade{from{opacity:0}}
+@keyframes slide{from{transform:translateX(calc(100% + 1rem))}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:760px){body{padding:1rem}.pane{padding:1rem}.ph .act{margin-left:0}.notes{grid-template-columns:1fr}.stores{grid-template-columns:1fr;padding-left:0}}
+</style>
+</head>
+<body class="chips">
+
+<div class="pane">
+  <div class="ph">
+    <div><div class="crumb">Marketing</div><h1>Pricelist</h1></div>
+    <div class="act">Prices at 29 Sep, 09:20 · incl. VAT · walk-in shopper, no coupon</div>
+  </div>
+
+  <div class="tools">
+    <label class="search">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" placeholder="Search an article, code or SKU" />
+    </label>
+    <button class="btn" data-stock>Show stock</button>
+    <span class="seg"><button data-only="all" class="on">All articles</button><button data-only="diff">Only where stores differ</button></span>
+  </div>
+
+  <div class="legend" id="legend"></div>
+
+  <div id="selbar"></div>
+  <div class="card"><table id="grid"></table></div>
+  <div class="foot"><span id="count"></span><span>Click a store's price to change it · tick articles to change several at once</span></div>
+</div>
+
+<div class="notes">
+  <div>
+    <h2>Harga yang ditampilkan</h2>
+    <table>
+      <tr><th>Base price</th><td>Diisi sekali waktu setup article baru, <b>tidak pernah berubah</b>.</td></tr>
+      <tr><th>Now</th><td>Harga yang benar-benar ditagih kasir sekarang: base (abu-abu), store price (hitam), <span style="color:var(--c-md)">markdown</span>, atau <span style="color:var(--c-promo)">promotion</span>.</td></tr>
+      <tr><th style="color:var(--c-next)">Upcoming</th><td>Semua yang <b>belum berlaku</b>: yang terjadwal, <b>dan</b> yang sudah di-publish tapi store-nya belum update (contoh: Flanel di Dago). Tidak tampil di tabel — klik harga untuk melihatnya.</td></tr>
+      <tr><th style="color:var(--c-md)">Markdown</th><td>Potongan <b>sementara</b> dari <b>harga normal store</b> (store price kalau ada, kalau tidak base price), ada tanggal selesai. Kalau pakai %, dibulatkan <b>ke bawah ke Rp1.000</b> (160.650 → 160.000).</td></tr>
+      <tr><th>Markdown + promo</th><td><b>Tidak ditumpuk.</b> Yang paling murah yang dipakai; dua-duanya tetap tampil — yang kalah dicoret di bawahnya. Sama untuk dua promo sekaligus.</td></tr>
+      <tr><th>Stock</th><td>Tombol Show stock → stok per store (dan per kelompok ukuran) muncul di tiap sel.</td></tr>
+      <tr><th>Store price</th><td>Harga normal <b>permanen</b> di store itu ("New price"). Hitam + % dari base, tanpa tulisan.</td></tr>
+      <tr><th style="color:var(--c-promo)">Promotion</th><td>Hanya ditampilkan; diatur di menu Promotions. Promo bersyarat (member, beli 2, kupon) belum ditampilkan.</td></tr>
+    </table>
+  </div>
+  <div>
+    <h2>Yang bisa diubah: harga per store — Markdown atau New price</h2>
+    <ul>
+      <li>Klik harga di kolom store → <b>Change price</b>, atau centang beberapa article → <b>Change price</b>.</li>
+      <li>Pilih <b>New price</b> atau <b>Markdown</b>, lalu <b>Applied to</b>: pilih store-nya.</li>
+      <li>New price selalu jadi <b>store price</b> — base price tidak pernah ikut berubah.</li>
+      <li><b>All stores</b> → semua store, termasuk yang sudah punya harga sendiri (ditimpa).</li>
+      <li><b>Stores on the base price</b> → hanya store yang masih pakai base price; store yang punya harga sendiri <b>tidak di-override</b>.</li>
+      <li><b>Choose stores</b> → pilih store-nya satu-satu.</li>
+      <li>Balik ke base: klik harga → "Use base price". Stop markdown: "End markdown now".</li>
+      <li>Preview per store selalu tampil sebelum Publish. Publish langsung ke store, tanpa approval.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+// ── data ─────────────────────────────────────────────────────────────
+const TODAY='2026-09-29';
+// `v`: the newest price version this store's till has picked up. Dago is behind.
+const STORES=[
+  {id:'KMG',name:'Kemang',v:21},
+  {id:'PIK',name:'PIK Avenue',v:21},
+  {id:'DGO',name:'Dago',v:20},
+  {id:'TJN',name:'Tunjungan',v:21},
+  {id:'MLB',name:'Malioboro',v:21},
+  {id:'SUN',name:'Sun Plaza',v:21},
+  {id:'SMY',name:'Seminyak',v:21},
+  {id:'PNK',name:'Panakkukang',v:21},
+];
+const PROMOS=[
+  {name:'Weekend Tops',pct:15,divs:['Men · Tops'],stores:['KMG','PIK','SMY'],from:'2026-09-26',to:'2026-09-30'},
+  {name:'Payday Outerwear',pct:20,divs:['Men · Outer','Unisex · Outer'],stores:['KMG','PIK','TJN','PNK'],from:'2026-10-25',to:'2026-10-31'},
+  {name:'Linen Launch',pct:10,divs:['Women · Dresses'],stores:['DGO','MLB'],from:'2026-10-03',to:'2026-10-10'},
+  {name:'Shirt Week',pct:10,divs:['Men · Tops'],stores:['KMG'],from:'2026-09-28',to:'2026-10-04'},
+  {name:'Bandung Anniversary',pct:20,divs:null,stores:['DGO'],from:'2026-09-27',to:'2026-10-04'},
+];
+// A ranged price is [first sizes, last sizes]; `split` = how many sizes take the first.
+// The base price is set once when the article is set up and never changes here.
+// store[s]: the store's own normal prices (a list, so one can be scheduled after another).
+// md[s]: a temporary markdown, `pct` (off the store's normal price) or `p`. `v` = the version that published it.
+const ART=[
+  {code:'KMJ-OXF-01',name:'Kemeja Oxford Slim',div:'Men · Tops',sizes:['S','M','L','XL','XXL'],base:189000,store:{},
+    md:{DGO:{p:149000,from:'2026-09-12',until:'2026-10-12'},TJN:{p:149000,from:'2026-09-12',until:'2026-10-12'}}},
+  {code:'KOS-BSC-02',name:'Kaos Basic Crew',div:'Men · Tops',sizes:['S','M','L','XL','XXL'],base:89000,store:{},md:{}},
+  {code:'CLN-CHN-03',name:'Celana Chino Slim',div:'Men · Bottoms',sizes:['28','30','32','34','36'],split:3,base:[259000,279000],
+    store:{SMY:{p:[289000,309000],from:'2026-09-20'}},md:{}},
+  {code:'JKT-DNM-04',name:'Jaket Denim Trucker',div:'Men · Outer',sizes:['M','L','XL'],base:499000,store:{PNK:{p:479000,from:'2026-09-20'}},md:{SUN:{p:349000,from:'2026-09-12'}}},
+  {code:'DRS-LIN-05',name:'Dress Linen Midi',div:'Women · Dresses',sizes:['S','M','L'],base:329000,
+    store:{KMG:{p:349000,from:'2026-09-05'},SMY:{p:349000,from:'2026-09-05'},PIK:{p:349000,from:'2026-09-05'}},md:{}},
+  {code:'SNK-CNV-06',name:'Sneakers Canvas Low',div:'Footwear',sizes:['39','40','41','42','43','44'],split:4,base:[459000,499000],store:{},md:{}},
+  {code:'PLO-PQE-07',name:'Polo Pique Classic',div:'Men · Tops',sizes:['S','M','L','XL','XXL'],base:159000,store:{MLB:{p:149000,from:'2026-09-20'}},
+    md:{DGO:{p:129000,from:'2026-09-12',until:'2026-10-12'},TJN:{p:129000,from:'2026-09-12',until:'2026-10-12'}}},
+  {code:'HOD-FLC-08',name:'Hoodie Fleece Zip',div:'Unisex · Outer',sizes:['S','M','L','XL','XXL'],base:299000,store:{},md:{}},
+  {code:'ROK-PLS-09',name:'Rok Plisket Midi',div:'Women · Bottoms',sizes:['S','M','L'],base:219000,store:{},md:{},absent:['SUN','PNK']},
+  {code:'TAS-KNV-10',name:'Tas Kanvas Tote',div:'Accessories',sizes:['One size'],base:129000,store:{},md:{}},
+  {code:'KMJ-FLN-11',name:'Kemeja Flanel Kotak',div:'Men · Tops',sizes:['S','M','L','XL','XXL'],base:229000,store:{DGO:{p:199000,from:'2026-09-20',v:21}},md:{}},
+  {code:'JGR-TRY-12',name:'Celana Jogger Terry',div:'Unisex · Bottoms',sizes:['S','M','L','XL','XXL'],base:199000,store:{},md:{}},
+];
+for(const a of ART) for(const s in a.store) a.store[s]=[a.store[s]];
+let version=21;
+
+// ── pricing ─────────────────────────────────────────────────────────
+const $=s=>document.querySelector(s);
+const fmt=n=>n.toLocaleString('id-ID');
+const pick=(x,b)=>Array.isArray(x)?x[b]:x;
+const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const df=s=>{const d=new Date(s+'T00:00:00Z');return d.getUTCDate()+' '+MON[d.getUTCMonth()]};
+const shiftDay=(s,n)=>{const d=new Date(s+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10)};
+const store=id=>STORES.find(s=>s.id===id);
+const art=c=>ART.find(a=>a.code===c);
+const bands=a=>Array.isArray(a.base)?[0,1]:[0];
+const bandSizes=(a,b)=>!Array.isArray(a.base)?a.sizes:b===0?a.sizes.slice(0,a.split):a.sizes.slice(a.split);
+const sizeLabel=list=>list.length>2?list[0]+'–'+list[list.length-1]:list.join(', ');
+const promosFor=(a,s)=>PROMOS.filter(p=>(!p.divs||p.divs.includes(a.div))&&p.stores.includes(s));
+const sold=a=>STORES.filter(s=>!a.absent?.includes(s.id)).map(s=>s.id);
+const r100=x=>Math.round(x/100)*100, r1000=x=>Math.round(x/1000)*1000;
+/// A markdown % is rounded DOWN to Rp1.000: clean prices, and never less off than the % promised.
+const down1000=x=>Math.floor(x/1000)*1000;
+const active=(x,d)=>x&&(!x.from||d>=x.from)&&(!x.until||d<=x.until);
+const span=(f,t)=>t?`${df(f)} – ${df(t)}`:`from ${df(f)}`;
+const pctOf=(p,of)=>{const x=Math.round((p-of)/of*100);return (x>0?'+':'−')+Math.abs(x)+'%'};
+/// `live` = only what this store's till has picked up; otherwise everything that has been published.
+const seen=(x,s,live)=>!live||(x.v||0)<=store(s).v;
+const storeAt=(a,s,d,live=false)=>(a.store[s]||[]).filter(x=>active(x,d)&&seen(x,s,live)).at(-1);
+/// Stock on hand, per store and per size band (made up, but stable).
+function stockOf(a,b,s){let h=0;for(const c of a.code+b+s)h=(h*31+c.charCodeAt(0))>>>0;const n=h%41;return n<4?0:n}
+const ownPrice=a=>Object.keys(a.store).filter(s=>storeAt(a,s,TODAY));
+
+/// What one store charges a walk-in shopper for one band of sizes on day `d`, and why.
+///
+/// Markdowns and promotions never stack: each is worked out from the store's normal price
+/// (its own price, else the base price) and the cheapest one wins. The others ride along in
+/// `others` so the cell can still say they exist.
+function priceAt(a,b,s,d,live=false){
+  if(a.absent?.includes(s)) return null;
+  const base=pick(a.base,b), st=storeAt(a,s,d,live);
+  const reg=st?pick(st.p,b):base;
+  const r={base,reg,src:st?'store':'base',title:null,pct:st?pctOf(reg,base):null,dates:st?span(st.from,st.until):null,p:reg,others:[]};
+  const cuts=[];
+  const m=a.md[s];
+  if(active(m,d)&&seen(m,s,live)){
+    const p=m.pct!=null?down1000(reg*(1-m.pct/100)):pick(m.p,b);
+    if(p<reg) cuts.push({src:'md',p,title:'Markdown',pct:pctOf(p,reg),dates:span(m.from,m.until),until:m.until});
+  }
+  for(const pr of promosFor(a,s).filter(p=>d>=p.from&&d<=p.to))
+    cuts.push({src:'promo',p:r100(reg*(1-pr.pct/100)),promo:pr,title:pr.name,pct:`−${pr.pct}%`,dates:span(pr.from,pr.to)});
+  if(!cuts.length) return r;
+  cuts.sort((x,y)=>x.p-y.p);
+  return {...r,...cuts[0],others:cuts.slice(1)};
+}
+
+/// Every day after today on which this cell could change.
+function changeDays(a,s){
+  const ds=new Set();
+  for(const x of [...(a.store[s]||[]),a.md[s]]){if(x?.from)ds.add(x.from);if(x?.until)ds.add(shiftDay(x.until,1))}
+  promosFor(a,s).forEach(p=>{ds.add(p.from);ds.add(shiftDay(p.to,1))});
+  return [...ds].filter(d=>d>TODAY).sort();
+}
+function reasonFor(prev,r){
+  if(r.src==='promo'&&prev.promo!==r.promo) return r.promo.name;
+  if(r.src==='md'&&prev.src!=='md') return 'Markdown';
+  if(prev.src==='promo'&&r.src!=='promo') return `${prev.promo.name} ends`;
+  if(r.src==='base'&&prev.src==='store') return 'Back to base price';
+  if(prev.src==='md'&&r.src!=='md') return 'Markdown ends';
+  if(r.src==='store'&&prev.src!=='store') return 'New store price';
+  if(prev.src==='store'&&r.src!=='store') return 'Back to base price';
+  if(r.reg!==prev.reg) return r.reg===r.base?'Back to base price':'New store price';
+  return 'Price change';
+}
+/// Everything not charged at the till yet: first anything published that this store hasn't
+/// picked up, then every dated change after today.
+function upcoming(a,b,s){
+  let prev=priceAt(a,b,s,TODAY,true); const out=[];
+  if(!prev) return out;
+  const pub=priceAt(a,b,s,TODAY);
+  if(pub.p!==prev.p||pub.src!==prev.src){
+    out.push({d:TODAY,r:pub,reason:reasonFor(prev,pub),waiting:true});prev=pub;
+  }
+  for(const d of changeDays(a,s)){
+    const r=priceAt(a,b,s,d);
+    if(r.p!==prev.p||r.src!==prev.src){out.push({d,r,reason:reasonFor(prev,r)});prev=r}
+  }
+  return out;
+}
+
+// ── table ───────────────────────────────────────────────────────────
+let only='all', q='', stock=false;
+const picked=new Set(); let flash=new Set();
+const differs=a=>STORES.some(s=>{const r=priceAt(a,0,s.id,TODAY,true);return !r||r.src!=='base'});
+const visible=()=>ART.filter(a=>(!q||(a.name+' '+a.code+' '+a.div).toLowerCase().includes(q))&&(only==='all'||differs(a)));
+
+const stockLine=(a,b,s)=>{if(!stock)return '';const n=stockOf(a,b,s);return `<span class="stk ${n?'':'zero'}">${n?n+' in stock':'Out of stock'}</span>`};
+function cellCurrent(a,b,s){
+  const r=priceAt(a,b,s.id,TODAY,true);
+  if(!r) return `<td class="n cell off">not sold</td>`;
+  const same=r.src==='base', key=`${a.code}|${b}|${s.id}`;
+  const also=r.others.map(o=>`<span class="also">${o.title} ${o.pct}</span>`).join('');
+  return `<td class="n cell ${same?'':'hl src-'+r.src} ${flash.has(key)?'flash':''}" data-cell="${key}">
+    <span class="p num ${same?'same':''}">${fmt(r.p)}${same?'':`<span class="pct">${r.pct}</span>`}</span>${same?'':`${r.src==='store'?'':`<span class="why">${r.title}</span>`}<span class="why quiet">${r.dates}</span>${also}`}${stockLine(a,b,s.id)}</td>`;
+}
+function render(){
+  const list=visible();
+  $('#legend').innerHTML=`<span style="color:var(--line-ico)">Grey = same as base price</span><span style="color:var(--ink)">Black = store's own price</span><span class="src-md"><i></i>Markdown</span><span class="src-promo"><i></i>Promotion</span><span class="muted">Never stacked — the cheaper one wins, the other is shown struck through</span>`;
+  const allOn=list.length>0&&list.every(a=>picked.has(a.code));
+  const head=`<thead><tr><th class="stick vr" style="min-width:16rem"><div class="art"><input type="checkbox" data-pick="*" ${allOn?'checked':''} aria-label="Select all"><span style="color:var(--body)">Article</span></div></th>
+    <th>Sizes</th><th class="n vr">Base price</th>${
+    STORES.map(s=>`<th class="n"><div class="sn">${s.name}</div></th>`).join('')}</tr></thead>`;
+  const body=list.map(a=>{
+    const bs=bands(a);
+    const on=picked.has(a.code);
+    return bs.map((b,bi)=>{
+      const artTd=bi===0?`<td class="stick vr span-td" rowspan="${bs.length}" style="${on?'background:var(--accent-bg)':''}"><div class="art"><input type="checkbox" data-pick="${a.code}" ${on?'checked':''}><div><b>${a.name}</b><span class="mono">${a.code} · ${a.sizes.length} SKU</span></div></div></td>`:'';
+      return `<tr class="${bi===bs.length-1?'band-end':''}">${artTd}
+        <td class="sizes ${bs.length===1?'all':''}">${bs.length===1?'All sizes':sizeLabel(bandSizes(a,b))}</td>
+        <td class="n vr base"><b class="num">${fmt(pick(a.base,b))}</b></td>
+        ${STORES.map(s=>cellCurrent(a,b,s)).join('')}</tr>`;
+    }).join('');
+  }).join('');
+  $('#grid').innerHTML=head+`<tbody>${body||`<tr><td colspan="${STORES.length+4}" class="muted" style="padding:2rem">No article matches.</td></tr>`}</tbody>`;
+  $('#count').textContent=`${list.length} of ${ART.length} articles`;
+  $('#selbar').innerHTML=picked.size?`<div class="selbar"><b>${picked.size} article${picked.size>1?'s':''} selected</b><button class="btn pri" data-act="change-picked">Change price…</button><button class="btn ghost" data-act="clear-picked">Clear</button></div>`:'';
+  flash=new Set();
+}
+
+// ── cell detail ─────────────────────────────────────────────────────
+let popEl=null;
+function closePop(){popEl?.remove();popEl=null}
+function openDetail(td){
+  closePop();
+  const [code,b,sid]=td.dataset.cell.split('|');const a=art(code);const s=store(sid);const bb=+b;
+  const r=priceAt(a,bb,sid,TODAY,true);const list=upcoming(a,bb,sid);
+  const rows=[`<dt>Base price</dt><dd>${fmt(r.base)}</dd>`];
+  if(r.reg!==r.base||storeAt(a,sid,TODAY,true)) rows.push(`<dt>Store price ${pctOf(r.reg,r.base)}</dt><dd>${fmt(r.reg)}</dd>`);
+  if(r.src==='md'||r.src==='promo') rows.push(`<dt style="color:var(--c-${r.src})">${r.title} ${r.pct} · ${r.dates}</dt><dd>${fmt(r.p)}</dd>`);
+  for(const o of r.others) rows.push(`<dt class="muted" style="text-decoration:line-through">${o.title} ${o.pct}</dt><dd class="muted">${fmt(o.p)}</dd>`);
+  if(stock) rows.push(`<dt class="muted">Stock</dt><dd class="muted">${stockOf(a,bb,sid)}</dd>`);
+  const p=document.createElement('div');p.className='pop';
+  p.innerHTML=`<h3>${a.name}</h3><div class="ctx">${s.name} · ${Array.isArray(a.base)?'sizes '+sizeLabel(bandSizes(a,bb)):'all sizes'}</div>
+    <h4>Current</h4><dl>${rows.join('')}</dl><dl class="sum"><dt>Current price</dt><dd>${fmt(r.p)}</dd></dl>
+    ${list.length?`<h4>Upcoming</h4><div class="tl">${list.map(x=>`<span class="d">${x.waiting?'Pending':df(x.d)}</span><span>${x.reason}</span><span class="num" style="text-align:right;font-weight:600;color:var(--ink)">${fmt(x.r.p)}</span>`).join('')}</div>`:''}
+    <div class="acts">
+      ${a.md[sid]?`<button class="btn" data-act="end-md" data-k="${code}|${sid}">End markdown now</button>`:''}
+      ${storeAt(a,sid,TODAY)?`<button class="btn" data-act="use-base" data-k="${code}|${sid}">Use base price</button>`:''}
+      <button class="btn pri" data-act="change-store" data-k="${code}|${sid}">Change price…</button></div>`;
+  document.body.appendChild(p);popEl=p;
+  const rc=td.getBoundingClientRect();const w=p.offsetWidth;
+  const left=Math.min(Math.max(8,rc.left+window.scrollX),window.scrollX+document.documentElement.clientWidth-w-8);
+  p.style.left=left+'px';p.style.top=(rc.bottom+window.scrollY+6)+'px';p.style.setProperty('--ox',(rc.left+rc.width/2+window.scrollX-left)+'px');
+}
+
+// ── the one "Change price" sheet ────────────────────────────────────
+// ch = {codes, type:'new'|'md', applied, stores:Set, driver:'rp'|'pct' (the field typed last), amounts:{band:n}, pct, from, until}
+let ch=null;
+function openSheet(codes,preset={}){
+  closePop();
+  const type=preset.type||'new';
+  ch={codes,type,applied:preset.stores?'choose':'all',stores:new Set(preset.stores||[]),
+      driver:'rp',amounts:{},pct:null,from:TODAY,until:''};
+  prefill();
+  drawSheet(true);
+}
+/// The normal price the % is measured against, when every chosen store shares one.
+function refOf(a,b){const regs=[...new Set(targetsOf(a).map(s=>priceAt(a,b,s,TODAY).reg))];return regs.length===1?regs[0]:null}
+/// A new price starts from what the store charges now, so the form opens "unchanged".
+function prefill(){
+  ch.amounts={};ch.pct=null;ch.driver=ch.codes.length>1?'pct':'rp';
+  if(ch.codes.length!==1||ch.type!=='new') return;
+  const a=art(ch.codes[0]);
+  for(const b of bands(a)){const r=refOf(a,b);if(r!=null)ch.amounts[b]=r}
+}
+/// Keep the two fields in step: whichever was typed last drives the other.
+function syncPair(){
+  document.querySelectorAll('.quick button').forEach(b=>b.classList.toggle('on',ch.driver==='pct'&&+b.dataset.q===ch.pct));
+  if(ch.codes.length!==1) return;
+  const a=art(ch.codes[0]), md=ch.type==='md';
+  if(ch.driver==='pct'){
+    for(const b of bands(a)){
+      const el=document.querySelector(`[data-amt="${b}"]`), r=refOf(a,b);
+      el.value=ch.pct==null||r==null?'':fmt(md?down1000(r*(1-ch.pct/100)):r1000(r*(1+ch.pct/100)));
+      el.placeholder=r==null?'varies by store':'';
+    }
+  } else {
+    const el=document.querySelector('[data-pct]'), r=refOf(a,0), v=+ch.amounts[0];
+    el.placeholder=r==null?'varies':(md?'20':'+5 or -5');
+    el.value=!v||r==null?'':Math.round((md?(r-v):(v-r))/r*100);
+  }
+}
+/// Which stores the sheet touches for one article.
+function targetsOf(a){
+  if(ch.applied==='all') return sold(a);
+  if(ch.applied==='onbase') return sold(a).filter(s=>!storeAt(a,s,TODAY));
+  return [...ch.stores].filter(s=>!a.absent?.includes(s));
+}
+
+/// Apply the sheet to one article (a copy for the preview, the real one on Publish).
+function applyTo(a){
+  const future=ch.from>TODAY;
+  const amt=b=>+(ch.amounts[b]??ch.amounts[0]);
+  const perBand=f=>bands(a).length>1?bands(a).map(f):f(0);
+  if(ch.type==='new'){
+    const newOf=(cur,b)=>ch.driver==='rp'?amt(b):r1000(cur*(1+ch.pct/100));
+    // Always a store price, never the base price. Typing the base price back means "use the base price".
+    for(const s of targetsOf(a)){
+      const np=perBand(b=>newOf(priceAt(a,b,s,TODAY).reg,b));
+      const back=bands(a).every(b=>pick(np,b)===pick(a.base,b));
+      const earlier=future?(a.store[s]||[]).filter(x=>x.from<ch.from).map(x=>({...x,until:x.until&&x.until<ch.from?x.until:shiftDay(ch.from,-1)})):[];
+      const list=back?earlier:[...earlier,{p:np,from:ch.from,v:version+1}];
+      if(list.length) a.store[s]=list; else delete a.store[s];
+    }
+  } else {
+    for(const s of targetsOf(a)){
+      const m=ch.driver==='pct'?{pct:ch.pct}:{p:perBand(b=>amt(b))};
+      a.md[s]={...m,from:ch.from,v:version+1,...(ch.until?{until:ch.until}:{})};
+    }
+  }
+}
+function valid(){
+  if(ch.applied==='choose'&&ch.stores.size===0) return false;
+  if(ch.type==='md'&&ch.until&&ch.until<ch.from) return false;
+  if(ch.driver==='pct') return ch.pct!=null&&ch.pct!==0&&(ch.type==='new'||ch.pct>0&&ch.pct<100);
+  const a=art(ch.codes[0]);
+  return (ch.codes.length===1?bands(a):[0]).every(b=>+ch.amounts[b]>0);
+}
+const show=(a,s,d)=>bands(a).map(b=>{const r=priceAt(a,b,s,d);return r?fmt(r.p):'—'}).join(' · ');
+
+function drawSheet(enter=false){
+  const scroll=document.querySelector('.sheet .body')?.scrollTop||0;
+  document.querySelector('.sheet')?.remove();document.querySelector('.scrim')?.remove();
+  const first=art(ch.codes[0]);
+  const one=ch.codes.length===1;
+  const own=one?ownPrice(first):[...new Set(ch.codes.flatMap(c=>ownPrice(art(c))))];
+  const scrim=document.createElement('div');scrim.className='scrim';scrim.dataset.act='close-sheet';
+  if(!enter) scrim.style.animation='none';
+  const el=document.createElement('aside');el.className='sheet'+(enter?'':' stay');
+  const band=bands(first);
+  const opt=(k,title,help)=>`<div class="choice ${ch.applied===k?'on':''}" data-applied="${k}"><input type="radio" ${ch.applied===k?'checked':''}><div><b>${title}</b><span>${help}</span></div></div>`;
+  const md=ch.type==='md';
+  const rpFields=one
+    ?band.map(b=>`<div class="field"><small>${band.length>1?'Sizes '+sizeLabel(bandSizes(first,b)):'Price'}</small>
+        <div class="inp"><span>Rp</span><input inputmode="numeric" data-amt="${b}" value="${ch.amounts[b]?fmt(+ch.amounts[b]):''}"></div></div>`).join('')
+    :`<div class="field"><small>Price</small><div class="inp" style="background:var(--soft)"><span>Different for each article — use %</span></div></div>`;
+  const moneyInputs=`<div class="money">
+      <div class="field" style="flex:0 0 8.5rem;min-width:8.5rem"><small>${md?'% off':'% change'}</small>
+        <div class="inp"><input inputmode="numeric" data-pct value="${ch.pct!=null?ch.pct:''}" placeholder="${md?'20':'+5 or -5'}"><span>%</span></div></div>
+      ${rpFields}</div>
+    <div class="quick">${(md?[10,20,30,50]:[-10,-5,5,10]).map(x=>`<button data-q="${x}">${md?'−'+x:(x>0?'+':'−')+Math.abs(x)}%</button>`).join('')}</div>
+    ${md?'<span class="help">Measured from the store\'s normal price, rounded down to Rp1.000.</span>':''}`;
+  el.innerHTML=`
+    <header><div><h2>Change price</h2><p>${one?`${first.name} · ${first.code}`:`${ch.codes.length} articles`}</p></div><button class="x" data-act="close-sheet" aria-label="Close">×</button></header>
+    <div class="body">
+      <div class="q"><span class="lbl">What kind of price?</span>
+        <div class="choice ${ch.type==='new'?'on':''}" data-type="new"><input type="radio" ${ch.type==='new'?'checked':''}><div><b>New price</b><span>The store's normal price from now on. Stays until you change it.</span></div></div>
+        <div class="choice ${ch.type==='md'?'on':''}" data-type="md"><input type="radio" ${ch.type==='md'?'checked':''}><div><b>Markdown</b><span>A temporary cut on the store's normal price. When it ends, the normal price comes back by itself. A promotion running at the same time never stacks with it — the cheaper one wins.</span></div></div>
+      </div>
+
+      <div class="q"><span class="lbl">Applied to</span>
+        ${opt('all','All stores',ch.type==='new'?'Every store gets this price, including stores that have their own price.':'Every store that sells it.')}
+        ${ch.type==='new'&&own.length?opt('onbase','Stores on the base price',`Only stores still charging the base price. ${own.map(s=>store(s).name).join(', ')} keep${own.length>1?'':'s'} ${own.length>1?'their':'its'} own price.`):''}
+        ${opt('choose','Choose stores','Only at the stores you pick.')}
+        ${ch.type==='new'?'<span class="help">The base price itself never changes.</span>':''}
+        ${ch.applied==='choose'?`<div class="stores">${STORES.map(s=>{const dis=one&&first.absent?.includes(s.id);const hasOwn=one&&storeAt(first,s.id,TODAY);
+          return `<label class="${dis?'dis':''}"><input type="checkbox" data-store="${s.id}" ${ch.stores.has(s.id)?'checked':''} ${dis?'disabled':''}>${s.name}<span class="num ${hasOwn?'own':''}">${dis?'not sold':one?show(first,s.id,TODAY):''}</span></label>`}).join('')}</div>`:''}
+      </div>
+
+      <div class="q"><span class="lbl">${ch.type==='md'?'Markdown price':'New price'}</span>
+        ${moneyInputs}
+      </div>
+
+      <div class="q"><span class="lbl">When?</span>
+        <div class="money">
+          <div class="field"><small>Starts</small><div class="inp"><input type="date" data-from value="${ch.from}" min="${TODAY}"></div></div>
+          ${ch.type==='md'?`<div class="field"><small>Ends (empty = until you end it)</small><div class="inp"><input type="date" data-until value="${ch.until}" min="${ch.from}"></div></div>`:''}
+        </div>
+      </div>
+
+      <div class="pv" id="pv"></div>
+    </div>
+    <footer><span class="sum" id="pvsum"></span><button class="btn ghost" data-act="close-sheet">Cancel</button><button class="btn pri" data-act="publish" id="pub">Publish</button></footer>`;
+  document.body.append(scrim,el);
+  el.querySelector('.body').scrollTop=scroll;
+  syncPair();
+  drawPreview();
+}
+
+/// "What each store will charge" — the same engine run on a copy, so it can never disagree with the table.
+function drawPreview(){
+  const ok=valid(), day=ch.from, one=ch.codes.length===1;
+  let changed=0, html='';
+  for(const c of ch.codes){
+    const a=art(c), copy=structuredClone(a);
+    if(ok) applyTo(copy);
+    const rows=STORES.map(s=>{
+      if(a.absent?.includes(s.id)) return {s,now:'not sold',after:'',note:'',diff:false};
+      const now=show(a,s.id,TODAY), after=ok?show(copy,s.id,day):now, then=show(a,s.id,day);
+      const diff=ok&&after!==then;
+      let note='no change';
+      if(!diff){
+        if(ch.type==='new'&&ch.applied==='onbase'&&storeAt(a,s.id,TODAY)) note='keeps its own price';
+        else if(ch.applied==='choose'&&!ch.stores.has(s.id)) note='not included';
+        else if(ch.type==='new'&&active(a.md[s.id],day)) note='markdown stays on top';
+      }
+      if(diff) changed++;
+      return {s,now,after,note,diff};
+    });
+    if(one) html=`<h3>What each store will charge ${day>TODAY?'from '+df(day):'after Publish'}</h3><table>${rows.map(r=>`<tr><td>${r.s.name}</td>
+        <td class="n num muted">${r.now}</td><td class="n num ${r.diff?'ch':'keep'}">${r.diff?'→ '+r.after:r.note}</td></tr>`).join('')}</table>`;
+    else {const n=rows.filter(r=>r.diff).length;
+      html+=`<tr><td>${a.name}</td><td class="n ${n?'ch':'keep'}">${n?n+' store'+(n>1?'s':'')+' change':'no change'}</td></tr>`}
+  }
+  if(!one) html=`<h3>What changes ${day>TODAY?'from '+df(day):'after Publish'}</h3><table>${html}</table>`;
+  $('#pv').innerHTML=html;
+  $('#pvsum').textContent=ok?`${changed} price${changed===1?'':'s'} change${changed===1?'s':''}${day>TODAY?' · starts '+df(day):''}`:'Fill in the price';
+  const n=new Set(ch.codes.flatMap(c=>targetsOf(art(c)))).size;
+  $('#pub').disabled=!ok||changed===0;
+  $('#pub').textContent=ok&&changed?`Publish to ${n} store${n>1?'s':''}`:'Publish';
+}
+
+function closeSheet(){ch=null;document.querySelector('.sheet')?.remove();document.querySelector('.scrim')?.remove()}
+function snapshot(){const m=new Map();for(const a of ART)for(const b of bands(a))for(const s of STORES){const r=priceAt(a,b,s.id,TODAY,true);m.set(`${a.code}|${b}|${s.id}`,r?r.p+r.src:null)}return m}
+function commit(msg,fn){
+  const before=snapshot(); fn(); version++;
+  // Every till picks the new version up at once — except Dago, which is behind, so its change waits in Upcoming.
+  for(const st of STORES) if(st.id!=='DGO') st.v=version;
+  const after=snapshot();
+  flash=new Set([...after.keys()].filter(k=>after.get(k)!==before.get(k)));
+  toast(`Published v${version} · ${msg}`);
+  render();
+}
+function toast(t){const el=document.createElement('div');el.className='toast';el.textContent=t;document.body.appendChild(el);setTimeout(()=>el.remove(),2800)}
+
+// ── events ──────────────────────────────────────────────────────────
+document.addEventListener('click',e=>{
+  const t=e.target;
+  if(popEl&&!popEl.contains(t))closePop();
+  const actEl=t.closest('[data-act]'), act=actEl?.dataset.act;
+  if(act==='close-sheet'){closeSheet();return}
+  if(act==='publish'&&ch){
+    const n=new Set(ch.codes.flatMap(c=>targetsOf(art(c)))).size;
+    const label=ch.codes.length===1?art(ch.codes[0]).name:`${ch.codes.length} articles`;
+    commit(`${label} · sent to ${n} store${n>1?'s':''}${ch.from>TODAY?' · starts '+df(ch.from):''}`,()=>ch.codes.forEach(c=>applyTo(art(c))));
+    picked.clear();closeSheet();render();return}
+  if(act==='change-store'){const [c,s]=actEl.dataset.k.split('|');openSheet([c],{type:art(c).md[s]?'md':'new',stores:[s]});return}
+  if(act==='use-base'){const [c,s]=actEl.dataset.k.split('|');closePop();
+    commit(`${store(s).name} uses the base price for ${art(c).name}`,()=>delete art(c).store[s]);return}
+  if(act==='end-md'){const [c,s]=actEl.dataset.k.split('|');closePop();
+    commit(`Markdown ended at ${store(s).name} for ${art(c).name}`,()=>delete art(c).md[s]);return}
+  if(act==='change-picked'){openSheet([...picked]);return}
+  if(act==='clear-picked'){picked.clear();render();return}
+
+  if(ch&&t.closest('.sheet')){
+    const ty=t.closest('[data-type]');if(ty){ch.type=ty.dataset.type;if(ch.type==='md'&&ch.applied==='onbase')ch.applied='all';prefill();drawSheet();return}
+    const ap=t.closest('[data-applied]');if(ap){ch.applied=ap.dataset.applied;drawSheet();return}
+    const qk=t.closest('[data-q]');if(qk){ch.pct=+qk.dataset.q;ch.driver='pct';document.querySelector('[data-pct]').value=ch.pct;syncPair();drawPreview();return}
+    return;
+  }
+
+  const pk=t.closest('[data-pick]');if(pk){const c=pk.dataset.pick;
+    if(c==='*'){const all=visible();const on=!all.every(a=>picked.has(a.code));picked.clear();if(on)all.forEach(a=>picked.add(a.code))}
+    else picked.has(c)?picked.delete(c):picked.add(c);render();return}
+  const td=t.closest('[data-cell]');if(td){e.stopPropagation();openDetail(td);return}
+  const sk=t.closest('[data-stock]');if(sk){stock=!stock;sk.textContent=stock?'Hide stock':'Show stock';render();return}
+  const on=t.closest('[data-only]');if(on){only=on.dataset.only;document.querySelectorAll('[data-only]').forEach(x=>x.classList.toggle('on',x===on));render();return}
+});
+// Typing in the sheet redraws only the preview, so the caret never jumps.
+document.addEventListener('input',e=>{
+  const t=e.target;
+  if(t.id==='q'){q=t.value.trim().toLowerCase();render();return}
+  if(!ch) return;
+  if(t.dataset.amt!==undefined){const v=+t.value.replace(/\D/g,'');t.value=v?fmt(v):'';ch.amounts[t.dataset.amt]=v||'';ch.driver='rp';syncPair();drawPreview()}
+  if(t.dataset.pct!==undefined){
+    // A markdown is always "% off"; a new price can go either way, so it keeps a minus sign.
+    const neg=ch.type==='new'&&/^\s*[-−]/.test(t.value);const v=+t.value.replace(/\D/g,'');
+    t.value=v?(neg?'-':'')+v:(neg?'-':'');ch.pct=v?(neg?-v:v):null;ch.driver='pct';syncPair();drawPreview()}
+});
+document.addEventListener('change',e=>{
+  const t=e.target; if(!ch) return;
+  if(t.dataset.store){t.checked?ch.stores.add(t.dataset.store):ch.stores.delete(t.dataset.store);
+    syncPair();drawPreview()}
+  if(t.dataset.from!==undefined){ch.from=t.value<TODAY?TODAY:t.value;drawSheet()}
+  if(t.dataset.until!==undefined){ch.until=t.value;drawPreview()}
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(popEl)closePop();else if(ch)closeSheet()}});
+document.querySelector('.card').addEventListener('scroll',closePop);
+render();
+</script>
+</body>
+</html>

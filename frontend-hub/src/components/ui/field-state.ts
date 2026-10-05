@@ -62,3 +62,40 @@ export const INVALID =
 /// group, a stepper's group.
 export const HAS_INVALID =
   "has-[[aria-invalid=true]]:border-bad has-[[aria-invalid=true]]:hover:border-bad"
+
+/// Whether a control is answering a question on a form — standing inside a
+/// `<Field>` — rather than in a toolbar or a table cell.
+export function useInForm(): boolean {
+  return React.useContext(FieldContext) !== null
+}
+
+/// A form's box, following Apple's: 44px tall — the least a finger is asked to
+/// hit — 15px type, a 10px corner, 14px in from its edge. The type is the size
+/// of the label above it, so the two read as a pair and the label, in the
+/// heavier weight, leads.
+///
+/// The airy charcoal direction (owner, 2026-09-28) gave form fields the
+/// sign-in's height: a form is filled in — slowly, often on a phone, often at
+/// the end of a shift — and a box that size is one a thumb and a tired eye
+/// both find. A toolbar's search or a cell being edited in a table keeps its
+/// own density: those are read far more than they are typed into. So the
+/// switch is the `<Field>` around the control, not a prop every form would
+/// have to remember; a caller's own `h-*` still wins, since its classes come
+/// last.
+export const FORM_BOX =
+  "h-[var(--form-box,2.75rem)] rounded-[0.625rem] px-3.5 text-[0.9375rem]"
+
+/// The same box for a control that grows — `<PickMany>`'s chips wrap.
+export const FORM_BOX_GROWS =
+  "min-h-[var(--form-box,2.75rem)] rounded-[0.625rem] px-3.5 text-[0.9375rem]"
+
+/// The soft blue halo a form's box wears while it has the caret, red while
+/// its answer is refused. Spelled once per way of being focused, because each
+/// control says "focused" its own way: a text box by `:focus`, a trigger by
+/// `:focus-visible` or an open popup, a box by the input inside it.
+export const FORM_HALO =
+  "focus:shadow-[0_0_0_4px_rgb(37_99_235/12%)] aria-[invalid=true]:focus:shadow-[0_0_0_4px_rgb(208_81_81/14%)]"
+export const FORM_HALO_TRIGGER =
+  "focus-visible:shadow-[0_0_0_4px_rgb(37_99_235/12%)] data-[popup-open]:shadow-[0_0_0_4px_rgb(37_99_235/12%)]"
+export const FORM_HALO_WITHIN =
+  "has-[input:focus-visible]:shadow-[0_0_0_4px_rgb(37_99_235/12%)]"

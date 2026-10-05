@@ -1,0 +1,29 @@
+{
+  "title": "New supplier: type, save, toast (local hub, 240k suppliers)",
+  "notes": "Headless Chrome page recording (1280x800) of the local hub. At t=0 the page is already loading: only 'Checking your session' is on screen. The recording is page-only, not a desktop capture.",
+  "metrics": [
+    {"value": "8.28 s", "label": "toast with the number"},
+    {"value": "11.60 s", "label": "supplier counts updated"},
+    {"value": "0.44 s", "label": "form closes to toast"}
+  ],
+  "phases": [
+    {"start": 0.0,   "end": 0.8,   "name": "Session check"},
+    {"start": 0.8,   "end": 1.12,  "name": "Suppliers list loading"},
+    {"start": 1.12,  "end": 7.84,  "name": "New supplier form (typing)"},
+    {"start": 7.84,  "end": 8.28,  "name": "Saving and closing"},
+    {"start": 8.28,  "end": 11.6,  "name": "Saved toast, list refreshing"},
+    {"start": 11.6,  "end": 12.72, "name": "Idle", "idle": true}
+  ],
+  "paints": [
+    {"frame": 0,   "label": "'Checking your session...' on a white page (recording start)"},
+    {"frame": 20,  "label": "App shell: sidebar, header and empty KPI cards; 'Reading the supplier list...'"},
+    {"frame": 28,  "label": "New supplier sheet opens over a dimmed page"},
+    {"frame": 47,  "label": "Name box: 't' typed shows as 'T' (Title Case as typed)", "minor": true},
+    {"frame": 119, "label": "Legal Form set to CV; address starts as 'Jl' (capitalised)", "minor": true},
+    {"frame": 158, "label": "Address reads 'Jl. Contoh No. 7, Bandung'; phone typing starts", "minor": true},
+    {"frame": 196, "label": "Submit button turns into 'Submitting...'", "minor": true},
+    {"frame": 197, "label": "Sheet closes; supplier list and KPI cards fill in"},
+    {"frame": 207, "label": "Toast bottom right: '0005 saved'", "base": 199},
+    {"frame": 290, "label": "Active suppliers 228.004 -> 228.005, All 240.004 -> 240.005", "minor": true}
+  ]
+}

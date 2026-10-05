@@ -60,7 +60,9 @@ export function ServerTab({
   const [issued, setIssued] = useState<StoreServerInstall | null>(null)
 
   function settle() {
-    void client.invalidateQueries({ queryKey: storesKeys.detail(store.unit_id) })
+    void client.invalidateQueries({
+      queryKey: storesKeys.detail(store.unit_id),
+    })
     void client.invalidateQueries({ queryKey: storesKeys.list() })
     void client.invalidateQueries({ queryKey: systemKeys.enrolments() })
   }
@@ -138,8 +140,8 @@ export function ServerTab({
         <Card className="p-4">
           {!canManage ? (
             <Banner tone="warn">
-              Waiting to be installed. Only an Admin at head office may issue
-              or reissue its code.
+              Waiting to be installed. Only an Admin at head office may issue or
+              reissue its code.
             </Banner>
           ) : issued ? (
             <>
@@ -172,16 +174,16 @@ export function ServerTab({
                 </li>
                 <li>Type this code, or scan the QR.</li>
                 <li>
-                  The server then shows a verification number — approve it
-                  below once it matches.
+                  The server then shows a verification number — approve it below
+                  once it matches.
                 </li>
               </ol>
             </>
           ) : (
             <Banner tone="warn">
               Waiting to be installed. The code was shown once when it was
-              issued and this page does not keep it — issue a new one if it
-              was lost; the new code cancels the old.
+              issued and this page does not keep it — issue a new one if it was
+              lost; the new code cancels the old.
             </Banner>
           )}
           {canManage && (
@@ -213,7 +215,9 @@ export function ServerTab({
                 <p className="text-[0.875rem] text-body">
                   {claim.machine?.hostname || "Unnamed machine"}
                   {claim.machine?.os ? ` · ${claim.machine.os}` : ""}
-                  {claim.machine?.version ? ` · v${claim.machine.version}` : ""}{" "}
+                  {claim.machine?.version
+                    ? ` · v${claim.machine.version}`
+                    : ""}{" "}
                   · claimed {ago(claim.claimed_at)}
                 </p>
                 <div className="text-right">
@@ -276,8 +280,8 @@ export function ServerTab({
       {server.state === "OFFLINE" && (
         <Banner tone="bad">
           No heartbeat
-          {server.last_seen_at ? ` since ${moment(server.last_seen_at)}` : ""}
-          . Check the machine and its network at the store — the server has
+          {server.last_seen_at ? ` since ${moment(server.last_seen_at)}` : ""}.
+          Check the machine and its network at the store — the server has
           nothing further to install or approve.
         </Banner>
       )}

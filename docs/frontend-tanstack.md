@@ -1,6 +1,6 @@
 # TanStack in the five frontends
 
-`frontend-cloud`, `frontend-store`, `frontend-dc`, `frontend-employee` and
+`frontend-cloud`, `frontend-hub`, `frontend-store-new`, `frontend-employee` and
 `frontend-customer` share a wire contract (`frontend-contract`) and nothing
 else. There is deliberately no shared React package: the contract stays
 framework-free, and each app keeps its own copy of the patterns below.
@@ -26,10 +26,10 @@ react-table buys nothing and costs a column model somebody has to read.
 
 Query keys live beside the client function that fetches them: `lib/finance.ts`
 exports `financeKeys`, `lib/sales.ts` exports `salesKeys`. In a small app the
-rule collapses to one file — `frontend-dc/src/lib/queries.ts` is the whole set,
-and that is the same rule, not an exception. The first element of every key is
-a domain namespace (`["dc", …]`, `["hr", …]`, `["inventory", …]`) so sign-out
-can drop a whole app's answers by prefix.
+rule collapses to one file — `frontend-store-new/src/lib/queries.ts` is the
+whole set, and that is the same rule, not an exception. The first element of
+every key is a domain namespace (`["dc", …]`, `["hr", …]`, `["inventory", …]`)
+so sign-out can drop a whole app's answers by prefix.
 
 One key per endpoint, in one place. Two modules keying `/auth/me` differently
 means fetching it twice and never noticing.
@@ -58,10 +58,9 @@ its failure resolves to `null` and is never reported as a sign-in problem.
 
 ## Writes
 
-Every write is a `useMutation`. No hand-rolled `pending` / `error` pair — that
-shape was `frontend-dc/src/lib/action.ts`, and because it could not invalidate
-anything, sealing a box left the row on screen reading "open" until somebody
-reloaded.
+Every write is a `useMutation`. No hand-rolled `pending` / `error` pair — the
+removed DC app's `useAction()` kept both and could not invalidate anything, so
+sealing a box left the row on screen reading "open" until somebody reloaded.
 
 Each mutation invalidates the keys that actually change, named explicitly.
 Invalidate a whole prefix only when the action genuinely touches everything

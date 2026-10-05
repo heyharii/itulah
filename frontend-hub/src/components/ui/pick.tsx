@@ -2,7 +2,14 @@ import { Combobox } from "@base-ui/react/combobox"
 import { Check, ChevronDown, Plus, X } from "lucide-react"
 import { useMemo, useState } from "react"
 
-import { HAS_INVALID, INVALID, useFieldAria } from "@/components/ui/field-state"
+import {
+  FORM_BOX_GROWS,
+  FORM_HALO_WITHIN,
+  HAS_INVALID,
+  INVALID,
+  useFieldAria,
+  useInForm,
+} from "@/components/ui/field-state"
 import { PickerSheet } from "@/components/ui/picker-sheet"
 import { usePickerSheet } from "@/lib/layout"
 import { Tag } from "@/components/ui/tag"
@@ -71,9 +78,9 @@ export function PickOne({
   choices,
   value,
   onChange,
-  placeholder = "Unclassified",
   className,
   label,
+  placeholder,
   action,
   disabled,
   invalid,
@@ -82,7 +89,6 @@ export function PickOne({
   choices: readonly Choice[]
   value: string | null
   onChange: (value: string | null) => void
-  placeholder?: string
   className?: string
   /// Locked: the answer is shown, and cannot be changed or cleared.
   disabled?: boolean
@@ -94,6 +100,9 @@ export function PickOne({
   /// For the screen reader. The visible label is usually a table header, which
   /// no assistive technology associates with a control on its own.
   label?: string
+  /// What the box says while nothing is chosen — usually the same word as
+  /// `label`, so a toolbar of filters names each one without a heading.
+  placeholder?: string
   /// A way out of the list, standing at the foot of it: "Create a new
   /// supplier" under the suppliers, for the buyer who has just searched for
   /// one that is not there.
@@ -118,6 +127,8 @@ export function PickOne({
   const chosen = choices.find((one) => one.value === value) ?? null
   const sheet = usePickerSheet()
   const aria = useFieldAria({ invalid, required })
+  // On a form, the form's box — see `FORM_BOX` in `field-state.ts`.
+  const form = useInForm() && [FORM_BOX_GROWS, FORM_HALO_WITHIN]
   const clearable =
     chosen !== null && disabled !== true && aria["aria-required"] !== true
 
@@ -126,7 +137,7 @@ export function PickOne({
   if (sheet) {
     return (
       <>
-        <div className={cn(FIELD, "relative", className)}>
+        <div className={cn(FIELD, form, "relative", className)}>
           {/* The whole field is the target, not just the words in it: the
               button's hit area is stretched over the box (`after:inset-0`),
               so a tap on the padding or the chevron opens the list too. It
@@ -164,7 +175,7 @@ export function PickOne({
         <PickerSheet
           open={open}
           onOpenChange={setOpen}
-          title={label ?? placeholder}
+          title={label ?? "Choose one"}
           options={choices}
           selected={value === null ? [] : [value]}
           onPick={(next) => onChange(next)}
@@ -190,10 +201,9 @@ export function PickOne({
         setQuery("")
       }}
       // What is chosen while the panel is shut, what is being typed while it
-      // is open. Showing the chosen label as the input's PLACEHOLDER instead
-      // was the obvious shortcut and it lies: a placeholder is drawn in the
-      // muted colour that means "nothing here yet", so a line filed under Kids
-      // read exactly like a line nobody had filed.
+      // is open. Showing the chosen label as a muted hint that means "nothing
+      // here yet" was the obvious shortcut and it lies: a line filed under
+      // Kids read exactly like a line nobody had filed.
       inputValue={open ? query : (chosen?.label ?? "")}
       onInputValueChange={(next) => open && setQuery(next)}
       open={open}
@@ -208,11 +218,11 @@ export function PickOne({
       modal={false}
       disabled={disabled}
     >
-      <Combobox.InputGroup className={cn(FIELD, className)}>
+      <Combobox.InputGroup className={cn(FIELD, form, className)}>
         <Combobox.Input
           aria-label={label}
-          {...aria}
           placeholder={placeholder}
+          {...aria}
           className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-mute"
         />
         {/* Clearing is a decision, so it gets its own control rather than
@@ -305,18 +315,17 @@ export function PickMany({
   choices,
   values,
   onChange,
-  placeholder = "None",
   className,
   label,
   leading,
   disabled,
   invalid,
   required,
+  loading,
 }: {
   choices: readonly Choice[]
   values: readonly string[]
   onChange: (values: readonly string[]) => void
-  placeholder?: string
   className?: string
   label?: string
   /// Something drawn before each word, in the chips and in the list.
@@ -331,6 +340,8 @@ export function PickMany({
   invalid?: boolean
   /// At least one is wanted.
   required?: boolean
+  /// Said in place of "Nothing matches." while the choices are still arriving.
+  loading?: string
 }) {
   const [query, setQuery] = useState("")
   const [open, setOpen] = useState(false)
@@ -348,6 +359,8 @@ export function PickMany({
     )
   const sheet = usePickerSheet()
   const aria = useFieldAria({ invalid, required })
+  // On a form, the form's box — see `FORM_BOX` in `field-state.ts`.
+  const form = useInForm() && [FORM_BOX_GROWS, FORM_HALO_WITHIN]
 
   if (sheet) {
     return (
@@ -359,13 +372,8 @@ export function PickMany({
           disabled={disabled}
           {...aria}
           onClick={() => setOpen(true)}
-          className={cn(FIELD, "flex-wrap", className)}
+          className={cn(FIELD, form, "flex-wrap", className)}
         >
-          {values.length === 0 && (
-            <span className="min-h-9 flex-1 content-center text-mute">
-              {placeholder}
-            </span>
-          )}
           {values.map((value) => {
             const one = choices.find((c) => c.value === value)
             return (
@@ -383,7 +391,7 @@ export function PickMany({
         <PickerSheet
           open={open}
           onOpenChange={setOpen}
-          title={label ?? placeholder}
+          title={label ?? "Choose"}
           options={choices.map((one) => ({
             ...one,
             leading: leading?.(one.value),
@@ -425,7 +433,7 @@ export function PickMany({
       modal={false}
       disabled={disabled}
     >
-      <Combobox.InputGroup className={cn(FIELD, "flex-wrap", className)}>
+      <Combobox.InputGroup className={cn(FIELD, form, "flex-wrap", className)}>
         {values.map((value) => {
           const one = choices.find((c) => c.value === value)
           return (
@@ -451,7 +459,6 @@ export function PickMany({
         <Combobox.Input
           aria-label={label}
           {...aria}
-          placeholder={values.length === 0 ? placeholder : ""}
           className="min-w-[3rem] flex-1 bg-transparent text-ink outline-none placeholder:text-mute"
         />
         <Combobox.Trigger
@@ -472,7 +479,7 @@ export function PickMany({
           <Combobox.Popup className={cn(POPUP, "w-full")}>
             <Combobox.List>
               <Combobox.Empty className="px-2.5 py-3 text-center text-meta text-mute">
-                Nothing matches.
+                {loading ?? "Nothing matches."}
               </Combobox.Empty>
               {rows.map((one) => (
                 <Combobox.Item

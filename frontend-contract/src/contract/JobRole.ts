@@ -26,7 +26,12 @@ read_only: boolean,
  * Which servers holders sign in at: `NONE`, `UNIT` (the servers of the
  * unit they are posted to) or `EVERY`.
  */
-node_reach: string, description: string, 
+node_reach: string, 
+/**
+ * Which units holders reach in the hub (0700): `OWN` — the unit they are
+ * posted to — or `EVERY`. Where, not what: sections still decide what.
+ */
+unit_reach: string, description: string, 
 /**
  * Seeded by a migration: editable, never deleted.
  */

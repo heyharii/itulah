@@ -10,5 +10,4 @@ export type GaMaintenanceTaskPage = { rows: Array<GaMaintenanceTaskRow>,
  * Opaque. Pass it back as `cursor` for the next page; absent means this
  * was the last one.
  */
-next_cursor: string | null, 
-total: number, facets: GaMaintenanceTaskFacets, };
+next_cursor: string | null, total: number, facets: GaMaintenanceTaskFacets, };

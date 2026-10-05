@@ -76,7 +76,6 @@ export function ChartOfAccounts() {
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Code or name"
             className="pl-8"
           />
         </div>
@@ -264,7 +263,7 @@ export function BankAccounts() {
             "Product",
             "Number",
             "Unit",
-            "Ledger account",
+            "Ledger Account",
           ]}
         >
           {BANK_ACCOUNTS.map((a) => {

@@ -1577,6 +1577,12 @@ pub struct SiteProfile {
     /// the rest of the site fields — `SiteProfile` is not hashed at all.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opened: Option<bool>,
+    /// How many till seats the store has (`site.till_count`, postgres 0714):
+    /// Kasir 1 to Kasir N. Head office's number, never the shop's — a machine
+    /// sits at a seat, it does not add one. Absent from an older centre, which
+    /// a node reads as one seat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub till_count: Option<u32>,
 }
 
 pub fn auth_policy_content_hash(snapshot: &AuthPolicySnapshot) -> String {
@@ -2302,6 +2308,16 @@ pub struct SalesCompletedPayload {
     /// same as "paid nothing" and must not be read as it.
     #[serde(default)]
     pub tenders: Vec<SaleFactTender>,
+    /// The drawer that took this sale: the shift of the person who rang it
+    /// (`edge::till::shift_for_sale`). Absent from a shop on an older build,
+    /// and for a sale rung with no shift open.
+    #[serde(default)]
+    pub shift_id: Option<Uuid>,
+    /// The day this sale trades for — its shift's, so a sale past midnight on
+    /// an evening shift is the evening's. Absent from an older build; the
+    /// centre then takes the store's local date of `occurred_at`.
+    #[serde(default)]
+    pub business_date: Option<chrono::NaiveDate>,
 }
 
 /// How one sale was settled, as the shop recorded it.
@@ -2344,6 +2360,11 @@ pub struct SaleFactTender {
     /// that was authorised before the money moved.
     #[serde(default)]
     pub voucher_authorization_id: Option<String>,
+    /// The code the relayed authorization was issued for. Carried alongside
+    /// the hold ID so the centre can confirm both names bind to the same
+    /// locked voucher record rather than trusting an ID alone.
+    #[serde(default)]
+    pub voucher_code: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -2503,6 +2524,7 @@ pub fn parse_sales_completed(payload: &Value) -> Result<SalesCompletedPayload, S
     if !sale.tenders.is_empty() {
         let mut settled: i64 = 0;
         let mut seen = std::collections::BTreeSet::new();
+        let mut voucher_holds = std::collections::BTreeSet::new();
         for tender in &sale.tenders {
             if tender.amount_minor <= 0 {
                 return Err(format!(
@@ -2510,10 +2532,37 @@ pub fn parse_sales_completed(payload: &Value) -> Result<SalesCompletedPayload, S
                     tender.tender_seq
                 ));
             }
-            if <crate::tender::PaymentMethod as std::str::FromStr>::from_str(&tender.method)
-                .is_err()
-            {
-                return Err(format!("unknown tender method {}", tender.method));
+            let method = <crate::tender::PaymentMethod as std::str::FromStr>::from_str(
+                &tender.method,
+            )
+            .map_err(|_| format!("unknown tender method {}", tender.method))?;
+            match method {
+                crate::tender::PaymentMethod::Voucher => {
+                    let hold_id = tender
+                        .voucher_authorization_id
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|id| !id.is_empty())
+                        .ok_or_else(|| {
+                            "a VOUCHER tender must name its cloud authorization".to_string()
+                        })?;
+                    Uuid::parse_str(hold_id).map_err(|_| {
+                        format!("a VOUCHER tender has a malformed hold id {hold_id:?}")
+                    })?;
+                    if !voucher_holds.insert(hold_id.to_ascii_lowercase()) {
+                        return Err("two VOUCHER tenders cannot reuse one authorization".into());
+                    }
+                    // Older valid facts carry the authorization ID but not
+                    // the new convenience spelling. Cloud still binds those
+                    // through the voucher row referenced by the hold.
+                    if tender.voucher_code.as_deref().is_some_and(|code| code.trim().is_empty()) {
+                        return Err("a VOUCHER tender's code cannot be blank".into());
+                    }
+                }
+                _ if tender.voucher_authorization_id.is_some() || tender.voucher_code.is_some() => {
+                    return Err("only a VOUCHER tender may carry a voucher hold or code".into());
+                }
+                _ => {}
             }
             if tender
                 .reference
@@ -2599,6 +2648,69 @@ mod sales_fact_tests {
         empty["lines"] = json!([]);
         assert!(parse_sales_completed(&empty).is_err());
     }
+
+    #[test]
+    fn a_voucher_tender_without_an_authorization_is_refused() {
+        let mut fact = sale(25_000, 25_000, 0, 25_000);
+        fact["tenders"] = json!([{
+            "tender_seq": 0,
+            "method": "VOUCHER",
+            "amount_minor": 25_000
+        }]);
+        assert!(parse_sales_completed(&fact)
+            .expect_err("VOUCHER requires a hold").contains("authorization"));
+    }
+
+    #[test]
+    fn a_voucher_tender_rejects_reused_hold_ids() {
+        let hold = Uuid::new_v4();
+        let mut fact = sale(25_000, 25_000, 0, 25_000);
+        fact["tenders"] = json!([
+            {
+                "tender_seq": 0,
+                "method": "VOUCHER",
+                "amount_minor": 10_000,
+                "voucher_authorization_id": hold,
+                "voucher_code": "GIFT-0001"
+            },
+            {
+                "tender_seq": 1,
+                "method": "VOUCHER",
+                "amount_minor": 15_000,
+                "voucher_authorization_id": hold,
+                "voucher_code": "GIFT-0001"
+            }
+        ]);
+        assert!(parse_sales_completed(&fact)
+            .expect_err("a hold can pay only once").contains("reuse one authorization"));
+    }
+
+    #[test]
+    fn an_older_voucher_fact_without_the_code_still_uses_its_hold() {
+        let mut fact = sale(25_000, 25_000, 0, 25_000);
+        fact["tenders"] = json!([{
+            "tender_seq": 0,
+            "method": "VOUCHER",
+            "amount_minor": 25_000,
+            "voucher_authorization_id": Uuid::new_v4()
+        }]);
+        let parsed = parse_sales_completed(&fact)
+            .expect("hold id identifies the voucher on older edge builds");
+        assert!(parsed.tenders[0].voucher_code.is_none());
+    }
+
+    #[test]
+    fn non_voucher_tenders_cannot_carry_voucher_authorizations() {
+        let mut fact = sale(25_000, 25_000, 0, 25_000);
+        fact["tenders"] = json!([{
+            "tender_seq": 0,
+            "method": "CASH",
+            "amount_minor": 25_000,
+            "voucher_authorization_id": Uuid::new_v4()
+        }]);
+        assert!(parse_sales_completed(&fact)
+            .expect_err("only VOUCHER has a hold").contains("only a VOUCHER"));
+    }
 }
 
 // ---- Purchase orders: raised at the centre, worked at a DC ---------------
@@ -2641,8 +2753,94 @@ pub fn parse_purchase_order_cancellation(
     Ok(cancellation)
 }
 
+/// One line of an order the buyer closed short: the rest is not coming. The
+/// DC takes the line off the receiving bay's worklist; anything that still
+/// turns up against it is counted as beyond the order.
+pub const COMMAND_PURCHASE_ORDER_LINE_CLOSE: &str = "purchase.order.line.close";
+
+/// What the DC is told when a line is closed short.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PurchaseOrderLineClosure {
+    pub purchase_order_id: Uuid,
+    pub po_line_id: Uuid,
+    pub closed_short_units: i64,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+pub fn parse_purchase_order_line_closure(
+    payload: &Value,
+) -> Result<PurchaseOrderLineClosure, String> {
+    let closure: PurchaseOrderLineClosure = serde_json::from_value(payload.clone())
+        .map_err(|e| format!("malformed {COMMAND_PURCHASE_ORDER_LINE_CLOSE} payload: {e}"))?;
+    if closure.closed_short_units < 0 {
+        return Err("a line cannot be closed short by a negative quantity".into());
+    }
+    Ok(closure)
+}
+
+/// Goods that came beyond an order, going back to the supplier on a purchase
+/// return the buyer raised from the order (0710; the owner, 2026-09-29).
+///
+/// The DC keeps it as work. The pieces are on its receiving floor, in the
+/// Unidentified pool, as the untagged quantity the count put there; handing
+/// them to the supplier is the one thing left to do, and doing it is what
+/// moves them out.
+pub const COMMAND_PURCHASE_RETURN_RAISE: &str = "purchase.return.raise";
+
+/// The movement reference a DC writes when it hands a purchase return over,
+/// so the centre can close the return when the movement comes up.
+pub const PURCHASE_RETURN_REFERENCE: &str = "PURCHASE_RETURN";
+
+/// One receipt line's excess on a purchase return.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct PurchaseReturnLinePayload {
+    /// The accepted count the pieces arrived on — the DC's own identifier for
+    /// it, and the way it finds the pile.
+    pub receipt_line_id: Uuid,
+    pub po_line_id: Uuid,
+    pub article_code: String,
+    pub article_name: String,
+    /// Pieces, and exactly the line's excess.
+    pub quantity: i64,
+}
+
+/// What the DC is told when a buyer sends excess back.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct PurchaseReturnPayload {
+    pub return_id: Uuid,
+    pub return_number: String,
+    pub purchase_order_id: Uuid,
+    pub po_number: String,
+    pub supplier_id: String,
+    #[serde(default)]
+    pub supplier_name: Option<String>,
+    #[serde(default)]
+    pub note: Option<String>,
+    pub raised_by: String,
+    pub lines: Vec<PurchaseReturnLinePayload>,
+}
+
+pub fn parse_purchase_return(payload: &Value) -> Result<PurchaseReturnPayload, String> {
+    let raised: PurchaseReturnPayload = serde_json::from_value(payload.clone())
+        .map_err(|e| format!("malformed {COMMAND_PURCHASE_RETURN_RAISE} payload: {e}"))?;
+    if raised.return_number.trim().is_empty() {
+        return Err("a purchase return names its number".into());
+    }
+    if raised.lines.is_empty() {
+        return Err("a purchase return sends at least one line back".into());
+    }
+    if let Some(line) = raised.lines.iter().find(|line| line.quantity <= 0) {
+        return Err(format!(
+            "purchase return {} sends back {} of {}; a line returns a positive quantity",
+            raised.return_number, line.quantity, line.article_code
+        ));
+    }
+    Ok(raised)
+}
+
 /// A DC reporting what physically arrived against a PO line.
-/// One line of a delivery, counted and accepted by a second person.
+/// One line of a delivery, counted and then accepted.
 pub const FACT_GOODS_RECEIPT_LINE: &str = "goods_receipt.line";
 
 /// The supplier's invoice, as the verifier read it off the paper.
@@ -2705,8 +2903,9 @@ pub struct PurchaseLineUnits {
     /// Pieces in one of that unit, the day the order was placed.
     #[serde(default)]
     pub unit_factor: Option<String>,
-    /// Every unit the bay may count this item in, with its factor to pieces:
-    /// the base unit, the global conversions and the item's own pack sizes.
+    /// Every unit the bay may count this item in, with its factor to the
+    /// stock unit: the stock unit itself, the article's own units and the
+    /// global conversions (0653).
     #[serde(default)]
     pub count_units: Vec<CountUnit>,
 }
@@ -2718,6 +2917,10 @@ pub struct CountUnit {
     pub label: String,
     /// Pieces in one, as a decimal string.
     pub factor: String,
+    /// The line's stock unit — the article's, PCS for nearly everything.
+    /// Exactly one unit of the list carries it.
+    #[serde(default)]
+    pub is_stock: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -2816,6 +3019,13 @@ pub struct GoodsReceiptLinePayload {
     pub matched_quantity: Option<i64>,
     #[serde(default)]
     pub excess_quantity: Option<i64>,
+    /// How much of the quantity the checker had already written down as not
+    /// matching the order — pieces on the lorry that are not the article the
+    /// line names. Part of `excess_quantity`, wherever that is read; recorded
+    /// so the return that takes them back can say why. Absent from nodes
+    /// that predate the column: none.
+    #[serde(default)]
+    pub wrong_quantity: i64,
     /// The agreed price at the moment of acceptance. Absent from nodes that
     /// predate the column, in which case the centre falls back to the order's
     /// price as it stands when the fact lands.
@@ -2823,10 +3033,11 @@ pub struct GoodsReceiptLinePayload {
     pub agreed_unit_price_minor: Option<i64>,
     /// Who counted the delivery.
     pub counted_by: String,
-    /// Who accepted that count. A line only travels once both exist, and they
-    /// must be different people: one person who can both count goods in and
-    /// approve their own count can sign phantom stock onto the shelf, and no
-    /// later report would show anything wrong.
+    /// Who accepted that count. A line only travels once both exist: one
+    /// person who counted nothing cannot accept a delivery, and a receipt
+    /// with nobody on it is nobody's delivery. Whether the two may be the
+    /// same person is the caller's permission, not a name comparison
+    /// (owner, 2026-10-04).
     pub verified_by: String,
     pub counted_at: DateTime<Utc>,
     pub verified_at: DateTime<Utc>,
@@ -2865,6 +3076,12 @@ pub fn parse_goods_receipt_line(payload: &Value) -> Result<GoodsReceiptLinePaylo
     if line.quantity <= 0 {
         return Err("a receipt of nothing is not a receipt".into());
     }
+    if line.wrong_quantity < 0 || line.wrong_quantity > line.quantity {
+        return Err(format!(
+            "{} pieces cannot be not as ordered out of a receipt of {}",
+            line.wrong_quantity, line.quantity
+        ));
+    }
     if line.receipt_number.trim().is_empty() {
         return Err("a goods receipt must have a number".into());
     }
@@ -2876,14 +3093,6 @@ pub fn parse_goods_receipt_line(payload: &Value) -> Result<GoodsReceiptLinePaylo
     }
     if line.verified_by.trim().is_empty() {
         return Err("a receipt line must name who accepted it".into());
-    }
-    // The centre enforces this too, not only the DC. A node running an older
-    // or altered build must not be able to put unverified stock on the books.
-    if line.counted_by.trim() == line.verified_by.trim() {
-        return Err(format!(
-            "{} both counted and accepted this delivery; receiving requires two people",
-            line.counted_by
-        ));
     }
     Ok(line)
 }
@@ -3006,7 +3215,7 @@ mod purchase_tests {
     }
 
     #[test]
-    fn a_receipt_line_must_be_of_something_and_by_two_people() {
+    fn a_receipt_line_must_be_of_something_and_named() {
         let sound = receipt_line();
         assert!(parse_goods_receipt_line(&sound).is_ok());
 
@@ -3018,12 +3227,11 @@ mod purchase_tests {
         nobody["counted_by"] = json!("");
         assert!(parse_goods_receipt_line(&nobody).is_err());
 
-        // One pair of hands cannot both count and approve. The centre checks
-        // this too, so a node running an altered build cannot put unverified
-        // stock onto the books.
+        // One person may both count and accept (owner, 2026-10-04): whether
+        // that is allowed is the caller's permission, not the centre's.
         let mut alone = sound.clone();
         alone["verified_by"] = json!("checker-1");
-        assert!(parse_goods_receipt_line(&alone).is_err());
+        assert!(parse_goods_receipt_line(&alone).is_ok());
 
         // A line that names no document cannot be filed against one.
         let mut unnumbered = sound;

@@ -1,6 +1,6 @@
 # Retail Edge Foundation
 
-Inventory-first retail application with a Rust/Axum core, PostgreSQL append-only inventory ledger, extensible Commercial Minimum, Store Edge Sales/POS, and a dependency-free HTML frontend. **Movement facts are inventory authority.** `inventory_projection` is disposable and can be rebuilt entirely from the ledger.
+Inventory-first retail application with a Rust/Axum core, PostgreSQL append-only inventory ledger, extensible Commercial Minimum, Store Edge Sales/POS, and a React/Vite frontend suite deployed as static sites beside the API. **Movement facts are inventory authority.** `inventory_projection` is disposable and can be rebuilt entirely from the ledger.
 
 There are exactly **two edge types**:
 
@@ -17,7 +17,7 @@ Open the inventory-ledger diagram at [`docs/inventory-architecture.html`](docs/i
 
 ```text
 Central / HO                          Store Edge
-Commercial authoring                 HTML POS + RFID / inventory UI
+Commercial authoring                 POS + RFID / inventory UI
       │ publish immutable version              │
       └──────────────► published read model ───┤
                                                ▼
@@ -42,7 +42,7 @@ Requirements: Rust stable, PostgreSQL 16+ (or Docker), and Python 3 only for the
 ### PostgreSQL with Docker
 
 ```bash
-cp .env.example .env
+cp cloud.env.example .env
 docker compose up -d postgres
 cd backend
 cargo run --bin cloud
@@ -58,7 +58,7 @@ cd backend
 DATABASE_URL=postgresql:///inventory_edge_dev cargo run --bin cloud
 ```
 
-Do not run both server commands simultaneously. Axum serves `frontend/`; there is no Node/npm build step.
+Do not run both server commands simultaneously. The API serves no browser application of its own: `FRONTEND_DIR` names a built static bundle to serve (default `../api-only`, which holds nothing on purpose — deployed nodes use the same kind of empty directory, because a static host owns the browser and the node owns `/api/*`), and the browser surfaces live in Vite apps under `frontend-*`, built with `npm install && npm run build` and run for development with `npm run dev` (see [`docs/frontend-tanstack.md`](docs/frontend-tanstack.md)). The counter itself runs as the `pos-desktop` application.
 
 ### Checks and tests
 
@@ -68,7 +68,7 @@ cargo fmt --all --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --lib
 DATABASE_URL=postgresql:///postgres cargo test --test inventory_integration -- --nocapture
-cd ../frontend && node --check app.js
+make -C .. front
 ```
 
 `sqlx::test` creates isolated temporary databases and applies all migrations. The PostgreSQL user in `DATABASE_URL` therefore needs permission to create test databases.
@@ -88,12 +88,12 @@ A completion retry with the same idempotency key returns the original result and
 
 ## Deterministic demo data
 
-Deterministic migrations `0002_demo_seed.sql` dan `0009_destination_scoped_outbound.sql` menghasilkan:
+Deterministic migrations (dari `0002_demo_seed.sql` dan `0009_destination_scoped_outbound.sql` sampai rantai terakhir) menghasilkan:
 
 - 1 DC and 13 Store sites;
-- 112 operational pools and 224 pool/state ledger places (including 52 destination-scoped outbound leaves);
+- 99 operational pools — 60 at the DC and 39 across the 13 stores — counted by `backend/tests/inventory_integration.rs`;
 - 6 articles, 18 SKUs, 3,600 EPC/UNIT subjects, and 24 QUANTITY subjects;
-- warehouse, picked, packed, shipment, in-transit, DC reject, store-origin DC reject, store warehouse/floor/reject balances;
+- warehouse, picking, packed, shipment, in-transit, DC reject, store-origin DC reject, store warehouse/floor/reject balances;
 - current Missing, historical Lost, outbound/store movement chains;
 - 601 RFID sightings including deliberate placement mismatches;
 - CLOSED, ACTIVE, and REVIEW official counts.
@@ -114,7 +114,7 @@ A verified inventory seed contains 3,624 subjects and 3,705 opening/demo movemen
 | Controls | `replay_run`, `repost_run` | Diagnostic/audit metadata; never stock movements |
 | Commercial versions | `commercial_publication` | DRAFT/PUBLISHED effective versions pinned by sales |
 | Commercial rules | `commercial_tax_rule`, `commercial_assortment_rule`, `commercial_price_rule` | Tax, sellability, global prices, and store override prices |
-| Store Sales | `sale`, `sale_line`, `sale_payment`, `sale_number_sequence` | OPEN cart, offer snapshots, payments, and finalized sale references |
+| Store Sales | `sale`, `sale_line`, `sale_payment` | OPEN cart, offer snapshots, payments, and finalized sale references; `sale_number_sequence` is the sequence their numbers come from |
 
 PostgreSQL foreign keys ensure movement endpoints are real `inventory_place` records. No place exists for a navigation group. Triggers reject UPDATE or DELETE on ledger facts/groups, protect published Commercial rules, protect completed Sales, and prevent mutation of their children.
 
@@ -149,22 +149,34 @@ The movement kernel remains the only inventory write path. Sales never updates `
 ## Rust module layout
 
 ```text
-backend/src/
-├── lib.rs                 # exports cloud and edge namespaces
-├── cloud/
-│   ├── domain/            # PostgreSQL Cloud domain
-│   ├── application/       # Cloud DTOs, config, and sync application
-│   ├── postgres/          # PostgreSQL adapters and central MIGRATOR
-│   └── http/              # Cloud Axum routes
-├── edge/
-│   ├── domain/            # independent Edge inventory domain
-│   ├── contracts.rs       # Edge ports, requests, and node authority
-│   ├── sqlite.rs          # local SQLite ledger/projection
-│   └── http.rs            # DC/Store role routers
-└── bin/
-    ├── cloud.rs
-    ├── dc.rs
-    └── store.rs
+backend/
+├── src/
+│   ├── lib.rs             # exports the cloud, edge, and sync namespaces
+│   ├── cloud/
+│   │   ├── domain/        # PostgreSQL Cloud domain
+│   │   ├── application/   # Cloud DTOs, config, and sync application
+│   │   ├── postgres/      # PostgreSQL adapters and central MIGRATOR
+│   │   ├── http/          # Cloud Axum routes
+│   │   ├── intake/        # PO import and bank-statement intake
+│   │   └── reports/       # report specs and compilation
+│   ├── edge/
+│   │   ├── domain/        # independent Edge inventory domain
+│   │   ├── contracts.rs   # Edge ports, requests, and node authority
+│   │   ├── node.rs        # process identity and browser-asset serving
+│   │   ├── sqlite.rs      # local SQLite ledger/projection
+│   │   ├── sync.rs        # Edge upload/receive agent
+│   │   └── http.rs        # DC/Store role routers
+│   ├── sync/              # shared sync engine (port, handshake, transfer, workflow)
+│   └── bin/
+│       ├── cloud.rs
+│       ├── dc.rs
+│       └── store.rs
+└── crates/
+    ├── inventory-time-machine/
+    ├── object-store/
+    ├── pricing-engine/
+    ├── sim/
+    └── tax/
 ```
 
 ## API
@@ -211,7 +223,7 @@ backend/src/
 | GET | `/api/v1/inventory/control` | Health, last replay/repost, differences |
 | POST | `/api/v1/inventory/control/corrupt-projection` | Guarded disposable-environment test only |
 
-Manual movement accepts only `NORMAL_MOVE`, `SALE`, or `SUPPLIER_RETURN`. Count shortage/gain, Found, Lost, Disposal, Placement Correction, and completed POS Sales each have dedicated application paths.
+Manual movement accepts only `NORMAL_MOVE`, `RETURN_TO_WAREHOUSE`, or `RETURN_TO_DC` (`RETURN_TO_DC` is the same cause as `RETURN_TO_WAREHOUSE`, kept as the pre-0611 spelling). Count shortage/gain, Found, Lost, Disposal, Placement Correction, and completed POS Sales each have dedicated application paths.
 
 ## RFID handheld demo
 
@@ -250,7 +262,7 @@ A successful response distinguishes `raw_read_count` from `consolidated_sighting
 - **Missing:** origin, age, latest evidence, Found Here/Elsewhere, Confirm Lost, Dispose, and History.
 - **Control:** ledger health, fact count, projection differences, Replay, Repost, and guarded test corruption.
 
-The UI is deliberately white, table-first, and dependency-free. It does not show `Custody` or `Lost 30D`.
+The UI is white and table-first, built with React, TypeScript, TanStack Router/Query/Table and Vite. It does not show `Custody` or `Lost 30D`.
 
 ## Core invariants
 
@@ -290,7 +302,7 @@ The pure unit/property suites cover typed places, saleability, Store/DC transiti
 
 Isolated PostgreSQL and SQLite integration suites prove:
 
-- all 60 expected pools and all 13 stores;
+- all 99 expected pools and all 13 stores;
 - Store Warehouse→Floor conservation and concurrent EPC serialization;
 - movement/RFID/count/repost idempotency and conflicting-payload rejection;
 - evidence-backed correction, official count reconciliation, Missing/Lost, Time Machine, Replay/Repost, and append-only rejection;
@@ -306,10 +318,10 @@ Isolated PostgreSQL and SQLite integration suites prove:
 
 ## Known V1 limitations
 
-- The frontend is plain HTML/CSS/JavaScript by explicit foundation request, not React/TanStack.
+- The frontends are five separate React/TypeScript apps (`frontend-cloud`, `frontend-hub`, `frontend-store-new`, `frontend-employee`, `frontend-customer`) plus the framework-free wire contract in `frontend-contract`; there is no shared React package between them.
 - PostgreSQL Cloud and independent SQLite DC/Store persistence are implemented; the ordered sync protocol carries inventory facts, RFID evidence, and signed versioned auth/catalog/workflow commands.
-- Central/HO publication transport to offline Stores is not implemented yet; the demo uses one database/read model.
-- `INVENTORY_NODE_ROLE` identifies the process, but V1 does not yet bind a STORE process to one configured `site_id`; central/demo mode can operate any Store. Sales itself rejects DC sites and non-STORE channels.
+- Central/HO publication transport to offline Stores is implemented: an Edge uploads and applies publication facts itself (`backend/src/edge/sync.rs`), with the Cloud side in `backend/src/cloud/domain/sync.rs` and `backend/src/cloud/postgres/sync.rs`. The demo still runs from one database/read model.
+- `INVENTORY_NODE_ROLE` identifies the process, and a node is bound to one configured `site_id`: `backend/src/edge/node.rs` reads `INVENTORY_SITE_ID`, and `backend/src/edge/sqlite.rs` refuses to start when the stored `(role, site_id, node_id)` disagrees with the process. Sales itself rejects DC sites and non-STORE channels.
 - Opaque sessions, server-side RBAC, offline Edge identity leases, RFID device enrolment/revocation/rotation, CSRF, and login throttling are included. TLS termination, hardware-backed reader keys, enterprise SSO/passkeys, fiscal devices, and receipt printers remain deployment/integration concerns.
 - Payment records are local tender facts; there is no external payment authorization/capture/refund integration.
 - Completed-sale returns/exchanges are not implemented. OPEN-sale void is supported.

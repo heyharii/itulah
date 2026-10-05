@@ -56,8 +56,7 @@ export function StoresList() {
   // landing here at all with exactly one row and no management rights means
   // that row is the caller's own store. Go straight to its page rather than
   // a one-row list nobody would otherwise choose from.
-  const solePosting =
-    !canManage && items.length === 1 ? items[0].unit_id : null
+  const solePosting = !canManage && items.length === 1 ? items[0].unit_id : null
   useEffect(() => {
     if (solePosting === null) return
     void navigate({
@@ -94,7 +93,6 @@ export function StoresList() {
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search stores"
               className="h-8 w-48"
             />
             {canManage && (
@@ -146,9 +144,7 @@ function StoreRow({ store }: { store: StoreSummary }) {
           `AppLink`'s own registry check exists for paths declared as literals,
           which a per-store URL never is. */}
       <Link
-        to={
-          `/stores/${encodeURIComponent(store.unit_id)}` as LinkProps["to"]
-        }
+        to={`/stores/${encodeURIComponent(store.unit_id)}` as LinkProps["to"]}
         className="flex items-center gap-3.5 px-4 py-3 transition-colors hover:bg-soft-2"
       >
         <ReadinessRing
@@ -181,10 +177,10 @@ function StoreRow({ store }: { store: StoreSummary }) {
           <ServerDot state={store.server.state} />
           {serverStateLabel(store.server.state)}
         </span>
-        <span className="hidden w-28 shrink-0 text-right text-meta text-body md:block">
+        <span className="hidden w-40 shrink-0 text-right text-meta text-body md:block">
           {store.tills.waiting > 0
             ? `${store.tills.online}/${store.tills.active} online · ${store.tills.waiting} waiting`
-            : `${store.tills.online}/${store.tills.active} tills online`}
+            : `${store.tills.seats} ${store.tills.seats === 1 ? "seat" : "seats"} · ${store.tills.online}/${store.tills.active} online`}
         </span>
       </Link>
     </li>

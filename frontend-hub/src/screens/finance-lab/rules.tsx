@@ -78,7 +78,6 @@ export function Rules() {
             <Input
               value={contains}
               onChange={(e) => setContains(e.target.value)}
-              placeholder="TRSF E-BANKING DB"
             />
           </Field>
           <Field label="Categorise as" required className="min-w-[11rem]">
@@ -129,7 +128,7 @@ export function Rules() {
         ) : (
           <Table
             head={[
-              "When description contains",
+              "When Description Contains",
               "Categorise as",
               "From/To",
               "Created by",
@@ -158,7 +157,7 @@ export function Rules() {
       </Section>
 
       <Section title="Built in">
-        <Table head={["When description contains", "Suggests", ""]}>
+        <Table head={["When Description Contains", "Suggests", ""]}>
           {BUILT_IN.map(([k, v]) => (
             <Row key={k}>
               <Cell mono>{k}</Cell>

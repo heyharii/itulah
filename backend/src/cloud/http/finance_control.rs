@@ -5,8 +5,8 @@ use crate::cloud::{
     application::{AppError, AppState},
     domain::{role_allows, Role},
     postgres::{
-        self as infrastructure, BalanceSheet, ControlRow, FinanceCloseReadiness, LedgerTrace,
-        ProfitAndLoss, UnitResult,
+        self as infrastructure, BalanceSheet, ControlRow, ExpensesByMonth, FinanceCloseReadiness,
+        LedgerTrace, ProfitAndLoss, UnitResult, WithholdingRow,
     },
 };
 use axum::{
@@ -120,6 +120,48 @@ pub async fn profit_and_loss(
     ))
 }
 
+/// Expense accounts month by month, grouped by their heading in the chart.
+pub async fn expenses_by_month(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<RangeQuery>,
+) -> Result<Json<ExpensesByMonth>, AppError> {
+    allowed(&principal, Role::Supervisor, "read the expenses report")?;
+    Ok(Json(
+        infrastructure::expenses_by_month(&state.db, query.from, query.to, query.unit.as_deref())
+            .await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WithholdingQuery {
+    pub from: NaiveDate,
+    pub to: NaiveDate,
+    /// Whose books: a unit id. Absent means the whole company.
+    pub unit: Option<String>,
+    /// One tax template, `PPH23_SERVICE` and so on. Absent means all of them.
+    pub template: Option<String>,
+}
+
+/// Tax kept back from suppliers in the window, payment by payment.
+pub async fn withholding(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<WithholdingQuery>,
+) -> Result<Json<Vec<WithholdingRow>>, AppError> {
+    allowed(&principal, Role::Supervisor, "read the withholding report")?;
+    Ok(Json(
+        infrastructure::withholding_report(
+            &state.db,
+            query.from,
+            query.to,
+            query.unit.as_deref(),
+            query.template.as_deref(),
+        )
+        .await?,
+    ))
+}
+
 /// One row per unit. Their sum is the consolidated result, which is what makes
 /// unit reporting and consolidated reporting reconcile by construction.
 pub async fn unit_results(
@@ -130,6 +172,70 @@ pub async fn unit_results(
     allowed(&principal, Role::Supervisor, "read the unit results")?;
     Ok(Json(
         infrastructure::unit_results(&state.db, query.from, query.to).await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SalesByDivisionQuery {
+    pub from: NaiveDate,
+    pub to: NaiveDate,
+    /// A unit id. Absent means every unit.
+    pub unit: Option<String>,
+    /// An article tag code. Absent means every article.
+    pub category: Option<String>,
+}
+
+/// The client's 7Soft "Summary Penjualan per Divisi by HPP rata-rata": one row
+/// per division, their total, and the voided sales beside them.
+pub async fn sales_by_division(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<SalesByDivisionQuery>,
+) -> Result<Json<infrastructure::SalesByDivision>, AppError> {
+    allowed(&principal, Role::Supervisor, "read the sales by division")?;
+    Ok(Json(
+        infrastructure::sales_by_division(
+            &state.db,
+            query.from,
+            query.to,
+            query.unit.as_deref(),
+            query.category.as_deref(),
+        )
+        .await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SalesBreakdownQuery {
+    /// "tag", "division" or "store".
+    pub by: String,
+    pub from: NaiveDate,
+    pub to: NaiveDate,
+    /// A unit id. Absent means every unit.
+    pub unit: Option<String>,
+    /// A division code. Absent means every division.
+    pub division: Option<String>,
+}
+
+/// The Sales menu's breakdowns — by tag, by division, by store: the division
+/// report's figures per group, the shops' stock beside them, and the window
+/// in steps for the chart.
+pub async fn sales_breakdown(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<SalesBreakdownQuery>,
+) -> Result<Json<infrastructure::SalesBreakdown>, AppError> {
+    allowed(&principal, Role::Supervisor, "read the sales breakdowns")?;
+    Ok(Json(
+        infrastructure::sales_breakdown(
+            &state.db,
+            infrastructure::BreakdownBy::parse(&query.by)?,
+            query.from,
+            query.to,
+            query.unit.as_deref(),
+            query.division.as_deref(),
+        )
+        .await?,
     ))
 }
 
@@ -238,5 +344,15 @@ pub fn routes(router: Router<AppState>) -> Router<AppState> {
             get(profit_and_loss),
         )
         .route("/api/v1/finance/reports/unit-results", get(unit_results))
+        .route(
+            "/api/v1/finance/reports/expenses-by-month",
+            get(expenses_by_month),
+        )
+        .route("/api/v1/finance/reports/withholding", get(withholding))
+        .route(
+            "/api/v1/finance/reports/sales-by-division",
+            get(sales_by_division),
+        )
+        .route("/api/v1/reports/sales/breakdown", get(sales_breakdown))
         .route("/api/v1/finance/reports/dimension-results", get(dimension_results))
 }

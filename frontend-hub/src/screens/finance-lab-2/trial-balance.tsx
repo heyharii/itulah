@@ -89,7 +89,6 @@ export function TrialBalance() {
           <Day
             value={asOf}
             onChange={setAsOf}
-            placeholder="As at"
             label="As at"
             clearable={false}
             className="h-8 w-36"
@@ -118,7 +117,6 @@ export function TrialBalance() {
             <input
               value={needle}
               onChange={(event) => setNeedle(event.target.value)}
-              placeholder="Account code or name"
               aria-label="Search accounts"
               className="h-8 w-56 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink outline-none placeholder:text-body focus:border-accent"
             />

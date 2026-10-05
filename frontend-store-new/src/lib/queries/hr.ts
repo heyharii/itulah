@@ -33,6 +33,7 @@ import type {
   StaffingPlanView,
   TodayView,
   TrainingProgramView,
+  TrainingParticipantView,
   UniformIssuanceView,
 } from "@itulah/contract"
 
@@ -44,28 +45,23 @@ import type {
 /// line down; nothing here does, and the screens say so out loud rather than
 /// drawing an empty rota that reads as "nobody is working today".
 ///
-/// # One place, always
+/// # One unit, always
 ///
-/// Every read below takes a `place` and it is always this node's own
-/// `site_id`. There is no unit picker on this surface and there is not going
-/// to be one: a till is a shop, and the shop it is standing in is the only
-/// shop whose rota it has any business showing.
-///
-/// That the two ids are the same word is not luck. A shop is the only site of
-/// its store unit, and migration 0600 keyed each store unit like its shop
-/// (`store-07` is both), so for a till the `site_id` *is* the centre's
-/// `unit_id` and nothing here maps between them. It is a fact about shops,
-/// not a rule: head office's site (`dc`) belongs to unit `ho`, which is why
-/// the Gudang does not run this surface.
+/// HR rows are grouped by `unit_id`, while the till identity supplies a
+/// `site_id`. Those identifiers can differ: a premises is not an employment
+/// unit. The cloud's relay binding resolves the node's site to its unit and
+/// `GET /employees/me/reach` returns that bounded unit. The shell uses the
+/// site id only to request that scope; every HR query uses the returned
+/// `unit_id`, and no unit picker exists on this surface.
 ///
 /// # The server bounds these too, and that is the real control
 ///
-/// A store credential's reach is `Only(unit)`, so `/roster` and
-/// `/attendance-periods` refuse a place that is not the caller's, and
-/// `/employees` narrows to their posting whatever they ask for. Passing the
-/// place from here is how the screen says which shop it means; the refusal is
-/// what makes it true. Two of these routes take no place at all — see
-/// `pendingLeaveAt` — and that is the one gap this file has to close itself.
+/// The relay server bounds the caller's reach to the unit behind this node's
+/// site. `/roster`, `/attendance-periods` and other unit-filtered routes still
+/// check their requested unit against that reach; passing the bounded unit
+/// keeps their filters and the client-side queue fences aligned. Routes with
+/// no unit parameter remain server-bounded too, and queue rows are fenced by
+/// their returned `unit_id`.
 ///
 /// # The types are generated
 ///
@@ -74,17 +70,18 @@ import type {
 /// field renamed at the centre is a build failure here rather than a column of
 /// `undefined` on a manager's screen.
 
-/// The one shop these screens are about.
+/// The one HR unit these screens are about.
 ///
-/// Resolved once, by the workspace shell, from this node's own `site_id` — not
-/// chosen, not remembered, and not widened. A screen takes it as an argument
-/// rather than reading the node identity for itself, so there is exactly one
-/// place in this module where "which shop" is decided.
+/// Resolved once, by the workspace shell, from the cloud's relay-bounded
+/// `ReachView.unit_id` — not chosen, not remembered, and not widened. A screen
+/// takes it as an argument rather than resolving its own scope, so there is
+/// exactly one place in this module where "which unit" is decided.
 export interface StoreScope {
-  /// `org_place.id`, which is this node's `site_id`.
-  readonly id: string
-  /// What to call it on screen — the centre's name for the place when this
-  /// session is posted here, and the id itself when it is not.
+  /// The authoritative, relay-bounded UNIT from `ReachView`; HR queries use
+  /// this, never the till's premises id.
+  readonly unit_id: string
+  /// The centre's name for this unit, or its id when relaying cleared the name
+  /// because the signed-in person's own posting is elsewhere.
   readonly label: string
 }
 
@@ -154,6 +151,8 @@ export const hrKeys = {
   uniformsOf: (employee: string) =>
     [CENTRAL_KEY_PREFIX, "hr", "uniforms", employee] as const,
   training: () => [CENTRAL_KEY_PREFIX, "hr", "training"] as const,
+  trainingParticipants: (programId: string) =>
+    [CENTRAL_KEY_PREFIX, "hr", "training", "participants", programId] as const,
   changes: (place: string) =>
     [CENTRAL_KEY_PREFIX, "hr", "changes", place] as const,
   adjustments: (place: string, period: string) =>
@@ -1112,6 +1111,32 @@ export function nominate(input: {
   return cloud.post<TrainingProgramView>(
     `/api/v1/training-programs/${enc(input.programId)}/participants`,
     { employee_id: input.employeeId, reason: input.reason },
+  )
+}
+
+/// The server filters this roster to the current HR unit before it returns
+/// employee names or attendance details.
+export function trainingParticipants(
+  programId: string,
+  signal?: AbortSignal,
+): Promise<TrainingParticipantView[]> {
+  return cloud.get<TrainingParticipantView[]>(
+    `/api/v1/training-programs/${enc(programId)}/participants`,
+    { signal },
+  )
+}
+
+/// Record or correct one nominated employee's attendance. Each reason is
+/// retained in the participant's attendance history.
+export function recordTrainingAttendance(input: {
+  programId: string
+  employeeId: string
+  attended: boolean
+  reason: string
+}): Promise<TrainingParticipantView> {
+  return cloud.post<TrainingParticipantView>(
+    `/api/v1/training-programs/${enc(input.programId)}/participants/${enc(input.employeeId)}/attendance`,
+    { attended: input.attended, reason: input.reason },
   )
 }
 

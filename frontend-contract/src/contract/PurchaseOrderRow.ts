@@ -39,6 +39,11 @@ expected_arrival: string | null, line_count: number, gross_minor: number, discou
  */
 net_minor: number, expected_stock_units: number, 
 /**
+ * The quantity as the order says it, in the units it was bought in —
+ * "5 kodi", "10 kodi + 2 pcs". Absent only for an order with no lines.
+ */
+ordered_label: string | null, 
+/**
  * Quantity that answered the order. Excess is not in here.
  */
 received_stock_units: number, outstanding_stock_units: number, 
@@ -48,10 +53,14 @@ received_stock_units: number, outstanding_stock_units: number,
  */
 invoiced_stock_units: number, 
 /**
- * Quantity that arrived beyond the order and is waiting for a buyer to
- * say whether the company is keeping it.
+ * Quantity that arrived beyond the order, all of it.
  */
-excess_stock_units: number, fully_received: boolean, 
+excess_stock_units: number, 
+/**
+ * The part of it nobody has put on a purchase return yet (0710): what
+ * the order's buyer still has to send back.
+ */
+excess_pending_stock_units: number, fully_received: boolean, 
 /**
  * What the pieces received so far are worth, at the prices that applied
  * when each was accepted and net of the discount allocated to them —
@@ -69,4 +78,8 @@ fulfilled_at: string | null,
  * The delivery date has passed and pieces are still owed. The list pins
  * these to the top and marks them red.
  */
-overdue: boolean, };
+overdue: boolean, 
+/**
+ * Free-text terms and conditions written on the order (0824).
+ */
+terms_and_conditions?: string | null, };

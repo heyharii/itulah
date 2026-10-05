@@ -51,7 +51,7 @@
 
 use super::poster::{post, LineAccount, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
-use chrono::{Datelike, NaiveDate};
+use chrono::NaiveDate;
 use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
@@ -112,20 +112,6 @@ async fn money_layer_present(tx: &mut Transaction<'_, Postgres>) -> Result<bool,
             .fetch_one(&mut **tx)
             .await?;
     Ok(present.is_some())
-}
-
-/// `KK-26-09-00001`, in the client's own format.
-///
-/// Only `KK` is minted here: this function pays, and a payment is Kas Keluar
-/// whichever pattern asked for it. `KM` and `TF` belong to the receive and
-/// transfer paths, which are the cash lane's own.
-fn payment_number(year: i32, month: u32, sequence: i64) -> String {
-    format!(
-        "KK-{:02}-{:02}-{:05}",
-        (year % 100).unsigned_abs(),
-        month,
-        sequence
-    )
 }
 
 /// Turn one instruction into one ordinary PAY, posted.
@@ -243,27 +229,17 @@ pub(super) async fn payment_execution_pay(
     .execute(&mut **tx)
     .await?;
 
-    // The number, taken the way `cash_document_approve_in` takes it: an upsert
-    // whose UPDATE holds the row lock, so two payments in the same second
-    // cannot both read 41. Per kind per month, because the client's format
-    // carries the month and a gap has to be visible to the person who files
-    // the slips.
-    let month = instruction.doc_date.year() * 100 + instruction.doc_date.month() as i32;
-    let sequence: i32 = sqlx::query_scalar(
-        "INSERT INTO cash_document_sequence (kind, yyyymm, last_no)
-         VALUES ('PAY',$1,1)
-         ON CONFLICT (kind, yyyymm)
-         DO UPDATE SET last_no = cash_document_sequence.last_no + 1
-         RETURNING last_no",
+    // The number, from the same series a hand-keyed PAY is numbered by (0701):
+    // a payment is Kas Keluar whichever pattern asked for it, in the paying
+    // unit's books. The counter's upsert holds its row lock for this
+    // transaction, so two payments in the same second cannot both read 41.
+    let number = super::number_series::next_number(
+        &mut **tx,
+        super::number_series::CASH_OUT,
+        instruction.doc_date,
+        Some(&instruction.unit_id),
     )
-    .bind(month)
-    .fetch_one(&mut **tx)
     .await?;
-    let number = payment_number(
-        instruction.doc_date.year(),
-        instruction.doc_date.month(),
-        i64::from(sequence),
-    );
     sqlx::query(
         "UPDATE cash_document
             SET status='APPROVED', number=$2, approved_by=$3, approved_at=now()

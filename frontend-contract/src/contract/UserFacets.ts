@@ -6,7 +6,8 @@ import type { UserFacet } from "./UserFacet";
  */
 export type UserFacets = { roles: Array<UserFacet>, 
 /**
- * `ACTIVE` and `DISABLED`. A disabled account is kept rather than deleted
+ * `ACTIVE`, `LEFT_OPEN` (open, but its employee has left) and
+ * `DISABLED`. A disabled account is kept rather than deleted
  * — usernames are never released — so the count is the only way to see how
  * many of them there are.
  */

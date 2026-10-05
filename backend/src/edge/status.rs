@@ -21,6 +21,45 @@ use std::{
 };
 
 /// Everything the collector needs, gathered once at start.
+/// What a node of this role takes, for the heartbeat AND `/api/v1/health`.
+///
+/// One list, because two copies of it disagreed. The centre reads the
+/// HEARTBEAT's (`cloud::postgres::sync::origin_takes_goods_routes_tx`,
+/// `devices.rs`, `flow_stages`), so a capability that is only in `/health` is
+/// advertised to nobody — which is exactly what `store.inbound` was: a shop
+/// claimed it on one endpoint and not on the one head office asks.
+///
+/// A shop takes everything a Gudang does, plus the announcement that a koli is
+/// on its way (`inventory.store_inbound.announce.v1`).
+const DC_CAPABILITIES: [&str; 8] = [
+    "inventory.pools.owned",
+    "inventory.movements.read",
+    crate::sync::workflow::GOODS_ROUTES_CAPABILITY,
+    crate::sync::workflow::TRANSIT_SHORT_CAPABILITY,
+    crate::sync::workflow::CLOSE_SHORT_CAPABILITY,
+    crate::sync::flow::FLOWS_CAPABILITY,
+    crate::sync::device::TEST_PRINT_CAPABILITY,
+    crate::sync::node_ops::NODE_ACTIONS_CAPABILITY,
+];
+
+const STORE_CAPABILITIES: [&str; 8] = [
+    "inventory.pools.owned",
+    "inventory.movements.read",
+    crate::sync::workflow::STORE_INBOUND_CAPABILITY,
+    crate::sync::workflow::GOODS_ROUTES_CAPABILITY,
+    crate::sync::workflow::TRANSIT_SHORT_CAPABILITY,
+    crate::sync::flow::FLOWS_CAPABILITY,
+    crate::sync::device::TEST_PRINT_CAPABILITY,
+    crate::sync::node_ops::NODE_ACTIONS_CAPABILITY,
+];
+
+pub const fn node_capabilities(role: crate::edge::EdgeRole) -> &'static [&'static str] {
+    match role {
+        crate::edge::EdgeRole::Dc => &DC_CAPABILITIES,
+        crate::edge::EdgeRole::Store => &STORE_CAPABILITIES,
+    }
+}
+
 pub struct StatusSource {
     pub connection: Arc<Mutex<Connection>>,
     pub sync: Option<Arc<EdgeSyncHandle>>,
@@ -80,12 +119,21 @@ impl StatusSource {
                 .unwrap_or_default(),
             device_list: self.device_list(),
             // What this build takes, so head office sends it nothing newer.
-            capabilities: Some(vec![
-                crate::sync::workflow::GOODS_ROUTES_CAPABILITY.to_owned(),
-                crate::sync::flow::FLOWS_CAPABILITY.to_owned(),
-                crate::sync::device::TEST_PRINT_CAPABILITY.to_owned(),
-                crate::sync::node_ops::NODE_ACTIONS_CAPABILITY.to_owned(),
-            ]),
+            // One list, built by one function for both the heartbeat and
+            // `/api/v1/health` — they used to be written out twice and
+            // disagreed: health advertised `store.inbound` for a shop and the
+            // heartbeat, the only one the centre reads, did not.
+            capabilities: Some({
+                let role = self
+                    .connection
+                    .lock()
+                    .map(|connection| crate::edge::node::resident_role(&connection))
+                    .unwrap_or(crate::edge::EdgeRole::Store);
+                node_capabilities(role)
+                    .iter()
+                    .map(|capability| (*capability).to_owned())
+                    .collect()
+            }),
             link_outages: self.link_outages(),
             action_results: self
                 .connection

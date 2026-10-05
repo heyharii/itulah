@@ -15,6 +15,7 @@
 //! a hand-written journal entry landed in an affiliate account, and the answer to
 //! that is to look at the entry, which the movements below link to.
 
+use super::scope::Scope;
 use crate::cloud::{
     application::{AppError, AppState},
     postgres::{self as infrastructure, InterunitReport},
@@ -26,7 +27,16 @@ use axum::{
 };
 
 /// Both sides of every pair, and the twenty most recent inter-unit lines.
-pub async fn pairs(State(state): State<AppState>) -> Result<Json<InterunitReport>, AppError> {
+pub async fn pairs(
+    State(state): State<AppState>,
+    scope: Scope,
+) -> Result<Json<InterunitReport>, AppError> {
+    // Every pair is head office's view; a shop reads itself at `store`.
+    if !scope.is_everywhere() {
+        return Err(AppError::Forbidden(
+            "every unit's inter-unit pairs are head office's; read your own unit instead".into(),
+        ));
+    }
     Ok(Json(infrastructure::interunit_pairs(&state.db).await?))
 }
 
@@ -35,8 +45,10 @@ pub async fn pairs(State(state): State<AppState>) -> Result<Json<InterunitReport
 /// premises'.
 pub async fn store(
     State(state): State<AppState>,
+    scope: Scope,
     Path(unit): Path<String>,
 ) -> Result<Json<InterunitReport>, AppError> {
+    scope.require_unit(&unit)?;
     Ok(Json(
         infrastructure::interunit_store_view(&state.db, &unit).await?,
     ))

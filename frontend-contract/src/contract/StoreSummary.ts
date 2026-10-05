@@ -7,19 +7,19 @@ import type { StoreTills } from "./StoreTills";
 /**
  * One store, as the Stores list shows it.
  */
-export type StoreSummary = {
+export type StoreSummary = { 
 /**
  * Internal. Routes take it; screens show `code` and `name`.
  */
-unit_id: string, code: string, name: string,
+unit_id: string, code: string, name: string, 
 /**
  * `GETTING_READY`, `OPEN` or `CLOSED`, derived (0630).
  */
-status: string, opened_at: string | null,
+status: string, opened_at: string | null, 
 /**
  * The store's shop. Absent only for a store unit with no premises yet.
  */
-site_id: string | null, site_code: string | null, city: string | null,
+site_id: string | null, site_code: string | null, city: string | null, 
 /**
  * IANA name.
  */

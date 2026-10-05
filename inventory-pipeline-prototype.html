@@ -1,0 +1,674 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Goods pipeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Goods pipeline: follow what was ordered until it leaves the Gudang.
+   Purchase order → article → allotment → store, with one column per step:
+   Ordered · Received · Unallotted · Allotted · Picked · Packed · In transit.
+   Stores' own stock is not here (the place tree is HO's view).
+   Hub tokens ("airy charcoal"), Inter 14, hairlines, nothing below 14px.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --ink:#20242c; --text:#394150; --body:#626b78; --mute:#737c89; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f9fb; --soft-2:#f0f2f5; --sel:#eef1f5;
+  --hairline:#e7eaf0; --hairline-2:#dce1e8; --rule:#f0f2f5; --guide:#e3e6eb;
+  --accent:#2563eb; --accent-ink:#1d4ed8; --accent-bg:#eff5ff;
+  --warn:#d99a2b; --warn-fg:#b45309; --ok:#22a55a;
+  --rail:#242526; --rail-2:#303234; --rail-3:#393b3d; --rail-ink:#fff; --rail-text:#c3c4c7; --rail-mute:#a1a3a8; --rail-hair:#343638;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --ink:#f1f3f6; --text:#d3d7de; --body:#a4aab4; --mute:#8b919b; --faint:#5b616b; --line-ico:#8b919b;
+  --canvas:#17181a; --soft:#1e2023; --soft-2:#26282c; --sel:#2a2d32;
+  --hairline:#2c2f34; --hairline-2:#363a40; --rule:#232528; --guide:#33363c;
+  --accent:#4f83f5; --accent-ink:#8cb0ff; --accent-bg:#1c2a44; --warn-fg:#f0b44f;
+  --rail:#101112; --rail-2:#1c1d1f; --rail-3:#26272a; --rail-hair:#222325; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --ink:#f1f3f6; --text:#d3d7de; --body:#a4aab4; --mute:#8b919b; --faint:#5b616b; --line-ico:#8b919b;
+  --canvas:#17181a; --soft:#1e2023; --soft-2:#26282c; --sel:#2a2d32;
+  --hairline:#2c2f34; --hairline-2:#363a40; --rule:#232528; --guide:#33363c;
+  --accent:#4f83f5; --accent-ink:#8cb0ff; --accent-bg:#1c2a44; --warn-fg:#f0b44f;
+  --rail:#101112; --rail-2:#1c1d1f; --rail-3:#26272a; --rail-hair:#222325; color-scheme:dark}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--canvas)}
+body{font:400 14px/20px Inter,system-ui,sans-serif;color:var(--text);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer;text-align:left}
+svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.k{color:var(--mute)} .w{color:var(--warn-fg)}
+
+.proto{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:8px 20px;background:var(--soft);border-bottom:1px solid var(--hairline);color:var(--body)}
+.proto b{color:var(--ink);font-weight:600}
+.tg{display:flex;align-items:center;gap:8px}
+.seg{display:flex;gap:2px;padding:3px;border-radius:9px;background:var(--canvas);box-shadow:inset 0 0 0 1px var(--hairline);overflow-x:auto;scrollbar-width:none}
+.seg button{height:28px;padding:0 10px;border-radius:7px;color:var(--body);font-weight:500;white-space:nowrap}
+.seg button[aria-pressed=true]{background:var(--soft-2);color:var(--ink)}
+.proto .sp{flex:1}
+.proto .th{height:30px;width:34px;border-radius:8px;box-shadow:inset 0 0 0 1px var(--hairline);text-align:center}
+
+.app{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:calc(100vh - 45px)}
+.side{background:var(--rail);color:var(--rail-text);padding:14px 10px;display:flex;flex-direction:column;gap:1px;position:sticky;top:45px;height:calc(100vh - 45px);overflow:auto}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 8px 16px;color:var(--rail-ink);font-weight:600;font-size:15px}
+.mark{width:26px;height:26px;border-radius:7px;background:#000;box-shadow:inset 0 0 0 1px #3a3b3d;display:grid;place-items:center;font-weight:600;color:#fff;position:relative}
+.mark::after{content:"";position:absolute;right:4px;bottom:5px;width:5px;height:5px;border-radius:50%;background:#2563eb}
+.row{display:flex;align-items:center;gap:10px;height:34px;padding:0 8px;border-radius:8px;color:var(--rail-text);white-space:nowrap;width:100%}
+.row:hover{background:var(--rail-2);color:var(--rail-ink)}
+.row .i{color:var(--rail-mute)}
+.row.on{color:var(--rail-ink);font-weight:500}
+.row.on .i{color:var(--rail-ink)}
+.row .ct{margin-left:auto;color:var(--rail-mute)}
+.subs{margin:2px 0 8px 16px;padding-left:12px;border-left:1px solid var(--rail-hair);display:flex;flex-direction:column;gap:1px}
+.sub{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:7px;color:var(--rail-text);width:100%}
+.sub:hover{background:var(--rail-2);color:var(--rail-ink)}
+.sub[aria-current]{background:var(--rail-3);color:var(--rail-ink);font-weight:500}
+
+main{min-width:0;padding:22px 32px 96px}
+.wrap{max-width:1240px;margin:0 auto}
+.page{animation:page-in .3s var(--ease-out)}
+.page.still{animation:none}
+@keyframes page-in{from{opacity:0;transform:translateY(6px)}}
+.hd{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.hd h1{font-size:17px;line-height:24px;font-weight:600;color:var(--ink);letter-spacing:-.02em}
+.hd .pcs{color:var(--body);margin-bottom:1px}
+.hd .act{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-radius:8px;font-weight:500;white-space:nowrap;box-shadow:inset 0 0 0 1px var(--hairline-2);color:var(--text);background:var(--canvas)}
+.btn:hover{background:var(--soft)}
+.btn .i{color:var(--line-ico)}
+.tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.find{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border:1px solid var(--hairline-2);border-radius:8px;flex:1;min-width:220px;max-width:420px}
+.find .i{color:var(--line-ico)}
+.find input{flex:1;min-width:0;border:0;outline:0;background:none;color:var(--ink)}
+.find input::placeholder{color:var(--mute)}
+.selbox{height:36px;padding:0 10px;border:1px solid var(--hairline-2);border-radius:8px;background:var(--canvas);color:var(--ink);font-weight:500}
+.tools .sum{color:var(--mute);margin-left:auto}
+
+/* the pipeline table: a tree with one column per step */
+.pl{border-top:1px solid var(--hairline);overflow-x:auto}
+.pl .h,.pl .r{display:grid;grid-template-columns:minmax(260px,1.7fr) repeat(7,minmax(84px,1fr));column-gap:12px;align-items:center;padding:0 12px;min-width:980px}
+.pl .h{height:auto;min-height:44px;padding-top:8px;padding-bottom:8px;color:var(--mute);font-weight:500;border-bottom:1px solid var(--hairline-2);position:sticky;top:0;background:var(--canvas);z-index:2}
+.pl .h span{text-align:right;line-height:18px}
+.pl .h span:first-child{text-align:left}
+.pl .h small{display:block;font-size:14px;color:var(--faint);font-weight:400}
+.pl .r{min-height:48px;border-bottom:1px solid var(--rule);cursor:pointer;transition:background-color .15s}
+.pl .r:hover{background:var(--soft)}
+.pl .r .c{text-align:right;font-variant-numeric:tabular-nums;color:var(--text);white-space:nowrap}
+.pl .r .c.z{color:var(--faint)}
+.pl .r .c.w{color:var(--warn-fg);font-weight:500}
+.pl .nm{position:relative;display:flex;align-items:center;gap:6px;min-width:0}
+.pl .nm .l{flex:none;white-space:nowrap}
+.pl .nm .s2{min-width:0}
+.pl .nm .s2{color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl .r[data-d="0"]{min-height:56px}
+.pl .r[data-d="0"] .l{font-weight:600;color:var(--ink)}
+.pl .r[data-d="0"] .c{font-weight:600;color:var(--ink)}
+.pl .r[data-d="0"] .c.z{color:var(--faint);font-weight:400}
+.pl .r[data-d="1"] .l{font-weight:500;color:var(--ink)}
+.pl .r[data-d="2"] .l{color:var(--text)}
+.pl .r[data-d="3"] .l{color:var(--body)}
+.edges{display:flex;align-items:stretch;gap:10px;margin:4px 0 16px;flex-wrap:wrap}
+.edge{display:flex;flex-direction:column;gap:2px;padding:10px 14px;border-radius:10px;box-shadow:inset 0 0 0 1px var(--hairline);min-width:200px;flex:1;text-align:left}
+button.edge:hover{background:var(--soft)}
+.edge.here{background:var(--soft);box-shadow:none}
+.edge b{font-size:20px;line-height:26px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.edges .arrow{align-self:center;color:var(--faint)}
+.flow{margin:6px 0 8px;padding:14px 16px 12px;border:1px solid var(--hairline);border-radius:12px}
+.flh{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;margin-bottom:10px}
+.flh span:first-child{font-weight:600;color:var(--ink)}
+.fr{display:flex;align-items:stretch;gap:4px;overflow-x:auto;scrollbar-width:none}
+.fr.back{margin-top:10px;padding-top:10px;border-top:1px solid var(--rule);align-items:center}
+.fr .bl{color:var(--mute);width:112px;flex:none}
+.fs{flex:1;min-width:112px;display:flex;flex-direction:column;gap:1px;padding:8px 10px;border-radius:9px;transition:background-color .15s}
+.fs.sm{flex:0 1 150px}
+.fs:hover:not(:disabled){background:var(--soft)}
+.fs.on{background:var(--sel)}
+.fs:disabled{cursor:default}
+.fs .fl{color:var(--body);white-space:nowrap}
+.fs b{font-size:20px;line-height:26px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.fs b.w{color:var(--warn-fg)}
+.fs:disabled b{color:var(--faint)}
+.fs .fk{color:var(--mute);white-space:nowrap}
+.fr .ar{align-self:center;color:var(--faint);flex:none}
+.sec .sums{margin-left:auto;display:flex;gap:18px;color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap}
+.sec .sums .k{font-weight:400}
+.sec .sh .k{white-space:nowrap}
+.pl.whole .h,.pl.whole .r{grid-template-columns:minmax(360px,2.4fr) 120px 120px;min-width:600px}
+.pl.whole .r[data-d="1"] .l{font-weight:600;color:var(--ink)}
+.pl.whole .r[data-d="1"] .c:nth-child(2){font-weight:600;color:var(--ink)}
+.pl.whole .r[data-d="1"]{min-height:54px;border-top:1px solid var(--hairline)}
+.pl.whole .r[data-d="2"] .l{font-weight:500;color:var(--ink)}
+.pl.tree8 .h,.pl.tree8 .r{grid-template-columns:minmax(280px,1.8fr) repeat(8,minmax(78px,1fr));min-width:1100px}
+.pl .r.tot.top{background:var(--soft);border-top:0;border-bottom:1px solid var(--hairline-2);min-height:56px}
+.pl .r.tot.top .l{font-size:15px}
+.pl .r.tot.top .c{font-size:15px}
+.pl .r.tot.top .c.w{color:var(--warn-fg)}
+.wt{max-width:760px;border-top:1px solid var(--hairline-2)}
+.wh,.wr{display:grid;grid-template-columns:minmax(0,1fr) 140px;align-items:center;column-gap:16px;padding:0 12px}
+.wh{height:40px;color:var(--mute);font-weight:500;border-bottom:1px solid var(--hairline)}
+.wh span:last-child,.wq{text-align:right;font-variant-numeric:tabular-nums}
+.wr{min-height:44px;cursor:pointer;transition:background-color .15s}
+.wr:hover{background:var(--soft)}
+.wn{position:relative;display:flex;align-items:center;gap:6px;min-width:0;height:100%;align-self:stretch}
+.wn .g{position:absolute;top:0;bottom:0;border-left:1px solid var(--guide)}
+.wn .tw{width:20px;height:20px}
+.wn .l{flex:none;white-space:nowrap}
+.wn .s2{color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.wq{color:var(--text)}
+.wq.w{color:var(--warn-fg)}
+.wr[data-d="0"]{min-height:52px;background:var(--soft);border-bottom:1px solid var(--hairline)}
+.wr[data-d="0"] .l,.wr[data-d="0"] .wq{font-size:15px;font-weight:600;color:var(--ink)}
+.wr[data-d="1"]{border-top:1px solid var(--rule)}
+.wr[data-d="1"] .l,.wr[data-d="1"] .wq{font-weight:600;color:var(--ink)}
+.wr[data-d="1"] .wq.w{color:var(--warn-fg)}
+.wr[data-d="2"] .l{font-weight:500;color:var(--ink)}
+.wr[data-d="3"] .l{color:var(--text)}
+.wr[data-d="3"] .wq{color:var(--body)}
+.sec{margin-top:18px}
+.sec .sh{display:flex;align-items:baseline;gap:10px;width:100%;padding:10px 4px;border-bottom:1px solid var(--hairline)}
+.sec .sh .tw{align-self:center}
+.sec .st1{font-size:15px;font-weight:600;color:var(--ink)}
+.sec.shut .sh:hover{background:var(--soft)}
+.pl.tx{border-top:0}
+.pl.tx .h,.pl.tx .r{grid-template-columns:minmax(320px,2.2fr) repeat(4,minmax(90px,1fr)) minmax(150px,1.2fr);min-width:960px}
+.pl.tx .h{position:static;min-height:40px}
+.pl.tx .h span:last-child,.pl.tx .r .c:last-child{text-align:left;padding-left:12px}
+.pl.tx .r[data-d="1"] .l{font-weight:500;color:var(--ink)}
+.pl.tx .r[data-d="1"] .c{font-weight:500;color:var(--ink)}
+.pl.tx .r[data-d="1"] .c.z{color:var(--faint);font-weight:400}
+.pl.tx .r[data-d="1"] .c.w{color:var(--warn-fg)}
+.pl.tx .r[data-d="2"] .l,.pl.tx .r[data-d="3"] .l{color:var(--text);font-weight:400}
+.st{display:inline-flex;align-items:center;gap:7px;font-weight:500;color:var(--text)}
+.dot.info{background:var(--accent)}
+.empty{padding:14px 12px;color:var(--mute)}
+.pl.place .h,.pl.place .r{grid-template-columns:minmax(320px,2.2fr) 110px 100px 110px;min-width:680px}
+.pl .r.tot{cursor:default;border-top:1px solid var(--hairline-2);border-bottom:0;min-height:52px}
+.pl .r.tot .l,.pl .r.tot .c{font-weight:600;color:var(--ink)}
+.guide{position:absolute;top:-16px;bottom:-16px;border-left:1px solid var(--guide)}
+.tw{width:20px;height:20px;display:inline-grid;place-items:center;border-radius:5px;color:var(--mute);flex:none;transition:transform .22s var(--ease-out),background-color .15s}
+.tw:hover{background:var(--soft-2);color:var(--ink)}
+.tw.shut{transform:rotate(-90deg)}
+.sp20{width:20px;flex:none;display:inline-block}
+.dot{width:6px;height:6px;border-radius:50%;flex:none;background:var(--faint)}
+.dot.w{background:var(--warn)} .dot.ok{background:var(--ok)}
+.foot{margin-top:14px;color:var(--mute)}
+.stockpage{max-width:640px}
+.stockpage p{margin-top:10px;color:var(--body)}
+.stockpage a{color:var(--accent-ink)}
+
+@media (max-width:980px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .side{position:static;height:auto;flex-direction:row;flex-wrap:wrap;gap:4px;padding:10px 16px}
+  .side .brand,.side .row:not(.on){display:none}
+  .side .subs{flex-direction:row;margin:0;border:0;padding:0}
+  main{padding:18px 16px 80px}
+  .proto{padding:8px 16px;gap:10px}
+  .tools .sum{margin-left:0}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="proto">
+  <b>Goods pipeline</b>
+  <div class="tg">View <div class="seg" data-tg="view"><button data-v="whole">Whole business ★</button><button data-v="tree">By order</button><button data-v="tx">Sections</button><button data-v="place">Place</button></div></div>
+  <div class="tg" id="topTg">Group by <div class="seg" data-tg="top"><button data-v="po">Purchase order</button><button data-v="sup">Supplier</button><button data-v="art">Article</button></div></div>
+  <div class="tg" id="modeTg">Numbers <div class="seg" data-tg="mode"><button data-v="wait">waiting at each step</button><button data-v="done">done so far</button></div></div>
+  <div class="sp"></div>
+  <button class="th" id="theme" title="Light / dark">◐</button>
+</div>
+<div class="app">
+  <nav class="side" id="side" aria-label="Sidebar"></nav>
+  <main><div class="wrap" id="main"></div></main>
+</div>
+
+<script>
+const I = {
+  home:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
+  cart:'<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.2a1.5 1.5 0 0 0 1.5 1.3h8.6a1.5 1.5 0 0 0 1.5-1.2L21 8H6"/>',
+  shirt:'<path d="M8 3 3 6l2 5 2-1v11h10V10l2 1 2-5-5-3a4 4 0 0 1-8 0z"/>',
+  forklift:'<path d="M4 17V7h6l3 5v5M13 12h4V4M17 17h4"/><circle cx="6" cy="18" r="2"/><circle cx="12" cy="18" r="2"/>',
+  box:'<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  tag:'<path d="M3 3h8l10 10-8 8L3 11z"/><circle cx="7.5" cy="7.5" r="1.3"/>',
+  receipt:'<path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
+  wallet:'<path d="M3 7a2 2 0 0 1 2-2h13v4"/><path d="M3 7v11a2 2 0 0 0 2 2h15V9H5a2 2 0 0 1-2-2z"/>',
+  person:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  building:'<path d="M4 21V4h10v17M14 9h6v12M8 8h2M8 12h2M8 16h2"/>',
+  cog:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+  chev:'<path d="m6 9 6 6 6-6"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  down:'<path d="M12 4v12M6 10l6 6 6-6M4 20h16"/>',
+}
+const ic = (k) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${I[k] || ""}</svg>`
+const nf = new Intl.NumberFormat("id-ID"), n = (v) => nf.format(v)
+
+/* ── the data: what was ordered, and where every piece of it has got to ──
+   A store line under an allotment is [allotted, picked, packed, in transit].
+   Each step can only hold what the step before it let through.             */
+const POS = [
+  {po:"220926-001", sup:"Sepatu Sejahtera, CV", date:"arrived 23 Sep", day:23, arts:[
+    {c:"11020341", a:"Sneaker Arka Low", ord:240, rec:240, alts:[
+      {id:"ALT-00000031", date:"24 Sep", day:24, st:[["Kemang",40,40,40,40],["Senopati",30,30,30,30],["PIK Avenue",40,40,40,40]]},
+      {id:"ALT-00000038", date:"27 Sep", day:27, st:[["Bandung Dago",30,30,20,0],["Surabaya Galaxy",30,12,0,0]]},
+    ]},
+    {c:"11020377", a:"Loafer Senja", ord:120, rec:116, alts:[
+      {id:"ALT-00000032", date:"24 Sep", day:24, st:[["Kemang",24,24,24,24],["PIK Avenue",24,24,24,24],["Bintaro Xchange",20,20,12,0]]},
+    ]},
+  ]},
+  {po:"240926-003", sup:"Konveksi Bara, CV", date:"arrived 25 Sep", day:25, arts:[
+    {c:"21010208", a:"Kemeja Linen Bara", ord:300, rec:300, alts:[
+      {id:"ALT-00000035", date:"26 Sep", day:26, st:[["Kemang",30,30,30,30],["Senopati",30,30,30,30],["PIK Avenue",30,30,30,30],["Bintaro Xchange",30,30,30,30],["Bandung Dago",30,30,30,0],["Surabaya Galaxy",30,30,0,0]]},
+    ]},
+    {c:"21030044", a:"Kaos Oversize Nara", ord:600, rec:600, alts:[
+      {id:"ALT-00000036", date:"26 Sep", day:26, st:[["Kemang",80,80,80,0],["Senopati",80,80,40,0],["PIK Avenue",100,100,0,0],["Bintaro Xchange",60,40,0,0],["Bandung Dago",80,0,0,0],["Surabaya Galaxy",60,0,0,0]]},
+    ]},
+  ]},
+  {po:"260926-002", sup:"Tas Rupa, UD", date:"arrived 27 Sep", day:27, arts:[
+    {c:"31010007", a:"Tote Kanvas Rupa", ord:200, rec:200, unset:50, alts:[]},
+  ]},
+  {po:"270926-001", sup:"Sepatu Sejahtera, CV", date:"due 3 Oct", arts:[
+    {c:"11040112", a:"Sandal Rinjani", ord:400, rec:0, alts:[]},
+    {c:"11020341", a:"Sneaker Arka Low", ord:120, rec:0, alts:[]},
+  ]},
+]
+
+const RETURNS = [
+  {id:"RET-270926-002", from:"Senopati", q:46, insp:0, road:true, day:27},
+  {id:"RET-260926-004", from:"Kemang", q:12, insp:0, day:26},
+  {id:"RET-260926-005", from:"PIK Avenue", q:16, insp:0, day:26},
+  {id:"RET-250926-001", from:"Bandung Dago", q:20, insp:0, day:25},
+  {id:"RET-250926-003", from:"Surabaya Galaxy", q:26, insp:0, day:25},
+]
+const STORES_ALL = ["Kemang", "Senopati", "PIK Avenue", "Bintaro Xchange", "Bandung Dago", "Surabaya Galaxy"]
+const SUPS = [...new Set(POS.map(p => p.sup))]
+/* ── numbers for any row ────────────────────────────────────────── */
+const Z = () => ({ord:0, rec:0, un:0, al:0, pk:0, pa:0, tr:0})
+const add = (a, b) => { for (const k in a) a[k] += b[k] || 0; return a }
+const storeNums = (s) => ({al:s[1], pk:s[2], pa:s[3], tr:s[4]})
+const storeOk = (st) => !state.f.store || st === state.f.store
+const altNums = (t) => t.st.filter(s => storeOk(s[0])).reduce((a, s) => add(a, storeNums(s)), Z())
+const artNums = (x) => add(x.alts.reduce((a, t) => add(a, altNums(t)), Z()), {ord:x.ord, rec:x.rec, un:x.unset || 0})
+const sumNums = (xs, f) => xs.reduce((a, x) => add(a, f(x)), Z())
+
+/* Eight columns: one per step of the line. "Waiting" counts what sits at
+   each step now, so a row adds up to Ordered; "done so far" counts what has
+   got at least that far. Before allotment nothing belongs to a store, so
+   with a store chosen the first four read "—". */
+function cols(m, kind) {
+  const blank = kind === "alt" || kind === "store" || !!state.f.store
+  const unal = m.rec - m.un - m.al
+  const pre = state.mode === "done" ? [m.ord, m.rec, m.rec - m.un, unal] : [m.ord, m.ord - m.rec, m.un, unal]
+  const post = state.mode === "done" ? [m.al, m.pk, m.pa, m.tr] : [m.al - m.pk, m.pk - m.pa, m.pa - m.tr, m.tr]
+  return [...(blank ? [null, null, null, null] : pre), ...post]
+}
+const HEAD = {
+  done: [["Ordered",""],["Received",""],["Set up",""],["Unallotted","set up, no store yet"],["Allotted",""],["Picked",""],["Packed",""],["In transit","left HO"]],
+  wait: [["Ordered",""],["Awaited","at the supplier"],["Not set up","received"],["Unallotted","in the warehouse"],["To pick","allotted"],["To pack","picked"],["To dispatch","packed"],["In transit","left HO"]],
+}
+const WARN = {wait:[2, 3], done:[3]}
+
+/* ── the tree: order → article → allotment → store ──────────────── */
+function tree() {
+  const pos = POS.filter(p => !state.f.sup || p.sup === state.f.sup)
+  const artNode = (x, pre) => ({id:pre + x.c, kind:"art", name:x.a, sub:x.c, nums:artNums(x), note:x.rec < x.ord && x.rec > 0 ? `${n(x.ord - x.rec)} awaited` : "",
+    kids:x.alts.filter(t => t.st.some(s => storeOk(s[0]))).map(t => { const st = t.st.filter(s => storeOk(s[0]))
+      return {id:pre + x.c + t.id, kind:"alt", name:t.id, sub:`${t.date} · ${st.length} store${st.length > 1 ? "s" : ""}`, nums:altNums(t),
+        kids:st.map(s => ({id:pre + x.c + t.id + s[0], kind:"store", name:s[0], nums:add(Z(), storeNums(s))}))} })})
+  const keep = (node) => !state.f.store || node.kids?.length
+  const poNode = (p, pre = "") => { const arts = p.arts.map(x => artNode(x, pre + p.po)).filter(keep)
+    return {id:pre + p.po, kind:"po", name:p.po, sub:`${state.top === "sup" ? "" : p.sup + " · "}${p.date}`, nums:sumNums(arts, a => a.nums), kids:arts} }
+  if (state.top === "po") return pos.map(p => poNode(p)).filter(keep)
+  if (state.top === "sup") return [...new Set(pos.map(p => p.sup))].map(sp => {
+    const ps = pos.filter(p => p.sup === sp).map(p => poNode(p, "s-" + sp)).filter(keep)
+    return {id:"s-" + sp, kind:"sup", name:sp, sub:`${ps.length} order${ps.length === 1 ? "" : "s"}`, nums:sumNums(ps, p => p.nums), kids:ps}
+  }).filter(keep)
+  const byArt = {}
+  for (const p of pos) for (const x of p.arts) (byArt[x.c] ||= {c:x.c, a:x.a, lines:[]}).lines.push({p, x})
+  return Object.values(byArt).map(g => { const ls = g.lines.map(({p, x}) => ({...artNode(x, "a-" + g.c + p.po), name:p.po, sub:`${p.sup} · ${p.date}`})).filter(keep)
+    return {id:"a-" + g.c, kind:"arta", name:g.a, sub:`${g.c} · ${ls.length} order${ls.length === 1 ? "" : "s"}`, nums:sumNums(ls, l => l.nums), kids:ls} }).filter(keep)
+}
+
+const state = {view:"whole", top:"po", mode:"wait", page:"pipeline", open:{}, openOnly:true, f:{sup:"", store:""}, focus:""}
+const isOpen = (x, d) => state.open[x.id] ?? d < 1
+
+function rows(nodes) {
+  const out = [], warnAt = WARN[state.mode]
+  const cellsOf = (vals, kind, strong) => vals.map((v, i) => v == null ? `<span class="c z"></span>` : `<span class="c${v === 0 ? " z" : ""}${warnAt.includes(i) && v > 0 && kind !== "store" ? " w" : ""}">${v === 0 ? "—" : n(v)}</span>`).join("")
+  const tot = nodes.reduce((a, x) => add(a, x.nums), Z())
+  out.push(`<div class="r tot top"><span class="nm"><span class="sp20"></span><span class="l">Everything</span><span class="s2">${state.f.store ? state.f.store + " only" : state.f.sup ? state.f.sup + " only" : "rolled up from every row below"}</span></span>${cellsOf(cols(tot, "tot"), "tot")}</div>`)
+  const walk = (x, d) => {
+    const open = x.kids?.length ? isOpen(x, d) : false
+    const guides = Array.from({length: d}, (_, i) => `<span class="guide" style="left:${9 + i * 22}px"></span>`).join("")
+    const tw = x.kids?.length ? `<button class="tw${open ? "" : " shut"}" data-t="${x.id}">${ic("chev")}</button>` : `<span class="sp20"></span>`
+    out.push(`<div class="r" data-d="${d}" data-row="${x.id}"><span class="nm" style="padding-left:${d * 22}px">${guides}${tw}<span class="l">${x.name}</span>${x.sub ? `<span class="s2">${x.sub}</span>` : ""}${x.note ? `<span class="w" style="white-space:nowrap">· ${x.note}</span>` : ""}</span>${cellsOf(cols(x.nums, x.kind), x.kind)}</div>`)
+    if (open) x.kids.forEach(k => walk(k, d + 1))
+  }
+  nodes.forEach(x => walk(x, 0))
+  return out.join("")
+}
+function pipelinePage() {
+  const nodes = tree(), head = HEAD[state.mode]
+  const opt = (list, cur, all) => `<option value="">${all}</option>` + list.map(v => `<option${v === cur ? " selected" : ""}>${v}</option>`).join("")
+  const back = RETURNS.filter(r => storeOk(r.from))
+  return `<div class="page"><div class="hd"><h1>Pipeline</h1><span class="pcs">Every order, down to the store, with each step as a column</span>
+      <div class="act"><button class="btn">${ic("down")}Export</button></div></div>
+    <div class="tools"><label class="find">${ic("search")}<input placeholder="Search order, article, allotment or store" /></label>
+      <select class="selbox" data-f="sup" aria-label="Supplier">${opt(SUPS, state.f.sup, "All suppliers")}</select>
+      <select class="selbox" data-f="store" aria-label="Store">${opt(STORES_ALL, state.f.store, "All stores")}</select>
+      <span class="sum">Open a row to go down: order → article → allotment → store</span></div>
+    <div class="pl tree8"><div class="h"><span>${state.top === "po" ? "Purchase order" : state.top === "sup" ? "Supplier" : "Article"}</span>${head.map(([a, b]) => `<span>${a}${b ? `<small>${b}</small>` : ""}</span>`).join("")}</div>${rows(nodes)}</div>
+    <p class="foot">${state.mode === "wait" ? "Each column after Ordered is what sits at that step now, so the seven add up to Ordered." : "Each column counts what has got at least that far."} Coming back: ${n(back.filter(r => r.road).reduce((a, r) => a + r.q, 0))} on the road to HO, ${n(back.filter(r => !r.road).reduce((a, r) => a + r.q, 0))} to inspect${state.f.store ? "" : ", 31 reject to the supplier"}. Stores' own stock is not here.</p></div>`
+}
+
+/* ── the tree by PLACE, and only HO's places ─────────────────────
+   HO → Gudang → where the goods physically are: not set up yet, the
+   warehouse (unallotted, or allotted to a store and not picked), picked,
+   packed, and the two return places. Under each, the store the goods are
+   for, then the allotment line. What is still at a supplier and what is on
+   the road are not HO places, so they are the two figures above the tree. */
+const TODAY = 29
+function placeTree() {
+  const leaf = (id, name, sub, q, day, due) => ({id, name, sub, q, day, due})
+  const group = (id, name, sub, kids) => ({id, name, sub, kids:kids.filter(k => k.q > 0 || k.kids?.length)})
+  const unset = [], unallot = [], stage = {pick:{}, pack:{}, disp:{}}
+  for (const p of POS) for (const x of p.arts) {
+    const al = x.alts.reduce((a, t) => a + t.st.reduce((b, s) => b + s[1], 0), 0)
+    if (x.unset) unset.push({p, x, q:x.unset})
+    if (x.rec - (x.unset || 0) - al > 0) unallot.push({p, x, q:x.rec - (x.unset || 0) - al})
+    for (const t of x.alts) for (const [st, a, pk, pa, tr] of t.st) {
+      const put = (k, q) => { if (q > 0) (stage[k][st] ||= []).push(leaf(`${k}${st}${t.id}${x.c}`, x.a, `${t.id} · PO ${p.po}`, q, t.day)) }
+      put("pick", a - pk); put("pack", pk - pa); put("disp", pa - tr)
+    }
+  }
+  const byPO = (items, k) => [...new Set(items.map(i => i.p.po))].map(po => {
+    const its = items.filter(i => i.p.po === po), p = its[0].p
+    return group(k + po, po, `${p.sup} · ${p.date}`, its.map(i => leaf(k + po + i.x.c, i.x.a, i.x.c, i.q, p.day)))
+  })
+  const byStore = (k) => Object.entries(stage[k]).map(([st, ls]) => group(k + st, st, "", ls))
+  return [group("gudang", "Gudang", "HO", [
+    group("unset", "Not set up yet", "received, no article code yet", byPO(unset, "unset")),
+    group("wh", "Warehouse", "", [
+      group("unal", "Unallotted", "not given to a store yet", byPO(unallot, "unal")),
+      group("pick", "Allotted", "given to a store, not picked yet", byStore("pick")),
+    ]),
+    group("pack", "Picked", "waiting to be packed", byStore("pack")),
+    group("disp", "Packed", "waiting to be dispatched", byStore("disp")),
+    leaf("ret", "Store returns", "to inspect", 74, 26),
+    leaf("rej", "Reject", "", 31, 12),
+  ])]
+}
+
+/* ── the tree by TRANSACTION, rolled up ───────────────────────────
+   One folding section per kind of document, in the order goods meet them:
+   Purchase orders → Receiving → Allotments → Picking → Packing →
+   In transit, and Returns coming the other way. Lines roll up into their
+   document, documents into their section's Total, and every section into
+   the one strip at the top — so the strip is the whole business at a
+   glance, and a filter (supplier, store) re-adds every level at once.   */
+const dot = (t, c) => `<span class="st"><span class="dot ${c}"></span>${t}</span>`
+function txData() {
+  const f = state.f, pos = POS.filter(p => !f.sup || p.sup === f.sup), byStore = (st) => !f.store || st === f.store
+  const nz = (v) => v ? n(v) : "—"
+  const P = [], R = [], A = [], K = [], Bm = {}, sjs = {}
+  const tot = {wait:0, unset:0, unal:0, pick:0, pack:0, disp:0, road:0, back:0, insp:0, rej:0, docs:{po:0, gr:0, al:0, pk:0, kb:0, sj:0, ret:0}}
+  let koli = 290
+  for (const p of pos) {
+    const art = p.arts.map(x => { const al = x.alts.reduce((a, t) => a + t.st.reduce((b, s) => b + s[1], 0), 0), un = x.unset || 0
+      return {x, ord:x.ord, rec:x.rec, wait:x.ord - x.rec, unset:un, unal:x.rec - un - al} })
+    const t = art.reduce((a, r) => ({ord:a.ord + r.ord, rec:a.rec + r.rec, wait:a.wait + r.wait, unset:a.unset + r.unset, unal:a.unal + r.unal}), {ord:0, rec:0, wait:0, unset:0, unal:0})
+    if (!f.store) { tot.wait += t.wait; tot.unset += t.unset; tot.unal += t.unal }
+    const status = !t.rec ? dot("Active", "ok") : t.wait ? dot("Partially received", "info") : dot("Fully received", "")
+    if (!(state.openOnly && !t.wait && !t.unal && !t.unset)) { tot.docs.po++
+      P.push({id:"po" + p.po, name:p.po, sub:`${p.sup} · ${p.date}`, v:[t.ord, t.rec, t.wait, t.unal], last:status, warn:[0, 0, 0, 1],
+        kids:art.map(r => ({id:"po" + p.po + r.x.c, name:r.x.a, sub:r.x.c, v:[r.ord, r.rec, r.wait, r.unal], warn:[0, 0, 0, 1]}))}) }
+    // receiving: one goods receipt per delivery
+    if (p.day) { const rec = t.rec, un = t.unset
+      if (!(state.openOnly && !un)) { tot.docs.gr++
+        R.push({id:"gr" + p.po, name:`GR-${p.po}`, sub:`PO ${p.po} · ${p.date.replace("arrived ", "")}`, v:[rec, rec - un, un, null], last:un ? dot("Waiting for setup", "w") : dot("Set up", ""), warn:[0, 0, 1],
+          kids:art.filter(r => r.rec).map(r => ({id:"gr" + p.po + r.x.c, name:r.x.a, sub:r.x.c, v:[r.rec, r.rec - r.unset, r.unset, null], warn:[0, 0, 1]}))}) } }
+    for (const x of p.arts) for (const tt of x.alts) {
+      const st = tt.st.filter(s => byStore(s[0])); if (!st.length) continue
+      const sm = st.reduce((a, s) => [a[0] + s[1], a[1] + s[2], a[2] + s[3], a[3] + s[4]], [0, 0, 0, 0])
+      tot.pick += sm[0] - sm[1]
+      if (!(state.openOnly && sm[3] === sm[0])) { tot.docs.al++
+        A.push({id:"al" + tt.id, name:tt.id, sub:`${x.a} · ${tt.date}`, v:sm, last:`${st.length} store${st.length > 1 ? "s" : ""}`,
+          kids:st.map(s => ({id:"al" + tt.id + s[0], name:s[0], v:[s[1], s[2], s[3], s[4]]}))}) }
+      for (const [store, al, pk, pa, tr] of st) {
+        tot.pack += pk - pa; tot.disp += pa - tr; tot.road += tr
+        if (pk && !(state.openOnly && pa === pk)) { tot.docs.pk++
+          K.push({id:"pk" + tt.id + store, name:store, sub:`picklist · ${tt.id} · ${x.a}`, v:[pk, pa, pk - pa, null], last:pk - pa ? dot("To pack", "w") : dot("Packed", ""), warn:[0, 0, 1]}) }
+        let left = pa, gone = tr
+        while (left > 0) { const q = Math.min(40, left), out = Math.min(q, gone); left -= q; gone -= out; koli++
+          ;(Bm[store] ||= []).push({id:"kb" + koli, name:`KOLI-${koli}`, sub:`${tt.id} · ${x.a}`, q, out, v:[q, out, q - out, null], last:out === q ? dot("Dispatched", "") : dot("Waiting", "w"), warn:[0, 0, 1]}) }
+        if (tr) (sjs[store] ||= []).push({tt, x, tr})
+      }
+    }
+  }
+  const Kb = Object.entries(Bm).map(([st, ks]) => {
+    const q = ks.reduce((a, k) => a + k.q, 0), out = ks.reduce((a, k) => a + k.out, 0)
+    return {id:"kb" + st, name:st, sub:`${ks.length} carton${ks.length > 1 ? "s" : ""}`, v:[q, out, q - out, ks.length], last:"", warn:[0, 0, 1], kids:state.openOnly ? ks.filter(k => k.out < k.q) : ks, done:out === q}
+  }).filter(r => !(state.openOnly && r.done))
+  tot.docs.kb = Object.values(Bm).flat().filter(k => k.out < k.q).length
+  let sj = 1
+  const T = Object.entries(sjs).map(([st, ls]) => { const q = ls.reduce((a, l) => a + l.tr, 0)
+    return {id:"sj" + st, name:`SJ-280926-00${sj++}`, sub:st, v:[q, Math.ceil(q / 40), null, null], last:dot("In transit", "info"),
+      kids:ls.map(l => ({id:"sj" + st + l.tt.id, name:l.x.a, sub:l.tt.id, v:[l.tr, null, null, null]}))} })
+  tot.docs.sj = T.length
+  const rets = f.sup ? [] : RETURNS.filter(r => byStore(r.from))
+  const Rt = rets.map(r => ({id:"rt" + r.id, name:r.id, sub:`from ${r.from}`, v:[r.q, r.insp, r.q - r.insp, null], last:r.road ? dot("On the road to HO", "info") : dot("To inspect", "w"), warn:[0, 0, 1]}))
+  for (const r of rets) r.road ? tot.back += r.q : tot.insp += r.q - r.insp
+  if (!f.sup && !f.store) { Rt.push({id:"rtRS", name:"RS-280926-001", sub:"reject · back to Sepatu Sejahtera, CV", v:[31, null, null, null], last:dot("Waiting for pickup", "w")}); tot.rej = 31 }
+  tot.docs.ret = Rt.length
+  const beforeStore = !!f.store
+  return {tot, sections:[
+    {id:"s-po", title:"Purchase orders", heads:["Ordered", "Received", "Awaited", "Unallotted", "Status"], rows:P, hide:beforeStore},
+    {id:"s-gr", title:"Receiving", heads:["Received", "Set up", "Not set up", "", "Status"], rows:R, hide:beforeStore},
+    {id:"s-al", title:"Allotments", heads:["Allotted", "Picked", "Packed", "In transit", "Stores"], rows:A},
+    {id:"s-pk", title:"Picking", heads:["Picked", "Packed", "To pack", "", "Status"], rows:K},
+    {id:"s-kb", title:"Packing", heads:["Packed", "Dispatched", "To dispatch", "Cartons", ""], rows:Kb},
+    {id:"s-sj", title:"In transit", heads:["Pieces", "Cartons", "", "", "Status"], rows:T},
+    {id:"s-rt", title:"Returns", heads:["Pieces", "Inspected", "To inspect", "", "Status"], rows:Rt, back:true},
+  ]}
+}
+const STEPS = [
+  ["wait", "Purchase order", "awaited", "po", "s-po", "PO"],
+  ["unset", "Not set up", "received", "gr", "s-gr", "receipt"],
+  ["unal", "Unallotted", "in the warehouse", "po", "s-po", null],
+  ["pick", "To pick", "allotted", "al", "s-al", "allotment"],
+  ["pack", "To pack", "picked", "pk", "s-pk", "picklist"],
+  ["disp", "To dispatch", "packed", "kb", "s-kb", "carton"],
+  ["road", "In transit", "to stores", "sj", "s-sj", "surat jalan"],
+]
+const BACK = [["back", "Coming back", "from stores"], ["insp", "To inspect", "at HO"], ["rej", "Reject", "to the supplier"]]
+function flowStrip(tot) {
+  const cell = ([k, label, sub, dk, sec, noun], i) => {
+    const v = tot[k], na = state.f.store && i < 3
+    return `<button class="fs${state.focus === sec ? " on" : ""}" data-go="${sec}"${na ? " disabled" : ""}><span class="fl">${label}</span><b class="${!na && v && ["unset", "unal"].includes(k) ? "w" : ""}">${na ? "—" : n(v)}</b><span class="fk">${na ? "not for a store yet" : noun ? `${tot.docs[dk]} ${noun}${tot.docs[dk] === 1 ? "" : "s"}` : sub}</span></button>`
+  }
+  const atHO = tot.unset + tot.unal + tot.pick + tot.pack + tot.disp + tot.insp + tot.rej
+  return `<div class="flow"><div class="flh"><span>The whole line, rolled up</span><span class="k">${state.f.store ? `${state.f.store} only` : `${n(atHO)} pieces at HO · ${n(tot.wait)} on purchase orders · ${n(tot.road)} on the road`}</span></div>
+    <div class="fr">${STEPS.map((c, i) => (i ? `<span class="ar">→</span>` : "") + cell(c, i)).join("")}</div>
+    <div class="fr back"><span class="bl">Coming back</span>${BACK.map(([k, l, sub], i) => (i ? `<span class="ar">→</span>` : "") + `<button class="fs sm${state.focus === "s-rt" ? " on" : ""}" data-go="s-rt"><span class="fl">${l}</span><b>${n(tot[k])}</b><span class="fk">${sub}</span></button>`).join("")}</div></div>`
+}
+function txPage() {
+  const {tot, sections} = txData(), out = []
+  for (const sec of sections) {
+    const open = state.focus ? state.focus === sec.id : (state.open[sec.id] ?? true)
+    const sums = [0, 1, 2, 3].map(i => sec.rows.reduce((a, r) => a + (r.v[i] || 0), 0))
+    const hasSum = (i) => sec.rows.some(r => r.v[i] != null)
+    out.push(`<div class="sec${open ? "" : " shut"}" id="${sec.id}"><button class="sh" data-t2="${sec.id}"><span class="tw${open ? "" : " shut"}">${ic("chev")}</span><span class="st1">${sec.title}</span><span class="k">${sec.hide ? "not for a store until allotted" : `${sec.rows.length} ${state.openOnly ? "open" : ""}`}</span>
+      <span class="sums">${sec.hide ? "" : sec.heads.slice(0, 4).map((h, i) => h && hasSum(i) ? `<span><span class="k">${h}</span> ${n(sums[i])}</span>` : "").join("")}</span></button>`)
+    if (open && !sec.hide) {
+      out.push(`<div class="pl tx"><div class="h"><span></span>${sec.heads.map(h => `<span>${h}</span>`).join("")}</div>`)
+      const cell = (v, w) => v == null ? `<span class="c"></span>` : `<span class="c${v === 0 ? " z" : ""}${w && v ? " w" : ""}">${v === 0 ? "—" : n(v)}</span>`
+      const walk = (x, d) => {
+        const has = x.kids?.length, o = has ? (state.open[x.id] ?? false) : false
+        const guides = Array.from({length: d}, (_, i) => `<span class="guide" style="left:${9 + i * 22}px"></span>`).join("")
+        out.push(`<div class="r" data-d="${d + 1}" data-row="${x.id}" data-open="${o}"><span class="nm" style="padding-left:${d * 22}px">${guides}${has ? `<button class="tw${o ? "" : " shut"}">${ic("chev")}</button>` : `<span class="sp20"></span>`}<span class="l">${x.name}</span>${x.sub ? `<span class="s2">${x.sub}</span>` : ""}</span>${x.v.map((v, i) => cell(v, x.warn?.[i])).join("")}<span class="c">${x.last || ""}</span></div>`)
+        if (o) x.kids.forEach(k => walk(k, d + 1))
+      }
+      sec.rows.forEach(r => walk(r, 0))
+      if (!sec.rows.length) out.push(`<div class="empty">Nothing open.</div>`)
+      else out.push(`<div class="r tot"><span class="nm"><span class="sp20"></span><span class="l">Total</span></span>${sums.map((v, i) => hasSum(i) ? `<span class="c">${n(v)}</span>` : `<span class="c"></span>`).join("")}<span class="c"></span></div>`)
+      out.push(`</div>`)
+    }
+    out.push(`</div>`)
+  }
+  const opt = (list, cur, all) => `<option value="">${all}</option>` + list.map(v => `<option${v === cur ? " selected" : ""}>${v}</option>`).join("")
+  return `<div class="page"><div class="hd"><h1>Pipeline</h1><span class="pcs">Every open document, from the order to the road and back</span><div class="act"><button class="btn">${ic("down")}Export</button></div></div>
+    <div class="tools"><label class="find">${ic("search")}<input placeholder="Search PO, receipt, allotment, picklist, carton, surat jalan, article" /></label>
+      <select class="selbox" data-f="sup" aria-label="Supplier">${opt(SUPS, state.f.sup, "All suppliers")}</select>
+      <select class="selbox" data-f="store" aria-label="Store">${opt(STORES_ALL, state.f.store, "All stores")}</select>
+      <select class="selbox" id="openOnly" aria-label="Which documents"><option value="1"${state.openOnly ? " selected" : ""}>Open only</option><option value="0"${state.openOnly ? "" : " selected"}>All</option></select>
+      ${state.focus ? `<button class="btn" data-go="">Show every section</button>` : ""}</div>
+    ${flowStrip(tot)}${out.join("")}
+    <p class="foot">Lines roll up into their document, documents into each section's Total, and the sections into the strip at the top. Pick a supplier or a store and every level re-adds. Click a step in the strip to see only its section.</p></div>`
+}
+
+/* ── the WHOLE BUSINESS as one tree, every number going down ─────────
+   Everything → at suppliers → HO (receiving, warehouse, picking, packing,
+   returns, reject) → on the road (to stores, back to HO) → stores. Under
+   each step, the documents that hold the goods there (PO, receipt,
+   allotment, picklist, carton, surat jalan, return), then their lines.
+   One column of pieces, rolled up at every level.                      */
+const STORE_STOCK = {"Kemang":3120, "Senopati":2480, "PIK Avenue":2915, "Bintaro Xchange":1870, "Bandung Dago":2060, "Surabaya Galaxy":1857}
+function wholeTree() {
+  const L = (id, name, sub, q, day, x = {}) => ({id, name, sub, q, day, ...x})
+  const G = (id, name, sub, kids, x = {}) => ({id, name, sub, kids:kids.filter(k => qOf(k) > 0), ...x})
+  const alOf = (x) => x.alts.reduce((a, t) => a + t.st.reduce((b, s) => b + s[1], 0), 0)
+  const awaited = [], unident = [], unal = [], stage = {unpicked:{}, picked:{}, packed:{}, dispatch:{}}
+  for (const p of POS) {
+    if (p.arts.some(x => x.ord > x.rec)) awaited.push(G("aw" + p.po, p.po, `${p.sup} · ${p.date}`, p.arts.map(x => L("aw" + p.po + x.c, x.a, x.c, x.ord - x.rec, null, {due:!p.day}))))
+    if (p.day && p.arts.some(x => x.unset)) unident.push(G("ui" + p.po, p.po, `${p.sup} · ${p.date}`, p.arts.map(x => L("ui" + p.po + x.c, x.a, x.c, x.unset || 0, p.day))))
+    if (p.day) unal.push(G("un" + p.po, p.po, `${p.sup} · ${p.date}`, p.arts.map(x => L("un" + p.po + x.c, x.a, x.c, x.rec - (x.unset || 0) - alOf(x), p.day))))
+    for (const x of p.arts) for (const t of x.alts) for (const [st, al, pk, pa, tr] of t.st) {
+      const put = (k, q, day) => { if (q > 0) (stage[k][st] ||= []).push(L(k + t.id + st + x.c, x.a, t.id, q, day)) }
+      put("unpicked", al - pk, t.day); put("picked", pk - pa, t.day + 1); put("packed", pa - tr, t.day + 2); put("dispatch", tr, t.day + 2)
+    }
+  }
+  const byStore = (k) => Object.entries(stage[k]).map(([st, ls]) => G(k + st, st, "", ls))
+  return [G("all", "Stock", "rolled up", [
+    G("sup", "Purchase order", "ordered, not received yet", awaited),
+    G("unid", "Unidentified", "received, no article code yet", unident),
+    G("unal", "Unallotted", "not given to a store yet", unal),
+    G("allot", "Allotted", "given to a store", [
+      G("unpicked", "Unpicked", "", byStore("unpicked")),
+      G("picked", "Picked", "", byStore("picked")),
+      G("packed", "Packed", "", byStore("packed")),
+      G("dispatch", "Dispatch", "in transit", byStore("dispatch")),
+    ]),
+    G("retpo", "Return PO", "back to the supplier", [L("rs1", "RS-280926-001", "Sepatu Sejahtera, CV", 31, 24)]),
+    G("retst", "Return stock", "", [
+      G("retho", "Return HO", "arrived at HO, to inspect", RETURNS.filter(r => !r.road).map(r => L("rt" + r.id, r.from, r.id, r.q - r.insp, r.day))),
+      ...RETURNS.filter(r => r.road).map(r => G("rs" + r.from, r.from, "on the way to HO", [L("rb" + r.id, r.id, "", r.q, r.day)])),
+    ]),
+  ])]
+}
+const docsOf = (x) => (x.doc ? 1 : 0) + (x.kids ? x.kids.reduce((a, k) => a + docsOf(k), 0) : 0)
+const WHOLE_OPEN = new Set(["all", "allot", "retst"])
+function wholeRows(nodes) {
+  // One grid: name | quantity. Every level indents by the same 24px, the
+  // chevron always sits in its own 20px slot, and a guide runs down from
+  // each open parent's chevron — so every name at a level lines up.
+  const out = []
+  const walk = (x, d) => {
+    const has = x.kids?.length, open = has ? (state.open[x.id] ?? WHOLE_OPEN.has(x.id)) : false
+    const guides = Array.from({length: d}, (_, i) => `<i class="g" style="left:${i * 24 + 9}px"></i>`).join("")
+    out.push(`<div class="wr" data-d="${Math.min(d, 3)}" data-row="${x.id}" data-open="${open}">
+      <span class="wn" style="padding-left:${d * 24}px">${guides}${has ? `<span class="tw${open ? "" : " shut"}">${ic("chev")}</span>` : `<span class="sp20"></span>`}<span class="l">${x.name}</span>${x.sub && d <= 1 ? `<span class="s2">${x.sub}</span>` : x.sub ? `<span class="s2">${x.sub}</span>` : ""}</span>
+      <span class="wq${(x.id === "unal" || x.id === "unid") && qOf(x) ? " w" : ""}">${n(qOf(x))}</span></div>`)
+    if (open) x.kids.forEach(k => walk(k, d + 1))
+  }
+  nodes.forEach(x => walk(x, 0))
+  return out.join("")
+}
+function wholePage() {
+  const nodes = wholeTree()
+  return `<div class="page"><div class="hd"><h1>Pipeline</h1><span class="pcs">The whole business in one tree: every number rolls up into Stock at the top</span>
+      <div class="act"><button class="btn">${ic("down")}Export</button></div></div>
+    <div class="tools"><label class="find">${ic("search")}<input placeholder="Search PO, receipt, allotment, picklist, carton, surat jalan, return, article or store" /></label></div>
+    <div class="wt"><div class="wh"><span></span><span>Quantity</span></div>${wholeRows(nodes)}</div>
+    <p class="foot">Open a step to see the documents holding the goods there, then their lines: a PO its articles, an allotment its stores, a store under Packing its cartons, a surat jalan what is on it.</p></div>`
+}
+const qOf = (x) => x.kids ? x.kids.reduce((a, k) => a + qOf(k), 0) : x.q
+const artsOf = (x) => x.kids ? new Set(x.kids.flatMap(k => [...artsOf(k)])) : new Set([x.name])
+const oldestOf = (x) => x.kids ? x.kids.reduce((a, k) => { const o = oldestOf(k); return !a || (o && o.day < a.day) ? o : a }, null) : x.day ? {day:x.day} : x.due ? {due:true} : null
+const ageText = (o, inGudang) => !o ? "" : o.due ? `<span class="k">due 3 Oct</span>` : (d => `<span class="${inGudang && d > 3 ? "w" : "k"}">${d === 0 ? "today" : d + (d === 1 ? " day" : " days")}</span>`)(TODAY - o.day)
+function placeRows(nodes) {
+  const out = []
+  const walk = (x, d, inGudang) => {
+    const has = x.kids?.length, open = has ? (state.open[x.id] ?? (d < 1 || x.id === "wh")) : false
+    const guides = Array.from({length: d}, (_, i) => `<span class="guide" style="left:${9 + i * 22}px"></span>`).join("")
+    const tw = has ? `<button class="tw${open ? "" : " shut"}" data-t="${x.id}">${ic("chev")}</button>` : `<span class="sp20"></span>`
+    const q = qOf(x), arts = artsOf(x).size, g = true
+    out.push(`<div class="r" data-d="${d}" data-row="${x.id}" data-open="${open}"><span class="nm" style="padding-left:${d * 22}px">${guides}${tw}<span class="l">${x.name}</span>${x.sub ? `<span class="s2">${x.sub}</span>` : ""}</span>
+      <span class="c${q ? "" : " z"}${x.id === "unal" && q ? " w" : ""}">${q ? n(q) : "—"}</span><span class="c k">${has ? n(arts) : ""}</span><span class="c">${x.id === "gudang" || x.id === "rej" ? "" : ageText(oldestOf(x), g && !["ret"].includes(x.id))}</span></div>`)
+    if (open) x.kids.forEach(k => walk(k, d + 1, g))
+  }
+  nodes.forEach(x => walk(x, 0, false))
+  return out.join("")
+}
+function placePage() {
+  const nodes = placeTree(), all = nodes.reduce((a, x) => a + qOf(x), 0)
+  const q = (id) => { const f = (xs) => xs.map(x => x.id === id ? x : x.kids ? f(x.kids) : null).find(Boolean); return qOf(f(nodes)) }
+  let coming = 0, road = 0; const roadStores = new Set()
+  for (const p of POS) for (const x of p.arts) { if (!p.day) coming += x.ord - x.rec; for (const t of x.alts) for (const s of t.st) if (s[4]) { road += s[4]; roadStores.add(s[0]) } }
+  return `<div class="page"><div class="hd"><h1>Pipeline</h1><span class="pcs">${n(all)} pieces at HO · ${n(q("unal"))} unallotted</span>
+      <div class="act"><button class="btn">${ic("down")}Export</button></div></div>
+    <div class="edges"><button class="edge"><span class="k">Coming to HO</span><b>${n(coming)}</b><span class="k">ordered, not received · 1 order, due 3 Oct</span></button>
+      <span class="arrow">→</span><div class="edge here"><span class="k">At HO</span><b>${n(all)}</b><span class="k">the tree below</span></div><span class="arrow">→</span>
+      <button class="edge"><span class="k">Left HO</span><b>${n(road)}</b><span class="k">on the road to ${roadStores.size} stores</span></button></div>
+    <div class="tools"><label class="find">${ic("search")}<input placeholder="Search order, article, allotment or store" /></label><span class="sum">Oldest turns amber after 3 days</span></div>
+    <div class="pl place"><div class="h"><span>Place at HO</span><span>Pieces</span><span>Articles</span><span>Oldest</span></div>${placeRows(nodes)}</div>
+    <p class="foot">Only HO's places are in the tree. Open a place to see the store the goods are for, then the allotment lines; unallotted goods open by purchase order instead. Stores' own stock is not here.</p></div>`
+}
+function stockPage() {
+  return `<div class="page stockpage"><div class="hd"><h1>Stock</h1></div><p>The place tree for Head office: stock per place, observed, last counted, and the period view. See <a href="inventory-tree-models.html">inventory-tree-models.html</a>.</p></div>`
+}
+
+const MODS = [["home","Home"],["cart","Buying"],["shirt","Merchandise"],["forklift","Operations",12],["box","Inventory"],["tag","Marketing"],["receipt","Sales"],["wallet","Finance",3],["person","HR"],["building","GA"],["cog","System"]]
+function side() {
+  const subs = [["stock","Stock"],["pipeline","Pipeline"],["counts","Counts"],["setup","Setup"]]
+  return `<div class="brand"><span class="mark">C</span>Central</div>` + MODS.map(([i, l, c]) => l === "Inventory"
+    ? `<button class="row on">${ic(i)}<span>Inventory</span></button><div class="subs">${subs.map(([id, t]) => `<button class="sub" data-page="${id}"${state.page === id ? " aria-current=page" : ""}>${t}</button>`).join("")}</div>`
+    : `<button class="row">${ic(i)}<span>${l}</span>${c ? `<span class="ct">${c}</span>` : ""}</button>`).join("")
+}
+let lastKey = ""
+function render() {
+  // the page settles in only when it changes, not every time a row opens
+  const key = state.page + state.view + state.top + state.mode, same = key === lastKey; lastKey = key
+  document.querySelectorAll(".seg").forEach(s => s.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", state[s.dataset.tg] === b.dataset.v)))
+  document.querySelectorAll(".proto .tg").forEach(t => t.style.visibility = state.page === "pipeline" ? "" : "hidden")
+  document.getElementById("side").innerHTML = side()
+  document.getElementById("modeTg").style.display = document.getElementById("topTg").style.display = state.view === "tree" ? "" : "none"
+  document.getElementById("main").innerHTML = state.page === "stock" ? stockPage() : state.page === "pipeline" ? (state.view === "whole" ? wholePage() : state.view === "tx" ? txPage() : state.view === "place" ? placePage() : pipelinePage()) : `<div class="page"><div class="hd"><h1>${state.page === "counts" ? "Counts" : "Setup"}</h1></div><p class="k">Unchanged from the other prototypes.</p></div>`
+  if (same) document.querySelector("#main .page")?.classList.add("still")
+}
+document.addEventListener("click", (e) => {
+  const t = e.target
+  const seg = t.closest(".seg button"); if (seg) { state[seg.parentElement.dataset.tg] = seg.dataset.v; render(); return }
+  const pg = t.closest("[data-page]"); if (pg) { state.page = pg.dataset.page; render(); return }
+  const go = t.closest("[data-go]"); if (go) { state.focus = state.focus === go.dataset.go ? "" : go.dataset.go; render(); if (state.focus) document.getElementById(state.focus)?.scrollIntoView({block:"start", behavior:"smooth"}); return }
+  const s2 = t.closest("[data-t2]"); if (s2) { if (state.focus) { state.focus = "" } state.open[s2.dataset.t2] = !(state.open[s2.dataset.t2] ?? true); render(); return }
+  const r = t.closest("[data-row]"); if (r) {
+    if (r.classList.contains("wr")) { if (r.querySelector(".tw")) { state.open[r.dataset.row] = r.dataset.open !== "true"; render() } return }
+    const id = r.dataset.row, d = +r.dataset.d
+    if (!r.querySelector(".tw")) return
+    state.open[id] = r.dataset.open ? r.dataset.open !== "true" : !(state.open[id] ?? d < 1); render()
+  }
+})
+document.addEventListener("change", (e) => { if (e.target.id === "openOnly") { state.openOnly = e.target.value === "1"; render() } if (e.target.dataset.f) { state.f[e.target.dataset.f] = e.target.value; render() } })
+document.getElementById("theme").addEventListener("click", () => {
+  const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches
+  r.dataset.theme = dark ? "light" : "dark"
+})
+render()
+</script>
+</body>
+</html>

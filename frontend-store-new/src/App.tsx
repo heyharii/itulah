@@ -9,7 +9,7 @@ import { startBasket } from "@/lib/basket"
 import { startSaleQueue } from "@/lib/sale-queue"
 import { useIdentity, useNodeIdentity } from "@/lib/session"
 import { router } from "@/routes"
-import { ApiError, type Identity } from "@itulah/contract/client"
+import { ApiError } from "@itulah/contract/client"
 
 export function App() {
   const queryClient = useQueryClient()
@@ -59,14 +59,15 @@ export function App() {
         <LoginForm
           problem={problem}
           node={where.data ?? null}
-          onSignedIn={(signedIn) => {
-            // Writing the answer rather than refetching it: the login response
-            // already carries the person the node just authenticated, and it
-            // clears the failure with it.
-            queryClient.setQueryData<Identity | null>(
-              cacheKey.me(),
-              signedIn.user,
-            )
+          onSignedIn={() => {
+            // Asked again rather than written from the answer, and the
+            // difference matters: a login response carries `SessionUser`,
+            // which is NOT what `/auth/me` answers — the Edge's `me` also
+            // names the site the caller stands in and the Cloud's also names
+            // the job role and the sections. Writing the login's shape into
+            // this cache would leave every screen reading fields the value
+            // does not have. One round trip, once, on the way in.
+            void queryClient.invalidateQueries({ queryKey: cacheKey.me() })
           }}
         />
       </main>

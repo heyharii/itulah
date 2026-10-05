@@ -8,7 +8,17 @@ export type PaymentAllocation = { invoice_id: string, invoice_number: string, su
  * What the whole bill is, so a screen can show "3,000,000 of 8,500,000"
  * without fetching every bill again.
  */
-invoice_total_minor: number, amount_minor: number, 
+invoice_total_minor: number, 
+/**
+ * How much of the bill this settles, discount included.
+ */
+amount_minor: number, 
+/**
+ * The part of `amount_minor` settled without money — the POTONGAN on a
+ * BKK line (0704). The bill is settled by the whole `amount_minor`; the
+ * bank pays `amount_minor - discount_minor` of it.
+ */
+discount_minor: number, 
 /**
  * The bill's kind — `MERCHANDISE` or `EXPENSE`. Carried because it decides
  * which payable this allocation debits when the payment posts, and because
@@ -17,11 +27,8 @@ invoice_total_minor: number, amount_minor: number,
  */
 kind: string, 
 /**
- * Where the BILL is, which is not always where the payment is.
- *
- * It decides where the payable is debited, and it has to: a payable
- * credited in store 03's books and cleared in head office's would leave
- * store 03 owing a supplier for ever while head office's balance sheet
- * carried a debt it never had.
+ * Where the BILL was received — a premises, which is not always in the
+ * books the payment left. The payable itself is head office's wherever
+ * the bill was received (I4), so this is for reading, not for posting.
  */
 site_id: string, };

@@ -1,6 +1,7 @@
 import type { AuditEntry, AuditFeed } from "@itulah/contract"
 
 import { node } from "@/lib/api"
+import { count, money } from "@/lib/format"
 
 /// Who did what, to which record.
 ///
@@ -145,4 +146,106 @@ export function readAction(entry: AuditEntry): string {
   if (entry.method === "PATCH" || entry.method === "PUT") return "Changed"
   if (entry.method === "DELETE") return "Removed"
   return entry.method
+}
+
+/// What an entry says happened, as the rest of a sentence the person's name
+/// begins: "counted 12 pcs of Tas Selempang Kanvas", "cancelled this order".
+///
+/// `readAction` above names the act in a word, which is what a table column
+/// wants; a record's activity reads as a story, and a story has people doing
+/// things to something. The noun comes from the record the entry is filed
+/// against, so one mapping serves every sheet.
+export function describeAction(entry: AuditEntry): string {
+  const parts = entry.path.replace(/^\/api\/v1\//, "").split("/")
+  const payload = (entry.payload ?? {}) as Record<string, unknown>
+  const text = (key: string) =>
+    typeof payload[key] === "string" ? (payload[key] as string) : null
+  const number = (key: string) =>
+    typeof payload[key] === "number" ? (payload[key] as number) : null
+  const nouns: Record<string, string> = {
+    supplier: "supplier",
+    purchase_order: "order",
+  }
+  const noun = nouns[entry.subject_kind ?? ""] ?? "record"
+
+  // The goods side of an order: the DC counts, the buyer verifies, the
+  // supplier's invoice is filed. These rows are read from the receipts, so the
+  // payload says what was counted.
+  if (parts[0] === "dc") {
+    const pieces = number("quantity")
+    const article = text("article")
+    const what =
+      pieces !== null && article
+        ? `${count(pieces)} pcs of ${article}`
+        : (article ?? "the goods")
+    if (parts[1] === "purchase-counts") return `counted ${what}`
+    if (parts[1] === "purchase-verifications") {
+      // `excess` is everything beyond the order, and `wrong` — the pieces
+      // the checker counted as not the article — is part of it, so the two
+      // are never added together.
+      const excess = number("excess") ?? 0
+      const wrong = number("wrong") ?? 0
+      const pieces = [
+        wrong > 0 ? `${count(wrong)} pcs not as ordered` : null,
+        excess - wrong > 0 ? `${count(excess - wrong)} pcs over the order` : null,
+      ].filter(Boolean)
+      return pieces.length > 0
+        ? `verified the count of ${what}, ${pieces.join(", ")}`
+        : `verified the count of ${what}`
+    }
+    if (parts[1] === "goods-receipts") {
+      const invoice = text("invoice")
+      const total = number("total_minor")
+      return `filed supplier invoice${invoice ? ` ${invoice}` : ""}${
+        total !== null ? ` for ${money(total)}` : ""
+      }`
+    }
+  }
+
+  if (parts[0] === "records" && parts[3] === "comments") return "left a comment"
+  if (parts[0] === "records" && parts[3] === "tags") {
+    const word = (parts[4] ?? "").replace(/[-_]+/g, " ").toLowerCase()
+    return entry.method === "DELETE"
+      ? `removed the tag ${word} from this ${noun}`
+      : `tagged this ${noun} ${word}`
+  }
+  if (parts[0] === "comments")
+    return entry.method === "DELETE" ? "removed a comment" : "edited a comment"
+
+  // A contact person lives under the supplier, and is not the supplier.
+  if (parts.includes("contacts")) {
+    if (entry.method === "DELETE") return "removed a contact person"
+    return entry.method === "POST"
+      ? "added a contact person"
+      : "updated a contact person"
+  }
+
+  const isId = (part: string) => /^[0-9a-f-]{20,}$/i.test(part)
+  const lastId = parts.map(isId).lastIndexOf(true)
+  const verb =
+    lastId >= 0 && lastId < parts.length - 1 ? parts[parts.length - 1] : ""
+  const known: Record<string, string> = {
+    activate: `activated this ${noun}`,
+    deactivate: `deactivated this ${noun}`,
+    publish: `published this ${noun}`,
+    submit: `submitted this ${noun}`,
+    approve: `approved this ${noun}`,
+    cancel: `cancelled this ${noun}`,
+    execute: `carried out this ${noun}`,
+    decide: `made a decision on this ${noun}`,
+    seal: `sealed this ${noun}`,
+    close: `closed this ${noun}`,
+    depart: `sent this ${noun} out`,
+    status: `changed the status of this ${noun}`,
+    returns: `put the excess on a return to the supplier`,
+    "close-short": `closed lines short on this ${noun}`,
+  }
+  if (known[verb]) return known[verb]
+  if (verb !== "") return `${verb.replace(/[-_]+/g, " ")} on this ${noun}`
+
+  if (entry.method === "POST") return `created this ${noun}`
+  if (entry.method === "PATCH" || entry.method === "PUT")
+    return `updated this ${noun}`
+  if (entry.method === "DELETE") return `removed this ${noun}`
+  return `${entry.method.toLowerCase()} on this ${noun}`
 }

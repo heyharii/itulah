@@ -111,7 +111,7 @@ export function Reprimands() {
               "Employee",
               "Letter",
               "Issued",
-              "In force to",
+              "In Force to",
               "Acknowledged",
             ]}
           >
@@ -330,7 +330,7 @@ function IssueSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
             }
             onClick={() => issue.mutate()}
           >
-            {issue.isPending ? "Issuing…" : "Issue letter"}
+            {issue.isPending ? "Submitting…" : "Submit"}
           </Button>
         </div>
       }
@@ -342,7 +342,6 @@ function IssueSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
         <Field label="Level" required>
           <PickOne
             label="Level"
-            placeholder="Choose…"
             choices={LEVELS}
             value={level}
             onChange={setLevel}
@@ -366,7 +365,6 @@ function IssueSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
             rows={3}
             value={violation}
             onChange={(event) => setViolation(event.target.value)}
-            placeholder="Terlambat lima kali dalam bulan September"
           />
         </Field>
         <Field label="Why" required>

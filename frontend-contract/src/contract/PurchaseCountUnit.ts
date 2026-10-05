@@ -7,4 +7,10 @@ export type PurchaseCountUnit = { code: string, label: string,
 /**
  * Pieces in one, as a decimal string: "20", "12".
  */
-factor: string, };
+factor: string, 
+/**
+ * The one unit the line's stock is kept in (the article's stock unit,
+ * PCS for nearly everything) — what a total is printed in. False on
+ * orders sent before 0653, where the reader falls back to PCS.
+ */
+is_stock: boolean, };

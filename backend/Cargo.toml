@@ -92,7 +92,7 @@ ring = "=0.17.14"
 web-push-native = { version = "=0.4.0", default-features = false }
 p256 = { version = "=0.13.2", default-features = false, features = ["ecdsa", "std"] }
 base64 = "=0.22.1"
-rusqlite ={ version = "=0.32.1", features = ["bundled", "chrono"] }
+rusqlite ={ version = "=0.32.1", features = ["bundled", "chrono", "blob"] }
 rust_decimal = { version = "=1.37.1", features = ["serde-with-str"] }
 # The virtual business clock guards its interior state with a parking_lot
 # Mutex: `now()` takes the same lock on every read and must stay
@@ -108,6 +108,9 @@ sqlx = { version = "=0.8.6", features = ["runtime-tokio-rustls", "postgres", "ch
 # workbook open than a second error crate.
 thiserror = "=2.0.20"
 tokio = { version = "=1.45.1", features = ["macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+# The sandbox gateway hands a request to the chosen business's router
+# (`cloud::tenancy`); tests drive routers the same way.
+tower = { version = "=0.5.2", features = ["util"] }
 tower-http = { version = "=0.6.6", features = ["cors", "fs", "trace"] }
 tracing = "=0.1.41"
 # Daily log files for an installed node, kept 14 days, one JSON object per
@@ -146,4 +149,3 @@ proptest = "=1.6.0"
 # Decodes what the encoder produced, so the QR is proven readable by
 # something that did not write it.
 rqrr = "=0.10.1"
-tower = { version = "=0.5.2", features = ["util"] }

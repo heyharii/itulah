@@ -68,6 +68,7 @@ pub mod holiday;
 pub mod hr_scheduler;
 pub mod integrity;
 pub mod invitations;
+pub mod jobs;
 pub mod interunit;
 pub mod leave;
 pub mod letters;
@@ -75,12 +76,14 @@ pub mod line_categories;
 pub mod member;
 pub mod money;
 pub mod notifications;
+pub mod search;
 pub mod opening;
 pub mod overtime;
 pub mod party;
 pub mod attendance_settings;
 pub mod leave_extras;
 pub mod benefit;
+pub mod expense_codes;
 pub mod data_requests;
 pub mod discipline;
 pub mod delegation;
@@ -100,6 +103,7 @@ pub mod records;
 pub mod reports;
 pub mod roles;
 pub mod roster;
+pub mod scope;
 // lane-A
 pub mod advance;
 pub mod finance_control;
@@ -124,6 +128,7 @@ pub mod tax;
 pub mod terminal;
 pub mod unit_register;
 pub mod units;
+pub mod name_suggestions;
 pub mod vocabulary;
 pub mod vouchers;
 
@@ -163,9 +168,10 @@ pub fn router(state: AppState) -> Router {
     // integrity alerts; Lane G the rest of the payables loop — valuing a
     // delivery, matching a bill to it, credit notes, advances, withholding;
     // Lane E the integrity engine and the attention feed.
-    let router = integrity::lane_e_routes(payables_flow::lane_g_routes(
+    // The Gudang run by the cloud (`cloud::dc`): its own call, like the lanes.
+    let router = crate::cloud::dc::routes(integrity::lane_e_routes(payables_flow::lane_g_routes(
         sync_generation::lane_s_routes(interunit::lane_d_routes(Router::new())),
-    ))
+    )))
     .merge(crate::cloud::media::router())
     .route("/api/v1/health", get(health))
     .route("/api/v1/inventory/pools", get(pools))
@@ -173,6 +179,23 @@ pub fn router(state: AppState) -> Router {
     .route(
         "/api/v1/inventory/reconciliations",
         get(transfer_reconciliations),
+    )
+    .route(
+        "/api/v1/inventory/shipments/received",
+        get(received_shipments),
+    )
+    .route("/api/v1/inventory/sku-suppliers", get(sku_suppliers))
+    .route(
+        "/api/v1/supplier-returns",
+        get(supplier_returns).post(raise_supplier_return),
+    )
+    .route(
+        "/api/v1/supplier-returns/{allotment_id}/settlements",
+        post(settle_supplier_return),
+    )
+    .route(
+        "/api/v1/supplier-returns/{allotment_id}/close-short",
+        post(close_supplier_return_short),
     )
     .route("/api/v1/inventory/pools/{id}", get(pool_detail))
     .route(
@@ -188,6 +211,15 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/inventory/allotments/{id}/cancel",
         post(cancel_allotment),
     )
+    // What the Gudang cannot fill, and MD giving it up (allotment-v1 §7).
+    .route(
+        "/api/v1/inventory/allotments/unfilled",
+        get(unfilled_allotments),
+    )
+    .route(
+        "/api/v1/inventory/allotments/{id}/close-short",
+        post(close_allotment_short),
+    )
     .route(
         "/api/v1/inventory/allotments/{id}/execute",
         post(execute_allotment),
@@ -196,6 +228,11 @@ pub fn router(state: AppState) -> Router {
     .route(
         "/api/v1/inventory/movements",
         get(movements).post(move_stock),
+    )
+    // One article's life from its order on, in one answer (Ops › Stock by article).
+    .route(
+        "/api/v1/inventory/articles/{article_code}/history",
+        get(article_history),
     )
     .route("/api/v1/inventory/movements/correct", post(correct))
     .route(
@@ -392,6 +429,16 @@ pub fn router(state: AppState) -> Router {
     // differing in one word is where the ninth forgets the auth check.
     // They had tables from 0022 and 0027 and no way in until 0091: every
     // term was a row somebody INSERTed in a migration.
+    // The names New articles suggests as a name is typed (0916): a master of its
+    // own, and nothing references a row.
+    .route(
+        "/api/v1/name-suggestions",
+        get(name_suggestions::list).post(name_suggestions::create),
+    )
+    .route(
+        "/api/v1/name-suggestions/{id}",
+        patch(name_suggestions::update).delete(name_suggestions::delete),
+    )
     .route(
         "/api/v1/vocabulary/{kind}",
         get(vocabulary::list_terms).post(vocabulary::create_term),
@@ -419,6 +466,7 @@ pub fn router(state: AppState) -> Router {
     .route("/api/v1/stores", get(stores::list))
     .route("/api/v1/stores/{unit}", get(stores::detail))
     .route("/api/v1/stores/{unit}/open", post(stores::open))
+    .route("/api/v1/stores/{unit}/tills", put(stores::set_till_seats))
     // The store exceptions list (0646-0648): one needs-attention list read
     // from data, per store and for all of them within reach, acknowledged by
     // a person and closed by the data being fixed.
@@ -664,6 +712,7 @@ pub fn router(state: AppState) -> Router {
         post(auth::reset_password),
     )
     .route("/api/v1/auth/users/{id}/role", post(auth::set_user_role))
+    .route("/api/v1/auth/users/{id}/unlock", post(auth::unlock_user))
     .route(
         "/api/v1/auth/edge-assignments",
         get(auth::edge_assignments).post(auth::upsert_edge_assignment),
@@ -804,6 +853,13 @@ pub fn router(state: AppState) -> Router {
     // parts, sync as freshness and queues, incidents and their settings
     // (`http::fleet`, `postgres::fleet_status`, 0637-0640).
     .route("/api/v1/fleet/status", get(fleet::fleet_status))
+    // Head office's background jobs (0703): how they are doing, and run now /
+    // pause / resume for the Admin.
+    .route("/api/v1/fleet/jobs", get(jobs::jobs))
+    .route("/api/v1/fleet/jobs/{job}/runs", get(jobs::job_runs))
+    .route("/api/v1/fleet/jobs/{job}/run", post(jobs::run_job))
+    .route("/api/v1/fleet/jobs/{job}/pause", post(jobs::pause_job))
+    .route("/api/v1/fleet/jobs/{job}/resume", post(jobs::resume_job))
     .route("/api/v1/fleet/status/{unit}", get(fleet::fleet_status_of))
     .route("/api/v1/fleet/sync", get(fleet::fleet_sync))
     .route("/api/v1/fleet/incidents", get(fleet::fleet_incidents))
@@ -845,6 +901,14 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/purchase-orders/{id}/cancel",
         post(suppliers::cancel_purchase_order),
     )
+    .route(
+        "/api/v1/purchase-orders/{id}/returns",
+        post(suppliers::raise_purchase_return),
+    )
+    .route(
+        "/api/v1/purchase-returns",
+        get(suppliers::list_purchase_returns),
+    )
     // PO intake: uploads become drafts; the order book is only touched by
     // the order route, pressed by a buyer in the review summary. The body
     // limit is raised on the upload route alone, like `/api/v1/files`: a
@@ -882,6 +946,7 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/article-setups/unidentified",
         get(list_unidentified_receipts),
     )
+    .route("/api/v1/article-setups/split", post(open_split_setup))
     .route("/api/v1/article-setups/{id}", get(setup_session_detail))
     .route(
         "/api/v1/article-setups/{id}/issue",
@@ -1020,6 +1085,10 @@ pub fn router(state: AppState) -> Router {
     // Finance. Reads are projections; the only writer is `poster::post`.
     .route("/api/v1/finance/accounts", get(finance::accounts))
     .route(
+        "/api/v1/finance/accounts/balances",
+        get(finance::account_child_balances),
+    )
+    .route(
         "/api/v1/finance/accounts/{code}",
         get(finance::account_detail),
     )
@@ -1130,6 +1199,10 @@ pub fn router(state: AppState) -> Router {
         get(finance::bank_suggestions),
     )
     .route(
+        "/api/v1/finance/bank-statements/{id}/book-only",
+        get(finance::bank_book_only),
+    )
+    .route(
         "/api/v1/finance/bank-lines/{id}/match",
         post(finance::confirm_bank_match).delete(finance::unmatch_bank_line),
     )
@@ -1232,6 +1305,56 @@ pub fn router(state: AppState) -> Router {
     .route(
         "/api/v1/finance/journal-repeats/run",
         post(finance::run_journal_repeats),
+    )
+    .route(
+        "/api/v1/finance/accruals",
+        get(finance::accruals),
+    )
+    .route(
+        "/api/v1/finance/inventory/valuation",
+        get(finance::inventory_valuation),
+    )
+    .route("/api/v1/store-cash/boxes", get(finance::store_cash_boxes))
+    .route(
+        "/api/v1/store-cash/counts",
+        get(finance::store_cash_counts).post(finance::record_store_cash_count),
+    )
+    .route(
+        "/api/v1/finance/inventory/stock-vs-ledger",
+        get(finance::stock_vs_ledger),
+    )
+    .route(
+        "/api/v1/finance/inventory/in-transit",
+        get(finance::goods_in_transit),
+    )
+    .route("/api/v1/finance/inventory/cogs", get(finance::cogs_by_month))
+    .route(
+        "/api/v1/finance/inventory/adjustments",
+        get(finance::stock_adjustments),
+    )
+    .route(
+        "/api/v1/finance/contractor-projects",
+        get(finance::contractor_projects).post(finance::open_contractor_project),
+    )
+    .route(
+        "/api/v1/finance/contractor-projects/{project_id}",
+        get(finance::contractor_project),
+    )
+    .route(
+        "/api/v1/finance/contractor-projects/{project_id}/advances",
+        post(finance::pay_project_advance),
+    )
+    .route(
+        "/api/v1/finance/contractor-projects/{project_id}/invoices",
+        post(finance::add_project_invoice),
+    )
+    .route(
+        "/api/v1/finance/contractor-projects/{project_id}/close",
+        post(finance::close_contractor_project),
+    )
+    .route(
+        "/api/v1/finance/accruals/{entry_id}/settle",
+        post(finance::settle_accrual),
     )
     .route(
         "/api/v1/finance/period-closing-vouchers",
@@ -1615,6 +1738,7 @@ pub fn router(state: AppState) -> Router {
     // What a payslip says around its figures, for the employee's own app.
     .route("/api/v1/employees/{id}/payslip-template", get(pay::payslip_template))
     .route("/api/v1/employees/{id}/payslips", get(pay::payslips))
+    .route("/api/v1/search", get(search::search))
     .route("/api/v1/notifications", get(notifications::list))
     // The list as it changes, for the hub's bell and the desktop shell; and
     // this browser saying yes or no to being woken for it (`cloud::push`).
@@ -2288,6 +2412,17 @@ pub fn router(state: AppState) -> Router {
     .route("/api/v1/sync/benefit/lookup", post(benefit::sync_lookup))
     .route("/api/v1/sync/benefit/spend", post(benefit::sync_spend))
     .route("/api/v1/sync/benefit/return", post(benefit::sync_return))
+    // Finance's one-time code for a big shop expense (0822).
+    .route(
+        "/api/v1/store-money/expense-codes",
+        get(expense_codes::list).post(expense_codes::issue),
+    )
+    .route(
+        "/api/v1/store-money/expense-codes/{id}/cancel",
+        post(expense_codes::cancel),
+    )
+    .route("/api/v1/sync/expense-codes/line", post(expense_codes::sync_line))
+    .route("/api/v1/sync/expense-codes/use", post(expense_codes::sync_use))
     .route("/api/v1/benefit/spends", post(benefit::spend))
     .route("/api/v1/benefit/returns", post(benefit::give_back))
     .route("/api/v1/employees/{id}/benefit", get(benefit::account))
@@ -2458,6 +2593,7 @@ pub fn router(state: AppState) -> Router {
     // delegating to the read that already serves the record named in the
     // path — see `cloud::http::records`.
     .route("/api/v1/records/{kind}/{id}/info", get(records::info))
+    .route("/api/v1/records/{kind}/{id}/versions", get(records::versions))
     .route(
         "/api/v1/records/{kind}/{id}/comments",
         post(records::comment),
@@ -2691,6 +2827,9 @@ async fn health(State(state): State<AppState>) -> Result<Json<Value>, AppError> 
         "node_id": state.config.node_id,
         "node_role": state.config.node_role,
         "ledger_authority": "movement",
+        // Where the Gudang's work is done: `cloud` here (`/api/v1/dc/*`), or
+        // `edge` on a DC server in the warehouse (`/edge/api/v1/dc/*`).
+        "dc_hosting": if crate::cloud::dc::common::hosted() { "cloud" } else { "edge" },
         "capabilities": [
             "inventory.pools.native",
             "inventory.pools.fleet",
@@ -2785,6 +2924,62 @@ async fn transfer_reconciliations(
         .await?,
     ))
 }
+/// Returns to suppliers from HO return stock, and what each still owes.
+async fn supplier_returns(
+    State(s): State<AppState>,
+) -> Result<Json<infrastructure::SupplierReturnList>, AppError> {
+    Ok(Json(infrastructure::list_supplier_returns(&s.db).await?))
+}
+/// Buying raises one: the allotment that moves the goods and its terms.
+async fn raise_supplier_return(
+    State(s): State<AppState>,
+    Extension(principal): Extension<self::auth::Principal>,
+    Json(r): Json<infrastructure::NewSupplierReturn>,
+) -> Result<(StatusCode, Json<infrastructure::SupplierReturnView>), AppError> {
+    let actor = principal.flow_actor();
+    Ok((
+        StatusCode::CREATED,
+        Json(infrastructure::raise_supplier_return(&s.db, r, &actor).await?),
+    ))
+}
+/// What came back: replacement goods, a refund or a credit note.
+async fn settle_supplier_return(
+    State(s): State<AppState>,
+    Extension(principal): Extension<self::auth::Principal>,
+    Path(allotment_id): Path<Uuid>,
+    Json(r): Json<infrastructure::NewSettlement>,
+) -> Result<Json<infrastructure::SupplierReturnView>, AppError> {
+    Ok(Json(
+        infrastructure::settle_supplier_return(&s.db, allotment_id, r, &principal.username)
+            .await?,
+    ))
+}
+/// Buying gives up on what is left.
+async fn close_supplier_return_short(
+    State(s): State<AppState>,
+    Extension(principal): Extension<self::auth::Principal>,
+    Path(allotment_id): Path<Uuid>,
+    Json(r): Json<infrastructure::CloseShortRequest>,
+) -> Result<Json<infrastructure::SupplierReturnView>, AppError> {
+    Ok(Json(
+        infrastructure::close_supplier_return_short(&s.db, allotment_id, r, &principal.username)
+            .await?,
+    ))
+}
+/// The supplier each SKU came from: the operations board's Spread view.
+async fn sku_suppliers(
+    State(s): State<AppState>,
+    Query(q): Query<infrastructure::SkuSupplierQuery>,
+) -> Result<Json<infrastructure::SkuSupplierList>, AppError> {
+    Ok(Json(infrastructure::sku_suppliers(&s.db, q).await?))
+}
+/// The surat jalan stores have received: the operations board's last lane.
+async fn received_shipments(
+    State(s): State<AppState>,
+    Query(q): Query<infrastructure::ReceivedShipmentQuery>,
+) -> Result<Json<infrastructure::ReceivedShipmentList>, AppError> {
+    Ok(Json(infrastructure::list_received_shipments(&s.db, q).await?))
+}
 async fn pool_detail(
     State(s): State<AppState>,
     Path(id): Path<String>,
@@ -2854,6 +3049,21 @@ async fn cancel_allotment(
     };
     Ok((status, Json(response)))
 }
+async fn unfilled_allotments(
+    State(s): State<AppState>,
+) -> Result<Json<infrastructure::UnfilledList>, AppError> {
+    Ok(Json(infrastructure::list_unfilled(&s.db).await?))
+}
+async fn close_allotment_short(
+    State(s): State<AppState>,
+    Extension(principal): Extension<self::auth::Principal>,
+    Path(id): Path<Uuid>,
+    Json(r): Json<infrastructure::AllotmentCloseShortRequest>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(
+        infrastructure::close_allotment_short(&s.db, id, r, &principal.username).await?,
+    ))
+}
 async fn execute_allotment(
     State(s): State<AppState>,
     Path(id): Path<Uuid>,
@@ -2889,6 +3099,12 @@ async fn movements(
         )
         .await?,
     ))
+}
+async fn article_history(
+    State(s): State<AppState>,
+    Path(article_code): Path<String>,
+) -> Result<Json<infrastructure::ArticleHistory>, AppError> {
+    Ok(Json(infrastructure::article_history(&s.db, &article_code).await?))
 }
 async fn move_stock(
     State(s): State<AppState>,
@@ -3226,6 +3442,7 @@ async fn article_prices(
                 cursor: q.cursor.clone(),
                 // Clamped where it is enforced, not here.
                 limit: q.limit,
+                final_prices: q.final_prices.unwrap_or(false),
             },
         )
         .await?,
@@ -4415,6 +4632,8 @@ async fn list_purchase_orders(
                 suppliers: comma_list(&q.supplier),
                 issued_from: q.issued_from,
                 issued_to: q.issued_to,
+                delivery_from: q.delivery_from,
+                delivery_to: q.delivery_to,
                 sort: q.sort.clone(),
                 dir: q.dir.clone(),
                 cursor: q.cursor.clone(),
@@ -4458,6 +4677,25 @@ async fn open_setup_session(
         StatusCode::CREATED,
         Json(infrastructure::setup_session_status(&s.db, session_id).await?),
     ))
+}
+
+/// Open one delivery line as several sibling articles (0825): one session per
+/// article, all in one transaction. Answers every session, in the order the
+/// articles were given; each is then issued on its own, as a single one is.
+async fn open_split_setup(
+    State(s): State<AppState>,
+    Extension(acted_on): Extension<DeclaredSubject>,
+    Json(request): Json<infrastructure::NewSplitSetup>,
+) -> Result<(StatusCode, Json<Value>), AppError> {
+    let session_ids = infrastructure::create_split_setup(&s.db, &request).await?;
+    if let Some(first) = session_ids.first() {
+        acted_on.set(RecordKind::ArticleSetup, first.to_string());
+    }
+    let mut items = Vec::with_capacity(session_ids.len());
+    for session_id in session_ids {
+        items.push(infrastructure::setup_session_status(&s.db, session_id).await?);
+    }
+    Ok((StatusCode::CREATED, Json(json!({ "items": items }))))
 }
 
 async fn setup_session_detail(

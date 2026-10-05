@@ -19,6 +19,7 @@ import {
   type UnitConversion,
   type UnitOfMeasure,
 } from "@/lib/queries/units"
+import { useIdentity } from "@/lib/session"
 import { cn } from "@/lib/utils"
 
 /// Units of measure and how many of one another is worth.
@@ -41,6 +42,8 @@ type Editing =
 
 export function Units() {
   const book = useUnits()
+  const identity = useIdentity()
+  const isAdmin = identity.data?.role === "ADMIN"
   const [editing, setEditing] = useState<Editing | null>(null)
   const close = useCallback(() => setEditing(null), [])
 
@@ -48,7 +51,7 @@ export function Units() {
 
   return (
     <PageContent>
-      <PageHeader title="Units & conversions" />
+      <PageHeader title="Satuan & conversions" />
       <p className="-mt-3 mb-5 max-w-[46rem] text-[0.875rem] leading-[1.375rem] text-body">
         Stock is kept in the main unit. A conversion says how many of the main
         unit one other unit is worth — one LUSIN is 12 PCS — so an order typed
@@ -68,7 +71,7 @@ export function Units() {
           <Card className="overflow-hidden">
             <CardHeader>
               <CardTitle>
-                Units
+                Satuan
                 <span className="ml-2 text-[0.875rem] font-normal text-body">
                   {book.units.length}
                   {retiredUnits > 0 && ` · ${retiredUnits} cancelled`}
@@ -136,6 +139,7 @@ export function Units() {
             key={editing.unit?.code ?? "new"}
             unit={editing.unit}
             units={book.units}
+            isAdmin={isAdmin}
             onSaved={close}
           />
         )}
@@ -243,7 +247,11 @@ function UnitsTable({
           <tr className="bg-soft">
             <th className={TH}>Code</th>
             <th className={TH}>Label</th>
-            <th className={TH}>Main unit</th>
+            <th className={TH}>Aliases</th>
+            <th className={cn(TH, "text-right")}>Worth</th>
+            <th className={TH}>Category</th>
+            <th className={TH}>Whole Number</th>
+            <th className={TH}>Main Unit</th>
             <th className={TH}>Status</th>
           </tr>
         </thead>
@@ -256,6 +264,22 @@ function UnitsTable({
             >
               <td className={cn(TD, "font-mono font-medium")}>{unit.code}</td>
               <td className={TD}>{unit.label}</td>
+              <td className={cn(TD, "max-w-[16rem] truncate text-body")}>
+                {unit.aliases.length > 0 ? unit.aliases.join(", ") : "—"}
+              </td>
+              <td className={cn(TD, "text-right tabular-nums")}>
+                {unit.is_base
+                  ? "1 pcs"
+                  : unit.pieces === null
+                    ? "—"
+                    : `${unit.pieces} pcs`}
+              </td>
+              <td className={cn(TD, "text-body")}>
+                {categoryLabel(unit.category)}
+              </td>
+              <td className={cn(TD, "text-body")}>
+                {unit.whole_number ? "Yes" : "No"}
+              </td>
               <td className={TD}>
                 {unit.is_base ? (
                   <span className="font-medium text-accent">Main unit</span>
@@ -309,9 +333,9 @@ function ConversionsTable({
       <table className="w-full min-w-[40rem] border-collapse">
         <thead>
           <tr className="bg-soft">
-            <th className={TH}>Other unit</th>
-            <th className={TH}>Main unit</th>
-            <th className={cn(TH, "text-right")}>Conversion value</th>
+            <th className={TH}>Other Unit</th>
+            <th className={TH}>Main Unit</th>
+            <th className={cn(TH, "text-right")}>Conversion Value</th>
             <th className={TH}>Note</th>
             <th className={TH}>Status</th>
           </tr>
@@ -374,7 +398,7 @@ function Toggle({
     <div className="flex flex-col gap-1">
       <label
         className={cn(
-          "inline-flex items-center gap-2.5 text-[0.875rem] text-ink",
+          "inline-flex items-center gap-2.5 text-[0.875rem] text-ink capitalize",
           disabled ? "opacity-55" : "cursor-pointer"
         )}
       >
@@ -413,15 +437,45 @@ function Refusal({ error }: { error: unknown }) {
   )
 }
 
+/// COUNT, MASS, VOLUME, LENGTH or AREA (ERPNext's UOM Category), as a friendly
+/// word — a conversion only ever joins two units of the same one.
+const CATEGORIES: readonly { value: string; label: string }[] = [
+  { value: "COUNT", label: "Count" },
+  { value: "MASS", label: "Weight" },
+  { value: "VOLUME", label: "Volume" },
+  { value: "LENGTH", label: "Length" },
+  { value: "AREA", label: "Area" },
+]
+
+function categoryLabel(category: string): string {
+  return CATEGORIES.find((one) => one.value === category)?.label ?? category
+}
+
 const CODE = /^[A-Z0-9_]{1,16}$/
+
+/// Aliases as they are typed — comma-separated — and as they are sent: lower
+/// case, trimmed, blanks and duplicates dropped. A picker matches a
+/// supplier's own spelling ("lsn", "dz") to the master, so case and stray
+/// spaces are noise the master should not have to carry.
+function parseAliases(text: string): string[] {
+  const seen = new Set<string>()
+  for (const raw of text.split(",")) {
+    const one = raw.trim().toLowerCase()
+    if (one !== "") seen.add(one)
+  }
+  return [...seen]
+}
 
 function UnitForm({
   unit,
   units,
+  isAdmin,
   onSaved,
 }: {
   unit: UnitOfMeasure | null
   units: readonly UnitOfMeasure[]
+  /// Aliases are an Admin-only edit — everyone else reads them off the table.
+  isAdmin: boolean
   onSaved: () => void
 }) {
   const client = useQueryClient()
@@ -430,6 +484,14 @@ function UnitForm({
   const [label, setLabel] = useState(unit?.label ?? "")
   const [isBase, setIsBase] = useState(unit?.is_base ?? false)
   const [active, setActive] = useState(unit?.active ?? true)
+  const [aliasText, setAliasText] = useState(unit?.aliases.join(", ") ?? "")
+  const [category, setCategory] = useState(unit?.category ?? "COUNT")
+  const [wholeNumber, setWholeNumber] = useState(unit?.whole_number ?? true)
+
+  // Refused server-side once a conversion joins the unit — those rows were
+  // written for the kind it was — so the picker is disabled rather than left
+  // to fail silently on save.
+  const categoryLocked = unit !== null && unit.pieces !== null && !unit.is_base
 
   const typedCode = code.trim().toUpperCase()
   const problems: { code?: string; label?: string } = {}
@@ -448,7 +510,14 @@ function UnitForm({
     mutationFn: () =>
       unit === null
         ? createUnit(
-            { code: typedCode, label: label.trim(), is_base: isBase },
+            {
+              code: typedCode,
+              label: label.trim(),
+              is_base: isBase,
+              category,
+              whole_number: wholeNumber,
+              aliases: isAdmin ? parseAliases(aliasText) : undefined,
+            },
             idempotency.key
           )
         : updateUnit(
@@ -458,6 +527,11 @@ function UnitForm({
               // Only `true` is an act; the server refuses to unmark the base.
               is_base: isBase && !wasBase ? true : undefined,
               active,
+              // Present replaces the list, so a non-admin — who never sees
+              // the field — must not send it at all.
+              aliases: isAdmin ? parseAliases(aliasText) : undefined,
+              category: categoryLocked ? undefined : category,
+              whole_number: wholeNumber,
             },
             unit.version,
             idempotency.key
@@ -486,7 +560,6 @@ function UnitForm({
           value={code}
           disabled={unit !== null}
           onChange={(event) => setCode(event.target.value.toUpperCase())}
-          placeholder="LUSIN"
           autoFocus={unit === null}
         />
       </Field>
@@ -495,9 +568,57 @@ function UnitForm({
         <Input
           value={label}
           onChange={(event) => setLabel(event.target.value)}
-          placeholder="Lusin"
         />
       </Field>
+
+      <Field
+        label="Category"
+        hint={
+          categoryLocked
+            ? "Fixed while a conversion joins this unit — those rows were written for this kind."
+            : "A conversion only ever joins two units of the same category."
+        }
+      >
+        <Select
+          value={category}
+          onChange={setCategory}
+          disabled={categoryLocked}
+        >
+          {CATEGORIES.map((one) => (
+            <option key={one.value} value={one.value}>
+              {one.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+
+      <Toggle
+        label="Whole numbers only"
+        hint="A quantity in this unit is always whole — needed for a unit to be an article's stock unit."
+        checked={wholeNumber}
+        onChange={setWholeNumber}
+      />
+
+      {isAdmin && (
+        <Field
+          label="Aliases"
+          hint="Other spellings a supplier's paper uses for this unit — comma-separated."
+        >
+          <Input
+            value={aliasText}
+            onChange={(event) => setAliasText(event.target.value)}
+          />
+        </Field>
+      )}
+
+      {unit !== null && !unit.is_base && (
+        <p className="text-[0.875rem] text-body">
+          Worth{" "}
+          {unit.pieces === null
+            ? "— (no conversion yet)"
+            : `${unit.pieces} pcs`}
+        </p>
+      )}
 
       <Toggle
         label="Main unit"
@@ -532,7 +653,7 @@ function UnitForm({
         pending={save.isPending}
         disabled={invalid}
       >
-        {save.isPending ? "Saving…" : unit === null ? "Add unit" : "Save"}
+        {save.isPending ? "Submitting…" : unit === null ? "Submit" : "Submit"}
       </Button>
     </form>
   )
@@ -575,6 +696,19 @@ function ConversionForm({
   const [factor, setFactor] = useState(conversion?.factor ?? "")
   const [note, setNote] = useState(conversion?.note ?? "")
   const [active, setActive] = useState(conversion?.active ?? true)
+
+  const byCode = useMemo(
+    () => new Map(offered.map((unit) => [unit.code, unit])),
+    [offered]
+  )
+  // A conversion only ever joins two units of one category — the "Main unit"
+  // box offers only units the chosen "Other unit" could actually convert
+  // into, rather than a list somebody has to already know to avoid.
+  const fromCategory = byCode.get(from)?.category
+  const toOptions =
+    fromCategory === undefined
+      ? offered
+      : offered.filter((unit) => unit.category === fromCategory)
 
   const problems: { from?: string; factor?: string } = {}
   if (conversion === null) {
@@ -643,7 +777,21 @@ function ConversionForm({
         <Field label="Other unit" required>
           <Select
             value={from}
-            onChange={setFrom}
+            onChange={(next) => {
+              setFrom(next)
+              // Changing the category out from under a chosen "Main unit"
+              // would leave it selected but no longer offered.
+              const nextCategory = byCode.get(next)?.category
+              if (
+                nextCategory !== undefined &&
+                byCode.get(to)?.category !== nextCategory
+              ) {
+                setTo(
+                  offered.find((unit) => unit.category === nextCategory)
+                    ?.code ?? ""
+                )
+              }
+            }}
             disabled={conversion !== null}
             invalid={problems.from !== undefined}
             aria-label="Other unit"
@@ -663,7 +811,7 @@ function ConversionForm({
             invalid={problems.from !== undefined}
             aria-label="Main unit"
           >
-            {offered.map((unit) => (
+            {toOptions.map((unit) => (
               <option key={unit.code} value={unit.code}>
                 {unit.code}
               </option>
@@ -682,7 +830,6 @@ function ConversionForm({
           value={factor}
           inputMode="decimal"
           onChange={(event) => setFactor(event.target.value)}
-          placeholder="12"
           className="tabular-nums"
           autoFocus={conversion === null}
         />
@@ -699,7 +846,6 @@ function ConversionForm({
           value={note}
           rows={3}
           onChange={(event) => setNote(event.target.value)}
-          placeholder="Optional"
         />
       </Field>
 
@@ -720,10 +866,10 @@ function ConversionForm({
         disabled={invalid}
       >
         {save.isPending
-          ? "Saving…"
+          ? "Submitting…"
           : conversion === null
-            ? "Add conversion"
-            : "Save"}
+            ? "Submit"
+            : "Submit"}
       </Button>
     </form>
   )

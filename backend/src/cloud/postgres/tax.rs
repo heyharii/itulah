@@ -163,6 +163,8 @@ pub struct TaxReconciliationRow {
     pub subledger_minor: i64,
     /// What the ledger holds on the account the type is mapped to.
     pub gl_minor: i64,
+    /// The ledger less everything still open on that account — every period
+    /// of every type mapped to it, since types can share an account.
     pub difference_minor: i64,
     pub account_code: Option<String>,
 }
@@ -573,6 +575,7 @@ pub async fn tax_reconciliation(
                JOIN journal_line l ON l.account_code = a.account_code
               GROUP BY a.code
          )
+         , period AS (
          SELECT p.tax_type_code, t.name AS tax_type_name, t.nature,
                 p.period_year, p.period_month, p.status,
                 account.account_code,
@@ -587,10 +590,22 @@ pub async fn tax_reconciliation(
            LEFT JOIN tax_ledger_item i ON i.period_id = p.period_id
            LEFT JOIN account ON account.code = p.tax_type_code
            LEFT JOIN gl ON gl.code = p.tax_type_code
-          WHERE ($1::int IS NULL OR p.period_year = $1::int)
           GROUP BY p.tax_type_code, t.name, t.nature, p.period_year, p.period_month,
                    p.status, account.account_code, gl.gl_minor
-          ORDER BY p.period_year DESC, p.period_month DESC, p.tax_type_code",
+         )
+         -- The ledger holds one balance per account, whatever shares it: the
+         -- client books PPh 4(2) and PPh 23 both on 2012. So the account is
+         -- matched against everything still open on it — every period, every
+         -- type mapped there — not against one period of one type.
+         , matched AS (
+         SELECT period.*,
+                SUM(subledger_minor) OVER (PARTITION BY COALESCE(account_code, tax_type_code))::bigint
+                    AS account_subledger_minor
+           FROM period
+         )
+         SELECT * FROM matched
+          WHERE ($1::int IS NULL OR period_year = $1::int)
+          ORDER BY period_year DESC, period_month DESC, tax_type_code",
     )
     .bind(year)
     .fetch_all(pool)
@@ -614,7 +629,7 @@ pub async fn tax_reconciliation(
                 status: row.try_get("status")?,
                 subledger_minor: sub,
                 gl_minor: gl,
-                difference_minor: gl - sub,
+                difference_minor: gl - row.try_get::<i64, _>("account_subledger_minor")?,
                 account_code: row.try_get("account_code")?,
             })
         })

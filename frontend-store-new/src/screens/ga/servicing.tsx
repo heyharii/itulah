@@ -31,7 +31,7 @@ import type { GaMaintenanceTaskRow } from "@itulah/contract"
 /// breaks. So the list opens on what is due inside a month, overdue first.
 export function Servicing() {
   return (
-    <GaScreen sub="What head office has scheduled to be serviced here, and when it is next due.">
+    <GaScreen>
       {(site) => <Schedule site={site} />}
     </GaScreen>
   )
@@ -99,15 +99,13 @@ function Schedule({ site }: { site: string }) {
   const [phase, setPhase] = useState<Phase>("SOON")
 
   return gaState(tasks, {
-    loading: "Reading this shop's service schedule…",
+    loading: "Loading…",
     render: (rows) => {
       if (rows.length === 0) {
         return (
           <Card>
             <p className="mx-auto max-w-[30em] px-4 py-12 text-center text-meta text-body">
-              Head office has scheduled no regular service for this shop. AC
-              washing, genset and lift checks show here once GA puts them on the
-              schedule.
+              No service scheduled.
             </p>
           </Card>
         )
@@ -145,7 +143,7 @@ function Schedule({ site }: { site: string }) {
               rows={shown}
               columns={columns}
               rowKey={(row) => row.task_id}
-              empty={`Nothing is due in the next ${SERVICING_HORIZON_DAYS} days. The whole schedule is under All.`}
+              empty={`Nothing due in ${SERVICING_HORIZON_DAYS} days.`}
             />
           </Card>
         </>

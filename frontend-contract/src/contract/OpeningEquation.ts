@@ -3,16 +3,16 @@
 /**
  * One control equation, as at the cutover date.
  */
-export type OpeningEquation = {
+export type OpeningEquation = { 
 /**
  * Dotted, and the same keys the integrity engine uses where there is one.
  */
-key: string, title: string,
+key: string, title: string, 
 /**
  * The books the equation is asked of. Every one of them is about a
  * unit's books — the ledger, the open items, the inventory account.
  */
-unit_id: string | null, left_minor: number, right_minor: number, difference_minor: number, agrees: boolean,
+unit_id: string | null, left_minor: number, right_minor: number, difference_minor: number, agrees: boolean, 
 /**
  * What the two sides are, in a sentence, because "difference 250,000" on
  * its own does not say between what.

@@ -2,97 +2,77 @@ import { useQueries, useQuery } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { ExportButton } from "@/components/ui/export-button"
 import { PageHeader } from "@/components/ui/page-header"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
+import { monthStamp, type ExportSheet } from "@/lib/export-xlsx"
 import { money } from "@/lib/format"
 import { financeKeys, statement } from "@/lib/queries/finance"
 import { unitLabel } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
-import {
-  CardRow,
-  Code,
-  Grid,
-  Note,
-  NumberCard,
-  Td,
-  Th,
-  TotalRow,
-} from "@/screens/finance-final/parts"
+import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import { asPresented, ladderLevel, periodResult } from "@/screens/finance/chart"
-import { useLocations, useWindow } from "@/screens/finance/hooks"
+import { useLocations, useUnitName, useWindow } from "@/screens/finance/hooks"
 import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
+import {
+  FilterCheck,
+  PeriodicitySelect,
+  ReportChart,
+  ReportFilters,
+  ReportSummary,
+  periodsOf,
+  type Periodicity,
+  type ReportChartRow,
+} from "@/screens/finance/report"
+
 import type { Statement } from "@itulah/contract"
 
-/// What was earned and what it cost, over a window, by unit.
+/// ERPNext's Profit and Loss Statement, on the client's own layers.
 ///
-/// # The family these four reports belong to
+/// The page is ERPNext's report (`accounts/report/profit_and_loss_statement`):
+/// its filters — unit in Company's place, From and To, Periodicity (Yearly by
+/// default), Accumulated Values (off by default) — then its report summary,
+/// Total Income, Total Expense and Net Profit ("… This Year" when the report
+/// is one Yearly column), then its chart, Income, Expense and Net Profit/Loss
+/// per period, bars or lines when accumulated, then the table: one column per
+/// period and a Total, as ERPNext prints it.
 ///
-/// This is the first of the Reports group to be written, so it settles the
-/// shape the other three follow. Four rules, and they are the whole of it:
+/// The statement inside is the client's, as the owner set it on 25 Sep: the
+/// classes of their chart in code order, with gross profit drawn between
+/// cost of goods sold and the expenses below it. Where the client's book and
+/// ERPNext differ, the client's book wins — ERPNext decides the page, not the
+/// accounts on it.
 ///
-///  1. **The toolbar is always dates, then unit, then whatever this report
-///     alone needs, then the sentence saying what is on screen.** A reader
-///     moving between Profit & Loss and Balance Sheet should not have to go
-///     looking for the location select again.
-///  2. **The figures a reader checks first sit in `<NumberCard>`s above the
-///     table**, and they are the server's own numbers — never a sum of the
-///     rows below them. A page that added up its visible rows would report a
-///     different answer while it was still loading.
-///  3. **One tree, one indent.** `ladderLevel()` turns the client's
-///     `{1,3,5,7,10,12}` code ladder into a rung, and a rung is `1.125rem`.
-///     Indenting by the raw code length would step four times between a
-///     heading and its child.
-///  4. **`TotalRow` ends a table and appears once.** Subtotals inside the tree
-///     are ordinary rows carrying their own rule; the bottom line is the one
-///     with `TotalRow`'s.
+/// Compare units is ours and comes last. ERPNext can only compare shops by
+/// making each its own Company; here a unit is a dimension on the ledger row,
+/// so it is one more column — one more request to `GET /finance/statement`,
+/// which takes one window and one unit, as every column here is.
 ///
-/// # Why the comparison is an axis the reader picks
-///
-/// ERPNext offers `periodicity` — monthly, quarterly, half-yearly, yearly
-/// columns — and, separately, `group_by_dimension`. They drive the **same
-/// axis**, so "store against store, month by month" is not a report you can
-/// ask ERPNext for. Worse, its unit comparison only works when each shop is
-/// its own Company: thirteen charts of accounts and inter-company entries to
-/// keep them straight.
-///
-/// This module rejected that arrangement. One chart, and the unit is a
-/// dimension on the ledger row (`journal_line.unit_id`), so both comparisons
-/// are askable here — a column is one more request to
-/// `GET /finance/statement` with its own `from`, `to` and `unit`, and never a
-/// slice of a wider answer cut up in the browser. A per-unit profit and loss
-/// is the thing this model does *better* than the reference, and it costs one
-/// round trip per shop.
-///
-/// Still one axis at a time, and deliberately: fourteen units across six
-/// months is eighty-four requests and a table nobody can read.
-///
-/// # Why income reads positive here and negative on the wire
-///
-/// The server sends every figure as the ledger holds it — debits positive — so
-/// income arrives negative and a loss arrives *positive*. A balance does not
-/// know it is about to be printed on a page where income reads as a positive
-/// number; a statement does. `asPresented()` and `periodResult()` are that
-/// knowledge, shared with the live Finance module so the two reports cannot
-/// disagree about a figure they both got right.
+/// Income arrives negative — the ledger stores debits positive — and is
+/// flipped for reading by `asPresented()` and `periodResult()`, shared with
+/// every other statement so no two can disagree about a sign.
 export function ProfitAndLoss() {
   const range = useWindow()
   const [unit, setUnit] = useState("")
-  const [compare, setCompare] = useState<CompareAxis>("NONE")
+  const [periodicity, setPeriodicity] = useState<Periodicity>("Yearly")
+  const [accumulated, setAccumulated] = useState(false)
+  const [compareUnits, setCompareUnits] = useState(false)
 
   // The units the books are kept for: head office and each store.
   const locations = useLocations()
+  const unitName = useUnitName()
 
   // Comparing units and filtering to one unit is a filter fighting the thing
-  // it filters, so the select goes dead rather than disappearing — a control
-  // that vanishes between modes reads as a bug. The consolidated reading is
-  // then the last column, which is what "all units" means.
-  const byUnit = compare === "UNIT"
-  const effectiveUnit = byUnit ? "" : unit
+  // it filters, so the unit select goes dead while units are compared.
+  const effectiveUnit = compareUnits ? "" : unit
+
+  const periods = useMemo(
+    () => periodsOf(range.from, range.to, periodicity, accumulated),
+    [range.from, range.to, periodicity, accumulated]
+  )
 
   const columns = useMemo<readonly ReportColumn[]>(() => {
-    if (compare === "NONE") return []
-    if (compare === "UNIT") {
+    if (compareUnits) {
       return (locations.data?.locations ?? []).map((location) => ({
         key: `unit:${location.unit_id}`,
         label: unitLabel(location),
@@ -101,26 +81,31 @@ export function ProfitAndLoss() {
         unit: location.unit_id,
       }))
     }
-    return periodColumns(range.from, range.to, compare).map((period) => ({
-      key: `period:${period.from}`,
+    // One period is the window itself: the Total column says it.
+    if (periods.length <= 1) return []
+    return periods.map((period) => ({
+      key: `period:${period.key}`,
       label: period.label,
       from: period.from,
       to: period.to,
       unit: effectiveUnit,
     }))
-  }, [compare, locations.data, range.from, range.to, effectiveUnit])
+  }, [
+    compareUnits,
+    locations.data,
+    periods,
+    range.from,
+    range.to,
+    effectiveUnit,
+  ])
 
   // Past this many the table stops being readable and the fan-out stops being
-  // polite. Refused outright rather than silently truncated: a report that
-  // quietly dropped the last nine months would be wrong in the one way a
-  // finance screen may never be.
+  // polite. Refused outright rather than silently truncated.
   const tooWide = columns.length > MAX_COLUMNS
 
-  /// The whole window at the chosen unit. Asked on every axis, because it is
-  /// three things at once: the figures in the cards, the Total column beside
-  /// the comparison, and the check on it — the server computes it from
-  /// `journal_line` rather than by adding the columns up, so a disagreement
-  /// between it and the columns beside it is a bug showing itself.
+  /// The whole window at the chosen unit: the summary, the Total column, and
+  /// the check on the columns — the server computes it from `journal_line`
+  /// rather than by adding them up.
   const total = useQuery({
     queryKey: financeKeys.statement(
       "PROFIT_LOSS",
@@ -136,11 +121,6 @@ export function ProfitAndLoss() {
       ),
   })
 
-  // `combine` rather than a `useMemo` over the results: `useQueries` hands back
-  // a fresh array every render, so a memo over it would either recompute
-  // constantly or need a hand-rolled fingerprint as its dependency. Keyed
-  // positionally and zipped with `columns` at render time, so nothing in here
-  // closes over a value whose identity changes each pass.
   const cells = useQueries({
     queries: (tooWide ? [] : columns).map((column) => ({
       queryKey: financeKeys.statement(
@@ -161,95 +141,218 @@ export function ProfitAndLoss() {
     }),
   })
 
+  /// The columns and rows the table draws for a given answer — shared by the
+  /// screen and by Export, so the file is the table.
+  const layout = (report: Statement) => {
+    const anchor = readingOf(report)
+    const periodColumns = !tooWide && columns.length > 0
+    const shown: readonly ShownColumn[] = periodColumns
+      ? [
+          ...columns.map((column, index) => ({
+            key: column.key,
+            label: column.label,
+            reading: cells.readings[index] ?? EMPTY_READING,
+          })),
+          // Accumulated, the last period IS the window, and ERPNext
+          // prints no Total beside it.
+          ...(accumulated && !compareUnits
+            ? []
+            : [
+                {
+                  key: "total",
+                  label: compareUnits ? "All units" : "Total",
+                  reading: anchor,
+                },
+              ]),
+        ]
+      : [
+          {
+            key: "total",
+            label: periods[0]?.label ?? "Amount",
+            reading: anchor,
+          },
+        ]
+    const rows = buildTree([
+      report,
+      ...cells.readings.map((reading) => reading.report),
+    ])
+    return { anchor, periodColumns, shown, rows }
+  }
+
+  const build = (): ExportSheet | null => {
+    if (total.data === undefined) return null
+    const { shown, rows } = layout(total.data)
+    const at = (column: ShownColumn, row: TreeRow) =>
+      presented(
+        column.reading,
+        row.kind === "section" ? sectionKey(row.rootClass) : row.code,
+        row.rootClass
+      )
+    const result = periodResult(total.data.result_minor)
+    return {
+      filename: `Profit-and-Loss-${monthStamp(range.to)}`,
+      sheet: "Profit and Loss",
+      title: "Profit and Loss Statement",
+      subtitle: `${range.chip} · ${
+        compareUnits
+          ? "every unit, side by side"
+          : unit === ""
+            ? "every unit"
+            : unitName(unit)
+      } · ${periodicity}${accumulated ? " · accumulated" : ""}`,
+      columns: [
+        { header: "Code", kind: "text", width: 12 },
+        { header: "Account", kind: "text", width: 48 },
+        ...shown.map((column) => ({
+          header: column.label,
+          kind: "money" as const,
+        })),
+      ],
+      rows: [
+        ...rows.map((row) => [
+          row.code,
+          row.name,
+          ...shown.map((column) => at(column, row)),
+        ]),
+        [
+          null,
+          "Gross profit",
+          ...shown.map((column) => grossOf(column.reading)),
+        ],
+      ],
+      rowStyles: [
+        ...rows.map((row) => ({
+          bold: row.kind === "section",
+          indent: row.level,
+        })),
+        { bold: true },
+      ],
+      totalRow: [
+        null,
+        result.label,
+        ...shown.map((column) =>
+          column.reading.report === undefined
+            ? null
+            : periodResult(column.reading.report.result_minor).minor
+        ),
+      ],
+    }
+  }
+
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance · Reports"
-        title="Profit & Loss"
-        sub="What was earned and what it cost, over a window, by unit."
+        crumb="Finance · Financial Reports"
+        title="Profit and Loss Statement"
+        actions={
+          <ExportButton build={build} disabled={total.data === undefined} />
+        }
       />
 
-      <Toolbar>
-        <WindowControl range={range} />
+      <ReportFilters
+        note={
+          <>
+            {range.chip}
+            {compareUnits ? (
+              " · every unit, side by side"
+            ) : unit === "" ? (
+              " · every unit"
+            ) : (
+              <>
+                {" · "}
+                <UnitName id={unit} />
+              </>
+            )}
+          </>
+        }
+      >
         <UnitSelect
           value={unit}
           onChange={setUnit}
-          disabled={byUnit}
-          className="h-8 w-44"
+          disabled={compareUnits}
+          className="h-control w-44"
           aria-label="Unit"
         />
-        <Segmented
-          value={compare}
-          onChange={setCompare}
-          options={COMPARE_OPTIONS}
+        <WindowControl range={range} />
+        <PeriodicitySelect value={periodicity} onChange={setPeriodicity} />
+        <FilterCheck
+          label="Accumulated Values"
+          checked={accumulated}
+          onChange={setAccumulated}
         />
-        <Toolbar.Spacer />
-        {/* The effective answer, in words, always. A date box left blank and a
-            date box filled with today look identical to a reader; this
-            sentence is what tells them which report they are looking at. */}
-        <span className="text-[0.875rem] text-mute">
-          {range.chip}
-          {byUnit ? (
-            " · every unit, side by side"
-          ) : unit === "" ? (
-            " · every unit"
-          ) : (
-            <>
-              {" · "}
-              <UnitName id={unit} />
-            </>
-          )}
-        </span>
-      </Toolbar>
+        <FilterCheck
+          label="Compare units"
+          checked={compareUnits}
+          onChange={setCompareUnits}
+        />
+      </ReportFilters>
 
       {queryState(total, {
         loading: "Reading what was earned and what it cost…",
         render: (report) => {
-          const anchor = readingOf(report)
-          const shown: readonly ShownColumn[] =
-            compare === "NONE" || tooWide
-              ? [{ key: "total", label: "Amount", reading: anchor }]
-              : [
-                  ...columns.map((column, index) => ({
-                    key: column.key,
-                    label: column.label,
-                    reading: cells.readings[index] ?? EMPTY_READING,
-                  })),
-                  {
-                    key: "total",
-                    label: byUnit ? "All units" : "Total",
-                    reading: anchor,
-                  },
-                ]
-          const rows = buildTree([
-            report,
-            ...cells.readings.map((reading) => reading.report),
-          ])
+          const { anchor, periodColumns, shown, rows } = layout(report)
           const result = periodResult(report.result_minor)
+          const income = sectionOf(anchor, "4")
           const silent =
             report.result_minor === 0 &&
             report.sections.every((section) => section.total_minor === 0)
 
+          const chartColumns = periodColumns
+            ? shown.filter((column) => column.key !== "total")
+            : shown
+          const chartRows: ReportChartRow[] = chartColumns.map((column) => {
+            const earned = sectionOf(column.reading, "4") ?? 0
+            const net =
+              column.reading.report === undefined
+                ? 0
+                : periodResult(column.reading.report.result_minor).minor
+            return {
+              label: column.label,
+              income: earned,
+              expense: earned - net,
+              net,
+            }
+          })
+
           return (
-            <div className="flex flex-col gap-4">
-              <CardRow>
-                <NumberCard
-                  label="Income"
-                  value={sectionOf(anchor, "4")}
-                  note="Class 4, in the client's own chart"
+            <>
+              <ReportSummary
+                items={[
+                  {
+                    label: "Total Income",
+                    value: income,
+                  },
+                  {
+                    label: "Total Expense",
+                    value: income === null ? null : income - result.minor,
+                  },
+                  {
+                    label: "Net Profit",
+                    value: result.minor,
+                    indicator: result.minor > 0 ? "Green" : "Red",
+                  },
+                ]}
+              />
+
+              {!silent && (
+                <ReportChart
+                  kind={accumulated ? "line" : "bar"}
+                  rows={chartRows}
+                  series={[
+                    { key: "income", label: "Income" },
+                    { key: "expense", label: "Expense" },
+                    { key: "net", label: "Net Profit/Loss" },
+                  ]}
                 />
-                <NumberCard
-                  label="Gross profit"
-                  value={grossOf(anchor)}
-                  note="Income less cost of goods sold"
-                />
-                <NumberCard
-                  label={result.label}
-                  value={result.minor}
-                  tone={result.loss ? "bad" : "ok"}
-                  note="The server's bottom line, not a sum of the rows"
-                />
-              </CardRow>
+              )}
+
+              {tooWide && (
+                <p className="mb-3 text-[0.875rem] text-mute">
+                  {columns.length} columns is more than {MAX_COLUMNS}, so the
+                  window is shown as one. Narrow the dates or choose a longer
+                  periodicity.
+                </p>
+              )}
 
               {silent ? (
                 <EmptyState>
@@ -270,36 +373,44 @@ export function ProfitAndLoss() {
                   </thead>
                   <tbody>
                     {rows.map((row) => (
-                      <tr key={`${row.rootClass}:${row.code}`}>
+                      <tr
+                        key={`${row.rootClass}:${row.code}`}
+                        // The class opens on a tinted band, its groups are a
+                        // weight heavier than their accounts: the tree reads
+                        // from the left edge without counting indents.
+                        className={
+                          row.kind === "section" ? "bg-soft" : undefined
+                        }
+                      >
                         <Td
                           className={
                             row.kind === "section"
-                              ? "font-medium text-ink"
-                              : undefined
+                              ? "font-semibold text-ink"
+                              : row.level === 1
+                                ? "font-medium text-ink"
+                                : undefined
                           }
                         >
-                          {/* The indent is on a span inside the cell rather
-                              than on the cell: `<Td>` owns its padding, and a
-                              second opinion about it in every table of this
-                              module is how two reports stop lining up. */}
                           <span
                             className="flex items-baseline gap-1.5"
                             style={{ paddingLeft: indentOf(row.level) }}
                           >
-                            {/* Printed, not linked. ERPNext's own docs warn
-                                that "a drill-down that loses a dimension
-                                filter can show a broader ledger scope than the
-                                original report" — and a sheet carries one key,
-                                so a link from here could take the account or
-                                the unit, never both. A code that silently
-                                widened the scope is worse than a code you
-                                copy. */}
                             <Code>{row.code}</Code>
                             <span className="min-w-0">{row.name}</span>
                           </span>
                         </Td>
                         {shown.map((column) => (
-                          <Td key={column.key} align="right">
+                          <Td
+                            key={column.key}
+                            align="right"
+                            className={
+                              row.kind === "section"
+                                ? "font-semibold text-ink"
+                                : row.level === 1
+                                  ? "font-medium"
+                                  : undefined
+                            }
+                          >
                             {money(
                               presented(
                                 column.reading,
@@ -314,11 +425,8 @@ export function ProfitAndLoss() {
                       </tr>
                     ))}
 
-                    {/* Gross profit is the one figure on this page nobody on
-                        the server computed. It is income less cost of goods
-                        sold — two section totals the server DID compute — and
-                        it carries a rule rather than an account code so nobody
-                        goes looking for it in the chart. */}
+                    {/* The client's layer: income less cost of goods sold,
+                        from two totals the server computed. */}
                     <tr className="border-t border-hairline-strong">
                       <Td className="font-medium text-ink">Gross profit</Td>
                       {shown.map((column) => (
@@ -353,47 +461,7 @@ export function ProfitAndLoss() {
                   </tbody>
                 </Grid>
               )}
-
-              {tooWide && (
-                <Note>
-                  This window covers {columns.length}{" "}
-                  {compare === "MONTH" ? "months" : "quarters"}, and every
-                  column is a whole request. Comparison stops at {MAX_COLUMNS}{" "}
-                  columns, so what is above is the window consolidated — narrow
-                  the dates to compare period by period.
-                </Note>
-              )}
-
-              <Note>
-                <b>Income reads positive here and negative on the wire.</b> The
-                ledger stores debits positive, so income — and any credit
-                balance sitting inside an expense class — arrives negative. The
-                sign is flipped for reading, per class, and never on the server:
-                the same figure has to come back the same way whichever screen
-                asks for it. <b>Gross profit is the only derived number on the
-                page</b>: income less cost of goods sold, from two totals the
-                server computed. The bottom line is the server's own, taken from{" "}
-                <code className="font-mono text-[0.875rem]">journal_line</code>{" "}
-                rather than by adding the sections up, so a disagreement with
-                the rows above it is a bug and not a rounding.
-              </Note>
-
-              <Note>
-                <b>Each column is its own request.</b>{" "}
-                <code className="font-mono text-[0.875rem]">
-                  GET /finance/statement
-                </code>{" "}
-                takes one window and one unit — it has no <i>periodicity</i> and
-                no per-unit breakout of its own — so {shown.length} columns is{" "}
-                {shown.length} round trips. That is why one axis runs at a time,
-                and why the two are offered as a choice rather than as a grid.
-                ERPNext cannot offer the choice at all: its period columns and
-                its dimension columns share one axis, and its per-unit
-                comparison needs each shop set up as a separate company. Here a
-                unit is a dimension on the ledger row, so a shop is a filter
-                rather than a second set of books.
-              </Note>
-            </div>
+            </>
           )
         },
       })}
@@ -401,20 +469,7 @@ export function ProfitAndLoss() {
   )
 }
 
-/// The axes the columns can carry. One at a time — see the note on the screen.
-type CompareAxis = "NONE" | "MONTH" | "QUARTER" | "UNIT"
-
-const COMPARE_OPTIONS: readonly {
-  readonly value: CompareAxis
-  readonly label: string
-}[] = [
-  { value: "NONE", label: "No comparison" },
-  { value: "MONTH", label: "By month" },
-  { value: "QUARTER", label: "By quarter" },
-  { value: "UNIT", label: "By unit" },
-]
-
-/// Fourteen units fits. A two-year window compared month by month does not.
+/// Fourteen units fits. Two years month by month does not.
 const MAX_COLUMNS = 24
 
 /// One column of the report: a window, a unit, and the label above it.
@@ -551,83 +606,4 @@ function buildTree(
     }
   }
   return rows
-}
-
-/// The calendar periods a window covers, clipped to it.
-///
-/// ERPNext's four periodicities are Monthly, Quarterly, Half-Yearly and Yearly;
-/// the two short ones are what a thirteen-shop chain actually reads, so they
-/// are the two offered. Each period is clipped to the window rather than
-/// spilling past it: 15 Aug – 10 Sep compared by month is *part* of August and
-/// *part* of September, and a column that quietly reported the whole of August
-/// would not add up to the total beside it.
-///
-/// Dates are sliced, never parsed. `new Date("2026-08-01")` is UTC, and in
-/// Jakarta that names July for the first seven hours of every first-of-month.
-function periodColumns(
-  from: string,
-  to: string,
-  axis: "MONTH" | "QUARTER"
-): readonly { from: string; to: string; label: string }[] {
-  const step = axis === "MONTH" ? 1 : 3
-  const startYear = Number(from.slice(0, 4))
-  const startMonth = Number(from.slice(5, 7))
-  const endYear = Number(to.slice(0, 4))
-  const endMonth = Number(to.slice(5, 7))
-  if (
-    !Number.isFinite(startYear) ||
-    !Number.isFinite(endYear) ||
-    !Number.isFinite(startMonth) ||
-    !Number.isFinite(endMonth)
-  ) {
-    return []
-  }
-
-  // A quarter starts in January, April, July or October whatever month the
-  // window opens in. A three-month span beginning on the 15th is not a quarter,
-  // and labelling it "Q3" would be a lie about which figures it holds.
-  const firstMonth =
-    axis === "MONTH" ? startMonth : startMonth - ((startMonth - 1) % 3)
-
-  const periods: { from: string; to: string; label: string }[] = []
-  let year = startYear
-  let month = firstMonth
-  while (year < endYear || (year === endYear && month <= endMonth)) {
-    const openIso = iso(year, month, 1)
-    // Day zero of the month after the last one in the period is that month's
-    // last day — whatever its length, and whether or not February has 29.
-    const close = new Date(year, month - 1 + step, 0)
-    const closeIso = iso(
-      close.getFullYear(),
-      close.getMonth() + 1,
-      close.getDate()
-    )
-    periods.push({
-      from: openIso > from ? openIso : from,
-      to: closeIso < to ? closeIso : to,
-      label:
-        axis === "MONTH"
-          ? // `id-ID`, matching `format.ts::day()` and every other date in the
-            // app. Under `en-GB` this column read "Sept 2026" beside a toolbar
-            // chip reading "01 Sep 2026" — the same month spelled two ways, a
-            // character apart, on one screen.
-            new Date(year, month - 1, 1).toLocaleDateString("id-ID", {
-              month: "short",
-              year: "numeric",
-            })
-          : `Q${Math.floor((month - 1) / 3) + 1} ${year}`,
-    })
-    month += step
-    while (month > 12) {
-      month -= 12
-      year += 1
-    }
-  }
-  return periods
-}
-
-function iso(year: number, month: number, day: number): string {
-  const mm = String(month).padStart(2, "0")
-  const dd = String(day).padStart(2, "0")
-  return `${year}-${mm}-${dd}`
 }

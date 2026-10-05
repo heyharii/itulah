@@ -95,11 +95,11 @@ export const trialBalanceColumns: ColumnDef<DataTableFeatures, TrialBalanceRow>[
     ),
   },
   {
-    accessorKey: "site_id",
-    header: "Location",
+    accessorKey: "unit_id",
+    header: "Unit",
     cell: ({ row }) => (
       <span className="text-muted-foreground font-mono text-[11px]">
-        {row.original.site_id ?? "—"}
+        {row.original.unit_id ?? "—"}
       </span>
     ),
   },

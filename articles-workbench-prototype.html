@@ -1,0 +1,991 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Articles · workbench concepts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* Hub tokens (frontend-hub/src/styles/index.css, 28 Sep). Inter 14, title 17, controls 34, nothing under 14px. */
+:root{--ink:#20242c;--text:#394150;--body:#626b78;--mute:#737c89;--faint:#b9c0c9;--line-ico:#89919d;--canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--soft-3:#f6f6f7;
+  --hairline:#e6e6e9;--hairline-2:#dadade;--hairline-strong:#c6c6cc;--backdrop:#e0e0e4;--tooltip:#101012;--accent:#2563eb;--accent-bg:#eff5ff;--accent-bd:#bfd3fb;--info-fg:#2c57bf;
+  --ok-fg:#15803d;--warn:#c9892e;--warn-bg:#faeacd;--warn-fg:#b45309;--r-shell:16px;--r-card:12px;--r-inner:7px;
+  --shadow-soft:0 1px 3px rgb(24 39 60/4%);--shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);--shadow-shell:0 10px 34px rgb(24 39 60/8%);--ease:cubic-bezier(.23,1,.32,1)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:14px/20px Inter,system-ui,sans-serif;color:var(--text);background:var(--backdrop);-webkit-font-smoothing:antialiased;padding:16px 16px 80px}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+mark{background:#fff3c4;color:inherit;border-radius:3px}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px;letter-spacing:-.02em}
+.num{font-variant-numeric:tabular-nums}
+.mute{color:var(--mute)}.faint{color:var(--faint)}.warnc{color:var(--warn-fg)}.acc{color:var(--accent);font-weight:500;display:inline-flex;align-items:center;gap:6px}
+svg.i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.chev{transition:transform .2s var(--ease)}.chev.open{transform:rotate(90deg)}
+input[type=checkbox]{width:16px;height:16px;accent-color:var(--ink);cursor:pointer}
+.dot{display:inline-block;width:12px;height:12px;border-radius:50%;box-shadow:inset 0 0 0 1px rgb(0 0 0/.14);flex:none}
+.dots{display:inline-flex;gap:3px;align-items:center}
+.nd{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none}
+.stat{display:inline-flex;align-items:center;gap:6px;color:var(--mute)}.stat i{width:6px;height:6px;border-radius:50%;background:var(--faint)}
+.kbd{border:1px solid var(--hairline-2);border-radius:5px;padding:0 6px;color:var(--mute);line-height:20px}
+
+/* prototype chrome */
+.top{max-width:96rem;margin:0 auto 12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.top h1{font-size:15px;font-weight:600;color:var(--ink)}
+.top p{color:var(--body);max-width:62rem}
+.lenses{margin-left:auto;display:flex;gap:2px;background:var(--canvas);padding:3px;border-radius:999px;box-shadow:0 0 0 1px var(--hairline);flex-wrap:wrap}
+.lens{border:0;background:none;border-radius:999px;padding:5px 14px;color:var(--body)}
+.lens.on{background:var(--ink);color:#fff;font-weight:500}
+.why{max-width:96rem;margin:14px auto 0;display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.why div{background:var(--canvas);border-radius:var(--r-card);padding:14px 16px;box-shadow:var(--shadow-soft)}
+.why h5{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:4px}.why p{color:var(--body)}
+
+/* page */
+.pane{max-width:96rem;margin:0 auto;background:var(--canvas);border-radius:var(--r-shell);box-shadow:var(--shadow-shell);padding:18px 22px 22px}
+.ph{display:flex;align-items:flex-end;gap:12px;margin-bottom:14px}
+.ph h2{font-size:17px;line-height:24px;font-weight:600;color:var(--ink);letter-spacing:-.02em}
+.ph .sub{color:var(--body);margin-top:2px}
+.ph .act{margin-left:auto;display:flex;gap:6px}
+.btn{height:34px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);color:var(--ink);font-weight:500;white-space:nowrap;transition:background .12s,transform .1s}
+.btn:hover{background:var(--soft)}.btn:active{transform:scale(.97)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}.btn.pri:hover{background:#1d4ed8}
+.btn.ghost{border-color:transparent;background:none;color:var(--body)}.btn.ghost:hover{background:var(--soft-2);color:var(--ink)}
+.btn.sm{height:30px;padding:0 10px}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.btn svg.i{color:var(--line-ico)}.btn.pri svg.i{color:#fff}
+.x{margin-left:auto}
+.seg{display:inline-flex;background:var(--soft-2);border-radius:var(--r-inner);padding:3px;height:34px;flex:none}
+.seg button{border:0;background:none;border-radius:5px;padding:0 10px;color:var(--body);white-space:nowrap}
+.seg button.on{background:var(--canvas);color:var(--ink);font-weight:500;box-shadow:var(--shadow-soft)}
+.seg button[disabled]{opacity:.4;pointer-events:none}
+.seg.full{display:flex;height:auto}.seg.full button{flex:1;height:30px}
+.big{display:flex;align-items:center;gap:10px;height:44px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);box-shadow:var(--shadow-soft)}
+.big:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.big input{flex:1;min-width:0;border:0;outline:0;background:none;font-size:15px;color:var(--ink)}
+.big input::placeholder{color:var(--mute)}
+.big svg.i{color:var(--line-ico)}
+.newin{display:flex;align-items:center;gap:10px;margin-top:10px;padding:0 6px 0 14px;min-height:46px;border-radius:var(--r-inner);background:var(--accent-bg);color:var(--info-fg);flex-wrap:wrap}
+.newin b{color:var(--ink);font-weight:600}
+.newin .nact{margin-left:auto;display:flex;gap:6px;padding:6px 0}
+
+/* rows */
+.vl{overflow:auto;position:relative;flex:1;min-height:0;overscroll-behavior:contain}
+.vl .vin{position:relative}.vl .it{position:absolute;left:0;right:0}
+.lv{display:flex;flex-direction:column;min-height:0}
+.row{display:flex;align-items:center;gap:12px;height:100%;padding:0 14px 0 10px;box-shadow:inset 0 -1px var(--hairline);cursor:pointer;min-width:0}
+.row:hover{background:var(--soft)}
+.row.cur{background:var(--accent-bg)}.row.sel{background:#f4f7ff}
+.row .ck,.card .ck{width:20px;display:grid;place-items:center;opacity:0;flex:none}
+.row:hover .ck,.anysel .row .ck,.card:hover .ck,.anysel .card .ck{opacity:1}
+.row .tx,.card .tx,.lr .tx{min-width:0;flex:1;display:flex;flex-direction:column}
+.row .tx b,.card .tx b,.lr .tx b{font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .tx>span,.card .tx>span,.lr .tx>span{color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .end{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;display:flex;flex-direction:column}
+.row .end b{font-weight:400;color:var(--ink)}.row .end span{color:var(--mute)}
+.row .szc{width:4.5rem;text-align:right;flex:none}
+.row.dim .tx b,.card.dim .tx b,.trow.dim .nm b{color:var(--mute)}
+.flash{animation:flash 1.6s var(--ease)}
+@keyframes flash{from{background:#dbe7ff}}
+.chip{width:32px;height:32px;border-radius:var(--r-inner);flex:none;box-shadow:inset 0 0 0 1px rgb(0 0 0/.08);display:grid;place-items:center;overflow:hidden}
+.chip.ph{background:var(--soft-2)}.chip.ph .gm{width:28px;height:28px}
+.chip.big{width:64px;height:64px;border-radius:10px}.chip.big.ph .gm{width:56px;height:56px}
+.chip.dl{background:var(--accent-bg);color:var(--accent);box-shadow:none}
+.lhead{display:flex;align-items:center;gap:10px;height:48px;padding:0 10px 0 14px;border-bottom:1px solid var(--hairline);flex:none;min-width:0}
+.lhead .cnt{white-space:nowrap}.lhead .cnt b{color:var(--ink);font-weight:600}
+.lhead .hint{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ssel{height:30px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);padding:0 8px;margin-left:auto}
+.selbar{display:flex;align-items:center;gap:6px;height:48px;padding:0 8px 0 14px;background:var(--ink);color:#fff;flex:none;min-width:0;flex-wrap:nowrap;overflow:hidden}
+.selbar b{font-weight:600;margin-right:4px;white-space:nowrap}
+.selbar .btn{background:transparent;border-color:rgb(255 255 255/.22);color:#fff;height:30px}
+.selbar .btn:hover{background:rgb(255 255 255/.1)}.selbar .btn svg.i{color:#fff}
+.selbar .lnk{border:0;background:none;color:#9cc0ff;font-weight:500;padding:0 6px;white-space:nowrap}
+.empty{padding:40px 20px;text-align:center;color:var(--body)}
+.lr{display:flex;align-items:center;gap:12px;min-height:52px;padding:6px 10px 6px 14px;border-bottom:1px solid var(--hairline)}
+.lr:last-child{border-bottom:0}
+.lr.link{cursor:pointer}.lr.link:hover{background:var(--soft)}
+.lr svg.i{color:var(--line-ico)}
+.chk{display:inline-flex;gap:10px;color:var(--mute);white-space:nowrap}
+.chk .okc{color:var(--ok-fg)}.chk .wc{color:var(--warn-fg)}
+.box{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;background:var(--canvas)}
+.box.hi{border-color:var(--accent-bd)}
+.box .bh{display:flex;align-items:center;gap:8px;min-height:48px;padding:0 10px 0 14px;border-bottom:1px solid var(--hairline);flex-wrap:wrap}
+.box.hi .bh{background:var(--accent-bg)}
+.box .bh b{color:var(--ink);font-weight:600}
+.box .bh .r{margin-left:auto;display:flex;gap:6px}
+.subh{display:flex;align-items:center;justify-content:space-between;padding:10px 10px 4px 14px;color:var(--mute);font-weight:500}
+
+/* A · folders & labels */
+.a3{display:grid;grid-template-columns:15rem minmax(0,1fr) 27rem;border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;height:calc(100vh - 262px);min-height:30rem;margin-top:12px}
+.a3.nodet{grid-template-columns:15rem minmax(0,1fr)}
+.a3:not(.nodet) .row .szc{display:none}
+.rail{overflow:auto;padding:8px;background:var(--soft-3);border-right:1px solid var(--hairline)}
+.rail h6{font-size:14px;font-weight:500;color:var(--mute);padding:12px 10px 4px}
+.rn{display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;border-radius:6px;cursor:pointer;color:var(--text);white-space:nowrap;border:1px dashed transparent}
+.rn .lb{overflow:hidden;text-overflow:ellipsis}
+.rn:hover{background:var(--soft-2)}
+.rn.on{background:var(--canvas);color:var(--ink);font-weight:500;box-shadow:var(--shadow-soft),0 0 0 1px var(--hairline)}
+.rn .c{margin-left:auto;color:var(--mute);font-weight:400;font-variant-numeric:tabular-nums;padding-left:6px}
+.rn .c.w{color:var(--warn-fg)}
+.rn svg.i{color:var(--line-ico)}
+.rn.nw .lb{color:var(--accent);font-weight:500}
+.rn.add{color:var(--mute)}.rn.add:hover{color:var(--ink)}
+.dragging .rn[data-drop]{border-color:var(--hairline-strong)}
+.rn.dz,.dragging .rn.dz{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}
+.railhint{margin:14px 4px 6px;padding:10px 12px;border-radius:8px;background:var(--canvas);box-shadow:0 0 0 1px var(--hairline);color:var(--body)}
+.mid{display:flex;flex-direction:column;min-width:0;min-height:0}
+.side{border-left:1px solid var(--hairline);overflow:auto;min-height:0}
+.nib{overflow:auto;padding:12px;height:100%}
+.ghost{position:fixed;top:-200px;left:-200px;background:var(--ink);color:#fff;padding:6px 14px;border-radius:999px;font-weight:500;white-space:nowrap}
+
+/* detail */
+.det .hd{display:flex;gap:12px;padding:16px;align-items:flex-start}
+.det .hd h3{font-size:16px;line-height:22px;font-weight:600;color:var(--ink)}
+.tabs{display:flex;gap:2px;padding:0 12px;border-bottom:1px solid var(--hairline)}
+.tabs button{border:0;background:none;height:40px;padding:0 10px;color:var(--body);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs button.on{color:var(--ink);font-weight:500;border-bottom-color:var(--ink)}
+.sec{padding:14px 16px;border-bottom:1px solid var(--hairline)}
+.sec h4{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.sec h4 .r{margin-left:auto;display:flex;gap:6px;font-weight:400}
+.facts{display:grid;grid-template-columns:7rem 1fr;row-gap:8px}
+.facts dt{color:var(--mute)}.facts dd{color:var(--ink);min-width:0}
+.lnk2{border:0;background:none;color:var(--accent);font-weight:500;padding:0}
+.fld{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+.fld>span{color:var(--body)}
+.in,.sfld{height:36px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 10px;background:var(--canvas);outline:0;width:100%;color:var(--ink)}
+.in:focus,.sfld:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.in.ro{display:flex;align-items:center;color:var(--body);background:var(--soft)}
+.in.pin{width:9rem;height:32px}
+.checks{display:flex;flex-wrap:wrap;gap:2px 14px}
+.checks label{display:flex;align-items:center;gap:6px;height:30px;white-space:nowrap}
+.checks.col{display:grid;grid-template-columns:1fr 1fr}
+.slots{display:flex;gap:6px;flex-wrap:wrap}
+.slot{position:relative;width:36px;height:44px;border-radius:8px;border:1px solid var(--hairline);background:var(--canvas);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--mute)}
+.slot i{width:14px;height:14px;border-radius:50%;box-shadow:inset 0 0 0 1px rgb(0 0 0/.12)}
+.slot.free{border-style:dashed;color:var(--faint)}.slot.free:hover{border-color:var(--accent);color:var(--accent)}
+.slot button{position:absolute;top:-7px;right:-7px;width:18px;height:18px;border-radius:50%;border:0;background:var(--ink);color:#fff;line-height:18px;display:none}
+.slot:hover button{display:block}
+.mxw{overflow-x:auto}
+.mx{border-collapse:separate;border-spacing:0;width:100%}
+.mx th,.mx td{height:38px;padding:0 6px;text-align:right;white-space:nowrap;box-shadow:inset 0 -1px var(--hairline)}
+.mx th{color:var(--mute);font-weight:400;height:30px}
+.mx th:first-child,.mx td:first-child{text-align:left;padding-left:0}
+.mx td.z{color:var(--faint)}.mx td.un{color:var(--warn-fg)}.mx td.cx{color:var(--faint);text-decoration:line-through}
+.mx td.hl{background:var(--accent-bg);color:var(--accent);font-weight:600}
+.mx tr.rcx td{color:var(--faint)}
+.mx tfoot td{color:var(--ink);font-weight:500;box-shadow:none}
+.cw{display:flex;align-items:center;gap:8px;white-space:nowrap}
+.dg{color:var(--mute)}
+.rowmenu{border:0;background:none;color:var(--line-ico);width:28px;height:28px;border-radius:6px;display:grid;place-items:center}
+.rowmenu:hover{background:var(--soft-2);color:var(--ink)}
+.note{padding:10px 12px;border-radius:var(--r-inner);background:var(--soft-2);color:var(--body)}
+.note.w{background:var(--warn-bg);color:var(--warn-fg)}.note.a{background:var(--accent-bg);color:var(--info-fg)}
+.prop{display:flex;align-items:baseline;gap:8px;color:var(--info-fg)}
+.prop i{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none;transform:translateY(-2px)}
+
+/* overlays */
+.shade{position:fixed;inset:0;background:rgb(16 16 18/.16);z-index:30;animation:fade .2s}
+.sheet{position:fixed;top:10px;right:10px;bottom:10px;width:30rem;max-width:calc(100vw - 20px);background:var(--canvas);border-radius:var(--r-shell);z-index:31;box-shadow:var(--shadow-pop);overflow:auto;animation:slide .25s var(--ease)}
+.still{animation:none}
+.scrim{position:fixed;inset:0;background:rgb(16 16 18/.24);z-index:50;display:grid;place-items:center;animation:fade .15s;padding:16px}
+.dlg{width:32rem;max-width:100%;max-height:calc(100vh - 32px);overflow:auto;background:var(--canvas);border-radius:var(--r-card);box-shadow:var(--shadow-pop);padding:20px;animation:pop .18s var(--ease)}
+.dlg h3{font-size:16px;line-height:22px;font-weight:600;color:var(--ink);margin-bottom:4px}
+.dlg .sub{color:var(--body);margin-bottom:12px}
+.dlg .ft,.su .ft{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+.cons{display:flex;flex-direction:column;gap:6px;margin:10px 0 12px}
+.cons div{display:flex;gap:8px;align-items:baseline}
+.cons i{width:6px;height:6px;border-radius:50%;background:var(--faint);flex:none;transform:translateY(-2px)}
+.cons .cin i{background:var(--accent)}.cons .cout i{background:var(--warn)}
+.menu{position:fixed;z-index:60;min-width:14rem;max-height:22rem;overflow:auto;background:var(--canvas);border-radius:10px;box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);padding:4px;animation:pop .14s var(--ease)}
+.menu button{display:flex;align-items:center;gap:8px;width:100%;height:34px;padding:0 10px;border:0;background:none;border-radius:6px;text-align:left;color:var(--text);white-space:nowrap}
+.menu button:hover{background:var(--soft)}.menu button[disabled]{opacity:.4;cursor:default}
+.menu button .c{margin-left:auto;color:var(--mute);padding-left:12px}
+.menu hr{border:0;border-top:1px solid var(--hairline);margin:4px}
+.menu h6{font-size:14px;font-weight:500;color:var(--mute);padding:6px 10px 2px}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:70;display:flex;align-items:center;gap:12px;background:var(--tooltip);color:#fff;border-radius:999px;padding:6px 6px 6px 18px;box-shadow:var(--shadow-pop);animation:rise .25s var(--ease);max-width:calc(100vw - 24px)}
+.toast.plain{padding:9px 18px}
+.toast button{border:0;background:rgb(255 255 255/.16);color:#fff;border-radius:999px;height:28px;padding:0 12px;font-weight:500}
+.tray{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:45;display:flex;align-items:center;gap:12px;background:var(--canvas);border-radius:999px;box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);padding:6px 6px 6px 18px;animation:rise .25s var(--ease)}
+.tray b{color:var(--ink);font-weight:600}.tray .btn{border-radius:999px}
+
+/* setup */
+.setup-shade{z-index:40}
+.setup{width:min(74rem,calc(100vw - 20px));display:flex;flex-direction:column;overflow:hidden;z-index:41}
+.su-hd{display:flex;align-items:center;gap:10px;height:56px;padding:0 12px 0 20px;border-bottom:1px solid var(--hairline);flex:none}
+.su-hd b{font-size:15px;color:var(--ink);font-weight:600}
+.su{display:grid;grid-template-columns:20rem minmax(0,1fr);min-height:0;flex:1}
+.su-q{overflow:auto;border-right:1px solid var(--hairline);background:var(--soft-3);padding:6px}
+.su-q .lr{border-radius:8px;border-bottom:0}
+.su-q .lr.on{background:var(--canvas);box-shadow:0 0 0 1px var(--hairline),var(--shadow-soft)}
+.su-f{overflow:auto;padding:18px 22px 0}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.suh{font-size:15px;font-weight:600;color:var(--ink);margin:18px 0 10px}
+.sizes{display:flex;gap:6px;flex-wrap:wrap}
+.szb{height:34px;min-width:46px;padding:0 10px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas)}
+.szb.on{background:var(--ink);border-color:var(--ink);color:#fff;font-weight:500}
+.su .ft{position:sticky;bottom:0;background:var(--canvas);padding:12px 0 16px;border-top:1px solid var(--hairline)}
+
+/* B · board */
+.btools{display:flex;align-items:center;gap:12px;margin-top:12px;flex-wrap:wrap;min-height:34px}
+.bsel{display:inline-flex;align-items:center;gap:6px}.bsel b{color:var(--ink);font-weight:600;margin-right:4px}
+.board{display:flex;gap:12px;overflow-x:auto;margin-top:12px;padding-bottom:6px;height:calc(100vh - 318px);min-height:28rem}
+.col{flex:0 0 17.5rem;display:flex;flex-direction:column;background:var(--soft-3);border-radius:var(--r-card);border:1px solid var(--hairline);min-height:0;transition:background .12s,border-color .12s}
+.col.dz{border-color:var(--accent);background:var(--accent-bg)}
+.col .hd{display:flex;align-items:center;gap:8px;height:44px;padding:0 6px 0 12px;flex:none}
+.col .hd b{color:var(--ink);font-weight:600}.col .hd .c{color:var(--mute)}
+.col .hd .cm{margin-left:auto;padding:0 6px}
+.col.new{background:var(--accent-bg);border-color:var(--accent-bd)}
+.col.add{flex-basis:11rem;align-items:center;justify-content:center;gap:6px;flex-direction:row;border-style:dashed;background:none;color:var(--mute);cursor:pointer}
+.col.add:hover{color:var(--ink);border-color:var(--hairline-strong)}
+.col .vl{padding:0 6px}
+.card{margin:3px 0;height:calc(100% - 6px);background:var(--canvas);border-radius:9px;box-shadow:0 0 0 1px var(--hairline),var(--shadow-soft);display:flex;align-items:center;gap:10px;padding:0 10px 0 6px;cursor:grab;min-width:0}
+.card:hover{box-shadow:0 0 0 1px var(--hairline-strong),var(--shadow-soft)}
+.card.sel{box-shadow:0 0 0 2px var(--ink)}
+.card.q{cursor:default;padding-left:10px}
+.gl{display:flex;align-items:flex-end;height:100%;padding:0 6px 8px;color:var(--mute);font-weight:500}
+
+/* C · sheet */
+.ctabs{display:flex;gap:2px;border-bottom:1px solid var(--hairline-2);margin-top:10px;overflow-x:auto}
+.ctabs button{border:0;background:none;height:40px;padding:0 12px;color:var(--body);border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;align-items:center;gap:8px;white-space:nowrap}
+.ctabs button.on{color:var(--ink);font-weight:500;border-bottom-color:var(--ink)}
+.ctabs button span{color:var(--mute);font-weight:400}
+.ctools{display:flex;align-items:center;gap:12px;margin-top:10px;min-height:48px}
+.ctools .selbar{border-radius:var(--r-inner);flex:1}
+.cwrap{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;margin-top:6px;display:flex;flex-direction:column;height:calc(100vh - 360px);min-height:26rem}
+.thead,.trow{display:grid;grid-template-columns:var(--cols);align-items:center}
+.thead{height:40px;color:var(--mute);border-bottom:1px solid var(--hairline-2);flex:none}
+.thead>*,.trow>*{padding:0 8px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trow{height:100%;box-shadow:inset 0 -1px var(--hairline);cursor:pointer}
+.trow:hover{background:var(--soft)}.trow.sel{background:#f4f7ff}
+.trow .n,.thead .n{text-align:right;font-variant-numeric:tabular-nums}
+.trow .nm b{font-weight:500;color:var(--ink)}
+.cellbtn{width:100%;height:32px;border:1px solid transparent;border-radius:6px;background:none;text-align:left;padding:0 6px;display:flex;align-items:center;gap:6px;overflow:hidden;white-space:nowrap}
+.cellbtn>span{overflow:hidden;text-overflow:ellipsis}
+.cellbtn:hover{border-color:var(--hairline-2);background:var(--canvas)}
+.cellbtn.dirty{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.cellbtn svg.i{margin-left:auto;color:var(--faint)}
+.grow{display:flex;align-items:center;gap:8px;height:100%;padding:0 12px;background:var(--soft-3);box-shadow:inset 0 -1px var(--hairline);color:var(--ink);font-weight:500;cursor:pointer}
+.grow.static{cursor:default;color:var(--mute)}
+.grow.dz{background:var(--accent-bg);box-shadow:inset 0 0 0 1px var(--accent)}
+.grow svg.i{color:var(--line-ico)}
+.vrow{display:flex;align-items:center;gap:16px;height:100%;padding:0 12px 0 92px;background:#fcfcfd;box-shadow:inset 0 -1px var(--hairline);white-space:nowrap;overflow:hidden}
+.vrow .cellz{display:flex;gap:14px}.vrow .cellz b{font-weight:500;color:var(--mute);margin-right:5px}
+.qrow{display:flex;align-items:center;gap:12px;height:100%;padding:0 12px;box-shadow:inset 0 -1px var(--hairline);background:#fbfcff}
+
+/* D · to-do first + reorganise */
+.dgrid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px;margin-top:14px;align-items:start}
+.tagscroll{max-height:16rem;overflow:auto}
+.dlist{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;display:flex;flex-direction:column;height:calc(100vh - 318px);min-height:26rem;margin-top:12px}
+.crumbs{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+.crumbs b{color:var(--ink);font-weight:600}
+.sorter{display:grid;grid-template-columns:minmax(0,1fr) 10rem minmax(0,1fr);gap:12px;margin-top:12px;height:calc(100vh - 318px);min-height:28rem}
+.sp{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;display:flex;flex-direction:column;min-height:0}
+.sp .sh{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--hairline);flex:none;background:var(--soft-3)}
+.sp .sh .sfld{flex:1;min-width:0}
+.spl{display:flex;flex-direction:column;min-height:0;flex:1}
+.smid{display:flex;flex-direction:column;justify-content:center;gap:8px;text-align:center}
+.smid .btn{justify-content:center}
+
+@keyframes fade{from{opacity:0}}
+@keyframes slide{from{opacity:0;transform:translateX(12px)}}
+@keyframes pop{from{opacity:0;transform:scale(.97)}}
+@keyframes rise{from{opacity:0;transform:translate(-50%,8px)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:1180px){.a3,.a3.nodet{grid-template-columns:13rem minmax(0,1fr)}.a3 .side{display:none}.why{grid-template-columns:1fr}.dgrid{grid-template-columns:1fr}.su{grid-template-columns:1fr}.su-q{display:none}}
+
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="g-shade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".16"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".14"/></linearGradient></defs></svg>
+<div class="top">
+  <div>
+    <h1>Articles: four concepts for the workbench</h1>
+    <p>Same 12.480 articles and the same rules as the hub. Few have a photo, so each row shows a colour chip made of its colourways. Try: drag a row onto a division, tick several and Move to…, scan <span class="mono" id="demoSku"></span>, open Colours and sizes, or set up a delivery.</p>
+  </div>
+  <div class="lenses" id="lenses">
+    <button class="lens on" data-c="A">A · Folders &amp; labels</button>
+    <button class="lens" data-c="B">B · Board</button>
+    <button class="lens" data-c="C">C · Sheet</button>
+    <button class="lens" data-c="D">D · To-do first</button>
+  </div>
+</div>
+<div class="pane" id="pane"></div>
+<div class="why" id="why"></div>
+<div id="dragghost" class="ghost"></div>
+<script>
+/* ---------- icons ---------- */
+const P=d=>`<svg class="i" viewBox="0 0 24 24"><path d="${d}"/></svg>`;
+const I={
+  search:'<svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+  x:P('M6 6l12 12M18 6 6 18'), down:P('m6 9 6 6 6-6'), plus:P('M12 5v14M5 12h14'),
+  folder:P('M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2h7.5A2.5 2.5 0 0 1 21 9.5v7a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5Z'),
+  tag:'<svg class="i" viewBox="0 0 24 24"><path d="M3.5 12.5v-8a1 1 0 0 1 1-1h8l8 8-9 9Z"/><circle cx="8" cy="8" r="1.3"/></svg>',
+  list:P('M4 6h16M4 12h16M4 18h16'),
+  alert:'<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5M12 16h.01"/></svg>',
+  box:P('M3.5 7.5 12 3.5l8.5 4v9L12 20.5l-8.5-4ZM3.5 7.5 12 11.5l8.5-4M12 11.5v9'),
+  more:'<svg class="i" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3"/></svg>',
+  arrow:P('M5 12h14M13 6l6 6-6 6'), back:P('M19 12H5M11 6l-6 6 6 6'),
+  up:P('M12 16V4M7 9l5-5 5 5M4 20h16'), dl:P('M12 4v12M7 11l5 5 5-5M4 20h16'),
+  chev:'<svg class="i chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
+};
+const chevOpen=o=>o?I.chev.replace('class="i chev"','class="i chev open"'):I.chev;
+
+/* ---------- a 12.480-article master (deterministic) ---------- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const R=mulberry32(20260928),pick=a=>a[Math.floor(R()*a.length)];
+const DIVS=[{c:'MEN',l:'Menswear'},{c:'WOMEN',l:'Womenswear'},{c:'KIDS',l:'Kids'},{c:'ACC',l:'Accessories'},{c:'FOOT',l:'Footwear'}];
+const DW=[['MEN',.32],['WOMEN',.34],['KIDS',.14],['ACC',.12],['FOOT',.08]];
+const TAGS=[['TOPS','Tops'],['BOTTOMS','Bottoms'],['OUTERWEAR','Outerwear'],['DRESSES','Dresses'],['SETS','Sets'],['HEADWEAR','Headwear'],['BAGS','Bags'],['SOCKS','Socks'],
+  ['SMALL_LEATHER','Small leather'],['FOOTWEAR','Footwear'],['BASICS','Basics'],['LEBARAN_2026','Lebaran 2026'],['BACK_TO_SCHOOL','Back to school'],['COLLAB','Collab'],['YEAR_END_2025','Year end 2025']].map(([c,l])=>({c,l}));
+const divL=c=>(DIVS.find(d=>d.c===c)||{l:c}).l, tagL=c=>(TAGS.find(t=>t.c===c)||{l:c}).l;
+const TYPES={
+  MEN:[['Kaos','TOPS',59,149],['Kemeja','TOPS',149,299],['Polo','TOPS',129,219],['Celana Chino','BOTTOMS',199,349],['Celana Jeans','BOTTOMS',249,449],['Jaket Bomber','OUTERWEAR',299,549],['Hoodie','OUTERWEAR',219,399],['Sweater','OUTERWEAR',199,329],['Kemeja Flanel','TOPS',179,299],['Celana Pendek','BOTTOMS',119,199]],
+  WOMEN:[['Blouse','TOPS',129,259],['Dress Midi','DRESSES',199,429],['Rok Plisket','BOTTOMS',149,259],['Kulot','BOTTOMS',149,249],['Tunik','TOPS',159,279],['Cardigan','OUTERWEAR',179,329],['Kaos','TOPS',69,139],['Kemeja','TOPS',149,279],['Gamis','DRESSES',249,499],['Outer Kimono','OUTERWEAR',169,299]],
+  KIDS:[['Kaos Anak','TOPS',49,99],['Setelan Anak','SETS',99,189],['Celana Anak','BOTTOMS',69,139],['Dress Anak','DRESSES',99,179],['Hoodie Anak','OUTERWEAR',129,219],['Piyama Anak','SETS',89,159]],
+  ACC:[['Topi Baseball','HEADWEAR',79,149],['Tas Tote','BAGS',99,249],['Kaos Kaki','SOCKS',29,59],['Ikat Pinggang','SMALL_LEATHER',99,219],['Dompet','SMALL_LEATHER',129,299],['Scarf','HEADWEAR',69,149],['Bucket Hat','HEADWEAR',89,159]],
+  FOOT:[['Sneakers','FOOTWEAR',349,799],['Sandal Slide','FOOTWEAR',99,199],['Loafer','FOOTWEAR',399,699],['Slip On','FOOTWEAR',249,449],['Sepatu Kanvas','FOOTWEAR',199,379]],
+};
+const DESC={MEN:['Oversize','Slim Fit','Linen','Basic','Stripe','Pocket','Garment Dye','Heavyweight','Boxy','Relaxed','Twill','Corduroy','Denim'],
+  WOMEN:['Rayon','Linen','Basic','Ruffle','Plisket','Crinkle','Katun','Satin','Stripe','Floral','Polka','Relaxed'],
+  KIDS:['Basic','Karakter','Stripe','Katun','Printed','Rib'],ACC:['Kanvas','Kulit','Basic','Knit','Classic','Printed'],FOOT:['Kanvas','Kulit','Suede','Knit','Classic','Low','High']};
+const COLL=['Arka','Senja','Laut','Rimba','Kala','Bayu','Tirta','Awan','Gema','Lintang','Sora','Raya','Nara','Wana','Jagat','Candra','Bumi','Aksa','Sekar','Lana','Rana','Dipa'];
+const COLOURS=[['Black','#1f2125'],['White','#f4f3ef'],['Navy','#23324f'],['Olive','#6b6b3a'],['Beige','#d9c7a7'],['Maroon','#6e2330'],['Misty grey','#a9adb3'],['Dusty pink','#d8a7a7'],['Sage','#9fb09a'],['Mustard','#c99a2e'],['Sky','#8fb5d8'],['Terracotta','#b85f3f'],['Charcoal','#3d4046'],['Cream','#efe6d2']];
+const SIZE_ALL=['XS','S','M','L','XL','XXL','2','4','6','8','10','12','38','39','40','41','42','43','44','All size'];
+const famOf=div=>div==='KIDS'?[6,7,8,9,10,11]:div==='FOOT'?[12,13,14,15,16,17,18]:div==='ACC'?[19,0,1,2,3,4,5]:[0,1,2,3,4,5];
+const SUPS={any:['CV Sinar Garmen','PT Delta Konveksi','Rajut Bandung','Majalaya Tekstil','PT Anugerah Apparel','Konveksi Tiga Putra','CV Benang Emas'],FOOT:['CV Cibaduyut Jaya','PT Kurnia Leather'],ACC:['PT Kurnia Leather','CV Benang Emas','Rajut Bandung','PT Anugerah Apparel']};
+const PUNITS=['CARTON 24','CARTON 24','KODI','LUSIN','PCS'];
+const SEASON=['BASICS','LEBARAN_2026','BACK_TO_SCHOOL','COLLAB','YEAR_END_2025'];
+const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DAY=86400000,T0=Date.UTC(2024,0,8),TODAY=Date.UTC(2026,8,28),NEW_SINCE=TODAY-7*DAY;
+const day=t=>{const d=new Date(t);return d.getUTCDate()+' '+MONTHS[d.getUTCMonth()]+(d.getUTCFullYear()!==2026?' '+d.getUTCFullYear():'')};
+const KIND=[[/^Kaos Kaki/,'sock'],[/^Celana Pendek/,'shorts'],[/^(Celana|Kulot)/,'pants'],[/^Kemeja/,'shirt'],[/^Polo/,'polo'],[/^Hoodie/,'hoodie'],[/^(Sweater|Cardigan)/,'sweater'],
+  [/^(Jaket|Outer)/,'jacket'],[/^(Dress|Gamis)/,'dress'],[/^Rok/,'skirt'],[/^(Topi|Bucket)/,'cap'],[/^Tas/,'bag'],[/^Ikat/,'belt'],[/^Dompet/,'wallet'],[/^Scarf/,'scarf'],
+  [/^Sandal/,'sandal'],[/^(Sneakers|Loafer|Slip|Sepatu)/,'shoe'],[/.*/,'tee']];
+const kindOf=name=>KIND.find(([r])=>r.test(name))[1];
+const patOf=name=>/Stripe/.test(name)?'stripe':/Flanel/.test(name)?'check':/(Floral|Printed|Karakter|Polka)/.test(name)?'print':'';
+function sizeRun(div){
+  if(div==='KIDS'){const s=6+Math.floor(R()*2),n=4+Math.floor(R()*2);return Array.from({length:Math.min(n,12-s)},(_,k)=>s+k)}
+  if(div==='FOOT'){const s=12+Math.floor(R()*2),n=5+Math.floor(R()*3);return Array.from({length:Math.min(n,19-s)},(_,k)=>s+k)}
+  if(div==='ACC')return R()<.7?[19]:[1,2,3];
+  return pick([[1,2,3,4],[0,1,2,3,4,5],[1,2,3,4,5],[2,3,4,5],[1,2,3]]);
+}
+function hash(a,b,c){let h=(Math.imul(a,2654435761)^Math.imul(b+1,40503)^Math.imul(c+7,9973))>>>0;h=Math.imul(h^(h>>>13),1274126177)>>>0;return (h^(h>>>16))>>>0}
+/* a cell is one SKU: colour digit d × size index s. ok = made, un = not made yet, cx = cancelled */
+function cell(a,d,s){const k=d+':'+s;return a.cx.has(k)?'cx':a.unmade.has(k)?'un':'ok'}
+function oh(a,d,s){if(cell(a,d,s)!=='ok')return null;const h=hash(a.i,d,s);if(!a.act)return h%4===0?h%5:0;if(hash(a.i,99,0)%11===0&&h%4===0)return 0;return 1+h%47}
+function recount(a){let k=0,t=0;for(let d=0;d<a.cols.length;d++)for(const s of a.sizes)if(cell(a,d,s)==='ok'){k++;t+=oh(a,d,s)}a.skus=k;a.oh=t}
+function idx(a){a.s=(a.name+' '+a.code+' '+divL(a.div)+' '+a.tags.map(tagL).join(' ')+' '+(a.sup||'')+' '+a.cols.map(c=>COLOURS[c][0]).join(' ')).toLowerCase()}
+const skuCode=(a,d,s)=>a.code+d+String(s+1).padStart(2,'0');
+const ARTS=[];
+for(let i=0;i<12480;i++){
+  let r=R(),div='FOOT';for(const [c,w] of DW){if(r<w){div=c;break}r-=w}
+  const [type,cat,lo,hi]=pick(TYPES[div]);
+  const name=`${type} ${pick(DESC[div])} ${pick(COLL)}`;
+  const nc=1+Math.floor(Math.pow(R(),1.6)*6),cols=[];while(cols.length<nc){const c=Math.floor(R()*COLOURS.length);if(!cols.includes(c))cols.push(c)}
+  const sizes=sizeRun(div),created=T0+Math.floor((TODAY-T0)*(i/12480))+Math.floor(R()*DAY),miss=R()<.03?1+Math.floor(R()*3):0;
+  const tags=[cat];if(R()<.28){const s=div==='KIDS'&&R()<.5?'BACK_TO_SCHOOL':pick(SEASON);if(!tags.includes(s))tags.push(s)}
+  const a={i,code:String(20000001+i),name,div,tags,cols,sizes,unmade:new Set(),cx:new Set(),price:R()<.012?null:Math.round((lo+R()*(hi-lo))/10)*10000-1000,
+    act:i<11880?R()<.93:true,photo:R()<.06,sup:R()<.012?null:pick(SUPS[div]||SUPS.any),punit:pick(PUNITS),created,upd:Math.min(TODAY,created+Math.floor(R()*200)*DAY)};
+  if(cols.length*sizes.length>1){const d=cols.length-1;for(let k=0;k<Math.min(miss,sizes.length-(cols.length>1?0:1));k++)a.unmade.add(d+':'+sizes[sizes.length-1-k])}
+  a.kind=kindOf(name);a.pat=patOf(name);recount(a);idx(a);ARTS.push(a);
+}
+/* deliveries that arrived without an article: the setup queue */
+const QUEUE=[
+  ['PO-0931','CV Sinar Garmen','SG-LN-114','Kemeja linen lengan pendek','MEN',240,['Sage','Cream','Navy'],[1,2,3,4],179000],
+  ['PO-0931','CV Sinar Garmen','SG-LN-120','Celana linen serut','MEN',120,['Beige','Black'],[1,2,3,4],199000],
+  ['PO-0934','PT Delta Konveksi','DK-7781','Dress midi rayon motif','WOMEN',180,['Dusty pink','Sage','Black'],[1,2,3],229000],
+  ['PO-0934','PT Delta Konveksi','DK-7790','Blouse crinkle kerah sabrina','WOMEN',150,['White','Terracotta'],[1,2,3],159000],
+  ['PO-0936','Rajut Bandung','RB-KN-33','Cardigan rajut oversize','WOMEN',96,['Cream','Misty grey','Maroon'],[1,2,3],249000],
+  ['PO-0938','Konveksi Tiga Putra','TP-K-501','Kaos anak printed dino','KIDS',300,['Sky','Mustard','White'],[7,8,9,10],79000],
+  ['PO-0938','Konveksi Tiga Putra','TP-S-221','Setelan anak lebaran','KIDS',160,['Sage','Cream'],[7,8,9,10,11],169000],
+  ['PO-0940','CV Cibaduyut Jaya','CJ-SN-88','Sneakers kanvas low','FOOT',72,['White','Black','Navy'],[13,14,15,16,17],349000],
+  ['PO-0941','PT Kurnia Leather','KL-BLT-4','Ikat pinggang kulit polos','ACC',60,['Black','Charcoal'],[19],139000],
+  ['PO-0941','PT Kurnia Leather','KL-WL-12','Dompet kulit lipat','ACC',48,['Black','Terracotta'],[19],189000],
+  ['PO-0943','PT Anugerah Apparel','AA-HD-09','Hoodie heavyweight polos','MEN',144,['Charcoal','Olive','Cream'],[1,2,3,4,5],299000],
+  ['PO-0944','Majalaya Tekstil','MT-GM-02','Gamis katun jacquard','WOMEN',90,['Navy','Maroon','Sage'],[1,2,3,4],389000],
+].map(([po,sup,sc,desc,div,qty,cols,sizes,price],k)=>({po,sup,sc,desc,div,qty,cols:cols.map(c=>COLOURS.findIndex(x=>x[0]===c)),sizes,price,arrived:['26 Sep','27 Sep','27 Sep','28 Sep'][k%4]}));
+/* promotions select on a division or a tag, which is why moving an article can move it in or out of one */
+const PROMOS=[{n:'Menswear 2 for Rp 350.000',t:{div:'MEN'},w:'running'},{n:'Lebaran sale 20%',t:{div:'WOMEN'},w:'starts 1 Oct'},{n:'Footwear week',t:{div:'FOOT'},w:'starts 6 Oct'},
+  {n:'Back to school 15%',t:{tag:'BACK_TO_SCHOOL'},w:'running'},{n:'Basics bundle',t:{tag:'BASICS'},w:'running'}];
+
+/* ---------- helpers ---------- */
+const $=s=>document.querySelector(s);
+const fmt=new Intl.NumberFormat('id-ID'),n=x=>fmt.format(x);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pl=c=>`${n(c)} article${c===1?'':'s'}`;
+const money=a=>a.price==null?'<span class="warnc">No price</span>':'Rp '+n(a.price);
+const sizeSpan=a=>!a.sizes.length?'—':a.sizes.length===1?SIZE_ALL[a.sizes[0]]:SIZE_ALL[a.sizes[0]]+'–'+SIZE_ALL[a.sizes[a.sizes.length-1]];
+const dotHtml=h=>`<i class="dot" style="background:${h}"></i>`;
+const dotsHtml=a=>`<span class="dots">${a.cols.slice(0,5).map(c=>dotHtml(COLOURS[c][1])).join('')}${a.cols.length>5?`<span class="mute">+${a.cols.length-5}</span>`:''}</span>`;
+function hi(s){const q=S.q.trim();if(!q||/^\d+$/.test(q))return esc(s);let o=esc(s);for(const t of q.toLowerCase().split(/\s+/).filter(Boolean))o=o.replace(new RegExp('('+t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig'),'<mark>$1</mark>');return o}
+const issues=a=>[a.price==null&&'No price',a.unmade.size&&`${a.unmade.size} SKU${a.unmade.size>1?'s':''} not made`,!a.sup&&'No supplier'].filter(Boolean);
+const WL=[['noprice','No price',a=>a.price==null],['unmade','SKUs not made',a=>a.unmade.size>0],['nosup','No supplier',a=>!a.sup],['cancelled','Cancelled',a=>!a.act]];
+const SORTS={new:(x,y)=>y.i-x.i,name:(x,y)=>x.name.localeCompare(y.name),price:(x,y)=>(y.price??-1)-(x.price??-1),oh:(x,y)=>y.oh-x.oh};
+const recent=()=>ARTS.filter(a=>a.created>=NEW_SINCE).sort(SORTS.new);
+function nodePred(node){if(!node||node==='all')return()=>true;if(node==='new')return a=>a.created>=NEW_SINCE;const [t,x]=node.split(':');
+  if(t==='div')return a=>a.div===x;if(t==='tag')return a=>a.tags.includes(x);if(t==='wl')return WL.find(w=>w[0]===x)[2];return()=>true}
+const nodeLabel=node=>!node||node==='all'?'All articles':node==='new'?'New in':node.startsWith('div:')?divL(node.slice(4)):node.startsWith('tag:')?tagL(node.slice(4)):(WL.find(w=>'wl:'+w[0]===node)||[,node])[1];
+function checks(a){return `<span class="chk"><span class="${a.price!=null?'okc':'wc'}">${a.price!=null?'✓':'!'} Price</span><span class="${a.unmade.size?'wc':'okc'}">${a.unmade.size?'!':'✓'} SKUs</span><span class="${a.sup?'okc':'wc'}">${a.sup?'✓':'!'} Supplier</span><span>${a.photo?'<span class="okc">✓ Photo</span>':'– Photo'}</span></span>`}
+
+/* ---------- search ---------- */
+function parseQ(){const q=S.q.trim();S.hl=null;if(!q)return null;
+  if(/^\d{11}$/.test(q)){const a=ARTS[+q.slice(0,8)-20000001];if(a){const d=+q[8],s=+q.slice(9)-1;if(d<a.cols.length&&a.sizes.includes(s)&&cell(a,d,s)==='ok'){S.hl={i:a.i,d,s};return x=>x===a}}return()=>false}
+  if(/^\d{3,8}$/.test(q))return a=>a.code.startsWith(q)||a.code.endsWith(q);
+  const w=q.toLowerCase().split(/\s+/).filter(Boolean);return a=>w.every(t=>a.s.includes(t))}
+const matched=()=>{const f=parseQ();return f?ARTS.filter(f):ARTS};
+
+/* ---------- infrastructure: menus, dialogs, toasts ---------- */
+function menu(anchor,items){setTimeout(()=>{closeMenu();const r=anchor.getBoundingClientRect();
+  document.body.insertAdjacentHTML('beforeend',`<div class="menu" id="menu">${items.map((it,k)=>it==='-'?'<hr>':it.h?`<h6>${esc(it.h)}</h6>`:`<button data-k="${k}"${it.dis?' disabled':''}>${it.icon||''}<span>${esc(it.l)}</span>${it.c?`<span class="c">${esc(it.c)}</span>`:''}</button>`).join('')}</div>`);
+  const m=$('#menu');let top=r.bottom+4,left=r.left;if(top+m.offsetHeight>innerHeight-8)top=Math.max(8,r.top-m.offsetHeight-4);if(left+m.offsetWidth>innerWidth-8)left=Math.max(8,innerWidth-m.offsetWidth-8);
+  m.style.top=top+'px';m.style.left=left+'px';
+  m.addEventListener('click',e=>{const b=e.target.closest('[data-k]');if(!b||b.disabled)return;const it=items[+b.dataset.k];closeMenu();it.f()})},0)}
+function closeMenu(){$('#menu')?.remove()}
+function modal(html){closeModal();document.body.insertAdjacentHTML('beforeend',`<div class="scrim" id="scrim"><div class="dlg" role="dialog">${html}</div></div>`);
+  const s=$('#scrim');s.addEventListener('mousedown',e=>{if(e.target===s)closeModal()});const d=s.firstChild;
+  setTimeout(()=>d.querySelector('input.in:not([type=checkbox]),select.sfld,button.pri')?.focus(),30);return d}
+function closeModal(){$('#scrim')?.remove()}
+let TT;function toast(m,undo){document.querySelectorAll('.toast').forEach(x=>x.remove());
+  document.body.insertAdjacentHTML('beforeend',`<div class="toast${undo?'':' plain'}"><span>${esc(m)}</span>${undo?'<button id="undo">Undo</button>':''}</div>`);
+  if(undo)$('#undo').onclick=()=>{document.querySelectorAll('.toast').forEach(x=>x.remove());undo()};
+  clearTimeout(TT);TT=setTimeout(()=>document.querySelectorAll('.toast').forEach(x=>x.remove()),undo?7000:2800)}
+
+/* ---------- filing: moving between divisions and tags ---------- */
+const applyTags=(tags,ch)=>{let t=tags.filter(x=>!(ch.remove||[]).includes(x));for(const x of ch.add||[])if(!t.includes(x))t.push(x);return t};
+const sameTags=(x,y)=>x.length===y.length&&x.every(v=>y.includes(v));
+function consequences(arts,next){const out=[];const m=(p,st)=>p.t.div?st.div===p.t.div:st.tags.includes(p.t.tag);
+  for(const p of PROMOS){let enter=0,leave=0;for(const a of arts){const b=m(p,a),c=m(p,next(a));if(b&&!c)leave++;else if(!b&&c)enter++}
+    if(leave)out.push({k:'cout',t:`${pl(leave)} ${leave===1?'leaves':'leave'} ${p.n}`,w:p.w});if(enter)out.push({k:'cin',t:`${pl(enter)} ${enter===1?'enters':'enter'} ${p.n}`,w:p.w})}return out}
+const consHtml=cons=>`<div class="cons">${cons.length?cons.map(c=>`<div class="${c.k}"><i></i><span>${esc(c.t)} <span class="mute">· ${esc(c.w)}</span></span></div>`).join(''):'<div><i></i><span class="mute">No promotion changes.</span></div>'}</div>`;
+const T={move:to=>({title:c=>`Move ${pl(c)} to ${divL(to)}?`,done:c=>`Moved ${pl(c)} to ${divL(to)}`}),
+  add:t=>({title:c=>`Tag ${pl(c)} “${tagL(t)}”?`,done:c=>`Tagged ${pl(c)} “${tagL(t)}”`}),
+  remove:t=>({title:c=>`Remove “${tagL(t)}” from ${pl(c)}?`,done:c=>`Removed “${tagL(t)}” from ${pl(c)}`}),
+  replace:(x,y)=>({title:c=>`Move ${pl(c)} from “${tagL(x)}” to “${tagL(y)}”?`,done:c=>`Moved ${pl(c)} from “${tagL(x)}” to “${tagL(y)}”`}),
+  edit:a=>({title:()=>`Save changes to ${a.name}?`,done:()=>`Saved ${a.name}`})};
+/* One confirm for every way of re-filing: it names what moves, what it touches, and offers Undo after. */
+function change(ids,ch,t){
+  const arts=ids.map(i=>ARTS[i]);
+  const next=a=>({div:ch.div||a.div,tags:(ch.add||ch.remove)?applyTags(a.tags,ch):a.tags});
+  const eff=arts.filter(a=>{const x=next(a);return x.div!==a.div||!sameTags(x.tags,a.tags)});
+  if(!eff.length){toast(ids.length>1?'They are already there':'It is already there');return}
+  const lines=[];
+  if(ch.div){const from={};for(const a of eff)if(a.div!==ch.div)from[a.div]=(from[a.div]||0)+1;const f=Object.entries(from);if(f.length)lines.push('From '+f.sort((x,y)=>y[1]-x[1]).map(([dv,c])=>`${divL(dv)} ${n(c)}`).join(', '))}
+  if(ch.remove?.length)lines.push('Loses '+ch.remove.map(x=>`“${tagL(x)}”`).join(', '));
+  if(ch.add?.length)lines.push('Gets '+ch.add.map(x=>`“${tagL(x)}”`).join(', '));
+  if(arts.length>eff.length)lines.push(`${n(arts.length-eff.length)} already there, left alone`);
+  const title=t.title(eff.length);
+  const d=modal(`<h3>${esc(title)}</h3><div class="sub">${esc(lines.join(' · '))}</div>${consHtml(consequences(eff,next))}
+    <div class="note">Codes, SKUs and printed tags don’t change. Only how ${eff.length>1?'these articles are':'this article is'} filed, and it shows in each article’s history.</div>
+    <div class="ft"><button class="btn ghost" data-close>Cancel</button><button class="btn pri" id="ok">${esc(title.replace(/\?$/,''))}</button></div>`);
+  d.querySelector('#ok').onclick=()=>{const snap=eff.map(a=>[a,a.div,a.tags.slice()]);
+    for(const a of eff){const x=next(a);a.div=x.div;a.tags=x.tags.slice();a.upd=TODAY;idx(a)}
+    closeModal();S.sel.clear();flash(eff.map(a=>a.i));refresh();
+    toast(t.done(eff.length),()=>{for(const [a,dv,tg] of snap){a.div=dv;a.tags=tg;idx(a)}refresh();toast('Undone')})};
+}
+function flash(ids){S.flash=new Set(ids);clearTimeout(flash.t);flash.t=setTimeout(()=>{S.flash=null},1700)}
+function moveMenu(anchor,ids,apply){apply=apply||(to=>change(ids,{div:to},T.move(to)));
+  const here={};for(const i of ids)here[ARTS[i].div]=(here[ARTS[i].div]||0)+1;
+  menu(anchor,[{h:`Move ${pl(ids.length)} to`},...DIVS.map(d=>({l:d.l,icon:I.folder,c:here[d.c]?`${n(here[d.c])} there now`:'',f:()=>apply(d.c)})),'-',
+    {l:'New division…',icon:I.plus,f:()=>addTerm('div',c=>{refresh();apply(c)},'',{norefresh:true})}])}
+function tagsDialog(ids,apply,pre){
+  apply=apply||((ch,t)=>change(ids,ch,t));
+  const present={};for(const i of ids)for(const t of ARTS[i].tags)present[t]=(present[t]||0)+1;
+  const pres=Object.entries(present).sort((x,y)=>y[1]-x[1]);
+  let mode=pre?.mode||(pres.length?'replace':'add'),A=pre?.A||pres[0]?.[0],B=pre?.B||(TAGS.find(t=>!present[t.c])||TAGS[0]).c;
+  const d=modal('');
+  const draw=()=>{d.innerHTML=`<h3>Tags on ${pl(ids.length)}</h3><div class="sub">Tags are labels: an article can carry several, or none.</div>
+    <div class="seg full" style="margin-bottom:14px">${[['add','Add a tag'],['remove','Remove a tag'],['replace','Move to another tag']].map(([m,l])=>`<button data-m="${m}" class="${mode===m?'on':''}"${m!=='add'&&!pres.length?' disabled':''}>${l}</button>`).join('')}</div>
+    ${mode!=='add'?`<label class="fld"><span>${mode==='replace'?'From':'Remove'}</span><select class="sfld" id="ta">${pres.map(([t,c])=>`<option value="${t}"${t===A?' selected':''}>${esc(tagL(t))} · on ${n(c)}</option>`).join('')}</select></label>`:''}
+    ${mode!=='remove'?`<label class="fld"><span>${mode==='replace'?'To':'Add'}</span><select class="sfld" id="tb">${TAGS.map(t=>`<option value="${t.c}"${t.c===B?' selected':''}>${esc(t.l)}</option>`).join('')}<option value="__new">+ New tag…</option></select></label>`:''}
+    <div class="ft"><button class="btn ghost" data-close>Cancel</button><button class="btn pri" id="go">Continue</button></div>`;
+    d.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{mode=b.dataset.m;draw()});
+    const ta=d.querySelector('#ta'),tb=d.querySelector('#tb');
+    if(ta)ta.onchange=()=>A=ta.value;
+    if(tb)tb.onchange=()=>{if(tb.value==='__new')addTerm('tag',c=>tagsDialog(ids,apply,{mode,A,B:c}),'',{norefresh:true});else B=tb.value};
+    d.querySelector('#go').onclick=()=>{if(mode==='replace'&&A===B){toast('Pick two different tags');return}closeModal();
+      if(mode==='add')apply({add:[B]},T.add(B));else if(mode==='remove')apply({remove:[A]},T.remove(A));else apply({add:[B],remove:[A]},T.replace(A,B))}};
+  draw();
+}
+function cancelDialog(ids){const arts=ids.map(i=>ARTS[i]).filter(a=>a.act);if(!arts.length){toast('Already cancelled');return}
+  const stock=arts.reduce((t,a)=>t+a.oh,0);
+  const d=modal(`<h3>Cancel ${pl(arts.length)}?</h3><div class="sub">They can’t be ordered or set up again. What is already in the shops stays counted and can still be sold.</div>
+    ${stock?`<div class="note w">${n(stock)} pieces are still on hand across all sites.</div>`:''}<div class="ft"><button class="btn ghost" data-close>Keep them</button><button class="btn pri" id="ok">Cancel ${pl(arts.length)}</button></div>`);
+  d.querySelector('#ok').onclick=()=>{arts.forEach(a=>{a.act=false;a.upd=TODAY});closeModal();S.sel.clear();refresh();
+    toast(`Cancelled ${pl(arts.length)}`,()=>{arts.forEach(a=>a.act=true);refresh();toast('Undone')})}}
+/* New division or tag: same rules as Articles › Divisions / Tags in the hub (code fixed, retire not delete). */
+function addTerm(kind,cb,preset='',opt={}){
+  const word=kind==='div'?'division':'tag';
+  const d=modal(`<h3>New ${word}</h3><div class="sub">${kind==='div'?'Every article is filed under exactly one division.':'An article can carry several tags, or none.'}</div>
+    <label class="fld"><span>Name</span><input class="in" id="tl" value="${esc(preset)}" placeholder="${kind==='div'?'e.g. Unisex':'e.g. Ramadan 2027'}"></label>
+    <label class="fld"><span>Code</span><input class="in mono" id="tc" placeholder="${kind==='div'?'UNISEX':'RAMADAN_2027'}"></label>
+    <div class="note">Articles point at the code, so it can’t change after this. The name can. Once used, a ${word} can be retired but never deleted.</div>
+    <div class="ft"><button class="btn ghost" data-close>Cancel</button><button class="btn pri" id="termgo">Create ${word}</button></div>`);
+  const tl=d.querySelector('#tl'),tc=d.querySelector('#tc');let touched=false;
+  const slug=s=>s.toUpperCase().normalize('NFKD').replace(/[^A-Z0-9]+/g,'_').replace(/^_|_$/g,'').slice(0,24);
+  if(preset)tc.value=slug(preset);
+  tl.oninput=()=>{if(!touched)tc.value=slug(tl.value)};tc.oninput=()=>{touched=true;tc.value=slug(tc.value)};
+  const go=()=>{const l=tl.value.trim(),c=tc.value.trim();if(!l||!c){tl.focus();return}const list=kind==='div'?DIVS:TAGS;
+    if(list.some(x=>x.c===c)){toast(`${c} already exists`);return}list.push({c,l});closeModal();if(!opt.norefresh)refresh();
+    toast(`${kind==='div'?'Division':'Tag'} “${l}” created`);cb&&cb(c)};
+  d.querySelector('#termgo').onclick=go;tl.onkeydown=tc.onkeydown=e=>{if(e.key==='Enter')go()};
+}
+
+
+/* ---------- the picture: a colour chip, or the photo when there is one (6%) ---------- */
+const SHAPES={
+  tee:{d:'M31 14 L41 10 Q50 18 59 10 L69 14 L88 29 L80 41 L72 36 L72 90 L28 90 L28 36 L20 41 L12 29 Z'},polo:{d:'M31 14 L41 10 Q50 18 59 10 L69 14 L88 29 L80 41 L72 36 L72 90 L28 90 L28 36 L20 41 L12 29 Z'},
+  shirt:{d:'M33 12 L42 9 L50 15 L58 9 L67 12 L84 24 L91 72 L81 74 L74 38 L74 92 L26 92 L26 38 L19 74 L9 72 L16 24 Z'},
+  hoodie:{d:'M37 17 Q50 1 63 17 L72 19 L86 31 L91 76 L81 78 L74 42 L74 92 L26 92 L26 42 L19 78 L9 76 L14 31 L28 19 Z'},
+  sweater:{d:'M32 14 L42 11 Q50 18 58 11 L68 14 L84 26 L91 78 L81 79 L74 40 L74 92 L26 92 L26 40 L19 79 L9 78 L16 26 Z'},jacket:{d:'M32 14 L42 11 Q50 18 58 11 L68 14 L84 26 L91 78 L81 79 L74 40 L74 92 L26 92 L26 40 L19 79 L9 78 L16 26 Z'},
+  pants:{d:'M29 8 L71 8 L76 93 L58 93 L50 34 L42 93 L24 93 Z'},shorts:{d:'M26 22 L74 22 L81 68 L56 72 L50 46 L44 72 L19 68 Z'},
+  dress:{d:'M39 8 L44 8 Q50 16 56 8 L61 8 L64 32 L58 36 L81 93 L19 93 L42 36 L36 32 Z'},skirt:{d:'M33 16 L67 16 L84 86 L16 86 Z'},
+  cap:{d:'M24 60 Q23 28 50 26 Q77 28 76 60 Z M24 60 L93 62 Q92 70 72 68 L24 66 Z'},bag:{d:'M22 40 L78 40 L74 91 L26 91 Z M36 40 Q36 14 50 14 Q64 14 64 40 L60 40 Q60 19 50 19 Q40 19 40 40 Z'},
+  sock:{d:'M40 8 L60 8 L60 60 L79 72 Q86 85 72 89 L46 81 Q37 77 40 66 Z'},belt:{d:'M6 44 L94 44 L94 56 L6 56 Z'},wallet:{d:'M16 30 L84 30 L84 74 L16 74 Z'},
+  scarf:{d:'M30 8 L52 8 L55 58 L72 92 L53 95 L42 66 L36 93 L17 90 L31 58 Z'},shoe:{d:'M7 63 Q9 45 23 43 L39 38 Q51 51 66 51 L86 56 Q95 60 93 73 L7 73 Z'},
+  sandal:{d:'M12 70 Q10 60 28 60 L84 62 Q93 64 91 72 Q89 77 80 77 L20 77 Q12 77 12 70 Z'},
+};
+function garment(a){const h=COLOURS[a.cols[0]][1];return `<svg class="gm" viewBox="0 0 100 100"><path d="${SHAPES[a.kind].d}" fill="${h}" stroke="rgb(0 0 0/.25)" stroke-width="1.2" stroke-linejoin="round"/><path d="${SHAPES[a.kind].d}" fill="url(#g-shade)"/></svg>`}
+function chip(a,big){const cls='chip'+(big?' big':'');
+  if(a.photo)return `<span class="${cls} ph" title="Photo (drawn stand-in)">${garment(a)}</span>`;
+  const cs=a.cols.slice(0,4).map(c=>COLOURS[c][1]),w=100/cs.length;
+  return `<span class="${cls}" title="${esc(a.cols.map(c=>COLOURS[c][0]).join(', '))}" style="background:linear-gradient(90deg,${cs.map((h,k)=>`${h} ${(k*w).toFixed(1)}% ${((k+1)*w).toFixed(1)}%`).join(',')})"></span>`}
+
+/* ---------- article detail: Overview · Variants ---------- */
+const divOptions=sel=>DIVS.map(d=>`<option value="${d.c}"${d.c===sel?' selected':''}>${esc(d.l)}</option>`).join('')+'<option value="__new">+ New division…</option>';
+function detailHtml(a,closeable){const tab=S.dtab;
+  return `<div class="det"><div class="hd">${chip(a,true)}<div style="min-width:0"><h3>${esc(a.name)}</h3><div class="mute"><span class="mono">${a.code}</span> · ${esc(divL(a.div))}${a.act?'':' · <span class="stat"><i></i>Cancelled</span>'}</div></div>
+    ${closeable?`<button class="btn ghost x" data-dx title="Close (Esc)">${I.x}</button>`:''}</div>
+    <div class="tabs"><button data-tab="overview" class="${tab==='overview'?'on':''}">Overview</button><button data-tab="variants" class="${tab==='variants'?'on':''}">Variants · ${n(a.skus)} SKUs</button></div>
+    ${tab==='overview'?(S.editing?editHtml(a):overviewHtml(a)):variantsHtml(a)}</div>`}
+function overviewHtml(a){const iss=issues(a);
+  return `${iss.length?`<div class="sec">${iss.map(t=>`<div class="note w" style="margin-bottom:6px">${esc(t)}</div>`).join('')}</div>`:''}
+  <div class="sec"><dl class="facts"><dt>Division</dt><dd>${esc(divL(a.div))}</dd><dt>Tags</dt><dd>${a.tags.length?esc(a.tags.map(tagL).join(', ')):'<span class="mute">None</span>'}</dd>
+    <dt>Price</dt><dd class="num">${money(a)}</dd><dt>Supplier</dt><dd>${a.sup?esc(a.sup):'<span class="warnc">None yet</span>'}</dd>
+    <dt>Units</dt><dd>Counted in PCS${a.punit!=='PCS'?` · bought in ${a.punit}`:''}</dd><dt>Colours</dt><dd>${esc(a.cols.map(c=>COLOURS[c][0]).join(', '))}</dd>
+    <dt>Sizes</dt><dd>${sizeSpan(a)}</dd><dt>Photo</dt><dd>${a.photo?'Yes':'<span class="mute">None yet</span> · <button class="lnk2" data-t="Adds a photo per colourway">Add</button>'}</dd>
+    <dt>On hand</dt><dd class="num">${n(a.oh)} across all sites</dd><dt>Added</dt><dd>${day(a.created)} · changed ${day(a.upd)}</dd></dl>
+    <div style="display:flex;gap:6px;margin-top:14px;flex-wrap:wrap"><button class="btn" data-edit>Edit</button><button class="btn ghost" data-dtab="variants">Colours and sizes</button><button class="btn ghost" data-t="Prints swing tags for the SKUs you pick">Print tags</button></div></div>`}
+function editHtml(a){
+  return `<div class="sec"><label class="fld"><span>Name</span><input class="in" id="e-name" value="${esc(a.name)}"></label>
+    <label class="fld"><span>Division</span><select class="sfld" id="e-div">${divOptions(a.div)}</select></label>
+    <div class="fld"><span>Tags</span><div class="checks">${TAGS.map(t=>`<label><input type="checkbox" data-etag="${t.c}"${a.tags.includes(t.c)?' checked':''}>${esc(t.l)}</label>`).join('')}</div></div>
+    <label class="fld"><span>Price</span><input class="in num" id="e-price" value="${a.price??''}" placeholder="No price" inputmode="numeric"></label>
+    <div class="fld"><span>Status</span><span class="seg" style="align-self:flex-start"><button data-est="1" class="${a.act?'on':''}">Active</button><button data-est="0" class="${a.act?'':'on'}">Cancelled</button></span></div>
+    <div class="note">The code ${a.code} and its SKU codes never change. Colours and sizes are on the Variants tab.</div>
+    <div class="ft" style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn ghost" data-ecancel>Cancel</button><button class="btn pri" data-esave>Save</button></div></div>`}
+function variantsHtml(a){const hl=S.hl&&S.hl.i===a.i?S.hl:null;const tot=a.sizes.map(()=>0);
+  const rows=a.cols.map((c,d)=>{let rt=0;const cells=a.sizes.map((s,k)=>{const st=cell(a,d,s);
+      if(st==='un')return `<td class="un" title="Not made yet">not made</td>`;if(st==='cx')return `<td class="cx" title="Cancelled">${SIZE_ALL[s]}</td>`;
+      const v=oh(a,d,s);tot[k]+=v;rt+=v;return `<td class="num${v===0?' z':''}${hl&&hl.d===d&&hl.s===s?' hl':''}" title="SKU ${skuCode(a,d,s)}">${n(v)}</td>`}).join('');
+    const allcx=a.sizes.every(s=>cell(a,d,s)==='cx');
+    return `<tr${allcx?' class="rcx"':''}><td><span class="cw">${dotHtml(COLOURS[c][1])}${COLOURS[c][0]} <span class="dg mono">${d}</span></span></td>${cells}<td class="num">${n(rt)}</td><td><button class="rowmenu" data-rm="${d}" title="${COLOURS[c][0]}">${I.more}</button></td></tr>`}).join('');
+  return `<div class="sec"><h4>Colour slots<span class="r mute">${a.cols.length} of 10 used</span></h4>
+    <div class="slots">${Array.from({length:10},(_,d)=>d<a.cols.length?`<span class="slot" title="${COLOURS[a.cols[d]][0]}"><i style="background:${COLOURS[a.cols[d]][1]}"></i>${d}</span>`:`<button class="slot free" data-addc title="Free slot">${d}</button>`).join('')}</div>
+    <div class="mute" style="margin-top:8px">The colour is one digit of every SKU code: ${a.code}<b style="color:var(--ink)">2</b>03 is colour 2, size 03.</div></div>
+    <div class="sec"><h4>On hand by colour and size<span class="r"><button class="btn sm" data-addc${a.cols.length<10?'':' disabled'}>${I.plus}Colour</button><button class="btn sm" data-adds>${I.plus}Size</button></span></h4>
+    <div class="mxw"><table class="mx"><thead><tr><th></th>${a.sizes.map(s=>`<th>${SIZE_ALL[s]}</th>`).join('')}<th>Total</th><th></th></tr></thead><tbody>${rows}</tbody>
+    <tfoot><tr><td>Total</td>${tot.map(t=>`<td class="num">${n(t)}</td>`).join('')}<td class="num">${n(a.oh)}</td><td></td></tr></tfoot></table></div>
+    ${hl?`<div class="note a" style="margin-top:10px">Scanned ${skuCode(a,hl.d,hl.s)}: ${COLOURS[a.cols[hl.d]][0]}, size ${SIZE_ALL[hl.s]}</div>`:''}
+    ${a.unmade.size?`<div class="note w" style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span>${a.unmade.size} SKU${a.unmade.size>1?'s':''} not made yet</span><button class="btn sm" data-make style="margin-left:auto">Make ${a.unmade.size} and send to tagging</button></div>`:''}
+    <div class="prop" style="margin-top:12px"><i></i><span>Proposal: adding a colour or a size to an existing article. Today the hub only makes SKUs in article setup.</span></div></div>`}
+function bindDetail(root,a){
+  root.onclick=e=>{const t=e.target;
+    const tb=t.closest('[data-tab]');if(tb){S.dtab=tb.dataset.tab;S.editing=false;refresh();return}
+    const dt=t.closest('[data-dtab]');if(dt){S.dtab=dt.dataset.dtab;refresh();return}
+    if(t.closest('[data-dx]')){closeDetail();return}
+    if(t.closest('[data-edit]')){S.editing=true;refresh();return}
+    if(t.closest('[data-ecancel]')){S.editing=false;refresh();return}
+    if(t.closest('[data-esave]')){saveEdit(root,a);return}
+    const es=t.closest('[data-est]');if(es){root.querySelectorAll('[data-est]').forEach(b=>b.classList.toggle('on',b===es));return}
+    const ac=t.closest('[data-addc]');if(ac){addColourMenu(ac,a);return}
+    const as=t.closest('[data-adds]');if(as){addSizeMenu(as,a);return}
+    const rm=t.closest('[data-rm]');if(rm){rowMenu(rm,a,+rm.dataset.rm);return}
+    if(t.closest('[data-make]')){const k=a.unmade.size;a.unmade.clear();recount(a);refresh();toast(`Made ${k} SKU${k>1?'s':''} for ${a.code} · tagging job sent to Gudang`)}};
+  const dv=root.querySelector('#e-div');
+  if(dv)dv.onchange=()=>{if(dv.value!=='__new')return;dv.value=a.div;addTerm('div',c=>{dv.innerHTML=divOptions(c)},'',{norefresh:true})};
+}
+function saveEdit(root,a){
+  const name=root.querySelector('#e-name').value.trim()||a.name,div=root.querySelector('#e-div').value,tags=[...root.querySelectorAll('[data-etag]:checked')].map(x=>x.dataset.etag);
+  const pv=root.querySelector('#e-price').value.replace(/\D/g,''),price=pv?+pv:null,act=root.querySelector('[data-est].on')?.dataset.est==='1';
+  const plain=name!==a.name||price!==a.price||act!==a.act;
+  if(plain){a.name=name;a.price=price;a.act=act;a.upd=TODAY;a.kind=kindOf(name);a.pat=patOf(name);idx(a)}
+  S.editing=false;
+  const add=tags.filter(x=>!a.tags.includes(x)),remove=a.tags.filter(x=>!tags.includes(x));
+  refresh();
+  if(div!==a.div||add.length||remove.length)change([a.i],{div:div!==a.div?div:undefined,add,remove},T.edit(a));
+  else toast(plain?`Saved ${a.name}`:'Nothing changed');
+}
+function addColourMenu(anchor,a){if(a.cols.length>=10){toast('All 10 colour slots are used');return}
+  menu(anchor,[{h:`New colour, digit ${a.cols.length}`},...COLOURS.map((c,k)=>({l:c[0],icon:dotHtml(c[1]),dis:a.cols.includes(k),f:()=>{const d=a.cols.length;a.cols.push(k);
+    a.sizes.forEach(s=>a.unmade.add(d+':'+s));recount(a);idx(a);S.dtab='variants';refresh();toast(`${c[0]} added as digit ${d} · ${a.sizes.length} SKU${a.sizes.length>1?'s':''} to make`)}}))])}
+function addSizeMenu(anchor,a){const fam=famOf(a.div).filter(s=>!a.sizes.includes(s));if(!fam.length){toast('Every size in this range is already there');return}
+  menu(anchor,[{h:'New size'},...fam.map(s=>({l:SIZE_ALL[s],f:()=>{a.sizes.push(s);a.sizes.sort((x,y)=>x-y);let k=0;
+    a.cols.forEach((_,d)=>{if(a.sizes.some(z=>z!==s&&cell(a,d,z)!=='cx')){a.unmade.add(d+':'+s);k++}});recount(a);S.dtab='variants';refresh();toast(`${SIZE_ALL[s]} added · ${k} SKU${k>1?'s':''} to make`)}}))])}
+function rowMenu(anchor,a,d){const made=a.sizes.filter(s=>cell(a,d,s)==='ok'),un=a.sizes.filter(s=>cell(a,d,s)==='un'),name=COLOURS[a.cols[d]][0];
+  if(made.length)return menu(anchor,[{h:`${name} · digit ${d}`},{l:'Change colour…',f:()=>lockDialog(a,d)},{l:`Cancel its ${made.length} SKU${made.length>1?'s':''}…`,f:()=>cancelColourDialog(a,d,false)}]);
+  if(!un.length)return menu(anchor,[{h:`${name} · every SKU cancelled`}]);
+  menu(anchor,[{h:`${name} · digit ${d} · no SKUs made yet, so it can still change`},...COLOURS.map((c,k)=>({l:c[0],icon:dotHtml(c[1]),dis:a.cols.includes(k),f:()=>{a.cols[d]=k;idx(a);refresh();toast(`Digit ${d} is now ${c[0]}`)}})),
+    ...(d===a.cols.length-1?['-',{l:'Remove this colour',f:()=>{a.sizes.forEach(s=>a.unmade.delete(d+':'+s));a.cols.pop();recount(a);idx(a);refresh();toast(`${name} removed`)}}]:[])])}
+function lockDialog(a,d){const made=a.sizes.filter(s=>cell(a,d,s)==='ok'),c=COLOURS[a.cols[d]][0],stock=made.reduce((t,s)=>t+oh(a,d,s),0),free=a.cols.length<10;
+  const m=modal(`<h3>${esc(c)} can’t be changed on SKUs already made</h3>
+    <div class="sub">${esc(c)} is digit ${d} in ${made.length} SKU code${made.length>1?'s':''} (${skuCode(a,d,made[0])}${made.length>1?', …':''}) and on the tags printed for them. If the colour changed, the tag on the shelf would describe a different product.</div>
+    <div class="note">To fix a wrong colour: cancel these ${made.length} SKUs, then add the right colour in a free slot${free?` (digit ${a.cols.length})`:''}.${stock?` ${n(stock)} pieces are on hand and will need new tags.`:''}</div>
+    <div class="ft"><button class="btn ghost" data-close>Keep as is</button><button class="btn pri" id="ok"${free?'':' disabled'}>Cancel ${made.length} SKUs and pick the right colour</button></div>`);
+  m.querySelector('#ok').onclick=()=>{closeModal();cancelColour(a,d,true)}}
+function cancelColourDialog(a,d){const made=a.sizes.filter(s=>cell(a,d,s)==='ok'),c=COLOURS[a.cols[d]][0];
+  const m=modal(`<h3>Cancel ${made.length} ${esc(c)} SKU${made.length>1?'s':''}?</h3><div class="sub">They can’t be ordered again. The codes stay reserved, so digit ${d} is never reused on this article.</div>
+    <div class="ft"><button class="btn ghost" data-close>Keep them</button><button class="btn pri" id="ok">Cancel ${made.length} SKU${made.length>1?'s':''}</button></div>`);
+  m.querySelector('#ok').onclick=()=>{closeModal();cancelColour(a,d,false)}}
+function cancelColour(a,d,thenAdd){a.sizes.forEach(s=>{const k=d+':'+s;a.unmade.delete(k);a.cx.add(k)});recount(a);S.dtab='variants';refresh();
+  toast(`${COLOURS[a.cols[d]][0]} SKUs cancelled`);if(thenAdd)setTimeout(()=>{const b=document.querySelector('.det button.btn[data-addc]');b&&addColourMenu(b,a)},80)}
+
+/* ---------- where the detail lives: the right pane in A, a sheet elsewhere ---------- */
+function openArticle(a,tab){if(S.c==='A'){S.cur=a.i;S.dtab=tab||'overview';S.editing=false;render()}else openSheet(a,tab)}
+function openSheet(a,tab){S.cur=a.i;S.sheet=true;S.dtab=tab||'overview';S.editing=false;renderSheet(false)}
+function renderSheet(again){document.querySelectorAll('.dshade,.dsheet').forEach(x=>x.remove());if(!S.sheet||S.cur==null)return;
+  document.body.insertAdjacentHTML('beforeend',`<div class="shade dshade${again?' still':''}"></div><aside class="sheet dsheet${again?' still':''}">${detailHtml(ARTS[S.cur],true)}</aside>`);
+  document.querySelector('.dshade').onclick=closeSheet;bindDetail(document.querySelector('.dsheet'),ARTS[S.cur])}
+function closeSheet(){S.sheet=false;S.cur=null;S.editing=false;renderSheet();render()}
+function closeDetail(){if(S.c==='A'){S.cur=null;S.editing=false;render()}else closeSheet()}
+
+/* ---------- article setup: the hub's panel (deliveries left, form right), one press mints ---------- */
+const titleCase=s=>s.replace(/\b\w/g,c=>c.toUpperCase());
+function guessTag(name){if(/^(Setelan|Piyama)/.test(name))return'SETS';return{tee:'TOPS',polo:'TOPS',shirt:'TOPS',hoodie:'OUTERWEAR',sweater:'OUTERWEAR',jacket:'OUTERWEAR',pants:'BOTTOMS',shorts:'BOTTOMS',
+  dress:'DRESSES',skirt:'BOTTOMS',cap:'HEADWEAR',bag:'BAGS',sock:'SOCKS',belt:'SMALL_LEATHER',wallet:'SMALL_LEATHER',scarf:'HEADWEAR',shoe:'FOOTWEAR',sandal:'FOOTWEAR'}[kindOf(name)]||'TOPS'}
+function formFor(q){const name=titleCase(q.desc);return{name,div:q.div,tags:[guessTag(name)],price:q.price,cols:q.cols.slice(),sizes:q.sizes.slice(),photos:new Set()}}
+function openSetup(k){if(!QUEUE.length){toast('Every delivery has an article');return}k=Math.min(k||0,QUEUE.length-1);S.setup={k,f:formFor(QUEUE[k])};S.setupShown=false;renderSetup()}
+const markupText=(q,f)=>{const cost=Math.round(q.price*.55/1000)*1000;return `Cost Rp ${n(cost)} on ${q.po} · markup ${Math.round((f.price/cost-1)*100)}%`};
+function renderSetup(){const keep=$('.setup .su-f')?.scrollTop||0;document.querySelectorAll('.setup-shade,.setup').forEach(x=>x.remove());if(!S.setup)return;
+  const {k,f}=S.setup,q=QUEUE[k],fam=famOf(f.div),still=S.setupShown?' still':'';S.setupShown=true;
+  document.body.insertAdjacentHTML('beforeend',`<div class="shade setup-shade${still}"></div><aside class="sheet setup${still}">
+    <div class="su-hd"><i class="nd"></i><b>Article setup</b><span class="mute">${QUEUE.length} deliver${QUEUE.length>1?'ies':'y'} arrived without an article</span><button class="btn ghost x" data-sux title="Close">${I.x}</button></div>
+    <div class="su"><nav class="su-q">${QUEUE.map((d,j)=>`<div class="lr link${j===k?' on':''}" data-suk="${j}"><span class="chip dl">${I.box}</span><span class="tx"><b>${esc(titleCase(d.desc))}</b><span>${esc(d.sup)} · ${n(d.qty)} pcs · ${d.arrived}</span></span></div>`).join('')}</nav>
+    <div class="su-f"><div class="note">From ${q.po} · ${esc(q.sup)} · their code <span class="mono">${q.sc}</span> · ${n(q.qty)} pcs arrived ${q.arrived}. The buyer wrote “${esc(q.desc)}”.</div>
+      <div class="g2" style="margin-top:14px"><label class="fld"><span>Name *</span><input class="in" data-f="name" value="${esc(f.name)}"></label>
+        <label class="fld"><span>Division *</span><select class="sfld" data-f="div">${divOptions(f.div)}</select></label></div>
+      <div class="fld"><span>Tags</span><div class="checks">${TAGS.map(t=>`<label><input type="checkbox" data-tag="${t.c}"${f.tags.includes(t.c)?' checked':''}>${esc(t.l)}</label>`).join('')}<button class="btn ghost sm" data-newtag>${I.plus}New tag</button></div></div>
+      <div class="g2"><label class="fld"><span>Base price *</span><input class="in num" data-f="price" value="${f.price||''}" inputmode="numeric"></label>
+        <div class="fld"><span>Markup</span><div class="in ro" id="sumk">${markupText(q,f)}</div></div></div>
+      <h4 class="suh">Variants</h4>
+      <div class="fld"><span>Colours that arrived * <span class="mute">· each takes the next digit, 10 at most</span></span>
+        <div class="slots">${f.cols.map((c,d)=>`<span class="slot" title="${COLOURS[c][0]}"><i style="background:${COLOURS[c][1]}"></i>${d}<button data-rmcol="${d}" title="Remove">×</button></span>`).join('')}${f.cols.length<10?`<button class="slot free" id="suaddc" title="Add a colour">+</button>`:''}</div>
+        <span class="mute">${esc(f.cols.map(c=>COLOURS[c][0]).join(', ')||'None yet')}</span></div>
+      <div class="fld"><span>Sizes that arrived *</span><div class="sizes">${fam.map(s=>`<button class="szb${f.sizes.includes(s)?' on':''}" data-sz="${s}">${SIZE_ALL[s]}</button>`).join('')}</div></div>
+      <div class="note a">${f.cols.length} colour${f.cols.length===1?'':'s'} × ${f.sizes.length} size${f.sizes.length===1?'':'s'} = <b>${f.cols.length*f.sizes.length} SKUs</b>, each with its own tag. The codes are made when you press Set up.</div>
+      <h4 class="suh">Photos <span class="mute" style="font-weight:400">· optional, most articles have none</span></h4>
+      ${f.cols.map((c,d)=>`<div class="lr"><span class="cw">${dotHtml(COLOURS[c][1])}${COLOURS[c][0]} <span class="dg mono">${d}</span></span><button class="btn sm${f.photos.has(d)?'':' ghost'}" data-ph="${d}" style="margin-left:auto">${f.photos.has(d)?'✓ Photo added':'Add photo'}</button></div>`).join('')}
+      <div class="ft"><button class="btn ghost" data-suskip>Skip for now</button><button class="btn pri" data-sugo>Set up and send to tagging</button></div></div></div></aside>`);
+  const el=$('.setup');el.querySelector('.su-f').scrollTop=keep;
+  const close=()=>{S.setup=null;renderSetup()};el.querySelector('[data-sux]').onclick=close;$('.setup-shade').onclick=close;
+  el.querySelectorAll('[data-suk]').forEach(b=>b.onclick=()=>{S.setup={k:+b.dataset.suk,f:formFor(QUEUE[+b.dataset.suk])};renderSetup()});
+  el.querySelector('[data-f="name"]').oninput=e=>{f.name=e.target.value};
+  el.querySelector('[data-f="price"]').oninput=e=>{f.price=+e.target.value.replace(/\D/g,'')||0;el.querySelector('#sumk').textContent=markupText(q,f)};
+  el.querySelector('[data-f="div"]').onchange=e=>{const v=e.target.value;const set=c=>{f.div=c;const fm=famOf(c);f.sizes=f.sizes.filter(s=>fm.includes(s));if(!f.sizes.length)f.sizes=fm.slice(1,5);renderSetup()};
+    if(v==='__new'){e.target.value=f.div;addTerm('div',set,'',{norefresh:true})}else set(v)};
+  el.querySelectorAll('[data-tag]').forEach(c=>c.onchange=()=>{const v=c.dataset.tag;f.tags=c.checked?[...f.tags,v]:f.tags.filter(x=>x!==v)});
+  el.querySelector('[data-newtag]').onclick=()=>addTerm('tag',c=>{f.tags.push(c);renderSetup()},'',{norefresh:true});
+  el.querySelector('#suaddc')?.addEventListener('click',e=>menu(e.currentTarget,[{h:`Colour, digit ${f.cols.length}`},...COLOURS.map((c,j)=>({l:c[0],icon:dotHtml(c[1]),dis:f.cols.includes(j),f:()=>{f.cols.push(j);renderSetup()}}))]));
+  el.querySelectorAll('[data-rmcol]').forEach(b=>b.onclick=()=>{f.cols.splice(+b.dataset.rmcol,1);f.photos.clear();renderSetup()});
+  el.querySelectorAll('[data-sz]').forEach(b=>b.onclick=()=>{const s=+b.dataset.sz;f.sizes=f.sizes.includes(s)?f.sizes.filter(x=>x!==s):[...f.sizes,s].sort((x,y)=>x-y);renderSetup()});
+  el.querySelectorAll('[data-ph]').forEach(b=>b.onclick=()=>{const d=+b.dataset.ph;f.photos.has(d)?f.photos.delete(d):f.photos.add(d);renderSetup()});
+  el.querySelector('[data-suskip]').onclick=()=>{const nk=(k+1)%QUEUE.length;S.setup={k:nk,f:formFor(QUEUE[nk])};renderSetup()};
+  el.querySelector('[data-sugo]').onclick=()=>{if(!f.name.trim()||!f.cols.length||!f.sizes.length||!f.price){toast('Name, price, one colour and one size are needed');return}
+    const a=createArticle(q,f);QUEUE.splice(k,1);flash([a.i]);toast(`Made ${a.code} · ${a.skus} SKUs · tagging job sent to Gudang`);
+    const nk=Math.min(k,QUEUE.length-1);S.setup=QUEUE.length?{k:nk,f:formFor(QUEUE[nk])}:null;renderSetup();refresh()};
+}
+function createArticle(q,f){const i=ARTS.length;
+  const a={i,code:String(20000001+i),name:f.name.trim(),div:f.div,tags:f.tags.slice(),cols:f.cols.slice(),sizes:f.sizes.slice().sort((x,y)=>x-y),unmade:new Set(),cx:new Set(),
+    price:f.price,act:true,photo:f.photos.size>0,sup:q.sup,punit:'PCS',created:TODAY+i,upd:TODAY};
+  a.kind=kindOf(a.name);a.pat=patOf(a.name);recount(a);idx(a);ARTS.push(a);return a}
+
+
+/* ---------- state ---------- */
+const S={c:'A',q:'',hl:null,sel:new Set(),last:null,cur:null,sheet:false,dtab:'overview',editing:false,flash:null,sort:'new',
+  node:'all',bgroup:'div',ctab:'all',cgroup:'div',collapsed:new Set(),exp:new Set(),pend:new Map(),dview:'home',src:'div:MEN',dst:'div:WOMEN',setup:null};
+
+/* ---------- a virtual list: fixed row height, only what is on screen is drawn ---------- */
+const SCROLL={};
+function vlist(el,key,rows,h,draw1){
+  el.innerHTML=`<div class="vin" style="height:${rows.length*h}px"></div>`;const inn=el.firstChild;let raf=0;
+  const draw=()=>{raf=0;SCROLL[key]=el.scrollTop;const vh=el.clientHeight||600,st=Math.max(0,Math.floor(el.scrollTop/h)-6),en=Math.min(rows.length,st+Math.ceil(vh/h)+12);let s='';
+    for(let k=st;k<en;k++)s+=`<div class="it" style="top:${k*h}px;height:${h}px">${draw1(rows[k],k)}</div>`;inn.innerHTML=s};
+  el.addEventListener('scroll',()=>{if(!raf)raf=requestAnimationFrame(draw)});
+  el.scrollTop=SCROLL[key]||0;draw();return{el,draw};
+}
+function toggleSel(i,shift,arts){
+  if(shift&&S.last!=null){const x=arts.findIndex(a=>a.i===S.last),y=arts.findIndex(a=>a.i===i);if(x>=0&&y>=0){for(let k=Math.min(x,y);k<=Math.max(x,y);k++)S.sel.add(arts[k].i);S.last=i;return}}
+  S.sel.has(i)?S.sel.delete(i):S.sel.add(i);S.last=i}
+function rowHtml(a,o){const sel=S.sel.has(a.i),meta=[divL(a.div),a.tags.map(tagL).join(', ')].filter(Boolean).join(' · ');
+  return `<div class="row${S.cur===a.i?' cur':''}${sel?' sel':''}${a.act?'':' dim'}${S.flash&&S.flash.has(a.i)?' flash':''}" data-i="${a.i}"${o.drag?` draggable="true" data-drag="${a.i}" data-from="${o.from||''}"`:''}>
+    ${o.nock?'':`<span class="ck"><input type="checkbox" tabindex="-1"${sel?' checked':''}></span>`}${chip(a)}
+    <span class="tx"><b>${hi(a.name)}</b><span><span class="mono">${a.code}</span> · ${esc(meta)}</span></span>
+    ${o.end?o.end(a):`<span class="szc mute">${sizeSpan(a)}</span><span class="end"><b>${money(a)}</b><span>${n(a.oh)} on hand</span></span>`}</div>`}
+/* The list every concept shares: a head that turns into the selection bar, and rows you can tick, shift-tick or drag. */
+function listView(host,arts,o){
+  const any=S.sel.size>0;host.classList.add('lv');host.classList.toggle('anysel',any);
+  const sortSel=`<select class="ssel" data-sort>${[['new','Newest'],['name','Name A–Z'],['price','Price, high first'],['oh','Most on hand']].map(([v,l])=>`<option value="${v}"${S.sort===v?' selected':''}>${l}</option>`).join('')}</select>`;
+  const head=any?`<div class="selbar"><b>${n(S.sel.size)} selected</b>${S.sel.size<arts.length?`<button class="lnk" data-selall>Select all ${n(arts.length)}</button>`:''}
+      ${o.simple?'':`<button class="btn" data-act="move">${I.folder}Move to…</button><button class="btn" data-act="tags">${I.tag}Tags…</button><button class="btn" data-act="cancel">Cancel articles</button>`}
+      <button class="btn x" data-act="clear" title="Clear selection">${I.x}</button></div>`
+    :`<div class="lhead"><input type="checkbox" data-selall title="Select all ${n(arts.length)}"><span class="cnt"><b>${n(arts.length)}</b> ${esc(o.label||'articles')}</span>${o.hint?`<span class="mute hint">· ${o.hint}</span>`:''}${o.nosort?'':sortSel}</div>`;
+  host.innerHTML=head+`<div class="vl"></div>`+(arts.length?'':`<div class="empty">${o.empty||'Nothing here matches.'}</div>`);
+  const vl=host.querySelector('.vl');vlist(vl,o.key,arts,52,a=>rowHtml(a,o));
+  vl.addEventListener('click',e=>{const r=e.target.closest('[data-i]');if(!r||e.target.closest('input.in'))return;const i=+r.dataset.i;
+    if(e.target.closest('.ck')||e.shiftKey||e.metaKey||e.ctrlKey){e.preventDefault();toggleSel(i,e.shiftKey,arts);refresh();return}o.open&&o.open(ARTS[i])});
+  vl.addEventListener('keydown',e=>{const t=e.target.closest('[data-price]');if(!t||e.key!=='Enter')return;const v=parseInt(t.value.replace(/\D/g,''));if(!v)return;
+    const a=ARTS[+t.dataset.price];a.price=v;a.upd=TODAY;toast(`${a.name} priced at Rp ${n(v)}`);refresh();setTimeout(()=>host.querySelector('[data-price]')?.focus(),0)});
+  host.querySelectorAll('[data-selall]').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();if(S.sel.size>=arts.length)S.sel.clear();else arts.forEach(a=>S.sel.add(a.i));refresh()}));
+  host.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>bulk(b.dataset.act,b));
+  host.querySelector('[data-sort]')?.addEventListener('change',e=>{S.sort=e.target.value;refresh()});
+}
+function bulk(act,btn){const ids=[...S.sel];
+  if(act==='clear'){S.sel.clear();refresh()}else if(act==='move')moveMenu(btn,ids);else if(act==='tags')tagsDialog(ids);else if(act==='cancel')cancelDialog(ids)}
+
+/* ---------- New in: highlighted, and the way into setup ---------- */
+function newinBand(){const rec=recent().length;
+  return `<div class="newin"><i class="nd"></i><span><b>New in</b> · ${QUEUE.length?`${QUEUE.length} deliveries waiting for setup`:'every delivery is set up'} · ${n(rec)} articles set up in the last 7 days</span>
+    <span class="nact"><button class="btn sm" data-go-new>Review new</button>${QUEUE.length?`<button class="btn sm pri" data-setup="0">Set up next</button>`:''}</span></div>`}
+const qRow=(q,k)=>`<div class="lr"><span class="chip dl">${I.box}</span><span class="tx"><b>${esc(titleCase(q.desc))}</b><span>${esc(q.sup)} · ${q.po} · ${n(q.qty)} pcs · arrived ${q.arrived}</span></span><button class="btn sm" data-setup="${k}">Set up</button></div>`;
+function newInHtml(){const f=parseQ(),rec=recent().filter(a=>!f||f(a));
+  return `<div class="nib"><div class="box hi"><div class="bh"><i class="nd"></i><b>Waiting for setup</b><span class="mute">${QUEUE.length} deliveries arrived without an article</span>${QUEUE.length?`<span class="r"><button class="btn sm pri" data-setup="0">Set up next</button></span>`:''}</div>
+    ${QUEUE.map(qRow).join('')||'<div class="lr mute">Nothing waiting.</div>'}</div>
+    <div class="box" style="margin-top:12px"><div class="bh"><b>Set up in the last 7 days</b><span class="mute">${n(rec.length)} articles · check each once</span></div>
+    ${rec.slice(0,80).map(a=>`<div class="lr link${S.flash&&S.flash.has(a.i)?' flash':''}" data-i="${a.i}">${chip(a)}<span class="tx"><b>${hi(a.name)}</b><span><span class="mono">${a.code}</span> · ${esc(divL(a.div))} · ${a.skus} SKUs</span></span>${checks(a)}</div>`).join('')}</div></div>`}
+
+/* ---------- A · folders & labels ---------- */
+function viewA(p){
+  const base=matched(),cnt=f=>{let k=0;for(const a of base)if(f(a))k++;return k};
+  const rn=(node,icon,label,c,cls,drop)=>`<div class="rn${S.node===node?' on':''}${cls?' '+cls:''}" data-node="${node}"${drop?` data-drop="${drop}"`:''}>${icon}<span class="lb">${esc(label)}</span>${c!=null?`<span class="c${cls==='w'&&c?' w':''}">${n(c)}</span>`:''}</div>`;
+  let rail=rn('all',I.list,'All articles',base.length)+rn('new','<i class="nd"></i>','New in',QUEUE.length+recent().length,'nw');
+  rail+='<h6>Divisions</h6>'+DIVS.map(d=>rn('div:'+d.c,I.folder,d.l,cnt(a=>a.div===d.c),'','div:'+d.c)).join('')+`<div class="rn add" data-add="div">${I.plus}<span class="lb">New division</span></div>`;
+  rail+='<h6>Tags</h6>'+TAGS.map(t=>rn('tag:'+t.c,I.tag,t.l,cnt(a=>a.tags.includes(t.c)),'','tag:'+t.c)).join('')+`<div class="rn add" data-add="tag">${I.plus}<span class="lb">New tag</span></div>`;
+  rail+='<h6>Needs attention</h6>'+WL.map(([k,l,f])=>rn('wl:'+k,I.alert,l,cnt(f),k==='cancelled'?'':'w')).join('');
+  const inTag=S.node.startsWith('tag:');
+  rail+=`<div class="railhint">Drag articles onto a division to move them there, or onto a tag to tag them.${inTag?` You are in “${esc(tagL(S.node.slice(4)))}”: dropping on another tag moves them there. Hold ⌥ to keep both.`:''}</div>`;
+  const det=S.cur!=null;
+  p.innerHTML=`${newinBand()}<div class="a3${det?'':' nodet'}"><nav class="rail">${rail}</nav><section class="mid" id="mid"></section>${det?`<aside class="side" id="side">${detailHtml(ARTS[S.cur],true)}</aside>`:''}</div>`;
+  p.querySelectorAll('[data-node]').forEach(el=>el.onclick=()=>{S.node=el.dataset.node;S.sel.clear();S.cur=null;render()});
+  p.querySelectorAll('[data-go-new]').forEach(el=>el.onclick=()=>{S.node='new';S.sel.clear();render()});
+  const mid=$('#mid');
+  if(S.node==='new'){mid.innerHTML=newInHtml();mid.onclick=e=>{const r=e.target.closest('[data-i]');if(r&&!e.target.closest('[data-setup]'))openArticle(ARTS[+r.dataset.i])}}
+  else listView(mid,base.filter(nodePred(S.node)).sort(SORTS[S.sort]),{key:`A|${S.node}|${S.q}|${S.sort}`,drag:true,from:inTag?S.node:'',
+    label:S.node==='all'?'articles':`in ${nodeLabel(S.node)}`,open:a=>{S.cur=S.cur===a.i?null:a.i;S.dtab='overview';S.editing=false;render()}});
+  if(det)bindDetail($('#side'),ARTS[S.cur]);
+}
+
+/* ---------- B · board: a column per division (or per tag) ---------- */
+function cardHtml(r,c){if(r.t==='gl')return `<div class="gl">${esc(r.l)}</div>`;
+  if(r.t==='q')return `<div class="card q"><span class="chip dl">${I.box}</span><span class="tx"><b>${esc(titleCase(r.q.desc))}</b><span>${esc(r.q.sup)} · ${n(r.q.qty)} pcs</span></span><button class="btn sm pri" data-setup="${r.k}">Set up</button></div>`;
+  const a=r.a,sel=S.sel.has(a.i);
+  return `<div class="card${sel?' sel':''}${a.act?'':' dim'}${S.flash&&S.flash.has(a.i)?' flash':''}" data-i="${a.i}" draggable="true" data-drag="${a.i}" data-from="${c.from||''}">
+    <span class="ck"><input type="checkbox" tabindex="-1"${sel?' checked':''}></span>${chip(a)}<span class="tx"><b>${hi(a.name)}</b><span><span class="mono">${a.code}</span> · ${sizeSpan(a)}</span></span></div>`}
+function viewB(p){
+  const base=matched(),byTag=S.bgroup==='tag',sel=S.sel.size,cols=[];
+  p.innerHTML=`${newinBand()}<div class="btools"><span class="seg"><button data-g="div" class="${byTag?'':'on'}">By division</button><button data-g="tag" class="${byTag?'on':''}">By tag</button></span>
+    ${sel?`<span class="bsel"><b>${n(sel)} selected</b><button class="btn sm" data-act="move">${I.folder}Move to…</button><button class="btn sm" data-act="tags">${I.tag}Tags…</button><button class="btn sm ghost" data-act="clear">Clear</button><span class="mute">or drag them to a column</span></span>`
+      :`<span class="mute">${byTag?'Drag a card from one tag to another to move it there. Hold ⌥ while dropping to keep both tags.':'Drag a card to another column to move it. Tick several to move them together.'}</span>`}</div>
+    <div class="board${sel?' anysel':''}" id="board"></div>`;
+  if(!byTag){const f=parseQ(),rec=recent().filter(a=>!f||f(a));
+    cols.push({id:'new',label:'New in',cls:'new',count:QUEUE.length+rec.length,rows:[{t:'gl',l:`Waiting for setup · ${QUEUE.length}`},...QUEUE.map((q,k)=>({t:'q',q,k})),{t:'gl',l:`Set up in the last 7 days · ${n(rec.length)}`},...rec.map(a=>({t:'a',a}))],ids:rec});
+    for(const d of DIVS){const arts=base.filter(a=>a.div===d.c).sort(SORTS.new);cols.push({id:'div:'+d.c,label:d.l,drop:'div:'+d.c,count:arts.length,rows:arts.map(a=>({t:'a',a})),ids:arts})}}
+  else for(const t of TAGS){const arts=base.filter(a=>a.tags.includes(t.c)).sort(SORTS.new);cols.push({id:'tag:'+t.c,label:t.l,drop:'tag:'+t.c,from:'tag:'+t.c,count:arts.length,rows:arts.map(a=>({t:'a',a})),ids:arts})}
+  const board=$('#board');
+  board.innerHTML=cols.map((c,k)=>`<div class="col${c.cls?' '+c.cls:''}"${c.drop?` data-drop="${c.drop}"`:''}><div class="hd">${c.cls?'<i class="nd"></i>':''}<b>${esc(c.label)}</b><span class="c">${n(c.count)}</span><button class="btn ghost sm cm" data-cm="${k}" title="Column">${I.more}</button></div><div class="vl" data-col="${k}"></div></div>`).join('')
+    +`<div class="col add" data-add="${byTag?'tag':'div'}">${I.plus}<span>New ${byTag?'tag':'division'}</span></div>`;
+  cols.forEach((c,k)=>{const el=board.querySelector(`[data-col="${k}"]`);vlist(el,`B|${S.bgroup}|${c.id}|${S.q}`,c.rows,64,r=>cardHtml(r,c));
+    el.addEventListener('click',e=>{const r=e.target.closest('[data-i]');if(!r)return;const i=+r.dataset.i;
+      if(e.target.closest('.ck')||e.shiftKey||e.metaKey||e.ctrlKey){e.preventDefault();toggleSel(i,e.shiftKey,c.ids);refresh();return}openSheet(ARTS[i])})});
+  board.querySelectorAll('[data-cm]').forEach(b=>b.onclick=()=>{const c=cols[+b.dataset.cm];
+    menu(b,[{h:`${c.label} · ${n(c.ids.length)}`},{l:`Select all ${n(c.ids.length)}`,f:()=>{c.ids.forEach(a=>S.sel.add(a.i));refresh()}},{l:`Move all ${n(c.ids.length)} to…`,f:()=>moveMenu(b,c.ids.map(a=>a.i))}])});
+  p.querySelectorAll('[data-g]').forEach(b=>b.onclick=()=>{S.bgroup=b.dataset.g;S.sel.clear();render()});
+  p.querySelectorAll('.btools [data-act]').forEach(b=>b.onclick=()=>bulk(b.dataset.act,b));
+  p.querySelectorAll('[data-go-new]').forEach(b=>b.onclick=()=>{if(byTag){S.bgroup='div';render()}$('#board').scrollLeft=0});
+}
+
+
+/* ---------- C · sheet: editable cells, changes staged, reviewed together ---------- */
+const CCOLS='40px 48px minmax(11rem,1fr) 7.25rem 9.5rem 12rem 6.5rem 6rem 4.75rem 8rem 44px';
+function stage(ids,fn){for(const i of ids){const a=ARTS[i],p=S.pend.get(i)||{},cur={div:p.div??a.div,tags:(p.tags??a.tags).slice()},x=fn(a,cur),np={};
+    if(x.div!==a.div)np.div=x.div;if(!sameTags(x.tags,a.tags))np.tags=x.tags;if(np.div||np.tags)S.pend.set(i,np);else S.pend.delete(i)}
+  S.sel.clear();refresh();toast(`${pl(ids.length)} changed. Nothing is saved until Review & save.`)}
+function tagCell(i,pre){const a=ARTS[i],p=S.pend.get(i)||{};let cur=pre||(p.tags??a.tags).slice();
+  const d=modal(`<h3>Tags on ${esc(a.name)}</h3><div class="sub">Tick any number.</div><div class="checks col">${TAGS.map(t=>`<label><input type="checkbox" data-t2="${t.c}"${cur.includes(t.c)?' checked':''}>${esc(t.l)}</label>`).join('')}</div>
+    <button class="btn ghost sm" id="nt" style="margin-top:6px">${I.plus}New tag</button><div class="ft"><button class="btn ghost" data-close>Cancel</button><button class="btn pri" id="ok">Done</button></div>`);
+  d.querySelectorAll('[data-t2]').forEach(c=>c.onchange=()=>{const v=c.dataset.t2;cur=c.checked?[...cur,v]:cur.filter(x=>x!==v)});
+  d.querySelector('#nt').onclick=()=>addTerm('tag',c=>tagCell(i,[...cur,c]),'',{norefresh:true});
+  d.querySelector('#ok').onclick=()=>{closeModal();stage([i],(a,c)=>({...c,tags:cur}))}}
+function reviewPending(){const ids=[...S.pend.keys()],arts=ids.map(i=>ARTS[i]),next=a=>{const p=S.pend.get(a.i);return{div:p.div??a.div,tags:p.tags??a.tags}};
+  const dm={},ta={},tr={};for(const a of arts){const x=next(a);if(x.div!==a.div){const k=`${divL(a.div)} → ${divL(x.div)}`;dm[k]=(dm[k]||0)+1}
+    for(const t of x.tags)if(!a.tags.includes(t))ta[t]=(ta[t]||0)+1;for(const t of a.tags)if(!x.tags.includes(t))tr[t]=(tr[t]||0)+1}
+  const lines=[...Object.entries(dm).map(([k,c])=>`${k}: ${pl(c)}`),...Object.entries(ta).map(([t,c])=>`“${tagL(t)}” added to ${pl(c)}`),...Object.entries(tr).map(([t,c])=>`“${tagL(t)}” removed from ${pl(c)}`)];
+  const d=modal(`<h3>Save changes to ${pl(ids.length)}?</h3><div class="cons">${lines.map(l=>`<div><i></i><span>${esc(l)}</span></div>`).join('')}</div>
+    <h4 class="suh" style="margin:14px 0 4px">Promotions</h4>${consHtml(consequences(arts,next))}<div class="note">Codes, SKUs and printed tags don’t change.</div>
+    <div class="ft"><button class="btn ghost" data-close>Keep editing</button><button class="btn pri" id="ok">Save ${pl(ids.length)}</button></div>`);
+  d.querySelector('#ok').onclick=()=>{const snap=arts.map(a=>[a,a.div,a.tags.slice()]);for(const a of arts){const x=next(a);a.div=x.div;a.tags=x.tags.slice();a.upd=TODAY;idx(a)}
+    S.pend.clear();closeModal();flash(ids);refresh();toast(`Saved ${pl(ids.length)}`,()=>{for(const [a,dv,tg] of snap){a.div=dv;a.tags=tg;idx(a)}refresh();toast('Undone')})}}
+function trayC(){document.querySelectorAll('.tray').forEach(x=>x.remove());if(S.c!=='C'||!S.pend.size)return;
+  let ch=0;for(const p of S.pend.values())ch+=(p.div?1:0)+(p.tags?1:0);
+  document.body.insertAdjacentHTML('beforeend',`<div class="tray"><span><b>${n(ch)} change${ch>1?'s':''}</b> <span class="mute">on ${pl(S.pend.size)}</span></span><button class="btn ghost" id="tdisc">Discard</button><button class="btn pri" id="trev">Review & save</button></div>`);
+  $('#tdisc').onclick=()=>{S.pend.clear();refresh()};$('#trev').onclick=reviewPending}
+function crow(r){
+  if(r.t==='h')return `<div class="grow static">${esc(r.l)}</div>`;
+  if(r.t==='g')return `<div class="grow" data-gk="${r.d.c}" data-drop="div:${r.d.c}">${chevOpen(!S.collapsed.has(r.d.c))}<span>${esc(r.d.l)}</span><span class="mute" style="font-weight:400">${n(r.c)}</span></div>`;
+  if(r.t==='q')return `<div class="qrow"><span class="chip dl">${I.box}</span><span class="tx" style="flex:1;min-width:0;display:flex;flex-direction:column"><b style="font-weight:500;color:var(--ink)">${esc(titleCase(r.q.desc))}</b><span class="mute">${esc(r.q.sup)} · ${r.q.po} · ${n(r.q.qty)} pcs · arrived ${r.q.arrived}</span></span><button class="btn sm pri" data-setup="${r.k}">Set up</button></div>`;
+  if(r.t==='v'){const a=r.a,d=r.d,c=COLOURS[a.cols[d]];return `<div class="vrow"><span class="cw" style="width:9rem">${dotHtml(c[1])}${c[0]} <span class="dg mono">${d}</span></span><span class="cellz">${a.sizes.map(s=>{const st=cell(a,d,s);
+      return `<span><b>${SIZE_ALL[s]}</b>${st==='ok'?n(oh(a,d,s)):st==='un'?'<span class="warnc">not made</span>':'<span class="faint">cancelled</span>'}</span>`}).join('')}</span></div>`}
+  if(r.t==='va')return `<div class="vrow"><button class="btn sm" data-vopen="${r.a.i}">Open colours and sizes</button><span class="mute">Add or cancel a colour or size there.</span></div>`;
+  const a=r.a,p=S.pend.get(a.i)||{},sel=S.sel.has(a.i),dv=p.div??a.div,tg=p.tags??a.tags;
+  return `<div class="trow${sel?' sel':''}${a.act?'':' dim'}${S.flash&&S.flash.has(a.i)?' flash':''}" data-i="${a.i}" draggable="true" data-drag="${a.i}">
+    <span><input type="checkbox" class="ck" tabindex="-1"${sel?' checked':''}></span><span>${chip(a)}</span><span class="nm"><b>${hi(a.name)}</b></span><span class="mono mute">${a.code}</span>
+    <span><button class="cellbtn${p.div?' dirty':''}" data-cdiv="${a.i}"><span>${esc(divL(dv))}</span>${I.down}</button></span>
+    <span><button class="cellbtn${p.tags?' dirty':''}" data-ctag="${a.i}"><span>${tg.length?esc(tg.map(tagL).join(', ')):'<span class="faint">None</span>'}</span>${I.down}</button></span>
+    <span>${dotsHtml(a)}</span><span>${sizeSpan(a)}</span><span class="n">${a.unmade.size?`<span class="warnc" title="${a.unmade.size} not made">${a.skus}/${a.skus+a.unmade.size}</span>`:n(a.skus)}</span>
+    <span class="n">${money(a)}</span><span><button class="rowmenu" data-exp="${a.i}" title="Colours × sizes">${chevOpen(S.exp.has(a.i))}</button></span></div>`}
+function viewC(p){
+  const base=matched(),f=parseQ(),rec=recent().filter(a=>!f||f(a)),attn=base.filter(a=>issues(a).length),sel=S.sel.size;
+  const rows=[],pushA=a=>{rows.push({t:'a',a});if(S.exp.has(a.i)){a.cols.forEach((_,d)=>rows.push({t:'v',a,d}));rows.push({t:'va',a})}};let arts;
+  if(S.ctab==='new'){rows.push({t:'h',l:`Waiting for setup · ${QUEUE.length} deliveries`});QUEUE.forEach((q,k)=>rows.push({t:'q',q,k}));rows.push({t:'h',l:`Set up in the last 7 days · ${n(rec.length)}`});arts=rec;rec.forEach(pushA)}
+  else{arts=(S.ctab==='attn'?attn:base).slice().sort(SORTS[S.sort]);
+    if(S.cgroup==='div'){for(const d of DIVS){const g=arts.filter(a=>a.div===d.c);if(!g.length)continue;rows.push({t:'g',d,c:g.length});if(!S.collapsed.has(d.c))g.forEach(pushA)}}else arts.forEach(pushA)}
+  p.innerHTML=`<div class="ctabs"><button data-ct="all" class="${S.ctab==='all'?'on':''}">All <span>${n(base.length)}</span></button>
+      <button data-ct="new" class="${S.ctab==='new'?'on':''}"><i class="nd"></i>New in <span>${QUEUE.length} to set up · ${n(rec.length)} new</span></button>
+      <button data-ct="attn" class="${S.ctab==='attn'?'on':''}">Needs attention <span>${n(attn.length)}</span></button></div>
+    <div class="ctools">${sel?`<div class="selbar"><b>${n(sel)} selected</b>${sel<arts.length?`<button class="lnk" data-cselall>Select all ${n(arts.length)}</button>`:''}<button class="btn" data-cact="div">${I.folder}Set division…</button><button class="btn" data-cact="tags">${I.tag}Tags…</button><button class="btn x" data-cact="clear">${I.x}</button></div>`
+      :`<span class="seg"><button data-cg="div" class="${S.cgroup==='div'?'on':''}">Group by division</button><button data-cg="none" class="${S.cgroup==='none'?'on':''}">No grouping</button></span>
+        <span class="mute">Click a Division or Tags cell to change it, or drag rows onto a division. Changes wait until Review & save.</span>
+        <select class="ssel" data-sort>${[['new','Newest'],['name','Name A–Z'],['price','Price, high first'],['oh','Most on hand']].map(([v,l])=>`<option value="${v}"${S.sort===v?' selected':''}>${l}</option>`).join('')}</select>`}</div>
+    <div class="cwrap" style="--cols:${CCOLS}"><div class="thead"><span><input type="checkbox" data-csel title="Select all"></span><span></span><span>Name</span><span>Code</span><span>Division</span><span>Tags</span><span>Colours</span><span>Sizes</span><span class="n">SKUs</span><span class="n">Price</span><span></span></div><div class="vl" id="cvl"></div></div>`;
+  const vl=$('#cvl');vlist(vl,`C|${S.ctab}|${S.cgroup}|${S.q}|${S.sort}`,rows,48,crow);
+  vl.addEventListener('click',e=>{const t=e.target;
+    const cd=t.closest('[data-cdiv]');if(cd){const i=+cd.dataset.cdiv;moveMenu(cd,[i],to=>stage([i],(a,c)=>({...c,div:to})));return}
+    const ct=t.closest('[data-ctag]');if(ct){tagCell(+ct.dataset.ctag);return}
+    const ex=t.closest('[data-exp]');if(ex){const i=+ex.dataset.exp;S.exp.has(i)?S.exp.delete(i):S.exp.add(i);refresh();return}
+    const vo=t.closest('[data-vopen]');if(vo){openSheet(ARTS[+vo.dataset.vopen],'variants');return}
+    const g=t.closest('[data-gk]');if(g){const k=g.dataset.gk;S.collapsed.has(k)?S.collapsed.delete(k):S.collapsed.add(k);refresh();return}
+    const r=t.closest('[data-i]');if(!r)return;const i=+r.dataset.i;
+    if(t.closest('.ck')||e.shiftKey||e.metaKey||e.ctrlKey){e.preventDefault();toggleSel(i,e.shiftKey,arts);refresh();return}openSheet(ARTS[i])});
+  p.querySelectorAll('[data-ct]').forEach(b=>b.onclick=()=>{S.ctab=b.dataset.ct;S.sel.clear();render()});
+  p.querySelectorAll('[data-cg]').forEach(b=>b.onclick=()=>{S.cgroup=b.dataset.cg;render()});
+  p.querySelector('[data-sort]')?.addEventListener('change',e=>{S.sort=e.target.value;refresh()});
+  p.querySelectorAll('[data-csel],[data-cselall]').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();if(S.sel.size>=arts.length)S.sel.clear();else arts.forEach(a=>S.sel.add(a.i));refresh()}));
+  p.querySelectorAll('[data-cact]').forEach(b=>b.onclick=()=>{const ids=[...S.sel],k=b.dataset.cact;
+    if(k==='clear'){S.sel.clear();refresh()}else if(k==='div')moveMenu(b,ids,to=>stage(ids,(a,c)=>({...c,div:to})));
+    else tagsDialog(ids,ch=>stage(ids,(a,c)=>({...c,tags:applyTags(c.tags,ch)})))});
+}
+
+/* ---------- D · to-do first, with Reorganise for moving many ---------- */
+function viewD(p){
+  if(S.dview==='sorter')return sorterView(p);
+  const back=`<button class="btn ghost" data-dhome>${I.back}Back</button>`;
+  const bindBack=()=>p.querySelector('[data-dhome]')?.addEventListener('click',()=>{S.dview='home';S.sel.clear();render()});
+  if(S.q.trim()){const arts=matched().sort(SORTS[S.sort]);p.innerHTML=`<div class="dlist" id="dl"></div>`;
+    listView($('#dl'),arts,{key:`D|q|${S.q}|${S.sort}`,label:'articles match',open:a=>openSheet(a)});return}
+  if(S.dview.startsWith('list:')){const node=S.dview.slice(5),arts=ARTS.filter(nodePred(node)).sort(node==='new'?SORTS.new:SORTS[S.sort]),wl=node==='wl:noprice';
+    p.innerHTML=`<div class="crumbs">${back}<b>${esc(nodeLabel(node))}</b><span class="mute">${n(arts.length)} articles${wl?' · type a price and press Enter, it leaves the list':''}</span></div><div class="dlist" id="dl"></div>`;
+    listView($('#dl'),arts,{key:`D|${node}|${S.sort}`,label:'articles',open:a=>openSheet(a),nosort:node==='new',
+      end:wl?(a=>`<input class="in pin num" data-price="${a.i}" placeholder="Set price" inputmode="numeric">`):node==='new'?checks:null});
+    bindBack();return}
+  const rec=recent();
+  p.innerHTML=`<div class="dgrid"><div class="box hi"><div class="bh"><i class="nd"></i><b>New in</b><span class="mute">${QUEUE.length} to set up · ${n(rec.length)} set up in the last 7 days</span>${QUEUE.length?`<span class="r"><button class="btn sm pri" data-setup="0">Set up next</button></span>`:''}</div>
+      <div class="subh">Waiting for setup</div>${QUEUE.slice(0,5).map(qRow).join('')||'<div class="lr mute">Every delivery has an article.</div>'}
+      ${QUEUE.length>5?`<div class="lr link" data-setup="0"><span class="acc">All ${QUEUE.length} deliveries ${I.arrow}</span></div>`:''}
+      <div class="subh">Set up in the last 7 days · check each once</div>
+      ${rec.slice(0,6).map(a=>`<div class="lr link${S.flash&&S.flash.has(a.i)?' flash':''}" data-i="${a.i}">${chip(a)}<span class="tx"><b>${esc(a.name)}</b><span><span class="mono">${a.code}</span> · ${esc(divL(a.div))} · ${a.skus} SKUs</span></span>${checks(a)}</div>`).join('')}
+      <div class="lr link" data-dv="list:new"><span class="acc">Review all ${n(rec.length)} ${I.arrow}</span></div></div>
+    <div><div class="box"><div class="bh"><b>Needs attention</b></div>${WL.filter(w=>w[0]!=='cancelled').map(([k,l,f])=>`<div class="lr link" data-dv="list:wl:${k}">${I.alert}<span class="tx"><b>${l}</b></span><span class="warnc num">${n(ARTS.filter(f).length)}</span><span class="acc">Fix ${I.arrow}</span></div>`).join('')}</div>
+      <div class="box" style="margin-top:12px"><div class="bh"><b>Organise</b><span class="r"><button class="btn sm" data-dv="sorter">Reorganise ${I.arrow}</button></span></div>
+        <div class="subh">Divisions<button class="btn ghost sm" data-add="div">${I.plus}New</button></div>
+        ${DIVS.map(d=>`<div class="lr link" data-dv="list:div:${d.c}">${I.folder}<span class="tx"><b>${esc(d.l)}</b></span><span class="mute num">${n(ARTS.filter(a=>a.div===d.c).length)}</span></div>`).join('')}
+        <div class="subh">Tags<button class="btn ghost sm" data-add="tag">${I.plus}New</button></div>
+        <div class="tagscroll">${TAGS.map(t=>`<div class="lr link" data-dv="list:tag:${t.c}">${I.tag}<span class="tx"><b>${esc(t.l)}</b></span><span class="mute num">${n(ARTS.filter(a=>a.tags.includes(t.c)).length)}</span></div>`).join('')}</div>
+        <div class="lr link" data-dv="list:all"><span class="acc">Browse all ${n(ARTS.length)} articles ${I.arrow}</span></div></div></div></div>`;
+  p.onclick=e=>{if(e.target.closest('[data-setup],[data-add]'))return;const dv=e.target.closest('[data-dv]');if(dv){S.dview=dv.dataset.dv;S.sel.clear();render();return}
+    const r=e.target.closest('[data-i]');if(r)openSheet(ARTS[+r.dataset.i])};
+}
+function sorterView(p){
+  const f=parseQ(),srcTag=S.src.startsWith('tag:')?S.src.slice(4):null,dk=S.dst.split(':')[0],k=S.sel.size;
+  const src=ARTS.filter(nodePred(S.src)).filter(a=>!f||f(a)).sort(SORTS.new);
+  const dst=ARTS.filter(nodePred(S.dst)).sort((x,y)=>((S.flash&&S.flash.has(y.i))?1:0)-((S.flash&&S.flash.has(x.i))?1:0)||y.i-x.i);
+  const opts=(val,extra)=>`<optgroup label="Divisions">${DIVS.map(d=>`<option value="div:${d.c}"${val==='div:'+d.c?' selected':''}>${esc(d.l)}</option>`).join('')}</optgroup>
+    <optgroup label="Tags">${TAGS.map(t=>`<option value="tag:${t.c}"${val==='tag:'+t.c?' selected':''}>${esc(t.l)}</option>`).join('')}</optgroup>${extra}`;
+  p.innerHTML=`<div class="crumbs"><button class="btn ghost" data-dhome>${I.back}Back</button><b>Reorganise</b><span class="mute">Tick on the left, send to the right. The search above narrows the left list.</span></div>
+    <div class="sorter"><div class="sp"><div class="sh"><span class="mute">From</span><select class="sfld" id="ssrc">${opts(S.src,`<optgroup label="Other"><option value="all"${S.src==='all'?' selected':''}>All articles</option><option value="new"${S.src==='new'?' selected':''}>New in (7 days)</option></optgroup>`)}</select></div><div class="spl" id="spl"></div></div>
+    <div class="smid">${dk==='div'?`<button class="btn pri" data-sgo="move"${k?'':' disabled'}>Move ${k?n(k)+' ':''}${I.arrow}</button>`
+        :`<button class="btn pri" data-sgo="add"${k?'':' disabled'}>Tag ${k?n(k)+' ':''}${I.arrow}</button>${srcTag&&srcTag!==S.dst.slice(4)?`<button class="btn" data-sgo="replace"${k?'':' disabled'}>Move from “${esc(tagL(srcTag))}”</button>`:''}`}
+      <span class="mute">${k?`${n(k)} ticked`:'Tick articles on the left'}</span></div>
+    <div class="sp"><div class="sh"><span class="mute">To</span><select class="sfld" id="sdst">${opts(S.dst,'<option value="__nd">+ New division…</option><option value="__nt">+ New tag…</option>')}</select></div><div class="spl" id="spr"></div></div></div>`;
+  listView($('#spl'),src,{key:`S|${S.src}|${S.q}`,simple:true,nosort:true,label:'articles',open:a=>openSheet(a),
+    end:a=>`<span class="mute" style="white-space:nowrap">${esc(dk==='div'?divL(a.div):a.tags.map(tagL).join(', ')||'No tag')}</span>`});
+  const spr=$('#spr');spr.innerHTML=`<div class="lhead"><span class="cnt"><b>${n(dst.length)}</b> in ${esc(nodeLabel(S.dst))}</span></div><div class="vl"></div>`;
+  if(S.flash)SCROLL[`S|dst|${S.dst}`]=0;
+  vlist(spr.querySelector('.vl'),`S|dst|${S.dst}`,dst,52,a=>rowHtml(a,{nock:true}));
+  spr.querySelector('.vl').onclick=e=>{const r=e.target.closest('[data-i]');if(r)openSheet(ARTS[+r.dataset.i])};
+  $('#ssrc').onchange=e=>{S.src=e.target.value;S.sel.clear();render()};
+  $('#sdst').onchange=e=>{const v=e.target.value;if(v==='__nd'||v==='__nt'){e.target.value=S.dst;addTerm(v==='__nd'?'div':'tag',c=>{S.dst=(v==='__nd'?'div:':'tag:')+c;render()},'',{norefresh:true});return}S.dst=v;render()};
+  p.querySelectorAll('[data-sgo]').forEach(b=>b.onclick=()=>{const ids=[...S.sel],to=S.dst.slice(4),m=b.dataset.sgo;
+    if(m==='move')change(ids,{div:to},T.move(to));else if(m==='add')change(ids,{add:[to]},T.add(to));else change(ids,{add:[to],remove:[srcTag]},T.replace(srcTag,to))});
+  p.querySelector('[data-dhome]').onclick=()=>{S.dview='home';S.sel.clear();render()};
+}
+
+/* ---------- render ---------- */
+const NOTES={
+  A:[['How it works','Divisions are folders: an article sits in exactly one. Tags are labels: it can carry several. A few: drag them onto a folder or label in the left rail. Hundreds: tick, “Select all”, then Move to… or Tags….'],
+     ['Best for','Everyday use by everyone. Finding, filing and checking colours and sizes happen on one screen, and it works like the mail folders people already know.'],
+     ['Trade-off','Needs about 1280px for all three panes. Drag is for a handful; the selection bar is for hundreds.']],
+  B:[['How it works','Each division is a column. Drag a card across to move it, or tick several and drag them together. By tag shows a column per tag: a drop moves it from that tag, and holding ⌥ keeps both.'],
+     ['Best for','Reorganising by hand: you see where everything sits. New in is the first column, with setup and the newly made articles, ready to be dragged to the right division.'],
+     ['Trade-off','Columns hold thousands, so you usually search first. Details open as a sheet, and a narrow screen scrolls sideways.']],
+  C:[['How it works','Division and Tags are editable cells, like Excel. Tick many and set them once, or drag rows onto a division. Changes wait in a tray; Review & save shows every move and the promotions it touches.'],
+     ['Best for','Admins tidying in bulk, and teams used to 7Soft or Excel. Open a row’s arrow to see its colours × sizes without leaving the sheet.'],
+     ['Trade-off','The least visual of the four. People must learn that nothing is saved until Review & save.']],
+  D:[['How it works','Opens on what needs doing: deliveries to set up, new articles to check, gaps to fix (No price is fixed right in the list). The catalogue is one search away. Moving many has its own tool: Reorganise, two lists side by side.'],
+     ['Best for','Teams for whom the Articles menu is mostly upkeep, and anyone who only comes to set up or fix something.'],
+     ['Trade-off','Browsing the whole catalogue is one step deeper, and there are two places to move things: a list for a few, Reorganise for many.']],
+};
+function render(){closeMenu();
+  const tot=ARTS.reduce((t,a)=>t+a.skus,0),ph=Math.round(100*ARTS.filter(a=>a.photo).length/ARTS.length);
+  $('#pane').innerHTML=`<div class="ph"><div><h2>Articles</h2><div class="sub">${n(ARTS.length)} articles · ${n(tot)} SKUs · ${ph}% have a photo</div></div>
+    <div class="act"><button class="btn ghost" data-t="Import from Excel: upload, match columns, preview, apply">${I.up}Import</button><button class="btn ghost" data-t="Exports what is shown">${I.dl}Export</button></div></div>
+    <label class="big">${I.search}<input id="q" value="${esc(S.q)}" placeholder="Search ${n(ARTS.length)} articles: name, code, SKU, colour, supplier, or scan" autocomplete="off">${S.q?`<button class="btn ghost sm" id="qx" title="Clear">${I.x}</button>`:'<span class="kbd">/</span>'}</label>
+    <div id="body"></div>`;
+  ({A:viewA,B:viewB,C:viewC,D:viewD})[S.c]($('#body'));
+  const q=$('#q');
+  q.oninput=()=>{S.q=q.value;S.sel.clear();const pos=q.selectionStart;render();const nq=$('#q');nq.focus();nq.setSelectionRange(pos,pos);
+    if(S.hl){const a=ARTS[S.hl.i];if(S.c==='A'){S.cur=a.i;S.dtab='variants';S.editing=false;render();$('#q').focus()}else openSheet(a,'variants')}};
+  $('#qx')?.addEventListener('click',e=>{e.preventDefault();S.q='';S.hl=null;S.sel.clear();render()});
+  $('#why').innerHTML=NOTES[S.c].map(([h,t])=>`<div><h5>${h}</h5><p>${t}</p></div>`).join('');
+  trayC();
+}
+function refresh(){render();if(S.sheet)renderSheet(true)}
+
+/* ---------- global wiring ---------- */
+document.addEventListener('click',e=>{if(!e.target.closest('.menu'))closeMenu();
+  const s=e.target.closest('[data-setup]');if(s){e.preventDefault();openSetup(+s.dataset.setup);return}
+  if(e.target.closest('[data-close]')){closeModal();return}
+  const ad=e.target.closest('[data-add]');if(ad&&!ad.closest('.setup')){addTerm(ad.dataset.add);return}
+  const t=e.target.closest('[data-t]');if(t)toast(t.dataset.t)});
+let DRAG=null;
+document.addEventListener('dragstart',e=>{const el=e.target.closest?.('[data-drag]');if(!el)return;const i=+el.dataset.drag,ids=S.sel.has(i)?[...S.sel]:[i];DRAG={ids,from:el.dataset.from||''};
+  const g=$('#dragghost');g.textContent=ids.length>1?`Move ${pl(ids.length)}`:ARTS[i].name;e.dataTransfer.setData('text/plain',ids.join(','));e.dataTransfer.effectAllowed='copyMove';
+  e.dataTransfer.setDragImage(g,12,12);document.body.classList.add('dragging')});
+const endDrag=()=>{DRAG=null;document.body.classList.remove('dragging');document.querySelectorAll('.dz').forEach(x=>x.classList.remove('dz'))};
+document.addEventListener('dragend',endDrag);
+document.addEventListener('dragover',e=>{const t=e.target.closest?.('[data-drop]');if(!t||!DRAG)return;e.preventDefault();document.querySelectorAll('.dz').forEach(x=>x!==t&&x.classList.remove('dz'));t.classList.add('dz')});
+document.addEventListener('dragleave',e=>{const t=e.target.closest?.('[data-drop]');if(t&&!t.contains(e.relatedTarget))t.classList.remove('dz')});
+document.addEventListener('drop',e=>{const t=e.target.closest?.('[data-drop]');if(!t||!DRAG)return;e.preventDefault();const [kind,code]=t.dataset.drop.split(':'),{ids,from}=DRAG;endDrag();
+  if(S.c==='C'&&kind==='div'){stage(ids,(a,c)=>({...c,div:code}));return}
+  if(kind==='div')change(ids,{div:code},T.move(code));
+  else if(from.startsWith('tag:')&&!e.altKey&&from.slice(4)!==code)change(ids,{add:[code],remove:[from.slice(4)]},T.replace(from.slice(4),code));
+  else change(ids,{add:[code]},T.add(code))});
+document.addEventListener('keydown',e=>{const typing=/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
+  if(e.key==='Escape'){if($('#menu')){closeMenu();return}if($('#scrim')){closeModal();return}if(S.setup){S.setup=null;renderSetup();return}if(S.sheet){closeSheet();return}
+    if(S.c==='A'&&S.cur!=null){S.cur=null;render();return}if(S.sel.size){S.sel.clear();refresh()}return}
+  if(e.key==='/'&&!typing){e.preventDefault();$('#q')?.focus()}});
+$('#lenses').onclick=e=>{const b=e.target.closest('[data-c]');if(!b)return;document.querySelectorAll('.lens').forEach(x=>x.classList.toggle('on',x===b));
+  S.c=b.dataset.c;S.sel.clear();S.cur=null;S.sheet=false;S.editing=false;renderSheet();render()};
+{const a=ARTS.find(x=>x.i>12000&&x.cols.length>1&&x.sizes.length>2&&x.act);document.getElementById('demoSku').textContent=skuCode(a,1,a.sizes[1])}
+render();
+
+</script>
+</body>
+</html>

@@ -5,7 +5,7 @@ export type CatalogPurchaseOrderRequest = {
 /**
  * The number the order is filed under. Absent — the ordinary case — and
  * the server gives it one inside the same transaction that writes the
- * order: `DDMMYY-NNN`, the day in Jakarta, the serial counted per day
+ * order: `PO-DDMMYY-NNN`, the day in Jakarta, the serial counted per day
  * (see migration 0385 and `next_po_number`). A screen used to guess
  * the next number from the order book and send it, and two buyers who
  * opened New PO in the same minute were shown the same number and one of
@@ -24,4 +24,21 @@ destination_site_id: string | null, notes: string | null,
  * unit. On the order rather than the lines because that is how it is
  * negotiated and how an invoice states it — see migration 0044.
  */
-discount_minor: number | null, lines: Array<CatalogPurchaseLineRequest>, };
+discount_minor: number | null, 
+/**
+ * The discount as a percentage of the subtotal, in hundredths of a
+ * percent (1250 = 12,50%). When present it wins over `discount_minor`:
+ * the amount is the subtotal × it, rounded half up once (0823).
+ */
+discount_bps?: number | null, 
+/**
+ * The payment terms template the order is raised on (migration 0817).
+ * Optional: absent or blank raises it with none, and a code no template
+ * carries is refused.
+ */
+payment_terms_code?: string | null, 
+/**
+ * Free-text terms and conditions written on the order (0824). Optional;
+ * absent or blank raises it with none.
+ */
+terms_and_conditions?: string | null, lines: Array<CatalogPurchaseLineRequest>, };

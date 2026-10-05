@@ -71,7 +71,6 @@ export function JournalLinesGrid({
                   label={`Debit on row ${index + 1}`}
                   value={line.debit}
                   onChange={(next) => setLine(index, { debit: next })}
-                  placeholder="0"
                   className="h-8"
                 />
               </Td>
@@ -80,7 +79,6 @@ export function JournalLinesGrid({
                   label={`Credit on row ${index + 1}`}
                   value={line.credit}
                   onChange={(next) => setLine(index, { credit: next })}
-                  placeholder="0"
                   className="h-8"
                 />
               </Td>

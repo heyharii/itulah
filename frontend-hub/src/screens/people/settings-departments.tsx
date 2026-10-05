@@ -146,7 +146,7 @@ function DepartmentSheet({
       title={row ? row.name : "New department"}
       id={row?.code}
       error={save.error ?? retire.error}
-      saveLabel="Save department"
+      saveLabel="Submit"
       saving={save.isPending}
       canSave={code.trim() !== "" && name.trim() !== "" && reason.trim() !== ""}
       onSave={() => save.mutate()}
@@ -170,20 +170,14 @@ function DepartmentSheet({
           value={code}
           readOnly={row !== null}
           onChange={(e) => setCode(e.target.value.toUpperCase())}
-          placeholder="OPS"
         />
       </Field>
       <Field label="Name" required>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Operasional"
-        />
+        <Input value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
       <Field label="Inside">
         <PickOne
           label="Inside"
-          placeholder="Top level"
           choices={all
             .filter((one) => !one.retired && one.code !== code)
             .map((one) => ({ value: one.code, label: one.name }))}

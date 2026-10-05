@@ -929,11 +929,38 @@ pub async fn list_programs(pool: &PgPool) -> Result<Vec<TrainingProgramRow>, App
     Ok(rows)
 }
 
+pub async fn program_by_id(
+    pool: &PgPool,
+    id: &str,
+) -> Result<Option<TrainingProgramRow>, AppError> {
+    Ok(sqlx::query_as::<_, TrainingProgramRow>(
+        "SELECT id, title, on_date, place, cost_minor, state, defined
+           FROM training_program WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?)
+}
+
 pub async fn complete_program(pool: &PgPool, id: &str) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    let state = sqlx::query_scalar::<_, String>(
+        "SELECT state FROM training_program WHERE id = $1 FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("training program {id}")))?;
+    if state == "DONE" {
+        return Err(AppError::Conflict(format!(
+            "training program {id} is already complete"
+        )));
+    }
     sqlx::query("UPDATE training_program SET state = 'DONE', updated_at = now() WHERE id = $1")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -943,16 +970,42 @@ pub async fn add_participant(
     employee_id: &str,
     nominated: serde_json::Value,
 ) -> Result<(), AppError> {
-    sqlx::query(
-        "INSERT INTO training_participant (program_id, employee_id, nominated)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (program_id, employee_id) DO NOTHING",
+    let mut tx = pool.begin().await?;
+    let state = sqlx::query_scalar::<_, String>(
+        "SELECT state FROM training_program WHERE id = $1 FOR UPDATE",
+    )
+    .bind(program_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("training program {program_id}")))?;
+    if state != "SCHEDULED" {
+        return Err(AppError::Conflict(format!(
+            "training program {program_id} is complete; nominations are closed"
+        )));
+    }
+    let exists = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM training_participant
+                         WHERE program_id = $1 AND employee_id = $2)",
     )
     .bind(program_id)
     .bind(employee_id)
-    .bind(&nominated)
-    .execute(pool)
+    .fetch_one(&mut *tx)
     .await?;
+    if exists {
+        return Err(AppError::Conflict(
+            "this employee is already nominated for the programme".to_owned(),
+        ));
+    }
+    sqlx::query(
+        "INSERT INTO training_participant (program_id, employee_id, nominated)
+         VALUES ($1, $2, $3)",
+    )
+    .bind(program_id)
+    .bind(employee_id)
+    .bind(nominated)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -961,24 +1014,64 @@ pub struct TrainingParticipantRow {
     pub program_id: String,
     pub employee_id: String,
     pub certificate: bool,
+    pub unit_id: Option<String>,
+    pub attended: Option<bool>,
+    pub attendance_history: serde_json::Value,
 }
 
 pub async fn list_participants(
     pool: &PgPool,
     program: Option<&str>,
     employee: Option<&str>,
+    unit: Option<&str>,
 ) -> Result<Vec<TrainingParticipantRow>, AppError> {
     let rows = sqlx::query_as::<_, TrainingParticipantRow>(
-        "SELECT program_id, employee_id, certificate
-           FROM training_participant
-          WHERE ($1::text IS NULL OR program_id = $1)
-            AND ($2::text IS NULL OR employee_id = $2)",
+        "SELECT p.program_id, p.employee_id, p.certificate, a.unit_id,
+                p.attended, p.attendance_history
+           FROM training_participant p
+           LEFT JOIN LATERAL (
+                SELECT unit_id FROM employee_assignment
+                 WHERE employee_id = p.employee_id AND valid_to IS NULL
+                 ORDER BY valid_from DESC LIMIT 1
+           ) a ON true
+          WHERE ($1::text IS NULL OR p.program_id = $1)
+            AND ($2::text IS NULL OR p.employee_id = $2)
+            AND ($3::text IS NULL OR a.unit_id = $3)
+          ORDER BY p.employee_id",
     )
     .bind(program)
     .bind(employee)
+    .bind(unit)
     .fetch_all(pool)
     .await?;
     Ok(rows)
+}
+
+pub async fn record_training_attendance(
+    pool: &PgPool,
+    program_id: &str,
+    employee_id: &str,
+    attendance: &TrainingAttendance,
+) -> Result<(), AppError> {
+    let recorded = serde_json::to_value(attendance)?;
+    let result = sqlx::query(
+        "UPDATE training_participant
+            SET attended = $3,
+                attendance_history = attendance_history || jsonb_build_array($4)
+          WHERE program_id = $1 AND employee_id = $2",
+    )
+    .bind(program_id)
+    .bind(employee_id)
+    .bind(attendance.attended)
+    .bind(recorded)
+    .execute(pool)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound(
+            "employee is not nominated for this training programme".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 // ── benefits ─────────────────────────────────────────────────────────────

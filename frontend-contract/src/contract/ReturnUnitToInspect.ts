@@ -3,11 +3,11 @@
 /**
  * One unit of a received return still waiting to be inspected.
  */
-export type ReturnUnitToInspect = { epc: string, sku_code: string,
+export type ReturnUnitToInspect = { epc: string, sku_code: string, 
 /**
  * From the resident catalogue, when this node holds the SKU.
  */
-name: string | null,
+name: string | null, 
 /**
  * The allotment line it came back on; `None` for a tag read that no koli held.
  */

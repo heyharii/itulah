@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Stock tree</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@500;600&display=swap" rel="stylesheet" />
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Inventory as a tree of numbers. Stock per place, summing upwards; the date
+   each place was last checked; a problem only where there is one.
+   Look: "airy charcoal" (hub v2): charcoal sidebar, neutral greys, Inter,
+   Poppins only for the title and figures. Nothing below 14px.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --font-ui:"Inter",system-ui,-apple-system,sans-serif;
+  --font-display:"Poppins","Inter",system-ui,sans-serif;
+  --canvas:#fff; --surface:#fff; --well:#f5f6f7; --sel:#eff0f2;
+  --hairline:#e8e9ec; --rule:#f0f1f3; --line-ctl:#d6d8dc; --guide:#e2e4e8;
+  --ink:#1f2023; --text:#3d3f44; --body:#63666d; --mute:#8a8d94; --faint:#b9bbc0;
+  --rail:#242526; --rail-2:#303234; --rail-3:#393b3d; --rail-ink:#fff; --rail-text:#c3c4c7; --rail-mute:#a1a3a8; --rail-hair:#343638;
+  --accent:#2563eb; --accent-ink:#1d4ed8; --accent-bg:#eff5ff;
+  --ok:#22a55a; --warn:#d99a2b; --warn-fg:#b45309; --bad:#e25555; --bad-fg:#c0263b;
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1);
+  --shadow-pop:0 18px 40px -12px rgb(20 20 25/.22),0 2px 6px rgb(20 20 25/.06);
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --canvas:#161718; --surface:#1c1d1f; --well:#242527; --sel:#2a2b2e;
+    --hairline:#2e3033; --rule:#26282a; --line-ctl:#3b3d41; --guide:#34363a;
+    --ink:#f2f3f5; --text:#d4d6da; --body:#a6a9af; --mute:#8b8e95; --faint:#5d6066;
+    --rail:#111213; --rail-2:#1c1d1f; --rail-3:#26272a; --rail-hair:#232426;
+    --accent:#4f83f5; --accent-ink:#8cb0ff; --accent-bg:#1c2a44; --warn-fg:#f0b44f; --bad-fg:#ff8a8a;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --canvas:#161718; --surface:#1c1d1f; --well:#242527; --sel:#2a2b2e;
+  --hairline:#2e3033; --rule:#26282a; --line-ctl:#3b3d41; --guide:#34363a;
+  --ink:#f2f3f5; --text:#d4d6da; --body:#a6a9af; --mute:#8b8e95; --faint:#5d6066;
+  --rail:#111213; --rail-2:#1c1d1f; --rail-3:#26272a; --rail-hair:#232426;
+  --accent:#4f83f5; --accent-ink:#8cb0ff; --accent-bg:#1c2a44; --warn-fg:#f0b44f; --bad-fg:#ff8a8a;
+  color-scheme:dark;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--canvas)}
+body{font:400 14px/20px var(--font-ui);color:var(--text);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer;text-align:left}
+svg.i{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.num{font-variant-numeric:tabular-nums}
+
+/* ── prototype controls ─────────────────────────────────────────────── */
+.proto{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:8px 20px;background:var(--well);border-bottom:1px solid var(--hairline);color:var(--body)}
+.proto b{color:var(--ink);font-weight:600}
+.tg{display:flex;align-items:center;gap:8px}
+.seg{display:flex;gap:2px;padding:3px;border-radius:9px;background:var(--surface);box-shadow:inset 0 0 0 1px var(--hairline)}
+.seg button{height:28px;padding:0 10px;border-radius:7px;color:var(--body);font-weight:500;white-space:nowrap}
+.seg button[aria-pressed=true]{background:var(--sel);color:var(--ink)}
+.proto .sp{flex:1}
+
+/* ── shell ──────────────────────────────────────────────────────────── */
+.app{display:grid;grid-template-columns:248px minmax(0,1fr);min-height:calc(100vh - 45px)}
+.side{background:var(--rail);color:var(--rail-text);padding:14px 10px;display:flex;flex-direction:column;gap:1px;position:sticky;top:45px;height:calc(100vh - 45px);overflow:auto}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 8px 16px;color:var(--rail-ink);font-weight:600;font-size:15px}
+.mark{width:28px;height:28px;border-radius:8px;background:#000;box-shadow:inset 0 0 0 1px #3a3b3d;display:grid;place-items:center;font:600 15px/1 var(--font-display);color:#fff;position:relative}
+.mark::after{content:"";position:absolute;right:5px;bottom:6px;width:5px;height:5px;border-radius:50%;background:#2563eb}
+.row{display:flex;align-items:center;gap:10px;height:36px;padding:0 8px;border-radius:8px;color:var(--rail-text);white-space:nowrap;width:100%}
+.row:hover{background:var(--rail-2);color:var(--rail-ink)}
+.row .i{color:var(--rail-mute)}
+.row.on{color:var(--rail-ink);font-weight:500}
+.row.on .i{color:var(--rail-ink)}
+.row .ct{margin-left:auto;color:var(--rail-mute)}
+.subs{margin:2px 0 8px 17px;padding-left:12px;border-left:1px solid var(--rail-hair);display:flex;flex-direction:column;gap:1px}
+.sub{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:7px;color:var(--rail-text);width:100%}
+.sub:hover{background:var(--rail-2);color:var(--rail-ink)}
+.sub[aria-current]{background:var(--rail-3);color:var(--rail-ink);font-weight:500}
+.sub .ct{margin-left:auto;color:var(--rail-mute)}
+
+main{min-width:0;padding:36px 48px 80px}
+.wrap{max-width:980px;margin:0 auto}
+.page{animation:page-in .3s var(--ease-out)}
+@keyframes page-in{from{opacity:0;transform:translateY(6px)}}
+.crumb{color:var(--mute)}
+.head{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap}
+.head .tx{flex:1;min-width:280px}
+.h1{margin-top:2px;font:600 28px/36px var(--font-display);letter-spacing:-.025em;color:var(--ink)}
+.lede{margin-top:10px;max-width:680px;font-size:16px;line-height:26px;color:var(--body)}
+.lede b{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.lede .w{color:var(--warn-fg);font-weight:500}
+.acts{display:flex;gap:8px;align-items:center}
+.btn{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;border-radius:9px;font-weight:500;white-space:nowrap;transition:background-color .2s,transform .16s var(--ease-out)}
+.btn:active{transform:scale(.98)}
+.btn-g{box-shadow:inset 0 0 0 1px var(--line-ctl);color:var(--text);background:var(--surface)}
+.btn-g:hover{background:var(--well)}
+.btn-g .i{color:var(--mute)}
+.btn-p{background:var(--ink);color:var(--canvas);font-weight:600}
+.btn-p:hover{opacity:.9}
+
+.tools{display:flex;gap:8px;margin:24px 0 8px;align-items:center;flex-wrap:wrap}
+.find{position:relative;flex:1;min-width:220px;max-width:420px}
+.find label{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:9px;box-shadow:inset 0 0 0 1px var(--line-ctl);color:var(--mute);background:var(--surface)}
+.find input{flex:1;min-width:0;border:0;outline:0;background:none;color:var(--ink)}
+.find .clear{color:var(--mute);display:none}
+.find.has .clear{display:block}
+.sugg{position:absolute;top:40px;left:0;right:0;background:var(--surface);border:1px solid var(--hairline);border-radius:12px;box-shadow:var(--shadow-pop);padding:6px;z-index:20;display:none}
+.find.open .sugg{display:block;animation:pop .18s var(--ease-out)}
+@keyframes pop{from{opacity:0;transform:translateY(-4px) scale(.98)}}
+.sugg button{display:flex;width:100%;gap:8px;padding:8px 10px;border-radius:8px}
+.sugg button:hover,.sugg button.hl{background:var(--well)}
+.sugg .c{margin-left:auto;color:var(--mute)}
+.tools .note{color:var(--mute)}
+
+/* ── the tree ───────────────────────────────────────────────────────── */
+.tree{margin-top:8px;border-top:1px solid var(--hairline)}
+.node{display:grid;grid-template-columns:minmax(0,1.5fr) 100px 180px minmax(0,1fr);align-items:center;column-gap:16px;min-height:48px;padding:0 12px;border-bottom:1px solid var(--rule);cursor:pointer;width:100%;transition:background-color .15s}
+.node:hover{background:var(--well)}
+.node[aria-current]{background:var(--sel)}
+.node .nm{display:flex;align-items:center;gap:8px;min-width:0;position:relative}
+.node .nm .lbl{flex:none;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.node .nm .sub2{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--mute);white-space:nowrap}
+.node .tw{width:20px;height:20px;display:grid;place-items:center;color:var(--mute);border-radius:6px;flex:none;transition:transform .25s var(--ease-out)}
+.node .tw:hover{background:var(--sel);color:var(--ink)}
+.node.shut .tw{transform:rotate(-90deg)}
+.node .sp20{width:20px;flex:none}
+.node .v{text-align:right;color:var(--text);font-variant-numeric:tabular-nums}
+.node .ck{color:var(--mute);white-space:nowrap}
+.node .ck.old{color:var(--warn-fg)}
+.node .is{display:flex;align-items:center;gap:8px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.is .dot,.v .dot{width:6px;height:6px;border-radius:50%;flex:none;background:var(--warn)}
+.is.bad{color:var(--bad-fg)} .is.bad .dot{background:var(--bad)}
+.is.warn{color:var(--warn-fg)}
+.is.sum{color:var(--mute)}
+.v .dot{display:inline-block;margin-right:8px;vertical-align:middle}
+.v .dot.bad{background:var(--bad)}
+/* depth: indentation with a guide line per level */
+.node[data-d="0"]{min-height:60px}
+.node[data-d="0"] .lbl{font-weight:600;color:var(--ink);font-size:15px}
+.node[data-d="0"] .v{font:600 22px/28px var(--font-display);letter-spacing:-.02em;color:var(--ink)}
+.node[data-d="1"] .lbl{font-weight:600;color:var(--ink)}
+.node[data-d="1"] .v{font-weight:600;color:var(--ink)}
+.node[data-d="1"] .nm{padding-left:22px}
+.node[data-d="2"] .nm{padding-left:50px}
+.node[data-d="3"] .nm{padding-left:78px}
+.node[data-d="2"] .nm::before,.node[data-d="3"] .nm::before{content:"";position:absolute;top:-14px;bottom:-14px;left:32px;border-left:1px solid var(--guide)}
+.node[data-d="3"] .nm::after{content:"";position:absolute;top:-14px;bottom:-14px;left:60px;border-left:1px solid var(--guide)}
+.kids{overflow:hidden;display:grid;grid-template-rows:1fr;transition:grid-template-rows .3s var(--ease-out)}
+.kids>div{min-height:0}
+.kids.shut{grid-template-rows:0fr}
+.city .lbl{color:var(--body)!important;font-weight:500}
+.tree.art .node .v{color:var(--accent-ink)}
+.tree.art .node[data-d="0"] .v,.tree.art .node[data-d="1"] .v{color:var(--accent-ink)}
+.foot{margin-top:14px;color:var(--mute)}
+
+/* ── place panel ───────────────────────────────────────────────────── */
+.scrim{position:fixed;inset:0;z-index:60;background:rgb(255 255 255/.5);opacity:0;pointer-events:none;transition:opacity .25s var(--ease-out)}
+:root[data-theme=dark] .scrim{background:rgb(0 0 0/.45)}
+.sheet{position:fixed;top:12px;right:12px;bottom:12px;width:min(460px,calc(100vw - 24px));z-index:61;background:var(--surface);border:1px solid var(--hairline);border-radius:18px;box-shadow:var(--shadow-pop);transform:translateX(calc(100% + 24px));transition:transform .38s var(--ease-drawer);display:flex;flex-direction:column;overflow:hidden}
+.open .scrim{opacity:1;pointer-events:auto}
+.open .sheet{transform:none}
+.sh{display:flex;gap:12px;padding:20px 20px 16px;border-bottom:1px solid var(--rule)}
+.sh .tx{flex:1;min-width:0}
+.sh .big{margin-top:6px;font:600 34px/40px var(--font-display);letter-spacing:-.03em;color:var(--ink)}
+.sh .big small{font:400 14px/20px var(--font-ui);color:var(--mute);letter-spacing:0;margin-left:6px}
+.x{width:36px;height:36px;border-radius:9px;display:grid;place-items:center;color:var(--body);flex:none}
+.x:hover{background:var(--well)}
+.sb{flex:1;overflow:auto;padding:4px 20px 20px}
+.h2{margin:18px 0 6px;font-weight:600;color:var(--ink);font-size:15px}
+.h2 span{font-weight:400;color:var(--mute)}
+.eq{border-top:1px solid var(--rule)}
+.eq button{display:flex;align-items:center;width:100%;min-height:40px;gap:10px;border-bottom:1px solid var(--rule);padding:0 4px}
+.eq button:hover{background:var(--well)}
+.eq .op{width:14px;color:var(--mute);text-align:center}
+.eq .k{flex:1}
+.eq .k small{font-size:inherit;color:var(--mute);margin-left:6px}
+.eq .n{font-variant-numeric:tabular-nums;color:var(--text)}
+.eq .tot{font-weight:600;color:var(--ink);border-bottom:0;border-top:1px solid var(--line-ctl);cursor:default}
+.eq .tot:hover{background:none}
+.eq .start{color:var(--body)}
+.mv{overflow:hidden;display:grid;grid-template-rows:0fr;transition:grid-template-rows .28s var(--ease-out)}
+.mv.on{grid-template-rows:1fr}
+.mv>div{min-height:0}
+.mv p{display:flex;gap:10px;padding:8px 4px 8px 28px;color:var(--body);border-bottom:1px solid var(--rule)}
+.mv p span:last-child{margin-left:auto;font-variant-numeric:tabular-nums}
+.chk{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.chk .tx{flex:1}
+.chk .t2{color:var(--mute)}
+.prob{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--rule)}
+.prob .dot{margin-top:7px;width:6px;height:6px;border-radius:50%;background:var(--warn);flex:none}
+.prob.bad .dot{background:var(--bad)}
+.prob .tx{flex:1}
+.prob .t2{color:var(--mute)}
+.go{color:var(--accent-ink);font-weight:500;white-space:nowrap}
+.none{color:var(--mute);padding:10px 0}
+
+/* ── counts / setup ────────────────────────────────────────────────── */
+.list{margin-top:24px;border-top:1px solid var(--hairline)}
+.lg{margin-top:22px;color:var(--mute);font-weight:500}
+.li{display:flex;align-items:center;gap:14px;min-height:52px;padding:8px 12px;border-bottom:1px solid var(--rule);width:100%}
+.li:hover{background:var(--well)}
+.li .i{color:var(--mute)}
+.li .tx{flex:1;min-width:0}
+.li .t1{color:var(--ink);font-weight:500}
+.li .t2{color:var(--mute)}
+.li .r{color:var(--body);font-variant-numeric:tabular-nums}
+.li .r.bad{color:var(--bad-fg)}
+
+@media (max-width:900px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .side{position:static;height:auto;flex-direction:row;flex-wrap:wrap;gap:4px;padding:10px 16px}
+  .side .brand{display:none}
+  .side .row:not(.on){display:none}
+  .side .subs{flex-direction:row;margin:0;border:0;padding:0}
+  main{padding:24px 16px 64px}
+  .node{grid-template-columns:minmax(0,1fr) auto;row-gap:2px;padding:10px 12px}
+  .node .nm{flex-wrap:wrap}
+  .node .nm .lbl{white-space:normal}
+  .node .nm .sub2{flex-basis:100%;padding-left:28px;white-space:normal}
+  .node[data-d="0"] .nm .sub2,.node[data-d="1"] .nm .sub2{padding-left:28px}
+  .node .c3,.node .c4{grid-column:1/-1;padding-left:28px}
+  .node .c3:empty,.node .c4:empty{display:none}
+  .node[data-d="0"] .c3,.node[data-d="0"] .c4{padding-left:0}
+  .node[data-d="1"] .c3,.node[data-d="1"] .c4{padding-left:28px}
+  .node[data-d="2"] .c3,.node[data-d="2"] .c4{padding-left:56px}
+  .node[data-d="3"] .c3,.node[data-d="3"] .c4{padding-left:84px}
+  .node[data-d="2"] .nm::before,.node[data-d="3"] .nm::before,.node[data-d="3"] .nm::after{display:none}
+  .node[data-d="1"] .nm{padding-left:0}
+  .node[data-d="2"] .nm{padding-left:28px}
+  .node[data-d="3"] .nm{padding-left:56px}
+  .proto{padding:8px 16px;gap:10px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="proto">
+  <b>Stock tree</b>
+  <div class="tg">Stores <div class="seg" data-tg="city"><button data-v="flat">flat</button><button data-v="city">by city</button></div></div>
+  <div class="tg">Gudang <div class="seg" data-tg="gudang"><button data-v="stages">by stage</button><button data-v="one">one line</button></div></div>
+  <div class="tg">Problems <div class="seg" data-tg="probs"><button data-v="inline">written out</button><button data-v="dot">dot only</button></div></div>
+  <div class="sp"></div>
+  <button class="btn btn-g" id="theme" style="height:30px">◐</button>
+</div>
+<div class="app">
+  <nav class="side" id="side" aria-label="Sidebar"></nav>
+  <main><div class="wrap" id="main"></div></main>
+</div>
+<div id="panelwrap"><div class="scrim" data-close></div><aside class="sheet" id="sheet" aria-label="Place"></aside></div>
+
+<script>
+const I = {
+  home:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
+  cart:'<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.2a1.5 1.5 0 0 0 1.5 1.3h8.6a1.5 1.5 0 0 0 1.5-1.2L21 8H6"/>',
+  shirt:'<path d="M8 3 3 6l2 5 2-1v11h10V10l2 1 2-5-5-3a4 4 0 0 1-8 0z"/>',
+  forklift:'<path d="M4 17V7h6l3 5v5M13 12h4V4M17 17h4"/><circle cx="6" cy="18" r="2"/><circle cx="12" cy="18" r="2"/>',
+  box:'<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  tag:'<path d="M3 3h8l10 10-8 8L3 11z"/><circle cx="7.5" cy="7.5" r="1.3"/>',
+  receipt:'<path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
+  wallet:'<path d="M3 7a2 2 0 0 1 2-2h13v4"/><path d="M3 7v11a2 2 0 0 0 2 2h15V9H5a2 2 0 0 1-2-2z"/>',
+  person:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  building:'<path d="M4 21V4h10v17M14 9h6v12M8 8h2M8 12h2M8 16h2"/>',
+  cog:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+  chev:'<path d="m6 9 6 6 6-6"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  x:'<path d="M18 6 6 18M6 6l12 12"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  count:'<path d="M9 4h6v3H9z"/><path d="M8 5H5v16h14V5h-3"/><path d="m9 14 2 2 4-4"/>',
+  ruler:'<path d="M3 17 17 3l4 4L7 21z"/><path d="m7 13 2 2M10 10l2 2M13 7l2 2"/>',
+  flow:'<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M9 6h5a3 3 0 0 1 3 3v6"/>',
+  pin:'<path d="M12 21s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/>',
+  radio:'<circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19 5a10 10 0 0 1 0 14M5 19A10 10 0 0 1 5 5"/>',
+  pulse:'<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+}
+const ic = (k) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${I[k] || ""}</svg>`
+const nf = new Intl.NumberFormat("id-ID")
+const n = (v) => nf.format(v)
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"})[c])
+
+/* ── the places ─────────────────────────────────────────────────────
+   Leaves hold the number; every parent is the sum of its children.
+   `ck` is the day the place was last checked: a count or an RFID sweep,
+   whichever is later. `pb` is a problem, only when there is one.        */
+const TODAY = new Date(2026, 8, 28)
+const days = (d) => d ? Math.round((TODAY - new Date(2026, d[0] - 1, d[1])) / 864e5) : null
+const STALE = 21
+
+const GUDANG = [
+  {id:"g-setup", name:"Not set up yet", sub:"arrived, no article code", v:88},
+  {id:"g-wh", name:"In the warehouse", v:4180, ck:[9,19], pb:{t:"4 short in the last count, to approve", c:"warn", art:"21070031"}},
+  {id:"g-pick", name:"Being picked", v:752, ck:[9,26]},
+  {id:"g-pack", name:"Packed, waiting for a surat jalan", v:212, pb:{t:"2 missing since this morning", c:"warn", art:"11020341"}},
+  {id:"g-ret", name:"Store returns to inspect", v:74},
+  {id:"g-rej", name:"Reject", v:31},
+]
+const ROAD = [
+  {id:"sj-004", name:"SJ-280926-004", sub:"Gudang → Kemang · 6 koli", v:180},
+  {id:"sj-002", name:"SJ-280926-002", sub:"Gudang → PIK Avenue · 8 koli", v:240},
+  {id:"sj-011", name:"SJ-270926-011", sub:"Gudang → Bandung Dago · 4 koli", v:120, pb:{t:"Store received 2 fewer", c:"warn"}},
+  {id:"sj-009", name:"SJ-270926-009", sub:"Senopati → Gudang · 2 koli", v:46},
+  {id:"sj-014", name:"SJ-260926-014", sub:"Gudang → Surabaya Galaxy · 3 koli", v:88, pb:{t:"Store received 1 tag we didn't send", c:"bad"}},
+]
+const STORES = [
+  {id:"s-kemang", name:"Kemang", city:"Jakarta", v:3120, ck:[9,21]},
+  {id:"s-senopati", name:"Senopati", city:"Jakarta", v:2480, ck:[9,14], pb:{t:"3 missing for 16 days", c:"bad", art:"11020377"}},
+  {id:"s-pik", name:"PIK Avenue", city:"Jakarta", v:2915, ck:[9,28], pb:{t:"7 tags read in the wrong place", c:"warn", art:"21030044"}},
+  {id:"s-bintaro", name:"Bintaro Xchange", city:"Jakarta", v:1870, ck:[9,2], pb:{t:"Store server silent for 3 h", c:"warn"}},
+  {id:"s-dago", name:"Bandung Dago", city:"Bandung", v:2060, ck:[9,19]},
+  {id:"s-galaxy", name:"Surabaya Galaxy", city:"Surabaya", v:1857, ck:[9,7]},
+  {id:"s-medan", name:"Medan Sun Plaza", city:"Medan", v:1644, ck:[8,20]},
+  {id:"s-bali", name:"Bali Beachwalk", city:"Bali", v:1392, ck:[9,24]},
+]
+const ART = [
+  {c:"11020341", a:"Sneaker Arka Low", s:.058}, {c:"11020377", a:"Loafer Senja", s:.036},
+  {c:"11040112", a:"Sandal Rinjani", s:.14}, {c:"21010208", a:"Kemeja Linen Bara", s:.061},
+  {c:"21030044", a:"Kaos Oversize Nara", s:.21}, {c:"21050019", a:"Celana Chino Laras", s:.026},
+  {c:"21070031", a:"Jaket Denim Kala", s:.028}, {c:"31010007", a:"Tote Kanvas Rupa", s:.082},
+]
+
+const state = {city:"flat", gudang:"stages", probs:"inline", page:"stock", art:null, shut:{}, place:null}
+try { Object.assign(state, JSON.parse(localStorage.getItem("inv-tree") || "{}"), {page:"stock", art:null, place:null}) } catch (e) {}
+const save = () => { try { localStorage.setItem("inv-tree", JSON.stringify({city:state.city, gudang:state.gudang, probs:state.probs, shut:state.shut})) } catch (e) {} }
+
+/* Deterministic "noise", so an article's split looks real and stays put. */
+const hash = (s) => { let h = 2166136261; for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return ((h >>> 0) % 1000) / 1000 }
+const leafVal = (l) => state.art ? Math.round(l.v * state.art.s * (0.4 + 1.2 * hash(l.id + state.art.c))) : l.v
+const leafPb = (l) => !l.pb ? null : !state.art ? l.pb : l.pb.art === state.art.c ? l.pb : null
+
+function build() {
+  const leaf = (l) => ({...l, leaf:true})
+  const gud = state.gudang === "one"
+    ? {id:"gudang", name:"Gudang", kids:null, v:GUDANG.reduce((a, l) => a + l.v, 0), ck:[9,19], pb:GUDANG.find(l => l.pb)?.pb, flat:GUDANG}
+    : {id:"gudang", name:"Gudang", kids:GUDANG.map(leaf)}
+  const road = {id:"road", name:"On the road", sub:`${ROAD.length} surat jalan`, kids:ROAD.map(leaf)}
+  let stores
+  if (state.city === "city") {
+    const cities = [...new Set(STORES.map(s => s.city))]
+    stores = {id:"stores", name:"Stores", sub:`${STORES.length} stores`, kids:cities.map(c => {
+      const ks = STORES.filter(s => s.city === c)
+      return ks.length === 1 ? leaf(ks[0]) : {id:"c-" + c, name:c, city:true, kids:ks.map(leaf)}
+    })}
+  } else stores = {id:"stores", name:"Stores", sub:`${STORES.length} stores`, kids:STORES.map(leaf)}
+  return {id:"all", name:"All stock", kids:[gud, road, stores]}
+}
+function val(node) {
+  if (node.flat) return node.flat.reduce((a, l) => a + leafVal(l), 0)
+  if (!node.kids) return leafVal(node)
+  return node.kids.reduce((a, k) => a + val(k), 0)
+}
+function probs(node) {
+  if (node.flat) return node.flat.map(leafPb).filter(Boolean)
+  if (!node.kids) { const p = leafPb(node); return p ? [p] : [] }
+  return node.kids.flatMap(probs)
+}
+
+function ckText(node) {
+  if (!node.ck) return ""
+  const d = days(node.ck), m = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][node.ck[0] - 1]
+  const txt = d === 0 ? "Checked today" : `Checked ${node.ck[1]} ${m}`
+  return `<span class="ck${d > STALE ? " old" : ""}" title="${d} days ago">${txt}${d > STALE ? ` · ${d} days` : ""}</span>`
+}
+
+function rowHTML(node, d) {
+  const hasKids = !!node.kids
+  const shut = hasKids && state.shut[node.id]
+  const ps = probs(node)
+  let is = ""
+  if (state.probs === "inline") {
+    if (!hasKids || node.flat) { const p = ps[0]; if (p) is = `<span class="is ${p.c}"><span class="dot"></span>${p.t}${ps.length > 1 ? ` · +${ps.length - 1}` : ""}</span>` }
+    else if (shut && ps.length) is = `<span class="is sum">${ps.length} problem${ps.length > 1 ? "s" : ""} inside</span>`
+  }
+  const dot = state.probs === "dot" && ps.length && (!hasKids || shut || node.flat) ? `<span class="dot ${ps.some(p => p.c === "bad") ? "bad" : ""}" title="${ps.length} problem(s)"></span>` : ""
+  const tw = hasKids ? `<span class="tw" data-tw="${node.id}">${ic("chev")}</span>` : `<span class="sp20"></span>`
+  const row = `<div class="node${shut ? " shut" : ""}${node.city ? " city" : ""}" role="treeitem" tabindex="0" data-d="${d}" data-id="${node.id}"${hasKids ? ` aria-expanded="${!shut}"` : ""}${state.place === node.id ? " aria-current=true" : ""}>
+    <div class="nm">${d > 0 ? tw : ""}<span class="lbl">${esc(node.name)}</span>${node.sub ? `<span class="sub2">${esc(node.sub)}</span>` : ""}</div>
+    <div class="v">${dot}${n(val(node))}</div><div class="c3">${ckText(node)}</div><div class="c4">${is}</div></div>`
+  if (!hasKids) return row
+  return row + `<div class="kids${shut ? " shut" : ""}"><div>${node.kids.map(k => rowHTML(k, d + 1)).join("")}</div></div>`
+}
+
+function lede(tree) {
+  const [g, r, s] = tree.kids
+  const all = val(tree), bad = [...GUDANG, ...ROAD, ...STORES].filter(l => leafPb(l)).length
+  const stale = STORES.filter(l => days(l.ck) > STALE).length
+  const who = state.art ? `<b>${esc(state.art.a)}</b>: ` : "We hold "
+  return `${who}<b>${n(all)} pcs</b>. <b>${n(val(g))}</b> at the Gudang, <b>${n(val(r))}</b> on the road, <b>${n(val(s))}</b> in ${STORES.length} stores.`
+    + (bad ? ` <span class="w">${bad} place${bad > 1 ? "s have" : " has"} a problem</span>` : ` Nothing needs anyone.`)
+    + (!state.art && stale ? `, and ${stale} store${stale > 1 ? "s" : ""} haven't been checked for three weeks.` : bad ? "." : "")
+}
+
+function stockPage() {
+  const tree = build()
+  return `<div class="page"><div class="head"><div class="tx"><div class="crumb">Inventory</div><h1 class="h1">Stock</h1><p class="lede">${lede(tree)}</p></div>
+    <div class="acts"><button class="btn btn-g">${ic("clock")}Now</button><button class="btn btn-g">PCS</button></div></div>
+    <div class="tools"><div class="find${state.art ? " has" : ""}" id="find"><label>${ic("search")}<input id="q" placeholder="One article? Type its name or code" value="${state.art ? esc(state.art.a) : ""}" autocomplete="off" /><button class="clear" data-clear aria-label="Clear">${ic("x")}</button></label><div class="sugg" id="sugg"></div></div>
+    <span class="note">${state.art ? "Numbers are this article only." : ""}</span></div>
+    <div class="tree${state.art ? " art" : ""}" role="tree">${rowHTML(tree, 0)}</div>
+    <p class="foot">Click a place for how its number came to be.</p></div>`
+}
+
+/* ── place panel: the number, the week that made it, the check, problems */
+function findNode(id, node = build()) {
+  if (node.id === id) return node
+  for (const k of node.kids || []) { const f = findNode(id, k); if (f) return f }
+  return null
+}
+function weekOf(node) {
+  const now = val(node), h = hash(node.id + (state.art?.c || ""))
+  const scale = Math.max(1, now / 20)
+  const kind = node.id.startsWith("s-") || node.id === "stores" || node.id.startsWith("c-") ? "store" : node.id.startsWith("sj") || node.id === "road" ? "road" : "gudang"
+  const lines = kind === "store"
+    ? [["+", "Received", "from the Gudang", Math.round(scale * (2 + 2 * h))], ["+", "Customer returns", "", Math.round(scale * .08 * (1 + h))], ["−", "Sold", "", Math.round(scale * (2.5 + h))], ["−", "Sent back to HO", "", Math.round(scale * .3 * h)]]
+    : kind === "road"
+    ? [["+", "Left", "under a surat jalan", Math.round(scale * (3 + h))], ["−", "Signed for", "by the other end", Math.round(scale * (2 + h))]]
+    : [["+", "Arrived", "from suppliers and stores", Math.round(scale * (1.2 + h))], ["−", "Left", "to stores and suppliers", Math.round(scale * (1 + h))]]
+  const ps = probs(node)
+  if (ps.some(p => /missing|short/.test(p.t))) lines.push(["−", "Missing", "", ps.some(p => /3 missing/.test(p.t)) ? 3 : ps.some(p => /4 short/.test(p.t)) ? 4 : 2])
+  const start = now - lines.reduce((a, l) => a + (l[0] === "+" ? l[3] : -l[3]), 0)
+  return {start, lines, now}
+}
+const MV = {"Received":["SJ-210926-003", "SJ-240926-008"], "Sold":["POS 1 · 212 receipts", "POS 2 · 176 receipts"], "Customer returns":["4 returns at the till"], "Sent back to HO":["SJ-270926-009"], "Missing":["Count CNT-0926", "Found short on sweep"], "Arrived":["PO 180926-004 · 2 deliveries", "Store returns · 3 SJ"], "Left":["12 surat jalan"], "Signed for":["9 surat jalan"]}
+
+function panel(id) {
+  const node = findNode(id); if (!node || node.id === "all") return
+  state.place = id
+  const w = weekOf(node), ps = probs(node), leafish = !node.kids || node.flat
+  const lines = w.lines.map(([op, k, s, v], i) => `<button data-mv="${i}"><span class="op">${op}</span><span class="k">${k}${s ? `<small>${s}</small>` : ""}</span><span class="n">${n(v)}</span></button>
+    <div class="mv" id="mv${i}"><div>${(MV[k] || ["—"]).map(t => `<p><span>${t}</span><span>${n(Math.max(1, Math.round(v / (MV[k]?.length || 1))))}</span></p>`).join("")}</div></div>`).join("")
+  const ck = node.ck ? days(node.ck) : null
+  document.getElementById("sheet").innerHTML = `<div class="sh"><div class="tx"><div class="crumb">${state.art ? esc(state.art.a) + " at" : "Stock at"}</div><h2 class="h1" style="font-size:22px;line-height:30px">${esc(node.name)}</h2><div class="big num">${n(w.now)}<small>pcs</small></div></div><button class="x" data-close aria-label="Close">${ic("x")}</button></div>
+    <div class="sb">
+      <div class="h2">This week <span>· since Monday 22 Sep</span></div>
+      <div class="eq"><button class="start" style="cursor:default"><span class="op"></span><span class="k">On Monday</span><span class="n">${n(w.start)}</span></button>${lines}
+        <button class="tot"><span class="op">=</span><span class="k">Now</span><span class="n">${n(w.now)}</span></button></div>
+      ${leafish && !node.id.startsWith("sj") ? `<div class="h2">Last checked</div><div class="chk"><div class="tx">${ck == null ? `<span class="t2">Never counted here</span>` : `<div>${ck === 0 ? "Today" : `${ck} days ago`}${ck > STALE ? ` <span style="color:var(--warn-fg)">· due</span>` : ""}</div><div class="t2">${node.id === "s-pik" || node.id === "s-dago" ? "RFID sweep" : "Count"} · found what the books said${node.id === "g-wh" ? ", less 4" : ""}</div>`}</div><button class="btn btn-g">${ic("count")}Count now</button></div>` : ""}
+      <div class="h2">Problems <span>· ${ps.length || "none"}</span></div>
+      ${ps.length ? ps.map(p => `<div class="prob ${p.c}"><span class="dot"></span><div class="tx">${p.t}<div class="t2">${p.c === "bad" ? "The number here can't be trusted until this is answered." : "Somebody should look."}</div></div><button class="go">${/SJ|tag we|fewer/.test(p.t) ? "Check the SJ" : /server/.test(p.t) ? "Open the store" : /approve/.test(p.t) ? "Approve" : /wrong place/.test(p.t) ? "Correct it" : "Found or write off"}</button></div>`).join("") : `<div class="none">Nothing. This number is as good as its last check.</div>`}
+    </div>`
+  document.getElementById("panelwrap").classList.add("open")
+  document.querySelectorAll(".node[aria-current]").forEach(e => e.removeAttribute("aria-current"))
+  document.querySelector(`.node[data-id="${id}"]`)?.setAttribute("aria-current", "true")
+}
+function closePanel() { state.place = null; document.getElementById("panelwrap").classList.remove("open"); document.querySelectorAll(".node[aria-current]").forEach(e => e.removeAttribute("aria-current")) }
+
+/* ── the other two rows ──────────────────────────────────────────── */
+function countsPage() {
+  const g = (label, rows) => `<div class="lg">${label}</div><div class="list" style="margin-top:6px">${rows.map(([t, s, r, c]) => `<button class="li">${ic("count")}<div class="tx"><div class="t1">${t}</div><div class="t2">${s}</div></div><span class="r ${c || ""}">${r}</span></button>`).join("")}</div>`
+  return `<div class="page"><div class="head"><div class="tx"><div class="crumb">Inventory</div><h1 class="h1">Counts</h1><p class="lede">Stock opname and RFID sweeps. <b>1</b> waits for approval, <b>2</b> stores are due.</p></div><div class="acts"><button class="btn btn-p">${ic("count")}Count a place</button></div></div>`
+    + g("Waiting for approval", [["Gudang · In the warehouse", "Count · closed yesterday by Rina", "4 short", "bad"]])
+    + g("Counting now", [["PIK Avenue", "RFID sweep · started 10:12", "2.140 of 2.915 read"]])
+    + g("Due", [["Medan Sun Plaza", "Last checked 20 Aug", "39 days", "bad"], ["Bintaro Xchange", "Last checked 2 Sep", "26 days", "bad"]])
+    + g("Done lately", [["Kemang", "Count · 21 Sep", "12 over"], ["Bandung Dago", "RFID sweep · 19 Sep", "11 short"], ["Gudang · Being picked", "Count · 26 Sep", "exact"]]) + `</div>`
+}
+function setupPage() {
+  const it = [["ruler", "Units & conversions", "PCS, LUSIN, KODI and how many pieces each is"], ["flow", "Goods flows", "The stages each route of goods runs, and who does them"], ["pin", "Places", "The places stock can stand in, and which ones count as a store"], ["radio", "Readers", "Handhelds and arches, and the raw log of what they read"], ["pulse", "Ledger health", "Replay, repost and the time machine, for support"]]
+  return `<div class="page"><div class="head"><div class="tx"><div class="crumb">Inventory</div><h1 class="h1">Setup</h1><p class="lede">Set once, changed rarely.</p></div></div><div class="list">${it.map(([i, t, s]) => `<button class="li">${ic(i)}<div class="tx"><div class="t1">${t}</div><div class="t2">${s}</div></div></button>`).join("")}</div></div>`
+}
+
+/* ── shell ────────────────────────────────────────────────────────── */
+const MODS = [["home","Home"],["cart","Buying"],["shirt","Merchandise"],["forklift","Operations",12],["box","Inventory"],["tag","Marketing"],["receipt","Sales"],["wallet","Finance",3],["person","HR"],["building","GA"],["cog","System"]]
+function side() {
+  const subs = [["stock","Stock"],["counts","Counts",1],["setup","Setup"]]
+  return `<div class="brand"><span class="mark">C</span>Central</div>` + MODS.map(([i, l, c]) => l === "Inventory"
+    ? `<button class="row on">${ic(i)}<span>Inventory</span></button><div class="subs">${subs.map(([id, t, ct]) => `<button class="sub" data-page="${id}"${state.page === id ? " aria-current=page" : ""}>${t}${ct ? `<span class="ct">${ct}</span>` : ""}</button>`).join("")}</div>`
+    : `<button class="row">${ic(i)}<span>${l}</span>${c ? `<span class="ct">${c}</span>` : ""}</button>`).join("")
+}
+function render() {
+  document.querySelectorAll(".seg").forEach(s => s.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", state[s.dataset.tg] === b.dataset.v)))
+  document.querySelectorAll(".proto .tg").forEach(t => t.style.visibility = state.page === "stock" ? "" : "hidden")
+  document.getElementById("side").innerHTML = side()
+  document.getElementById("main").innerHTML = state.page === "counts" ? countsPage() : state.page === "setup" ? setupPage() : stockPage()
+}
+
+/* ── search: one article turns every number into that article's ──── */
+let hl = 0
+function suggest(q) {
+  const box = document.getElementById("sugg"), f = document.getElementById("find")
+  const m = ART.filter(a => !q || a.a.toLowerCase().includes(q.toLowerCase()) || a.c.includes(q)).slice(0, 6)
+  hl = 0
+  box.innerHTML = m.map((a, i) => `<button data-art="${a.c}" class="${i === 0 ? "hl" : ""}"><span>${a.a}</span><span class="c">${a.c}</span></button>`).join("") || `<div class="none" style="padding:8px 10px">No article like that</div>`
+  f.classList.add("open")
+}
+document.addEventListener("focusin", (e) => { if (e.target.id === "q" && !state.art) suggest(e.target.value) })
+document.addEventListener("input", (e) => { if (e.target.id === "q") suggest(e.target.value) })
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { closePanel(); document.getElementById("find")?.classList.remove("open"); return }
+  if (e.target.id === "q") {
+    const bs = [...document.querySelectorAll("#sugg button")]
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); hl = (hl + (e.key === "ArrowDown" ? 1 : -1) + bs.length) % bs.length; bs.forEach((b, i) => b.classList.toggle("hl", i === hl)) }
+    if (e.key === "Enter" && bs[hl]) bs[hl].click()
+  }
+  if ((e.key === "Enter" || e.key === " ") && e.target.classList.contains("node")) { e.preventDefault(); e.target.click() }
+})
+document.addEventListener("click", (e) => {
+  const t = e.target
+  if (!t.closest("#find")) document.getElementById("find")?.classList.remove("open")
+  const seg = t.closest(".seg button"); if (seg) { state[seg.parentElement.dataset.tg] = seg.dataset.v; save(); render(); return }
+  const pg = t.closest("[data-page]"); if (pg) { state.page = pg.dataset.page; closePanel(); render(); return }
+  const art = t.closest("[data-art]"); if (art) { state.art = ART.find(a => a.c === art.dataset.art); render(); return }
+  if (t.closest("[data-clear]")) { state.art = null; render(); document.getElementById("q").focus(); return }
+  const tw = t.closest("[data-tw]"); if (tw) {
+    const id = tw.dataset.tw; state.shut[id] = !state.shut[id]; save()
+    const row = tw.closest(".node"); row.classList.toggle("shut"); row.setAttribute("aria-expanded", !state.shut[id]); row.nextElementSibling.classList.toggle("shut")
+    // the "n problems inside" line only exists when shut, so redraw that one row's cells after the fold settles
+    setTimeout(() => { const y = scrollY; render(); scrollTo(0, y) }, 300); return
+  }
+  const mv = t.closest("[data-mv]"); if (mv) { document.getElementById("mv" + mv.dataset.mv).classList.toggle("on"); return }
+  if (t.closest("[data-close]")) { closePanel(); return }
+  const node = t.closest(".node"); if (node) panel(node.dataset.id)
+})
+document.getElementById("theme").addEventListener("click", () => {
+  const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches
+  r.dataset.theme = dark ? "light" : "dark"
+})
+render()
+</script>
+</body>
+</html>

@@ -42,7 +42,8 @@ export function FleetHealth() {
         render: (page) => {
           const rows = [page.head_office, ...page.stores]
           const worst = rows.reduce<FleetColour>(
-            (acc, row) => (severity(row.colour) > severity(acc) ? row.colour : acc),
+            (acc, row) =>
+              severity(row.colour) > severity(acc) ? row.colour : acc,
             "green"
           )
           const attention = rows.filter((row) => row.colour !== "green").length
@@ -122,7 +123,8 @@ function FleetRowItem({ row }: { row: FleetRow }) {
         </span>
         {row.open_incidents > 0 && (
           <Pill tone="bad">
-            {row.open_incidents} {row.open_incidents === 1 ? "incident" : "incidents"}
+            {row.open_incidents}{" "}
+            {row.open_incidents === 1 ? "incident" : "incidents"}
           </Pill>
         )}
         <ChevronDown

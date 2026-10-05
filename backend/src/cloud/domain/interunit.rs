@@ -110,11 +110,6 @@ pub const AFFILIATE_RECEIVABLE: &str = "affiliate_receivable";
 pub const AFFILIATE_PAYABLE: &str = "affiliate_payable";
 
 /// The source kinds that move GOODS between units.
-///
-/// Everything else is financing, and financing is the default deliberately:
-/// a new source kind that nobody has thought about lands in the column head
-/// office reconciles by hand anyway, rather than quietly joining the goods
-/// balance a shop is asked to agree line by line.
 //
 // The client accountant's rule of 25 Sep: goods cross on Atas Barang
 // (1058/2029) — merchandise and shopping bags moving between units, SJD
@@ -122,6 +117,24 @@ pub const AFFILIATE_PAYABLE: &str = "affiliate_payable";
 // its takings into a head-office account, or paying head office's supplier,
 // is money, so it crosses on Pembiayaan (it used to be classed as goods).
 const GOODS_SOURCES: &[&str] = &["TRANSFER", "GOODS_RECEIPT", "CREDIT_NOTE", "LANDED_COST"];
+
+/// Every money kind in `journal_entry`'s closed `source_kind` list that is
+/// not goods and not one of the neither-money-nor-goods kinds below.
+///
+/// Enumeration on purpose: a kind missing here is REFUSED at posting instead
+/// of silently landing in a column. The three lists together mirror the CHECK
+/// constraint (0464); when a migration adds a kind, it classifies it in the
+/// same change, and the first posting of an unclassified kind names this file.
+const FINANCING_SOURCES: &[&str] = &[
+    "ACQ_SETTLEMENT", "ADVANCE", "ASSET_CAPITALIZATION", "ASSET_DISPOSAL",
+    "BANK_STATEMENT", "CASH_COUNT", "CASH_DOC", "CASH_SHIFT", "COGS_DAY",
+    "EXPENSE_CLAIM", "EXPENSE_CLAIM_PAYOUT", "FULL_AND_FINAL", "GIRO",
+    "INTERUNIT_SETTLE", "INVENTORY_WRITE_OFF", "MANUAL", "OPENING", "PAYMENT",
+    "PAYROLL_RUN", "PERIOD_CLOSING", "PETTY_REPLENISH", "REMITTANCE",
+    "RETENDER", "REVERSAL", "SALE_DAY", "SALE_DAY_EXCEPTION", "STOCK_COUNT",
+    "STORE_DEPOSIT", "STORE_EXPENSE", "SUPPLIER_ADVANCE", "SUPPLIER_INVOICE",
+    "TAX_SETTLEMENT", "VOUCHER_ISSUE",
+];
 
 /// Neither money nor goods (owner decision 25 Sep): assets moved between
 /// sites, cost allocations, corrections and principal (owner) transactions
@@ -146,13 +159,23 @@ const OTHER_SOURCES: &[&str] = &[
 
 /// Which column an entry's balance belongs in, from the kind of document
 /// behind it.
-pub fn kind_for_source(source_kind: &str) -> AffiliateKind {
+///
+/// Refuses a kind that names no family: `journal_entry.source_kind` is a
+/// closed list, so an unknown kind here can only mean a new kind arrived
+/// without its classification, and a guessed column would move real money
+/// onto the wrong affiliate balance without anything noticing.
+pub fn kind_for_source(source_kind: &str) -> Result<AffiliateKind, String> {
     if GOODS_SOURCES.contains(&source_kind) {
-        AffiliateKind::Goods
+        Ok(AffiliateKind::Goods)
     } else if OTHER_SOURCES.contains(&source_kind) {
-        AffiliateKind::Other
+        Ok(AffiliateKind::Other)
+    } else if FINANCING_SOURCES.contains(&source_kind) {
+        Ok(AffiliateKind::Financing)
     } else {
-        AffiliateKind::Financing
+        Err(format!(
+            "source kind {source_kind:?} names no inter-unit family: every crossing must be \
+             BARANG, PEMBIAYAAN or LAIN — classify it in domain/interunit.rs before it can post"
+        ))
     }
 }
 
@@ -341,7 +364,11 @@ mod tests {
             UnitMovement::new("ho", 5_000_000, 0),
             UnitMovement::new("store-01", 0, 5_000_000),
         ];
-        let added = balancing_legs(&lines, kind_for_source("STORE_DEPOSIT"), "ho");
+        let added = balancing_legs(
+            &lines,
+            kind_for_source("STORE_DEPOSIT").expect("STORE_DEPOSIT is classified"),
+            "ho",
+        );
         assert_eq!(added[0].qualifier, "PEMBIAYAAN");
         // The shop gave the money, so the shop is owed: Dr its Piutang, and
         // head office owes it back: Cr its Hutang (client accountant, 25 Sep).
@@ -364,7 +391,11 @@ mod tests {
             UnitMovement::new("store-01", 0, 800_000),
             UnitMovement::new("store-02", 800_000, 0),
         ];
-        let added = balancing_legs(&lines, kind_for_source("TRANSFER"), "ho");
+        let added = balancing_legs(
+            &lines,
+            kind_for_source("TRANSFER").expect("TRANSFER is classified"),
+            "ho",
+        );
         assert_eq!(added.len(), 4);
         let ho_debits: i64 = added
             .iter()
@@ -407,17 +438,34 @@ mod tests {
     }
 
     #[test]
-    fn the_kind_comes_from_the_document_and_defaults_to_financing() {
-        assert_eq!(kind_for_source("STORE_DEPOSIT"), AffiliateKind::Financing);
-        assert_eq!(kind_for_source("REMITTANCE"), AffiliateKind::Financing);
-        assert_eq!(kind_for_source("TRANSFER"), AffiliateKind::Goods);
+    fn the_kind_comes_from_the_document_and_an_unknown_kind_is_refused() {
         assert_eq!(
-            kind_for_source("SUPPLIER_INVOICE"),
+            kind_for_source("STORE_DEPOSIT").expect("classified"),
             AffiliateKind::Financing
         );
-        assert_eq!(kind_for_source("ASSET_TRANSFER"), AffiliateKind::Other);
-        assert_eq!(kind_for_source("EQUITY_MOVEMENT"), AffiliateKind::Other);
-        assert_eq!(kind_for_source("anything at all"), AffiliateKind::Financing);
+        assert_eq!(
+            kind_for_source("REMITTANCE").expect("classified"),
+            AffiliateKind::Financing
+        );
+        assert_eq!(kind_for_source("TRANSFER").expect("classified"), AffiliateKind::Goods);
+        assert_eq!(
+            kind_for_source("SUPPLIER_INVOICE").expect("classified"),
+            AffiliateKind::Financing
+        );
+        assert_eq!(
+            kind_for_source("ASSET_TRANSFER").expect("classified"),
+            AffiliateKind::Other
+        );
+        assert_eq!(
+            kind_for_source("EQUITY_MOVEMENT").expect("classified"),
+            AffiliateKind::Other
+        );
+        // An unknown kind is refused with a sentence, never defaulted into a
+        // column: a guessed family moves real money onto the wrong affiliate
+        // balance and nothing downstream can see it.
+        let reason = kind_for_source("anything at all").unwrap_err();
+        assert!(reason.contains("names no inter-unit family"), "{reason}");
+        assert!(reason.contains("BARANG"), "{reason}");
     }
 
     /// Running the balancer over its own output changes nothing. The poster

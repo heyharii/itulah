@@ -1028,7 +1028,7 @@ pub async fn get_allotment(pool: &PgPool, allotment_id: Uuid) -> Result<Value, A
                 .collect::<BTreeMap<_, _>>()
         })
         .unwrap_or_default();
-    let lines = sqlx::query("SELECT l.id,l.source_site_id,l.source_pool_id,l.destination_type,l.destination_id,l.sku_id,sk.sku_code,ar.article_code,ar.name article_name,l.quantity,COALESCE(progress.accepted_quantity,CASE WHEN header.activation_target_origin_id IS NULL THEN l.quantity ELSE 0 END)::bigint accepted_quantity,COALESCE(progress.picked_quantity,l.picked_quantity)::bigint picked_quantity,COALESCE(progress.packed_quantity,l.packed_quantity)::bigint packed_quantity,COALESCE(progress.shipment_quantity,l.shipment_quantity)::bigint shipment_quantity,COALESCE(progress.dispatched_quantity,l.dispatched_quantity)::bigint dispatched_quantity,COALESCE(progress.in_transit_quantity,l.in_transit_quantity)::bigint in_transit_quantity,COALESCE(progress.received_quantity,l.received_quantity)::bigint received_quantity,COALESCE(progress.cancelled_quantity,l.cancelled_quantity)::bigint cancelled_quantity,commitment.to_pack_qty::bigint remaining_allotted,commitment.to_receive_qty::bigint to_receive_qty,commitment.receiving_gap_qty::bigint receiving_gap_qty,l.created_at,l.updated_at FROM allotment_line l JOIN allotment header ON header.id=l.allotment_id JOIN sku sk ON sk.id=l.sku_id JOIN article ar ON ar.id=sk.article_id LEFT JOIN edge_allotment_line_progress progress ON progress.allotment_line_id=l.id LEFT JOIN allotment_line_commitment commitment ON commitment.allotment_line_id=l.id WHERE l.allotment_id=$1 ORDER BY l.source_pool_id,l.destination_type,l.destination_id,sk.sku_code")
+    let lines = sqlx::query("SELECT l.id,l.source_site_id,l.source_pool_id,l.destination_type,l.destination_id,l.sku_id,sk.sku_code,ar.article_code,ar.name article_name,l.quantity,COALESCE(progress.accepted_quantity,CASE WHEN header.activation_target_origin_id IS NULL THEN l.quantity ELSE 0 END)::bigint accepted_quantity,COALESCE(progress.picked_quantity,l.picked_quantity)::bigint picked_quantity,COALESCE(progress.packed_quantity,l.packed_quantity)::bigint packed_quantity,COALESCE(progress.shipment_quantity,l.shipment_quantity)::bigint shipment_quantity,COALESCE(progress.dispatched_quantity,l.dispatched_quantity)::bigint dispatched_quantity,COALESCE(progress.in_transit_quantity,l.in_transit_quantity)::bigint in_transit_quantity,COALESCE(progress.received_quantity,l.received_quantity)::bigint received_quantity,COALESCE(progress.cancelled_quantity,l.cancelled_quantity)::bigint cancelled_quantity,commitment.to_pack_qty::bigint remaining_allotted,commitment.to_receive_qty::bigint to_receive_qty,commitment.receiving_gap_qty::bigint receiving_gap_qty,COALESCE(commitment.at_packed,0)::bigint at_packed,COALESCE(commitment.at_shipment,0)::bigint at_shipment,COALESCE(commitment.at_loaded,0)::bigint at_loaded,COALESCE(commitment.at_in_transit,0)::bigint at_in_transit,COALESCE(commitment.closed_short_total,0)::bigint closed_short,ar.id article_id,ar.image_url,sk.color colour,sk.size size,destination.name destination_name,l.created_at,l.updated_at FROM allotment_line l JOIN allotment header ON header.id=l.allotment_id JOIN sku sk ON sk.id=l.sku_id JOIN article ar ON ar.id=sk.article_id LEFT JOIN edge_allotment_line_progress progress ON progress.allotment_line_id=l.id LEFT JOIN allotment_line_commitment commitment ON commitment.allotment_line_id=l.id LEFT JOIN site destination ON destination.id=l.destination_id WHERE l.allotment_id=$1 ORDER BY l.source_pool_id,l.destination_type,l.destination_id,sk.sku_code")
         .bind(allotment_id)
         .fetch_all(pool)
         .await?;
@@ -1113,6 +1113,21 @@ pub async fn get_allotment(pool: &PgPool, allotment_id: Uuid) -> Result<Value, A
                 "remaining_allotted":row.get::<i64,_>("remaining_allotted"),
                 "to_receive_qty":row.get::<i64,_>("to_receive_qty"),
                 "receiving_gap_qty":row.get::<i64,_>("receiving_gap_qty"),
+                // The line as allotment V1 §12 reads it, straight off the view.
+                // The identity beside it is what lets the sheet draw the
+                // allotment in the shape it was raised in — SKUs down, stores
+                // across — without a catalogue read per row.
+                "to_pack_qty":row.get::<i64,_>("remaining_allotted"),
+                "at_packed_qty":row.get::<i64,_>("at_packed"),
+                "at_shipment_qty":row.get::<i64,_>("at_shipment"),
+                "at_loaded_qty":row.get::<i64,_>("at_loaded"),
+                "at_in_transit_qty":row.get::<i64,_>("at_in_transit"),
+                "closed_short_qty":row.get::<i64,_>("closed_short"),
+                "article_id":row.get::<Uuid,_>("article_id"),
+                "image_url":row.get::<Option<String>,_>("image_url"),
+                "colour":row.get::<Option<String>,_>("colour"),
+                "size":row.get::<Option<String>,_>("size"),
+                "destination_name":row.get::<Option<String>,_>("destination_name"),
                 "cancellation_requested_quantity":cancellation_requested_by_line.get(&line_id).copied(),
                 "cancellation_actual_cancelled_quantity":cancellation_result_by_line.get(&line_id).map(|line| line.cancelled_quantity),
                 "cancellation_blocked_picked_quantity":cancellation_result_by_line.get(&line_id).map(|line| line.blocked_picked_quantity),
@@ -1163,6 +1178,29 @@ pub async fn get_allotment(pool: &PgPool, allotment_id: Uuid) -> Result<Value, A
         .iter()
         .map(|row| row.get::<i64, _>("receiving_gap_qty"))
         .sum();
+    let total_at_packed: i64 = lines.iter().map(|row| row.get::<i64, _>("at_packed")).sum();
+    let total_at_shipment: i64 = lines
+        .iter()
+        .map(|row| row.get::<i64, _>("at_shipment"))
+        .sum();
+    let total_at_loaded: i64 = lines.iter().map(|row| row.get::<i64, _>("at_loaded")).sum();
+    let total_at_in_transit: i64 = lines
+        .iter()
+        .map(|row| row.get::<i64, _>("at_in_transit"))
+        .sum();
+    let total_closed_short: i64 = lines
+        .iter()
+        .map(|row| row.get::<i64, _>("closed_short"))
+        .sum();
+    // The status is the view's, not a fold here: it is the one derivation the
+    // three arms of allotment V1 §8 are spelled in, and a second spelling of
+    // it in Rust is how the two would come to disagree.
+    let header_commitment = sqlx::query(
+        "SELECT status,article_count,dc_fulfilled FROM allotment_commitment WHERE allotment_id=$1",
+    )
+    .bind(allotment_id)
+    .fetch_one(pool)
+    .await?;
     let total_accepted: i64 = lines
         .iter()
         .map(|row| row.get::<i64, _>("accepted_quantity"))
@@ -1320,6 +1358,15 @@ pub async fn get_allotment(pool: &PgPool, allotment_id: Uuid) -> Result<Value, A
         "to_pack_qty":total_to_pack,
         "to_receive_qty":total_to_receive,
         "receiving_gap_qty":total_receiving_gap,
+        "fulfillment_status":header_commitment.get::<String,_>("status"),
+        "article_count":header_commitment.get::<i64,_>("article_count"),
+        "dc_fulfilled":header_commitment.get::<bool,_>("dc_fulfilled"),
+        "at_packed_qty":total_at_packed,
+        "at_shipment_qty":total_at_shipment,
+        "at_loaded_qty":total_at_loaded,
+        "at_in_transit_qty":total_at_in_transit,
+        "received_qty":total_received,
+        "closed_short_qty":total_closed_short,
         "remaining_quantity":total_accepted-total_picked-total_cancelled,
         "lines":line_values,
         "events":events.into_iter().map(|row|json!({
@@ -1372,7 +1419,15 @@ pub async fn list_allotments(pool: &PgPool, query: AllotmentQuery) -> Result<Val
             .map(|spelling| (*spelling).to_owned())
             .collect::<Vec<String>>()
     });
-    let status = query.status.map(|value| value.as_str().to_owned());
+    // Asked of the status the counters derive (`allotment_commitment`), never
+    // of the stored column: a legacy `DC_COMPLETED` is live work until the
+    // shop has the goods (allotment V1 §8), and the stored spelling of it
+    // would file it under a status MD no longer reads.
+    let status = query.status.map(|value| {
+        FulfillmentStatus::from_legacy(value.as_str())
+            .as_str()
+            .to_owned()
+    });
     // A row here is read before the allotment is opened, so it carries the
     // shape of the promise beside its size: lines written, SKUs named, and
     // places the goods are going. Destinations are counted as the pair,
@@ -1380,7 +1435,7 @@ pub async fn list_allotments(pool: &PgPool, query: AllotmentQuery) -> Result<Val
     // keeps a line-less allotment honest — the outer join hands it a pair of
     // nulls, and a pair of nulls is still a value COUNT DISTINCT would call
     // one destination.
-    let rows = sqlx::query("SELECT a.id,a.allotment_number,a.type,a.status,a.edge_cancellation_status,a.created_by,a.notes,a.created_at,a.updated_at,COUNT(l.id)::bigint line_count,COUNT(DISTINCT l.sku_id)::bigint sku_count,COUNT(DISTINCT (l.destination_type,l.destination_id)) FILTER (WHERE l.id IS NOT NULL)::bigint destination_count,COALESCE(SUM(l.quantity),0)::bigint quantity,COALESCE(SUM(COALESCE(progress.accepted_quantity,CASE WHEN a.activation_target_origin_id IS NULL THEN l.quantity ELSE 0 END)),0)::bigint accepted,COALESCE(SUM(COALESCE(progress.picked_quantity,l.picked_quantity)),0)::bigint picked,COALESCE(SUM(COALESCE(progress.packed_quantity,l.packed_quantity)),0)::bigint packed,COALESCE(SUM(COALESCE(progress.shipment_quantity,l.shipment_quantity)),0)::bigint shipment,COALESCE(SUM(COALESCE(progress.dispatched_quantity,l.dispatched_quantity)),0)::bigint dispatched,COALESCE(SUM(COALESCE(progress.in_transit_quantity,l.in_transit_quantity)),0)::bigint in_transit,COALESCE(SUM(COALESCE(progress.received_quantity,l.received_quantity)),0)::bigint received,COALESCE(SUM(COALESCE(progress.cancelled_quantity,l.cancelled_quantity)),0)::bigint cancelled,COALESCE(SUM(commitment.to_pack_qty),0)::bigint remaining,COALESCE(SUM(commitment.to_receive_qty),0)::bigint to_receive,COALESCE(SUM(commitment.receiving_gap_qty),0)::bigint receiving_gap_qty FROM allotment a LEFT JOIN allotment_line l ON l.allotment_id=a.id LEFT JOIN edge_allotment_line_progress progress ON progress.allotment_line_id=l.id LEFT JOIN allotment_line_commitment commitment ON commitment.allotment_line_id=l.id WHERE ($1::text[] IS NULL OR a.type=ANY($1)) AND ($2::text IS NULL OR a.status=$2) AND ($3::text IS NULL OR EXISTS(SELECT 1 FROM allotment_line source_line WHERE source_line.allotment_id=a.id AND source_line.source_pool_id=$3)) AND ($4::text IS NULL OR EXISTS(SELECT 1 FROM allotment_line destination_line WHERE destination_line.allotment_id=a.id AND destination_line.destination_id=$4)) GROUP BY a.id ORDER BY a.created_at DESC LIMIT $5")
+    let rows = sqlx::query("SELECT base.*,(SELECT string_agg(DISTINCT COALESCE(po.supplier_name_snapshot,po.supplier_name,po.supplier_id),', ') FROM allotment_line supplier_line JOIN sku ON sku.id=supplier_line.sku_id JOIN article ON article.id=sku.article_id JOIN article_setup_session setup ON setup.article_code=article.article_code JOIN goods_receipt_line receipt ON receipt.receipt_line_id=setup.receipt_line_id JOIN purchase_order_line order_line ON order_line.po_line_id=receipt.po_line_id JOIN purchase_order po ON po.purchase_order_id=order_line.purchase_order_id WHERE supplier_line.allotment_id=base.id) supplier_names,(SELECT array_agg(place ORDER BY place) FROM (SELECT DISTINCT COALESCE(store.name,place_line.destination_id) place FROM allotment_line place_line LEFT JOIN site store ON store.id=place_line.destination_id WHERE place_line.allotment_id=base.id) places) destination_names,header_commitment.status fulfillment_status,header_commitment.article_count,header_commitment.to_pack_qty,header_commitment.at_packed,header_commitment.at_shipment,header_commitment.at_loaded,header_commitment.at_in_transit,header_commitment.closed_short_total,header_commitment.dc_fulfilled FROM (SELECT a.id,a.allotment_number,a.type,a.status,a.edge_cancellation_status,a.edge_application_status,a.activation_target_origin_id,a.created_by,a.notes,a.created_at,a.updated_at,COUNT(l.id)::bigint line_count,COUNT(DISTINCT l.sku_id)::bigint sku_count,COUNT(DISTINCT (l.destination_type,l.destination_id)) FILTER (WHERE l.id IS NOT NULL)::bigint destination_count,COALESCE(SUM(l.quantity),0)::bigint quantity,COALESCE(SUM(COALESCE(progress.accepted_quantity,CASE WHEN a.activation_target_origin_id IS NULL THEN l.quantity ELSE 0 END)),0)::bigint accepted,COALESCE(SUM(COALESCE(progress.picked_quantity,l.picked_quantity)),0)::bigint picked,COALESCE(SUM(COALESCE(progress.packed_quantity,l.packed_quantity)),0)::bigint packed,COALESCE(SUM(COALESCE(progress.shipment_quantity,l.shipment_quantity)),0)::bigint shipment,COALESCE(SUM(COALESCE(progress.dispatched_quantity,l.dispatched_quantity)),0)::bigint dispatched,COALESCE(SUM(COALESCE(progress.in_transit_quantity,l.in_transit_quantity)),0)::bigint in_transit,COALESCE(SUM(COALESCE(progress.received_quantity,l.received_quantity)),0)::bigint received,COALESCE(SUM(COALESCE(progress.cancelled_quantity,l.cancelled_quantity)),0)::bigint cancelled,COALESCE(SUM(commitment.to_pack_qty),0)::bigint remaining,COALESCE(SUM(commitment.to_receive_qty),0)::bigint to_receive,COALESCE(SUM(commitment.receiving_gap_qty),0)::bigint receiving_gap_qty FROM allotment a LEFT JOIN allotment_line l ON l.allotment_id=a.id LEFT JOIN edge_allotment_line_progress progress ON progress.allotment_line_id=l.id LEFT JOIN allotment_line_commitment commitment ON commitment.allotment_line_id=l.id WHERE ($1::text[] IS NULL OR a.type=ANY($1)) AND ($3::text IS NULL OR EXISTS(SELECT 1 FROM allotment_line source_line WHERE source_line.allotment_id=a.id AND source_line.source_pool_id=$3)) AND ($4::text IS NULL OR EXISTS(SELECT 1 FROM allotment_line destination_line WHERE destination_line.allotment_id=a.id AND destination_line.destination_id=$4)) GROUP BY a.id) base JOIN allotment_commitment header_commitment ON header_commitment.allotment_id=base.id WHERE ($2::text IS NULL OR header_commitment.status=$2) ORDER BY base.created_at DESC LIMIT $5")
         .bind(allotment_type)
         .bind(status)
         .bind(query.source_pool_id.as_deref().map(str::trim).filter(|value| !value.is_empty()))
@@ -1441,9 +1496,21 @@ pub async fn list_allotments(pool: &PgPool, query: AllotmentQuery) -> Result<Val
                 "type":row.get::<String,_>("type"),
                 "status":row.get::<String,_>("status"),
                 "edge_cancellation_status":row.get::<Option<String>,_>("edge_cancellation_status"),
+                // Whether the DC has taken the command yet — MD's "Waiting for
+                // DC" (allotment V1 §8), shown beside the status, never in it.
+                "edge_application_status":row.get::<Option<String>,_>("edge_application_status"),
+                "activation_target_origin_id":row.get::<Option<String>,_>("activation_target_origin_id"),
                 "line_count":row.get::<i64,_>("line_count"),
                 "sku_count":row.get::<i64,_>("sku_count"),
                 "destination_count":row.get::<i64,_>("destination_count"),
+                // Who the goods came from and where they are going, as words,
+                // for the list's Supplier and Stores columns. The supplier is
+                // traced the same way availability traces an article's
+                // orders — through the setup session that tied the supplier's
+                // goods to our article — so an allotment of one supplier's
+                // delivery names that supplier.
+                "supplier_names":row.get::<Option<String>,_>("supplier_names"),
+                "destination_names":row.get::<Option<Vec<String>>,_>("destination_names").unwrap_or_default(),
                 "total_quantity":row.get::<i64,_>("quantity"),
                 "total_accepted_quantity":row.get::<i64,_>("accepted"),
                 "total_picked_quantity":row.get::<i64,_>("picked"),
@@ -1454,8 +1521,22 @@ pub async fn list_allotments(pool: &PgPool, query: AllotmentQuery) -> Result<Val
                 "total_received_quantity":row.get::<i64,_>("received"),
                 "total_cancelled_quantity":row.get::<i64,_>("cancelled"),
                 "remaining_quantity":row.get::<i64,_>("remaining"),
-            "to_receive_qty":row.get::<i64,_>("to_receive"),
-            "receiving_gap_qty":row.get::<i64,_>("receiving_gap_qty"),
+                "to_receive_qty":row.get::<i64,_>("to_receive"),
+                "receiving_gap_qty":row.get::<i64,_>("receiving_gap_qty"),
+                // Allotment V1 §12, read off `allotment_commitment` whole: the
+                // three statuses MD reads, and the places the promised pieces
+                // are in now. `status` above stays the stored spelling for the
+                // callers that still switch on it.
+                "fulfillment_status":row.get::<String,_>("fulfillment_status"),
+                "article_count":row.get::<i64,_>("article_count"),
+                "to_pack_qty":row.get::<i64,_>("to_pack_qty"),
+                "at_packed_qty":row.get::<i64,_>("at_packed"),
+                "at_shipment_qty":row.get::<i64,_>("at_shipment"),
+                "at_loaded_qty":row.get::<i64,_>("at_loaded"),
+                "at_in_transit_qty":row.get::<i64,_>("at_in_transit"),
+                "received_qty":row.get::<i64,_>("received"),
+                "closed_short_qty":row.get::<i64,_>("closed_short_total"),
+                "dc_fulfilled":row.get::<bool,_>("dc_fulfilled"),
                 "created_by":row.get::<String,_>("created_by"),
                 "notes":row.get::<Option<String>,_>("notes"),
                 "created_at":row.get::<DateTime<Utc>,_>("created_at"),
@@ -1507,7 +1588,7 @@ pub async fn list_allotments_by_store(pool: &PgPool, store_id: &str) -> Result<V
         },
     )
     .await?;
-    let rows = sqlx::query("SELECT l.sku_id,sk.sku_code,SUM(l.quantity)::bigint quantity,SUM(COALESCE(progress.accepted_quantity,CASE WHEN a.activation_target_origin_id IS NULL THEN l.quantity ELSE 0 END))::bigint accepted,SUM(COALESCE(progress.picked_quantity,l.picked_quantity))::bigint picked,SUM(COALESCE(progress.packed_quantity,l.packed_quantity))::bigint packed,SUM(COALESCE(progress.shipment_quantity,l.shipment_quantity))::bigint shipment,SUM(COALESCE(progress.dispatched_quantity,l.dispatched_quantity))::bigint dispatched,SUM(COALESCE(progress.in_transit_quantity,l.in_transit_quantity))::bigint in_transit,SUM(COALESCE(progress.received_quantity,l.received_quantity))::bigint received,SUM(COALESCE(progress.cancelled_quantity,l.cancelled_quantity))::bigint cancelled,SUM(commitment.to_pack_qty)::bigint remaining,SUM(commitment.to_receive_qty)::bigint to_receive,SUM(commitment.receiving_gap_qty)::bigint receiving_gap_qty FROM allotment_line l JOIN allotment a ON a.id=l.allotment_id JOIN sku sk ON sk.id=l.sku_id LEFT JOIN edge_allotment_line_progress progress ON progress.allotment_line_id=l.id LEFT JOIN allotment_line_commitment commitment ON commitment.allotment_line_id=l.id WHERE l.destination_type='STORE' AND l.destination_id=$1 GROUP BY l.sku_id,sk.sku_code ORDER BY sk.sku_code")
+    let rows = sqlx::query("SELECT l.sku_id,sk.sku_code,SUM(l.quantity)::bigint quantity,SUM(COALESCE(progress.accepted_quantity,CASE WHEN a.activation_target_origin_id IS NULL THEN l.quantity ELSE 0 END))::bigint accepted,SUM(COALESCE(progress.picked_quantity,l.picked_quantity))::bigint picked,SUM(COALESCE(progress.packed_quantity,l.packed_quantity))::bigint packed,SUM(COALESCE(progress.shipment_quantity,l.shipment_quantity))::bigint shipment,SUM(COALESCE(progress.dispatched_quantity,l.dispatched_quantity))::bigint dispatched,SUM(COALESCE(progress.in_transit_quantity,l.in_transit_quantity))::bigint in_transit,SUM(COALESCE(progress.received_quantity,l.received_quantity))::bigint received,SUM(COALESCE(progress.cancelled_quantity,l.cancelled_quantity))::bigint cancelled,SUM(commitment.to_pack_qty)::bigint remaining,SUM(commitment.to_receive_qty)::bigint to_receive,SUM(commitment.receiving_gap_qty)::bigint receiving_gap_qty,SUM(commitment.at_packed)::bigint at_packed,SUM(commitment.at_shipment)::bigint at_shipment,SUM(commitment.at_loaded)::bigint at_loaded,SUM(commitment.at_in_transit)::bigint at_in_transit,SUM(commitment.closed_short_total)::bigint closed_short FROM allotment_line l JOIN allotment a ON a.id=l.allotment_id JOIN sku sk ON sk.id=l.sku_id LEFT JOIN edge_allotment_line_progress progress ON progress.allotment_line_id=l.id LEFT JOIN allotment_line_commitment commitment ON commitment.allotment_line_id=l.id WHERE l.destination_type='STORE' AND l.destination_id=$1 GROUP BY l.sku_id,sk.sku_code ORDER BY sk.sku_code")
         .bind(&store_id)
         .fetch_all(pool)
         .await?;
@@ -1530,7 +1611,16 @@ pub async fn list_allotments_by_store(pool: &PgPool, store_id: &str) -> Result<V
             "cancelled_quantity":row.get::<i64,_>("cancelled"),
             "remaining_quantity":row.get::<i64,_>("remaining"),
             "to_receive_qty":row.get::<i64,_>("to_receive"),
-            "receiving_gap_qty":row.get::<i64,_>("receiving_gap_qty")
+            "receiving_gap_qty":row.get::<i64,_>("receiving_gap_qty"),
+            // The size run read as allotment V1 §12 asks for it — Alloted ·
+            // To Pack · Packed · Shipment · In Transit · Received · To
+            // Receive — summed off the line view, never subtracted here.
+            "to_pack_qty":row.get::<i64,_>("remaining"),
+            "at_packed_qty":row.get::<i64,_>("at_packed"),
+            "at_shipment_qty":row.get::<i64,_>("at_shipment"),
+            "at_loaded_qty":row.get::<i64,_>("at_loaded"),
+            "at_in_transit_qty":row.get::<i64,_>("at_in_transit"),
+            "closed_short_qty":row.get::<i64,_>("closed_short")
         }))
         .collect::<Vec<_>>());
     Ok(result)
@@ -1560,7 +1650,15 @@ pub async fn list_allotments_by_article(
             .map(|spelling| (*spelling).to_owned())
             .collect::<Vec<String>>()
     });
-    let status = query.status.map(|value| value.as_str().to_owned());
+    // Asked of the status the counters derive (`allotment_commitment`), never
+    // of the stored column: a legacy `DC_COMPLETED` is live work until the
+    // shop has the goods (allotment V1 §8), and the stored spelling of it
+    // would file it under a status MD no longer reads.
+    let status = query.status.map(|value| {
+        FulfillmentStatus::from_legacy(value.as_str())
+            .as_str()
+            .to_owned()
+    });
     let destination_id = query
         .destination_id
         .as_deref()
@@ -1570,7 +1668,7 @@ pub async fn list_allotments_by_article(
     // Destinations are counted as the pair, because the id alone is only
     // unique within its kind — a store and a supplier may answer to the same
     // string, and they are two places to send goods.
-    let rows = sqlx::query("SELECT ar.id article_id,ar.article_code,ar.name article_name,ar.division_code,ar.image_url,COUNT(DISTINCT l.sku_id)::bigint sku_count,COUNT(DISTINCT (l.destination_type,l.destination_id))::bigint destination_count,SUM(l.quantity)::bigint quantity,SUM(COALESCE(progress.accepted_quantity,CASE WHEN a.activation_target_origin_id IS NULL THEN l.quantity ELSE 0 END))::bigint accepted,SUM(COALESCE(progress.picked_quantity,l.picked_quantity))::bigint picked,SUM(COALESCE(progress.packed_quantity,l.packed_quantity))::bigint packed,SUM(COALESCE(progress.shipment_quantity,l.shipment_quantity))::bigint shipment,SUM(COALESCE(progress.dispatched_quantity,l.dispatched_quantity))::bigint dispatched,SUM(COALESCE(progress.in_transit_quantity,l.in_transit_quantity))::bigint in_transit,SUM(COALESCE(progress.received_quantity,l.received_quantity))::bigint received,SUM(COALESCE(progress.cancelled_quantity,l.cancelled_quantity))::bigint cancelled,SUM(commitment.to_pack_qty)::bigint remaining,SUM(commitment.to_receive_qty)::bigint to_receive,SUM(commitment.receiving_gap_qty)::bigint receiving_gap_qty FROM allotment_line l JOIN allotment a ON a.id=l.allotment_id JOIN sku sk ON sk.id=l.sku_id JOIN article ar ON ar.id=sk.article_id LEFT JOIN edge_allotment_line_progress progress ON progress.allotment_line_id=l.id LEFT JOIN allotment_line_commitment commitment ON commitment.allotment_line_id=l.id WHERE ($1::text[] IS NULL OR a.type=ANY($1)) AND ($2::text IS NULL OR a.status=$2) AND ($3::text IS NULL OR l.destination_id=$3) GROUP BY ar.id,ar.article_code,ar.name,ar.division_code,ar.image_url ORDER BY ar.name")
+    let rows = sqlx::query("SELECT ar.id article_id,ar.article_code,ar.name article_name,ar.division_code,ar.image_url,COUNT(DISTINCT l.sku_id)::bigint sku_count,COUNT(DISTINCT (l.destination_type,l.destination_id))::bigint destination_count,SUM(l.quantity)::bigint quantity,SUM(COALESCE(progress.accepted_quantity,CASE WHEN a.activation_target_origin_id IS NULL THEN l.quantity ELSE 0 END))::bigint accepted,SUM(COALESCE(progress.picked_quantity,l.picked_quantity))::bigint picked,SUM(COALESCE(progress.packed_quantity,l.packed_quantity))::bigint packed,SUM(COALESCE(progress.shipment_quantity,l.shipment_quantity))::bigint shipment,SUM(COALESCE(progress.dispatched_quantity,l.dispatched_quantity))::bigint dispatched,SUM(COALESCE(progress.in_transit_quantity,l.in_transit_quantity))::bigint in_transit,SUM(COALESCE(progress.received_quantity,l.received_quantity))::bigint received,SUM(COALESCE(progress.cancelled_quantity,l.cancelled_quantity))::bigint cancelled,SUM(commitment.to_pack_qty)::bigint remaining,SUM(commitment.to_receive_qty)::bigint to_receive,SUM(commitment.receiving_gap_qty)::bigint receiving_gap_qty FROM allotment_line l JOIN allotment a ON a.id=l.allotment_id JOIN sku sk ON sk.id=l.sku_id JOIN article ar ON ar.id=sk.article_id LEFT JOIN edge_allotment_line_progress progress ON progress.allotment_line_id=l.id LEFT JOIN allotment_line_commitment commitment ON commitment.allotment_line_id=l.id JOIN allotment_commitment header_commitment ON header_commitment.allotment_id=a.id WHERE ($1::text[] IS NULL OR a.type=ANY($1)) AND ($2::text IS NULL OR header_commitment.status=$2) AND ($3::text IS NULL OR l.destination_id=$3) GROUP BY ar.id,ar.article_code,ar.name,ar.division_code,ar.image_url ORDER BY ar.name")
         .bind(allotment_type)
         .bind(status)
         .bind(destination_id)
@@ -1928,7 +2026,7 @@ LIMIT $5
         // excess is `shortfall_qty`, not a negative quantity of shirts. So the
         // old identity is a reading rather than an invariant, and it is
         // spelled out here as what it actually is.
-        "inventory_equation":"Stock = normal + missing; On Hand = max(normal - To Pack, 0); Shortfall = max(To Pack - normal, 0)",
+        "inventory_equation": crate::cloud::domain::INVENTORY_EQUATION,
         "limit":limit,
         "next_cursor":next_cursor,
         "items":items
@@ -2146,6 +2244,22 @@ fn validate_create_line(
                     "TO_SITE goes to a site of ours that sells".into(),
                 ));
             }
+            // Owner's ruling, 28 Sep 2026 ("toko vs toko ga bisa ya, udah
+            // titik"): a store never sends goods to another store. The database
+            // refuses it too (`allotment_line_destination_is_a_site_of_its_kind`,
+            // 0628, which reads the two units' kinds); refusing it HERE as well
+            // is what turns a raw constraint error into a sentence the person
+            // who raised the allotment can act on, and what stops the rest of
+            // this transaction from being written and rolled back around it.
+            if !context.of_head_office(&identity.source_site_id)
+                && !context.of_head_office(&identity.destination_id)
+            {
+                return Err(AppError::Validation(
+                    "goods never move from one store to another; return them to the Gudang and \
+                     allot them from there"
+                        .into(),
+                ));
+            }
             Ok(Some(if context.of_head_office(&identity.source_site_id) {
                 AllotmentPurpose::Replenish
             } else {
@@ -2327,7 +2441,7 @@ const ELIGIBLE_SUPPLY_PLACES: &str = "SELECT pool.id||':on_hand' AS place_id
 
 /// The pools of [`ELIGIBLE_SUPPLY_PLACES`], as ids in the centre's spelling —
 /// for a reader that has to respell them for a node.
-async fn eligible_supply_pools_tx(
+pub(super) async fn eligible_supply_pools_tx(
     tx: &mut Transaction<'_, Postgres>,
     source_pool_id: &str,
 ) -> Result<Vec<String>, AppError> {
@@ -2348,7 +2462,7 @@ async fn eligible_supply_pools_tx(
     Ok(pools)
 }
 
-async fn normal_balance_tx(
+pub(super) async fn normal_balance_tx(
     tx: &mut Transaction<'_, Postgres>,
     source_pool_id: &str,
     sku_id: Uuid,
@@ -2391,7 +2505,7 @@ async fn active_allotment_tx(
     Ok(row.get("quantity"))
 }
 
-async fn edge_normal_balance_tx(
+pub(super) async fn edge_normal_balance_tx(
     tx: &mut Transaction<'_, Postgres>,
     origin_id: &str,
     scope_pool_ids: &[String],
@@ -2563,7 +2677,7 @@ async fn allotment_totals_tx(
     })
 }
 
-fn line_identity_from_row(row: &sqlx::postgres::PgRow) -> Result<LineIdentity, AppError> {
+pub(super) fn line_identity_from_row(row: &sqlx::postgres::PgRow) -> Result<LineIdentity, AppError> {
     let destination_type = DestinationType::from_str(&row.get::<String, _>("destination_type"))
         .map_err(|error| AppError::Conflict(error.to_string()))?;
     Ok(LineIdentity {

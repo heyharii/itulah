@@ -32,6 +32,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import * as api from "@/api"
+import { isWeb } from "@/edition"
 import { Icon } from "@/icons"
 import { spaced, timeLeft } from "@/joining"
 import { PinPad } from "@/pinpad"
@@ -241,7 +242,10 @@ function ApproveSheet({
   const [replaces, setReplaces] = useState("")
   const [tills, setTills] = useState<readonly Till[] | null>(null)
   const [stepUp, setStepUp] = useState<api.StepUp | null>(null)
-  const [how, setHow] = useState<"quick" | "session">("quick")
+  // Web never gets the quick way — see `edition.ts` — so it starts, and
+  // stays, on the account it is already signed in with; the switcher below
+  // that would offer the other one is not drawn there either.
+  const [how, setHow] = useState<"quick" | "session">(isWeb ? "session" : "quick")
   const [username, setUsername] = useState("")
   // Held in a ref and emptied the moment the node has answered, as
   // `approval.tsx` holds a supervisor's PIN.
@@ -466,7 +470,7 @@ function ApproveSheet({
 
       {stepUp === null && <p className="muted">Memuat…</p>}
 
-      {stepUp !== null && (
+      {!isWeb && stepUp !== null && (
         <div className="segmented" role="radiogroup" aria-label="Cara menyetujui">
           {stepUp !== "NONE" && (
             <button

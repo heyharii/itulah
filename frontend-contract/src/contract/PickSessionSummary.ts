@@ -10,4 +10,17 @@ import type { Session } from "./Session";
  * rack. The event stays per SKU because that is the unit of what happens at a
  * rack; this is what gathers them into the round they belonged to.
  */
-export type PickSessionSummary = { session: Session, sku_count: number, total_picked: number, lines: Array<PickedLine>, };
+export type PickSessionSummary = { session: Session, 
+/**
+ * The shop this picklist was walked for. `None` on rounds an older build
+ * raised for nobody in particular.
+ */
+destination_id: string | null, 
+/**
+ * The allotment it answers, and its number as printed.
+ */
+allotment_id: string | null, allotment_number: string | null, sku_count: number, total_picked: number, 
+/**
+ * Still in the pick area and in no carton: what is left to pack.
+ */
+waiting: number, lines: Array<PickedLine>, };

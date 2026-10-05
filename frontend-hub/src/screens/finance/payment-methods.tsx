@@ -9,11 +9,10 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, Problem } from "@/components/ui/states"
-import { Tag } from "@/components/ui/tag"
 import { count, label, money } from "@/lib/format"
 import { financeKeys, savePaymentMethod } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
-import { Code, Grid, Td, Th } from "@/screens/finance-final/parts"
+import { Grid, Td, Th } from "@/screens/finance-final/parts"
 import { parseMinor } from "@/screens/finance/chart"
 import { usePaymentMethods } from "@/screens/finance/master-data"
 import {
@@ -61,10 +60,15 @@ export function PaymentMethods() {
     null
   )
   const [inactive, setInactive] = useState(false)
+  // ERPNext's own standard filter on Mode of Payment — Type.
+  const [tender, setTender] = useState("")
 
   const rows = useMemo(
-    () => (list.data ?? []).filter((row) => inactive || row.is_active),
-    [list.data, inactive]
+    () =>
+      (list.data ?? [])
+        .filter((row) => inactive || row.is_active)
+        .filter((row) => tender === "" || row.tender_type === tender),
+    [list.data, inactive, tender]
   )
   const unready = (list.data ?? []).filter(
     (row) => row.is_active && row.unlinked_roles.length > 0
@@ -73,9 +77,8 @@ export function PaymentMethods() {
   return (
     <PageContent>
       <PageHeader
-        crumb="Finance · Setup"
-        title="Payment methods"
-        sub="Which tenders the company takes, how each settles and at what MDR. The accounts are account links narrowed by the method's bank."
+        crumb="Finance · Payments"
+        title="Mode of Payment"
         actions={
           <Button variant="primary" onClick={() => setEditing("new")}>
             New method
@@ -84,6 +87,19 @@ export function PaymentMethods() {
       />
 
       <Toolbar>
+        <Select
+          value={tender}
+          onChange={setTender}
+          className="h-control w-40"
+          aria-label="Type"
+        >
+          <option value="">Every type</option>
+          {TENDERS.map((one) => (
+            <option key={one} value={one}>
+              {label(one)}
+            </option>
+          ))}
+        </Select>
         <Checkbox
           label="Show inactive"
           checked={inactive}
@@ -111,15 +127,13 @@ export function PaymentMethods() {
                   <Grid>
                     <thead>
                       <tr>
-                        <Th>Code</Th>
-                        <Th>Name</Th>
-                        <Th>Tender</Th>
+                        <Th>Mode of Payment</Th>
+                        <Th>Type</Th>
                         <Th>Bank</Th>
                         <Th>Settles</Th>
                         <Th align="right">MDR</Th>
                         <Th align="right">Shops</Th>
-                        <Th>Roles</Th>
-                        <Th />
+                        <Th align="right">Accounts</Th>
                       </tr>
                     </thead>
                     <tbody>
@@ -129,9 +143,6 @@ export function PaymentMethods() {
                           onClick={() => setEditing(row)}
                           className="cursor-pointer hover:bg-soft"
                         >
-                          <Td>
-                            <Code>{row.code}</Code>
-                          </Td>
                           <Td>
                             <span className="text-ink">{row.name}</span>
                             {!row.is_active && (
@@ -150,7 +161,7 @@ export function PaymentMethods() {
                             {row.bank_code === "" ? (
                               <span className="text-faint">—</span>
                             ) : (
-                              <Tag>{row.bank_code}</Tag>
+                              row.bank_code
                             )}
                           </Td>
                           <Td>{label(row.settlement_mode)}</Td>
@@ -175,33 +186,19 @@ export function PaymentMethods() {
                               count(row.site_ids.length)
                             )}
                           </Td>
-                          <Td>
-                            <span className="flex flex-wrap gap-1">
-                              {row.roles.map((role) => (
-                                <Tag
-                                  key={role}
-                                  tone={
-                                    row.unlinked_roles.includes(role)
-                                      ? "bad"
-                                      : "neutral"
-                                  }
-                                  title={
-                                    row.unlinked_roles.includes(role)
-                                      ? "Does not reach an account at every site"
-                                      : undefined
-                                  }
-                                >
-                                  {role}
-                                </Tag>
-                              ))}
-                            </span>
-                          </Td>
+                          {/* Only a method that cannot post yet asks for
+                              anything here; the rest are linked, and their
+                              accounts are one click away in the form. */}
                           <Td align="right">
-                            <LinkAccountsButton
-                              role={row.unlinked_roles[0] ?? row.roles[0]}
-                              sourceType="COMPANY"
-                              sourceId={row.bank_code}
-                            />
+                            {row.unlinked_roles.length > 0 ? (
+                              <LinkAccountsButton
+                                role={row.unlinked_roles[0]}
+                                sourceType="COMPANY"
+                                sourceId={row.bank_code}
+                              />
+                            ) : (
+                              <span className="text-mute">Linked</span>
+                            )}
                           </Td>
                         </tr>
                       ))}
@@ -287,7 +284,6 @@ function MethodForm({
           value={code}
           disabled={method !== null}
           onChange={(event) => setCode(event.target.value)}
-          placeholder="QRIS_BCA"
         />
       </Field>
       <Field label="Name" required>
@@ -361,7 +357,7 @@ function MethodForm({
           }
           onClick={() => save.mutate()}
         >
-          {save.isPending ? "Saving…" : "Save method"}
+          {save.isPending ? "Submitting…" : "Submit"}
         </Button>
       </div>
     </EditorCard>

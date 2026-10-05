@@ -29,4 +29,10 @@ order_unit_code: string | null, count_units: Array<PurchaseCountUnit>,
  * for it, because the book holds numbers in several shapes and sorting
  * them as text puts `PO-R1-…` above every dated one.
  */
-activated_at: string, };
+activated_at: string, 
+/**
+ * Set when the buyer sent this line's last count back to be counted
+ * again: their reason (empty when they gave none). The bay shows "Count
+ * again" with it instead of a fresh line.
+ */
+recount_reason: string | null, };

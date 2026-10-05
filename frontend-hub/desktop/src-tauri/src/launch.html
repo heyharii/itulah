@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8" />
+<title>Central</title>
+<style>
+  html, body { height: 100%; margin: 0; background: #f7f8fa; color: #111827;
+    font: 15px/1.5 Inter, -apple-system, system-ui, sans-serif; }
+  main { height: 100%; display: grid; place-content: center; justify-items: center;
+    gap: 4px; visibility: hidden; }
+  h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  p { margin: 0; color: #6b7280; }
+  button { margin-top: 16px; height: 36px; padding: 0 16px; border-radius: 8px;
+    border: 1px solid #d1d5db; background: #fff; font: inherit; cursor: pointer; }
+</style>
+<main>
+  <h1>Can't reach Central</h1>
+  <p id="host"></p>
+  <button type="button">Try again</button>
+</main>
+<script>
+  // Shown only while the hub cannot be reached; keeps trying on its own.
+  const hub = __HUB__
+  const main = document.querySelector("main")
+  document.getElementById("host").textContent = new URL(hub).host
+  let timer = 0
+  async function go() {
+    clearTimeout(timer)
+    try {
+      await fetch(hub, { mode: "no-cors", cache: "no-store" })
+      location.replace(hub)
+    } catch {
+      main.style.visibility = "visible"
+      timer = setTimeout(go, 5000)
+    }
+  }
+  document.querySelector("button").addEventListener("click", go)
+  go()
+</script>
+</html>
