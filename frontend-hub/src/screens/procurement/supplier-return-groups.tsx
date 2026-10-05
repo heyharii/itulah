@@ -32,7 +32,7 @@ export interface Group {
 /// through the picklist — keeps the status it already has.
 export function noteStatus(row: Row): string {
   if (row.reference === null) return row.status
-  if (row.handedOverAt !== null) return "Confirmed"
+  if (row.handedOverAt !== null) return "Completed"
   if (row.noteAt !== null) return "Generated"
   return "Not Generated"
 }
@@ -146,11 +146,11 @@ const columns: ColumnDef<TableSetup, Dated>[] = [
     cell: ({ row }) => {
       const status = noteStatus(row.original)
       // Colour only where somebody has something to do: a return without its
-      // note. Generated waits for the confirm; confirmed has finished.
+      // note. Generated waits for the confirm; completed has finished.
       const tone =
         status === "Not Generated"
           ? "text-warn-fg"
-          : status === "Confirmed"
+          : status === "Completed"
             ? "text-body"
             : "text-info-fg"
       return <span className={`whitespace-nowrap ${tone}`}>{status}</span>

@@ -325,7 +325,7 @@ export function SupplierReturns() {
             { value: "open", label: `Open ${count(openCount)}` },
             {
               value: "closed",
-              label: `Settled and closed ${count(all.length - openCount)}`,
+              label: `Completed ${count(all.length - openCount)}`,
             },
           ]}
         />
