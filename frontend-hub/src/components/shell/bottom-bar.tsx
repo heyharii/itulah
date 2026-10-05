@@ -1,6 +1,11 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link, useRouter, useRouterState } from "@tanstack/react-router"
-import { Bell, ChevronLeft, LayoutGrid, MessageSquare } from "lucide-react"
+import {
+  Bell,
+  ChevronLeft,
+  LayoutGrid,
+  MessageSquare,
+} from "lucide-react"
 import {
   useCallback,
   useEffect,
@@ -9,7 +14,10 @@ import {
   useState,
 } from "react"
 
+import { AppSheet } from "@/components/shell/app-sheet"
 import { useDock, useDockRow } from "@/components/shell/dock"
+import type { AppTile } from "@/lib/apps"
+import { domainForPath, modulesOfDomain } from "@/lib/navigation"
 
 import {
   fallbackInterval,
@@ -37,10 +45,10 @@ const TABS = [
     to: "/apps",
     label: "Home",
     icon: LayoutGrid,
-    // Everything that is not another tab is inside an app.
-    owns: (path: string) =>
-      !MESSAGES.some((one) => within(path, one)) &&
-      !within(path, "/system/notifications"),
+    // Lit only on the launcher itself (owner, 2026-10-05): inside an app none
+    // of the tabs is "where you are", and a lit Home there read as if the
+    // screen were Home.
+    owns: (path: string) => within(path, "/apps"),
   },
   {
     to: "/chat",
@@ -98,6 +106,20 @@ export function BottomBar() {
     [attach]
   )
   const row = useDockRow()
+  // Inside a department the fourth tab is its Menu — the screens to move
+  // between; anywhere else it is Back.
+  const domain = domainForPath(pathname)
+  const department: AppTile | null =
+    domain !== undefined &&
+    !within(pathname, "/apps") &&
+    !MESSAGES.some((one) => within(pathname, one))
+      ? {
+          id: domain.id,
+          label: domain.label,
+          icon: domain.icon,
+          modules: modulesOfDomain(domain),
+        }
+      : null
   const view = dock?.view ?? "rest"
   const searching = view !== "rest"
   const lift = useKeyboardLift(view === "search")
@@ -182,7 +204,11 @@ export function BottomBar() {
             )
           })}
           <li>
-            <BackButton />
+            {department !== null ? (
+              <MenuButton tile={department} />
+            ) : (
+              <BackButton />
+            )}
           </li>
         </ul>
       </nav>
@@ -275,6 +301,30 @@ function useKeyboardLift(active: boolean): number {
     }
   }, [active])
   return lift
+}
+
+/// The department's own tab, named for it ("Procurement"), not "Menu" (owner:
+/// that read as odd): it lists the department's screens, from the thumb's row (owner, 2026-10-05): the
+/// switcher that sat in the header's title, where nobody's thumb reached. It
+/// opens the same sheet the launcher does, with this screen marked.
+function MenuButton({ tile }: { tile: AppTile }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        onClick={() => setOpen(true)}
+        className="group relative flex h-full w-full flex-col items-center justify-center gap-0.5 text-[0.75rem] font-medium tracking-[0.005em] text-mute"
+      >
+        <span className="transition-[scale] duration-(--t-press) ease-(--ease-out) group-active:scale-[0.9]">
+          <tile.icon className="size-[1.375rem] stroke-[1.7]" />
+        </span>
+        <span className="max-w-full truncate px-1">{tile.label}</span>
+      </button>
+      <AppSheet tile={tile} open={open} onOpenChange={setOpen} />
+    </>
+  )
 }
 
 /// Back, in the thumb's row (owner, 2026-10-05). Moving between a

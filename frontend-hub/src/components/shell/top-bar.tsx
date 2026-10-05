@@ -1,25 +1,20 @@
 import { Link, useRouterState } from "@tanstack/react-router"
 import {
-  ChevronDown,
   ChevronLeft,
   Menu,
   PanelLeft,
   Sparkles,
 } from "lucide-react"
-import { useState } from "react"
 
 import {
   allNavItems,
   domainForPath,
   domainHome,
   moduleForPath,
-  modulesOfDomain,
   topBarAsides,
   type AppModule,
 } from "@/lib/navigation"
 import { BrandMark } from "@/components/brand-mark"
-import { AppSheet } from "@/components/shell/app-sheet"
-import type { AppTile } from "@/lib/apps"
 import { TimeTravel } from "@/components/shell/time-travel"
 import { NotificationBell } from "@/components/shell/notification-bell"
 import { cn } from "@/lib/utils"
@@ -182,7 +177,6 @@ export function DeskBar() {
 /// Suppliers in two taps, without going back to the launcher. On Messages it
 /// is the switch between Chat and Discussions, which share the tab.
 function PhoneTitle({ pathname }: { pathname: string }) {
-  const [open, setOpen] = useState(false)
   const domain = domainForPath(pathname)
   const module = moduleForPath(pathname)
   const screen = screenForPath(pathname)
@@ -257,30 +251,14 @@ function PhoneTitle({ pathname }: { pathname: string }) {
     )
   }
 
-  const tile: AppTile = {
-    id: domain.id,
-    label: domain.label,
-    icon: domain.icon,
-    modules: modulesOfDomain(domain),
-  }
+  // The title says where this is and nothing more. Moving to another screen of
+  // the department is the bottom bar's Menu tab (`bottom-bar.tsx`), in the
+  // thumb's reach: a title with a chevron at the top of a tall phone was
+  // pressed by nobody (owner, 2026-10-05).
   return (
-    <>
-      <button
-        type="button"
-        aria-haspopup="dialog"
-        onClick={() => setOpen(true)}
-        className="flex min-h-11 min-w-0 flex-1 flex-col items-start justify-center text-left md:hidden"
-      >
-        {/* The department's name over the title is gone (owner, 2026-10-05):
-            the title says where this is, and the department is one tap away
-            in the sheet this opens. */}
-        <span className="flex max-w-full min-w-0 items-center gap-1 text-[1.0625rem] leading-tight font-semibold text-ink">
-          <span className="truncate">{title}</span>
-          <ChevronDown className="size-4 shrink-0 text-line-ico" />
-        </span>
-      </button>
-      <AppSheet tile={tile} open={open} onOpenChange={setOpen} />
-    </>
+    <h1 className="flex min-h-11 min-w-0 flex-1 items-center truncate text-[1.0625rem] leading-tight font-semibold text-ink md:hidden">
+      <span className="truncate">{title}</span>
+    </h1>
   )
 }
 
