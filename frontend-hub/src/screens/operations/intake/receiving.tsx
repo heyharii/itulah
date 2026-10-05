@@ -73,29 +73,22 @@ export interface OrderRow {
   readonly awaiting: readonly PurchaseCountAwaitingVerification[]
 }
 
-/// What the Gudang counted on an order, who counted it and when: the count is
-/// the buyer's to review, and the first question is whose it is and how old.
-function CountedBy({
+/// The latest of the counts waiting on an order: who counted it and when are
+/// read from that one, and the pieces are all of them added.
+function latestOf(
+  awaiting: readonly PurchaseCountAwaitingVerification[]
+): PurchaseCountAwaitingVerification {
+  return awaiting.reduce((a, b) => (b.counted_at > a.counted_at ? b : a))
+}
+
+/// Who counted it, by name.
+function CountedByName({
   awaiting,
 }: {
   awaiting: readonly PurchaseCountAwaitingVerification[]
 }) {
   const nameOfLogin = useNameOfLogin()
-  const latest = awaiting.reduce((a, b) =>
-    b.counted_at > a.counted_at ? b : a
-  )
-  return (
-    <span className="flex flex-col items-end leading-5 tabular-nums">
-      <span className="text-ink">
-        {`Counted ${count(awaiting.reduce((sum, one) => sum + one.counted_quantity, 0))} pcs`}
-      </span>
-      <span className="text-mute">
-        {titled(nameOfLogin(latest.counted_by))}
-        {" · "}
-        {moment(latest.counted_at)}
-      </span>
-    </span>
-  )
+  return <>{titled(nameOfLogin(latestOf(awaiting).counted_by))}</>
 }
 
 /// Orders with a button to press — still to count — lead the list.
@@ -233,20 +226,71 @@ export function Receiving() {
         cell: ({ row }) => count(row.original.lines.length),
       },
       {
+        id: "counted",
+        accessorFn: (row: OrderRow) =>
+          row.awaiting.reduce((sum, one) => sum + one.counted_quantity, 0),
+        header: "Counted",
+        size: 130,
+        meta: { align: "right", card: "metric" },
+        cell: ({ row }) =>
+          row.original.awaiting.length === 0 ? (
+            <span className="text-mute">—</span>
+          ) : (
+            <span className="tabular-nums">
+              {`${count(
+                row.original.awaiting.reduce(
+                  (sum, one) => sum + one.counted_quantity,
+                  0
+                )
+              )} pcs`}
+            </span>
+          ),
+      },
+      {
+        id: "counted_by",
+        accessorFn: (row: OrderRow) =>
+          row.awaiting.length === 0 ? "" : latestOf(row.awaiting).counted_by,
+        header: "Counted By",
+        size: 180,
+        meta: { card: "meta", priority: 2 },
+        cell: ({ row }) =>
+          row.original.awaiting.length === 0 ? (
+            <span className="text-mute">—</span>
+          ) : (
+            <span className="truncate">
+              <CountedByName awaiting={row.original.awaiting} />
+            </span>
+          ),
+      },
+      {
+        id: "counted_at",
+        accessorFn: (row: OrderRow) =>
+          row.awaiting.length === 0 ? "" : latestOf(row.awaiting).counted_at,
+        header: "Counted At",
+        size: 190,
+        meta: { align: "right", card: "meta", priority: 3 },
+        cell: ({ row }) =>
+          row.original.awaiting.length === 0 ? (
+            <span className="text-mute">—</span>
+          ) : (
+            <span className="whitespace-nowrap tabular-nums">
+              {moment(latestOf(row.original.awaiting).counted_at)}
+            </span>
+          ),
+      },
+      {
         // Also the hidden first sort key: orders still waiting for a count (the
         // ones with the button) stand above those already counted, whatever the
         // headings sort by (owner, 2026-10-05).
         id: "action",
         accessorFn: (row: OrderRow) => (row.awaiting.length === 0 ? 0 : 1),
         header: "",
-        size: 220,
+        size: 200,
         meta: { card: "status", align: "right" },
         cell: ({ row }) => {
           const order = row.original
           // Counted: the Gudang is done, the buyer has it to review.
-          if (order.awaiting.length > 0) {
-            return <CountedBy awaiting={order.awaiting} />
-          }
+          if (order.awaiting.length > 0) return null
           const again = order.lines.some((line) => line.recount_reason !== null)
           return (
             <Button
