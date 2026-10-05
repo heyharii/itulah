@@ -36,7 +36,7 @@ import { SubTabs } from "@/components/ui/sub-tabs"
 import { Banner, EmptyState } from "@/components/ui/states"
 import type { CsvColumn } from "@/lib/csv"
 import { recordKeys } from "@/lib/queries/records"
-import { count, day, dayMonth, money } from "@/lib/format"
+import { count, day, dayMonth, money, realItemCode } from "@/lib/format"
 import {
   allSupplierContacts,
   catalogueVocabulary,
@@ -2276,7 +2276,7 @@ function CatalogueTable({
           className="cursor-pointer border-t border-hairline transition-colors hover:bg-soft-2"
         >
           <td className="py-4 pl-3 font-mono text-[0.875rem] text-mute first:pl-0">
-            {item.supplier_item_code}
+            {realItemCode(item.supplier_item_code)}
           </td>
           <td className="py-4 pl-3 first:pl-0">
             <span className="text-[0.875rem] text-accent">{item.name}</span>
@@ -2356,7 +2356,7 @@ function SupplierCatalogue({ supplierId }: { supplierId: string }) {
               <Sheet
                 open={reading !== null}
                 onOpenChange={(next) => !next && setReading(null)}
-                id={reading?.supplier_item_code}
+                id={realItemCode(reading?.supplier_item_code)}
                 title={reading?.name ?? ""}
                 width="wide"
                 actions={

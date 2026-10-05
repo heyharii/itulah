@@ -9,7 +9,7 @@ import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { MiniTable } from "@/components/ui/rows"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
-import { count, money } from "@/lib/format"
+import { count, money, realItemCode } from "@/lib/format"
 import {
   clearBasket,
   procurementKeys,
@@ -214,9 +214,11 @@ export function BasketSheet({
                               <span className="block text-[0.875rem] text-ink">
                                 {line.item.name}
                               </span>
-                              <span className="font-mono text-[0.875rem] text-mute">
-                                {line.item.supplier_item_code}
-                              </span>
+                              {realItemCode(line.item.supplier_item_code) && (
+                                <span className="font-mono text-[0.875rem] text-mute">
+                                  {line.item.supplier_item_code}
+                                </span>
+                              )}
                             </td>
                             <td className="py-2 text-right tabular-nums">
                               {money(line.item.unit_price_minor)}

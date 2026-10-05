@@ -9,7 +9,7 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
-import { count, day, money } from "@/lib/format"
+import { count, day, money, realItemCode } from "@/lib/format"
 import {
   articleDetail,
   articleKeys,
@@ -541,9 +541,11 @@ function Suppliers({ article }: { article: ArticleDetail }) {
             >
               {supplierName(offer.supplier_id, offer.supplier_name)}
             </AppLink>
-            <span className="block font-mono text-[0.875rem] text-mute">
-              {offer.supplier_article_code}
-            </span>
+            {realItemCode(offer.supplier_article_code) && (
+              <span className="block font-mono text-[0.875rem] text-mute">
+                {offer.supplier_article_code}
+              </span>
+            )}
           </MiniCell>
           <MiniCell align="right">{money(offer.unit_price_minor)}</MiniCell>
         </MiniRow>

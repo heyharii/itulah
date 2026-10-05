@@ -4,7 +4,7 @@ import { AppLink } from "@/components/ui/app-link"
 import { Fact, Facts } from "@/components/ui/sheet"
 import { ColourSwatch } from "@/components/ui/swatch"
 import { Tag } from "@/components/ui/tag"
-import { count, day, money } from "@/lib/format"
+import { count, day, money, realItemCode } from "@/lib/format"
 import {
   procurementKeys,
   supplierDetail,
@@ -91,7 +91,9 @@ export function ItemDetail({
               : supplierDisplayName(supplier.data)}
           </AppLink>
         </Fact>
-        <Fact term="Supplier Code">{item.supplier_item_code}</Fact>
+        {realItemCode(item.supplier_item_code) && (
+          <Fact term="Supplier Code">{item.supplier_item_code}</Fact>
+        )}
         <Fact term="Unit Price">{money(item.unit_price_minor)}</Fact>
         <Fact term="Currency">{item.currency}</Fact>
         <Fact term="Division">

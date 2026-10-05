@@ -310,6 +310,7 @@ function fromEdge(
     supplier: supplierName(row.supplier_id, row.supplier_name),
     reason: "Over-delivery",
     reference: row.po_number,
+    poId: null,
     pcs: row.quantity,
     settleBy: null,
     valueMinor: 0,

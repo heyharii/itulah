@@ -23,7 +23,7 @@ import { SubTabs } from "@/components/ui/sub-tabs"
 import { EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
-import { count, money } from "@/lib/format"
+import { count, money, realItemCode } from "@/lib/format"
 import {
   catalogueVocabulary,
   procurementKeys,
@@ -82,9 +82,11 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     cell: ({ row }) => (
       <span className="flex flex-col">
         <span className="font-medium text-ink">{row.original.item.name}</span>
-        <span className="font-mono text-[0.875rem] text-mute">
-          {row.original.item.supplier_item_code}
-        </span>
+        {realItemCode(row.original.item.supplier_item_code) && (
+          <span className="font-mono text-[0.875rem] text-mute">
+            {row.original.item.supplier_item_code}
+          </span>
+        )}
       </span>
     ),
   },
@@ -447,7 +449,7 @@ function ItemSheet({
       open={id !== null}
       subject={id === null ? undefined : { kind: "supplier_item", id }}
       onOpenChange={(open) => !open && onClose()}
-      id={detail.data?.supplier_item_code}
+      id={realItemCode(detail.data?.supplier_item_code)}
       title={detail.data?.name ?? "Item"}
       actions={
         detail.data && (

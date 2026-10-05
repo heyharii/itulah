@@ -8,11 +8,11 @@ import { Card } from "@/components/ui/card"
 import { ConfirmButton, SavedDialog } from "@/components/ui/dialog"
 import { Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
-import { Status } from "@/components/ui/pill"
 import { Segmented } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Collapsible } from "@base-ui/react/collapsible"
 import { SubTabs } from "@/components/ui/sub-tabs"
+import { Tag } from "@/components/ui/tag"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { Timeline, type TimelineEvent } from "@/components/ui/timeline"
 import { count, day, money } from "@/lib/format"
@@ -24,8 +24,10 @@ import {
   poolAvailability,
 } from "@/lib/queries/inventory"
 import {
+  catalogueVocabulary,
   procurementKeys,
   purchaseDestinations,
+  purchaseOrderDetail,
   purchaseOrderPage,
   purchaseReturns,
 } from "@/lib/queries/procurement"
@@ -51,6 +53,7 @@ import { useSheet } from "@/lib/sheets"
 import { cn } from "@/lib/utils"
 import { sourcePoolsFor } from "@/screens/inventory/shared"
 import { titled } from "@/screens/procurement/po-print"
+import { termLabel } from "@/screens/procurement/shared"
 import { openPrintWindow, printInto } from "@/screens/procurement/print"
 import {
   groupBySupplier,
@@ -84,6 +87,8 @@ export interface Row {
   readonly supplier: string
   readonly reason: string
   readonly reference: string | null
+  /// The order's id, for the link into its sheet; null where the book has none.
+  readonly poId: string | null
   readonly pcs: number
   readonly settleBy: SettleBy | null
   readonly valueMinor: number
@@ -147,6 +152,7 @@ function fromSupplierReturn(
     supplier: supplierName(r.supplier_id, r.supplier_name),
     reason: REASON_LABEL[r.reason],
     reference: null,
+    poId: null,
     pcs: r.quantity,
     settleBy: r.settle_by,
     valueMinor: r.value_minor,
@@ -236,6 +242,7 @@ export function useReturnRows() {
       supplier: supplierName(r.supplier_id, r.supplier_name),
       reason: "Over-delivery",
       reference: r.po_number,
+      poId: r.purchase_order_id,
       pcs: r.quantity,
       settleBy: null,
       valueMinor: 0,
@@ -351,6 +358,7 @@ export function SupplierReturns() {
               groups={groups}
               selected={sheet.value}
               onOpen={sheet.open}
+              showPic={false}
             />
           ),
       })}
@@ -374,6 +382,7 @@ export function noteOf(
       number: one.number,
       reason: one.reason,
       reference: one.reference,
+      poId: one.poId,
       lines: one.lines,
     })),
   }
@@ -451,6 +460,19 @@ export function ReturnSheet({
     },
   })
 
+  /// The order the return came from, for what each item is filed under: the
+  /// return line knows its code and quantity, the PO line knows its division
+  /// and tags.
+  const order = useQuery({
+    queryKey: procurementKeys.order(row?.poId ?? ""),
+    queryFn: ({ signal }) => purchaseOrderDetail(row!.poId!, signal),
+    enabled: !!row?.poId,
+  })
+  const vocabulary = useQuery({
+    queryKey: procurementKeys.vocabulary(),
+    queryFn: ({ signal }) => catalogueVocabulary(signal),
+    staleTime: 30 * 60 * 1000,
+  })
   const history: TimelineEvent[] = []
   if (row) {
     history.push({
@@ -523,17 +545,16 @@ export function ReturnSheet({
         onOpenChange={(next) => !next && onClose()}
         title={row?.supplier ?? "Return"}
         id={row?.number}
-        caption={
-          row &&
-          [
-            row.reason,
-            `${count(row.pcs)} pcs`,
-            row.valueMinor > 0 ? money(row.valueMinor) : null,
-          ]
-            .filter(Boolean)
-            .join(" · ")
+        // Number over supplier, and the kind of return as a tag beside them
+        // (owner, 2026-10-05). The status is the stamp in the body and the
+        // pieces and value are in the table, so neither is said again here.
+        badge={
+          row && (
+            <Tag tone={row.reason === "Over-delivery" ? "warn" : "bad"}>
+              {titled(row.reason.replace(/-/g, " "))}
+            </Tag>
+          )
         }
-        badge={row && <Status tone={row.tone}>{row.status}</Status>}
         actions={
           // With a step of its own in the foot (the board's Generate / Print /
           // Download / Confirm) the note's buttons live there instead.
@@ -617,7 +638,26 @@ export function ReturnSheet({
               {row.settleBy && (
                 <Fact term="Settle by">{SETTLE_LABEL[row.settleBy]}</Fact>
               )}
-              {row.reference && <Fact term="PO">{row.reference}</Fact>}
+              {row.reference && (
+                <Fact term="PO">
+                  {row.poId ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        go("/procurement/orders", {
+                          key: "order",
+                          value: row.poId!,
+                        })
+                      }
+                      className="font-mono text-accent underline-offset-2 hover:underline"
+                    >
+                      {row.reference}
+                    </button>
+                  ) : (
+                    row.reference
+                  )}
+                </Fact>
+              )}
               {row.letterId && (
                 <Fact term="Surat">
                   <button
@@ -648,7 +688,6 @@ export function ReturnSheet({
                     <tr className="h-11 bg-soft text-left text-[0.875rem] font-medium text-body">
                       <th className="pl-4">SKU</th>
                       <th className="text-right">Pcs</th>
-                      <th className="text-right">Cost</th>
                       <th className="pr-4 text-right">Value</th>
                     </tr>
                   </thead>
@@ -659,15 +698,35 @@ export function ReturnSheet({
                           <span className="block leading-snug font-medium text-ink">
                             {l.name ?? l.sku}
                           </span>
-                          <span className="mt-1 block font-mono text-[0.875rem] text-mute">
-                            {l.sku}
-                          </span>
+                          {(() => {
+                            const line = order.data?.lines.find(
+                              (one) => one.article_code === l.sku
+                            )
+                            if (!line) return null
+                            const tags = line.tags ?? []
+                            if (!line.division_code && tags.length === 0)
+                              return null
+                            return (
+                              <span className="mt-1.5 flex flex-wrap gap-1.5">
+                                {line.division_code && (
+                                  <Tag>
+                                    {termLabel(
+                                      vocabulary.data?.divisions,
+                                      line.division_code
+                                    )}
+                                  </Tag>
+                                )}
+                                {tags.map((tag) => (
+                                  <Tag key={tag}>
+                                    {termLabel(vocabulary.data?.tags, tag)}
+                                  </Tag>
+                                ))}
+                              </span>
+                            )
+                          })()}
                         </td>
                         <td className="text-right tabular-nums">
                           {count(l.qty)}
-                        </td>
-                        <td className="text-right tabular-nums">
-                          {l.cost > 0 ? money(l.cost) : "—"}
                         </td>
                         <td className="pr-4 text-right tabular-nums">
                           {l.cost > 0 ? money(l.cost * l.qty) : "—"}

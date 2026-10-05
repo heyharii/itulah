@@ -262,3 +262,14 @@ export function positionTone(position: string | null | undefined): Tone {
     toneFor(position)
   )
 }
+
+/// A supplier's own code for an item, or `undefined` where it is the stand-in
+/// the item form invents when the supplier gave none (`ITM-` and eight
+/// characters). That one is a made-up key for the database and means nothing to
+/// a person, so no screen shows it (owner, 2026-10-05).
+export function realItemCode(
+  code: string | null | undefined
+): string | undefined {
+  if (code === null || code === undefined) return undefined
+  return /^ITM-[0-9A-F]{8}$/.test(code) ? undefined : code
+}

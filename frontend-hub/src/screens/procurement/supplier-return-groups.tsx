@@ -5,7 +5,7 @@ import { useMemo } from "react"
 
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { count, day } from "@/lib/format"
+import { count, day, money } from "@/lib/format"
 import { procurementKeys, purchaseOrderPage } from "@/lib/queries/procurement"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { titled } from "@/screens/procurement/po-print"
@@ -100,7 +100,7 @@ const columns: ColumnDef<TableSetup, Dated>[] = [
     id: "quantity",
     accessorFn: (row) => row.pcs,
     header: "Quantity",
-    size: 150,
+    size: 140,
     meta: { align: "right", card: "metric" },
     cell: ({ row }) => (
       <span className="flex flex-col items-end leading-5 tabular-nums">
@@ -115,13 +115,29 @@ const columns: ColumnDef<TableSetup, Dated>[] = [
     ),
   },
   {
+    id: "value",
+    accessorFn: (row) => row.valueMinor,
+    header: "Value",
+    size: 140,
+    meta: { align: "right", card: "metric" },
+    cell: ({ row }) =>
+      row.original.valueMinor > 0 ? (
+        <span className="tabular-nums">{money(row.original.valueMinor)}</span>
+      ) : (
+        <span className="text-mute">—</span>
+      ),
+  },
+  {
+    // The day the return was raised: the Gudang has counted the delivery by
+    // then, so it is the nearest date the register holds to "received" (the
+    // order's own date can be weeks earlier).
     id: "date",
-    accessorFn: (row) => row.poDate ?? "",
-    header: "PO Date",
+    accessorFn: (row) => row.raisedAt,
+    header: "Received Date",
     size: 150,
     meta: { align: "right", card: "meta", priority: 3 },
     cell: ({ row }) => (
-      <span className="whitespace-nowrap">{day(row.original.poDate)}</span>
+      <span className="whitespace-nowrap">{day(row.original.raisedAt)}</span>
     ),
   },
   {
@@ -141,17 +157,17 @@ const columns: ColumnDef<TableSetup, Dated>[] = [
     id: "status",
     accessorFn: (row) => noteStatus(row),
     header: "Status",
-    size: 160,
-    meta: { card: "status" },
+    size: 150,
+    meta: { align: "right", card: "status" },
     cell: ({ row }) => {
       const status = noteStatus(row.original)
       // Colour only where somebody has something to do: a return without its
-      // note. Generated waits for the confirm; completed has finished.
+      // note. Generated waits for the confirm; completed has finished, in green.
       const tone =
         status === "Not Generated"
           ? "text-warn-fg"
           : status === "Completed"
-            ? "text-body"
+            ? "text-ok-fg"
             : "text-info-fg"
       return <span className={`whitespace-nowrap ${tone}`}>{status}</span>
     },
@@ -165,24 +181,27 @@ function SupplierCard({
   selected,
   onOpen,
   actions,
+  showPic,
 }: {
   group: Group
   selected: string | undefined
   onOpen: (id: string) => void
   actions?: React.ReactNode
+  showPic: boolean
 }) {
   const rows = group.rows
   const pieces = rows.reduce((sum, one) => sum + one.pcs, 0)
   const items = rows.reduce((sum, one) => sum + one.lines.length, 0)
+  const value = rows.reduce((sum, one) => sum + one.valueMinor, 0)
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: showPic ? columns : columns.filter((one) => one.id !== "pic"),
         getRowId: (row: Dated) => row.id,
       }),
-      [rows]
+      [rows, showPic]
     )
   )
   return (
@@ -202,6 +221,8 @@ function SupplierCard({
           </span>
           <span className="text-body">
             {count(items)} {items === 1 ? "item" : "items"}
+            {" · "}
+            {money(value)}
           </span>
         </span>
         {actions !== undefined && (
@@ -225,12 +246,16 @@ export function ReturnGroups({
   selected,
   onOpen,
   actions,
+  showPic = true,
 }: {
   groups: readonly Group[]
   selected: string | undefined
   onOpen: (id: string) => void
   /// What stands in a supplier's band, if anything.
   actions?: (group: Group) => React.ReactNode
+  /// The Person in Charge column: the Gudang's, so Operations keeps it and
+  /// Procurement's list leaves it out (owner, 2026-10-05).
+  showPic?: boolean
 }) {
   return (
     <div className="flex flex-col gap-6">
@@ -241,6 +266,7 @@ export function ReturnGroups({
           selected={selected}
           onOpen={onOpen}
           actions={actions?.(group)}
+          showPic={showPic}
         />
       ))}
     </div>

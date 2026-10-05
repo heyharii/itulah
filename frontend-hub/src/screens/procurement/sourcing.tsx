@@ -25,7 +25,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Tag } from "@/components/ui/tag"
 import { colourKeys, listColours, type ColourTerm } from "@/lib/queries/colours"
 import { useFilterState, type FilterField } from "@/lib/filters"
-import { count, money } from "@/lib/format"
+import { count, money, realItemCode } from "@/lib/format"
 import {
   addToBasket,
   catalogueVocabulary,
@@ -932,7 +932,7 @@ function ItemSheet({
       open={id !== null}
       subject={id === null ? undefined : { kind: "supplier_item", id }}
       onOpenChange={(open) => !open && onClose()}
-      id={detail.data?.supplier_item_code}
+      id={realItemCode(detail.data?.supplier_item_code)}
       title={detail.data?.name ?? "Item"}
       footer={
         detail.data && (
