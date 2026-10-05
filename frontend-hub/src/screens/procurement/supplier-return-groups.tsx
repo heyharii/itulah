@@ -215,6 +215,9 @@ function SupplierCard({
             {count(rows.length)} {rows.length === 1 ? "PO" : "POs"}
           </span>
         </div>
+        {actions !== undefined && (
+          <span className="flex items-center gap-2">{actions}</span>
+        )}
         <span className="flex flex-col items-end leading-6 tabular-nums">
           <span className="text-[1.0625rem] font-semibold text-ink">
             {count(pieces)} pcs
@@ -225,9 +228,6 @@ function SupplierCard({
             {money(value)}
           </span>
         </span>
-        {actions !== undefined && (
-          <span className="flex items-center gap-2">{actions}</span>
-        )}
       </div>
       <DataTable<Dated>
         table={table}

@@ -38,9 +38,7 @@ export function OperationsGate({ children }: { children: React.ReactNode }) {
 /// A page that only means something on a DC server (its outbox, its local
 /// account). In cloud mode it says so in one line instead of asking a node
 /// that does not exist.
-export function edgeOnly(
-  Screen: () => React.ReactNode
-): () => React.ReactNode {
+export function edgeOnly(Screen: () => React.ReactNode): () => React.ReactNode {
   return function EdgeOnly() {
     if (useDcHosting() !== "cloud") return <Screen />
     return (

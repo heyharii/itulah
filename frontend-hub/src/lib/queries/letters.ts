@@ -22,10 +22,7 @@ import type {
 /// filed under.
 
 export type LetterKind =
-  | "GOODS_RECEIPT"
-  | "SUPPLIER_RETURN"
-  | "DELIVERY_NOTE"
-  | "GENERAL"
+  "GOODS_RECEIPT" | "SUPPLIER_RETURN" | "DELIVERY_NOTE" | "GENERAL"
 export type LetterStatus = "DRAFT" | "ISSUED" | "VOID"
 
 /// What each kind is called, and what its series is.
@@ -69,9 +66,9 @@ export const LETTER_KINDS: readonly {
     // sign against, not ours to file.
     label: "Return Delivery Note",
     english: "Return delivery note",
-    appLabel: "Return to supplier",
+    appLabel: "Return PO",
     prefix: "SJR",
-    source: "a return to supplier, at the moment it is confirmed",
+    source: "a Return PO, at the moment it is confirmed",
   },
   {
     value: "GENERAL",

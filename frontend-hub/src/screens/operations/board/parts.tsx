@@ -31,9 +31,7 @@ export function BoardHeader({
 }) {
   return (
     <PageHeader
-      title={
-        title ?? (board === "suppliers" ? "Return to supplier" : "Allotment")
-      }
+      title={title ?? (board === "suppliers" ? "Return PO" : "Allotment")}
       actions={
         <>
           {actions}

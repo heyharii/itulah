@@ -57,22 +57,17 @@ import { useDebounced } from "@/lib/use-debounced"
 /// `dc/purchase-verifications`) is named for completeness: the cloud log
 /// rarely holds those rows, but a classifier that would call one "Other" if
 /// it ever saw one would be lying about the flow it came from.
-type Flow = "PO receiving" | "Allotment" | "Return to supplier" | "Other"
+type Flow = "PO receiving" | "Allotment" | "Return PO" | "Other"
 
-const FLOWS = [
-  "All",
-  "PO receiving",
-  "Allotment",
-  "Return to supplier",
-] as const
+const FLOWS = ["All", "PO receiving", "Allotment", "Return PO"] as const
 type FlowTab = (typeof FLOWS)[number]
 
 function flowOf(entry: AuditEntry): Flow {
   const parts = entry.path.replace(/^\/api\/v1\//, "").split("/")
   if (parts[0] === "purchase-orders" && parts[2] === "returns")
-    return "Return to supplier"
+    return "Return PO"
   if (parts[0] === "purchase-returns" || parts[0] === "supplier-returns")
-    return "Return to supplier"
+    return "Return PO"
   if (parts[0] === "inventory" && parts[1] === "allotments") return "Allotment"
   if (
     parts[0] === "purchase-orders" ||

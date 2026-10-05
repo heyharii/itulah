@@ -33,7 +33,7 @@ const CAUSES: Record<string, string> = {
   RETURN_TO_WAREHOUSE: "Return",
   SALE: "Sale",
   CUSTOMER_RETURN: "Customer return",
-  SUPPLIER_RETURN: "Return to supplier",
+  SUPPLIER_RETURN: "Return PO",
   PLACEMENT_CORRECTION: "Correction",
   COUNT_SHORTAGE: "Count",
   COUNT_GAIN: "Count",

@@ -68,7 +68,7 @@ import {
 import { useActor } from "@/screens/procurement/shared"
 import { useSupplierName } from "@/screens/procurement/supplier-name"
 
-/// Buying › Return to supplier.
+/// Buying › Return PO.
 ///
 /// Two books in one list: returns out of HO return stock (over-delivery,
 /// items that don't match the order — the supplier owes something back,

@@ -2140,7 +2140,7 @@ function receiptLines(
       : []
   // One bullet per receiving: an order can arrive in two or three goes. What
   // counts as received is what matched the order — the excess goes back and is
-  // said in Return to Supplier, not here.
+  // said in Return PO, not here.
   return receipts.map((one) => ({
     head: dayMonth(one.received_at),
     body: `${pcs(one.matched_quantity)}${
@@ -2204,7 +2204,7 @@ function BeyondTheOrder({ order }: { order: PurchaseOrderDetail }) {
   if (!hasExcess && returns.length === 0) return null
 
   return (
-    <Section title="Return to Supplier" rule={false} quiet>
+    <Section title="Return PO" rule={false} quiet>
       <div className="flex flex-col gap-3">
         {excessLines.length > 0 && (
           <>

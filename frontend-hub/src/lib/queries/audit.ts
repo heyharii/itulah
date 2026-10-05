@@ -243,7 +243,7 @@ export function describeAction(entry: AuditEntry): string {
     close: `closed this ${noun}`,
     depart: `sent this ${noun} out`,
     status: `changed the status of this ${noun}`,
-    returns: `put the excess on a return to the supplier`,
+    returns: `put the excess on a Return PO`,
     "close-short": `closed lines short on this ${noun}`,
   }
   if (known[verb]) return known[verb]

@@ -46,7 +46,7 @@ import {
   type Row,
 } from "@/screens/procurement/supplier-returns"
 
-/// **Return to supplier** — everything going back to a supplier, a card per
+/// **Return PO** — everything going back to a supplier, a card per
 /// supplier (the owner, 2026-10-04: a list, not a board, and the surat jalan is
 /// per supplier, not per order). Each card's band carries the supplier, what is
 /// going back to them in total, and the next step: **Generate Surat Jalan**
@@ -196,6 +196,7 @@ export function SuppliersBoard() {
                 </Button>
                 <Button
                   variant="primary"
+                  size="sm"
                   onClick={() => confirm.start(group.supplier, waiting)}
                 >
                   Confirm
@@ -204,6 +205,7 @@ export function SuppliersBoard() {
             ) : (
               <Button
                 variant="primary"
+                size="sm"
                 onClick={() => setMaking(group.supplier)}
               >
                 Generate Surat Jalan

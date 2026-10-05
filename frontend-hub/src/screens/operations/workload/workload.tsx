@@ -182,7 +182,7 @@ export function WorkloadScreen() {
         />
         <FlowCard
           to="/operations/board/suppliers"
-          name="Return to supplier"
+          name="Return PO"
           unit="active returns"
           total={
             rts
@@ -258,10 +258,7 @@ export function WorkloadScreen() {
           </div>
         </Card>
 
-        <AppLink
-          to="/operations/intake"
-          className={cn(CARD, "group p-4")}
-        >
+        <AppLink to="/operations/intake" className={cn(CARD, "group p-4")}>
           <div className="flex items-center justify-between gap-2.5">
             <span className="text-[0.875rem] font-medium text-body">
               Waiting for decision

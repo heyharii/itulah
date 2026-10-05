@@ -205,7 +205,7 @@ export const operationsNav: AppModule = {
         /// no longer a tab of the board.
         {
           path: "/operations/board/suppliers",
-          label: "Return to Supplier",
+          label: "Return PO",
           icon: Undo2,
           useCount: useToSuppliers,
           badge: "warn",
