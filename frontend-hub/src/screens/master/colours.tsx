@@ -23,6 +23,7 @@ import { count } from "@/lib/format"
 import { toast } from "@/lib/toast"
 import {
   colourKeys,
+  colourUsage,
   createColour,
   listColours,
   updateColour,
@@ -34,7 +35,12 @@ import { readColour } from "@/lib/colour-parse"
 import { ColourField } from "@/screens/master/colour-field"
 import { HEX, mistakenFor } from "@/screens/master/colour-hex"
 import { ColourSwatch } from "@/screens/master/colour-picker"
-import { ActiveRow, CodeFact, SubmitRow } from "@/screens/master/term-form"
+import {
+  ActiveRow,
+  CodeFact,
+  DeactivateDialog,
+  SubmitRow,
+} from "@/screens/master/term-form"
 import {
   said,
   snake,
@@ -160,13 +166,13 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
     // "unused" is the state somebody scans for — but it read as a licence to
     // delete, which it is not: what a colour may be deleted on is whether
     // anything has EVER worn it, and that answer is in the sheet.
-    // The number, and the word beside it in the quiet colour: "4 Articles".
+    // The number, and the word beside it in the quiet colour: "4 SKUs".
     cell: ({ row }) => {
       const n = row.original.term.in_use
       return (
         <span className="text-[0.875rem] tabular-nums">
           <span className={n === 0 ? "text-mute" : "text-ink"}>{count(n)}</span>{" "}
-          <span className="text-mute">{n === 1 ? "Article" : "Articles"}</span>
+          <span className="text-mute">{n === 1 ? "SKU" : "SKUs"}</span>
         </span>
       )
     },
@@ -200,6 +206,7 @@ function RowActions({ row }: { row: ColourRow }) {
         error instanceof Error ? error.message : "That did not save."
       ),
   })
+  const [asking, setAsking] = useState(false)
   const box =
     "inline-flex size-8 cursor-pointer items-center justify-center rounded-inner text-mute transition-colors hover:bg-soft-2 hover:text-ink disabled:cursor-progress disabled:opacity-50"
   return (
@@ -220,7 +227,8 @@ function RowActions({ row }: { row: ColourRow }) {
         className={box}
         onClick={(event) => {
           event.stopPropagation()
-          change.mutate()
+          if (row.active) setAsking(true)
+          else change.mutate()
         }}
       >
         {row.active ? (
@@ -229,6 +237,21 @@ function RowActions({ row }: { row: ColourRow }) {
           <Power className="size-4" />
         )}
       </button>
+      <DeactivateDialog
+        open={asking}
+        onOpenChange={setAsking}
+        noun="color"
+        label={row.term.label}
+        usage={{
+          queryKey: colourKeys.usage(row.term.code),
+          queryFn: ({ signal }) => colourUsage(row.term.code, signal),
+        }}
+        pending={change.isPending}
+        onConfirm={() => {
+          setAsking(false)
+          change.mutate()
+        }}
+      />
     </span>
   )
 }
@@ -309,7 +332,7 @@ export function Colours() {
     {
       label: "In Use",
       value: count(all.filter((row) => row.term.in_use > 0).length),
-      note: "Colors that at least one article is made in.",
+      note: "Colors that at least one SKU is made in.",
     },
   ]
 
@@ -772,6 +795,12 @@ function ColourForm({
                   <ActiveRow
                     on={field.state.value}
                     noun="color"
+                    label={colour.term.label}
+                    usage={{
+                      queryKey: colourKeys.usage(colour.term.code),
+                      queryFn: ({ signal }) =>
+                        colourUsage(colour.term.code, signal),
+                    }}
                     onToggle={() => field.handleChange(!field.state.value)}
                   />
                 )}

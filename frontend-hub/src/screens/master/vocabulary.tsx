@@ -24,6 +24,7 @@ import { toast } from "@/lib/toast"
 import {
   createTerm,
   listTerms,
+  termUsage,
   updateTerm,
   vocabularyKeys,
   type MasterTerm,
@@ -31,7 +32,12 @@ import {
 } from "@/lib/queries/vocabulary"
 import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import { ActiveRow, CodeFact, SubmitRow } from "@/screens/master/term-form"
+import {
+  ActiveRow,
+  CodeFact,
+  DeactivateDialog,
+  SubmitRow,
+} from "@/screens/master/term-form"
 import {
   said,
   snake,
@@ -307,6 +313,8 @@ function RowActions({
     },
     onError: (error) => toast.error(said(error)),
   })
+  const [asking, setAsking] = useState(false)
+  const noun = vocabulary.one
   const box =
     "inline-flex size-8 cursor-pointer items-center justify-center rounded-inner text-mute transition-colors hover:bg-soft-2 hover:text-ink disabled:cursor-progress disabled:opacity-50"
   return (
@@ -327,7 +335,8 @@ function RowActions({
         className={box}
         onClick={(event) => {
           event.stopPropagation()
-          change.mutate()
+          if (row.active) setAsking(true)
+          else change.mutate()
         }}
       >
         {row.active ? (
@@ -336,6 +345,22 @@ function RowActions({
           <Power className="size-4" />
         )}
       </button>
+      <DeactivateDialog
+        open={asking}
+        onOpenChange={setAsking}
+        noun={noun}
+        label={row.term.label}
+        usage={{
+          queryKey: vocabularyKeys.usage(vocabulary.kind, row.term.code),
+          queryFn: ({ signal }) =>
+            termUsage(vocabulary.kind, row.term.code, signal),
+        }}
+        pending={change.isPending}
+        onConfirm={() => {
+          setAsking(false)
+          change.mutate()
+        }}
+      />
     </span>
   )
 }
@@ -768,6 +793,15 @@ function TermForm({
                   <ActiveRow
                     on={field.state.value}
                     noun={vocabulary.one}
+                    label={term.term.label}
+                    usage={{
+                      queryKey: vocabularyKeys.usage(
+                        vocabulary.kind,
+                        term.term.code
+                      ),
+                      queryFn: ({ signal }) =>
+                        termUsage(vocabulary.kind, term.term.code, signal),
+                    }}
                     onToggle={() => field.handleChange(!field.state.value)}
                   />
                 )}

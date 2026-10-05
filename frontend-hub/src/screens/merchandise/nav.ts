@@ -65,6 +65,7 @@ export const merchandiseArticlesNav: AppModule = {
           path: "/merchandise/units",
           label: "Satuan & Conversions",
           icon: Scale,
+          hidden: true,
         },
       ],
     },

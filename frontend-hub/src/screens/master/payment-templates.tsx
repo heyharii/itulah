@@ -27,6 +27,14 @@ import {
 } from "@/lib/queries/payment-terms"
 import { queryState } from "@/lib/query-state"
 import { cn } from "@/lib/utils"
+import { CodeFact, SubmitRow } from "@/screens/master/term-form"
+import {
+  said,
+  snake,
+  useIdempotencyKey,
+  useReveal,
+  useTouched,
+} from "@/screens/master/term-form-kit"
 
 /// Payment templates — the arrangements a bill is scheduled with.
 ///
@@ -102,15 +110,6 @@ function toBps(raw: string): number | null {
   return bps > 0 && bps <= 10000 ? bps : null
 }
 
-/// `Net 60` → `NET_60`, the rule every master code here follows.
-function snake(label: string): string {
-  return label
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-}
-
 const CODE = /^[A-Z0-9]+(?:_[A-Z0-9]+)*$/
 
 function byOrder<T extends { display_order: number; label: string }>(
@@ -121,24 +120,6 @@ function byOrder<T extends { display_order: number; label: string }>(
       a.display_order - b.display_order ||
       a.label.localeCompare(b.label, "id-ID", { sensitivity: "base" })
   )
-}
-
-/// The server's own sentence about why a write was refused — the 409 from the
-/// "a template is the whole bill" trigger reads as a sentence, and "Could not
-/// save" would throw it away.
-function said(error: unknown): string {
-  return error instanceof Error
-    ? error.message
-    : "The server could not be reached."
-}
-
-/// A key held across retries and rotated after a success, so a double-clicked
-/// Save replays the first answer instead of writing twice. The same hook
-/// `colours.tsx` carries, for the reason it gives.
-function useIdempotencyKey() {
-  const [key, setKey] = useState(() => crypto.randomUUID())
-  const rotate = useCallback(() => setKey(crypto.randomUUID()), [])
-  return { key, rotate }
 }
 
 function Status({ active }: { active: boolean }) {
@@ -488,6 +469,7 @@ function TemplateSheet({
     <Sheet
       open={open}
       onOpenChange={(next) => !next && onClose()}
+      id={template?.code}
       title={template?.label ?? "New template"}
       badge={template ? <Status active={template.active} /> : undefined}
     >
@@ -516,6 +498,8 @@ function TemplateForm({
 }) {
   const client = useQueryClient()
   const idempotency = useIdempotencyKey()
+  const { attempt, reveal } = useReveal()
+  const { isTouched, touch } = useTouched()
   const [label, setLabel] = useState(template?.label ?? "")
   const [code, setCode] = useState(template?.code ?? "")
   const [codeTyped, setCodeTyped] = useState(false)
@@ -651,15 +635,18 @@ function TemplateForm({
     },
   })
 
-  const setLine = (id: string, patch: Partial<LineDraft>) =>
+  const setLine = (id: string, patch: Partial<LineDraft>) => {
+    touch(id)
     setLines((current) =>
       current.map((line) => (line.id === id ? { ...line, ...patch } : line))
     )
+  }
 
   return (
     <form
       onSubmit={(event) => {
         event.preventDefault()
+        attempt()
         if (!blocked) save.mutate()
       }}
       className="flex flex-col gap-4"
@@ -670,9 +657,14 @@ function TemplateForm({
         </Banner>
       )}
 
-      <Field label="Name" required problem={problems.label}>
+      <Field
+        label="Name"
+        required
+        problem={reveal(isTouched("label"), problems.label)}
+      >
         <Input
           value={label}
+          onBlur={() => touch("label")}
           onChange={(event) => {
             setLabel(event.target.value)
             if (template === null && !codeTyped)
@@ -681,16 +673,15 @@ function TemplateForm({
         />
       </Field>
 
-      <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
+      {template === null ? (
         <Field
           label="Code"
           required
-          problem={problems.code}
-          aside={template ? "Fixed" : undefined}
+          problem={reveal(isTouched("code"), problems.code)}
         >
           <Input
             value={code}
-            disabled={template !== null}
+            onBlur={() => touch("code")}
             onChange={(event) => {
               setCodeTyped(true)
               setCode(event.target.value)
@@ -698,15 +689,19 @@ function TemplateForm({
             className="font-mono"
           />
         </Field>
-        <Field label="Order" problem={problems.order}>
-          <Input
-            type="number"
-            min={0}
-            value={order}
-            onChange={(event) => setOrder(event.target.value)}
-          />
-        </Field>
-      </div>
+      ) : (
+        <CodeFact code={template.code} />
+      )}
+
+      <Field label="Order" problem={reveal(isTouched("order"), problems.order)}>
+        <Input
+          type="number"
+          min={0}
+          value={order}
+          onBlur={() => touch("order")}
+          onChange={(event) => setOrder(event.target.value)}
+        />
+      </Field>
 
       <div className="flex flex-col gap-3 border-t border-hairline pt-4">
         <div className="flex items-baseline justify-between gap-3">
@@ -805,9 +800,9 @@ function TemplateForm({
                     {describeDue(term.basis, term.offset_value)}
                   </span>
                 )}
-                {problems.lines[line.id] && (
+                {reveal(isTouched(line.id), problems.lines[line.id]) && (
                   <span className={cn(T14, "text-bad")}>
-                    {problems.lines[line.id]}
+                    {reveal(isTouched(line.id), problems.lines[line.id])}
                   </span>
                 )}
               </li>
@@ -842,19 +837,11 @@ function TemplateForm({
         </div>
       </div>
 
-      <Button
-        type="submit"
-        variant="primary"
-        className={T14}
+      <SubmitRow
         pending={save.isPending}
-        disabled={blocked}
-      >
-        {save.isPending
-          ? "Submitting…"
-          : template === null
-            ? "Submit"
-            : "Submit"}
-      </Button>
+        creating={template === null}
+        noun="template"
+      />
 
       {template && (
         <div className="mt-2 flex flex-col gap-3 border-t border-hairline pt-4">
@@ -907,6 +894,7 @@ function TermSheet({
     <Sheet
       open={open}
       onOpenChange={(next) => !next && onClose()}
+      id={term?.code}
       title={term?.label ?? "New term"}
       badge={term ? <Status active={term.active} /> : undefined}
     >
@@ -933,6 +921,8 @@ function TermForm({
 }) {
   const client = useQueryClient()
   const idempotency = useIdempotencyKey()
+  const { attempt, reveal } = useReveal()
+  const { isTouched, touch } = useTouched()
   const [label, setLabel] = useState(term?.label ?? "")
   const [code, setCode] = useState(term?.code ?? "")
   const [codeTyped, setCodeTyped] = useState(false)
@@ -1026,6 +1016,7 @@ function TermForm({
     <form
       onSubmit={(event) => {
         event.preventDefault()
+        attempt()
         if (!blocked) save.mutate()
       }}
       className="flex flex-col gap-4"
@@ -1036,9 +1027,14 @@ function TermForm({
         </Banner>
       )}
 
-      <Field label="Name" required problem={problems.label}>
+      <Field
+        label="Name"
+        required
+        problem={reveal(isTouched("label"), problems.label)}
+      >
         <Input
           value={label}
+          onBlur={() => touch("label")}
           onChange={(event) => {
             setLabel(event.target.value)
             if (term === null && !codeTyped) setCode(snake(event.target.value))
@@ -1046,16 +1042,15 @@ function TermForm({
         />
       </Field>
 
-      <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
+      {term === null ? (
         <Field
           label="Code"
           required
-          problem={problems.code}
-          aside={term ? "Fixed" : undefined}
+          problem={reveal(isTouched("code"), problems.code)}
         >
           <Input
             value={code}
-            disabled={term !== null}
+            onBlur={() => touch("code")}
             onChange={(event) => {
               setCodeTyped(true)
               setCode(event.target.value)
@@ -1063,15 +1058,19 @@ function TermForm({
             className="font-mono"
           />
         </Field>
-        <Field label="Order" problem={problems.order}>
-          <Input
-            type="number"
-            min={0}
-            value={order}
-            onChange={(event) => setOrder(event.target.value)}
-          />
-        </Field>
-      </div>
+      ) : (
+        <CodeFact code={term.code} />
+      )}
+
+      <Field label="Order" problem={reveal(isTouched("order"), problems.order)}>
+        <Input
+          type="number"
+          min={0}
+          value={order}
+          onBlur={() => touch("order")}
+          onChange={(event) => setOrder(event.target.value)}
+        />
+      </Field>
 
       <Field label="Counted from" required>
         <Select
@@ -1087,12 +1086,17 @@ function TermForm({
         </Select>
       </Field>
 
-      <Field label={unit} required problem={problems.offset}>
+      <Field
+        label={unit}
+        required
+        problem={reveal(isTouched("offset"), problems.offset)}
+      >
         <Input
           type="number"
           min={0}
           inputMode="numeric"
           value={offset}
+          onBlur={() => touch("offset")}
           onChange={(event) => setOffset(event.target.value)}
           className="tabular-nums"
         />
@@ -1116,15 +1120,11 @@ function TermForm({
         )}
       </div>
 
-      <Button
-        type="submit"
-        variant="primary"
-        className={T14}
+      <SubmitRow
         pending={save.isPending}
-        disabled={blocked}
-      >
-        {save.isPending ? "Submitting…" : term === null ? "Submit" : "Submit"}
-      </Button>
+        creating={term === null}
+        noun="term"
+      />
 
       {term && (
         <div className="mt-2 flex flex-col gap-3 border-t border-hairline pt-4">

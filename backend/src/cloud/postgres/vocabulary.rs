@@ -83,9 +83,9 @@ impl Vocabulary {
     fn usage(self) -> &'static str {
         match self {
             Self::Divisions => "(SELECT count(*) FROM article a WHERE a.division_code = v.code)",
-            Self::Sizes => {
-                "(SELECT count(DISTINCT s.article_id) FROM sku s WHERE s.size_code = v.code)"
-            }
+            // SKUs, not articles (owner, 2026-10-05): a size is a property of the
+            // variant, so the variants wearing it are the honest count.
+            Self::Sizes => "(SELECT count(*) FROM sku s WHERE s.size_code = v.code)",
             Self::Tags => {
                 "(SELECT count(DISTINCT t.article_id) FROM article_tag t WHERE t.tag_code = v.code)"
             }

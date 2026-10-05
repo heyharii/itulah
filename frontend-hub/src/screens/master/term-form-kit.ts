@@ -56,3 +56,20 @@ export function useReveal(): {
     reveal: (touched, problem) => (tried || touched ? problem : undefined),
   }
 }
+
+/// Which fields have been left, for the forms that keep their fields in plain
+/// state rather than in a form library. Pair with `useReveal`: a gap is named
+/// once its field is touched, or once Submit has been pressed.
+export function useTouched(): {
+  readonly isTouched: (name: string) => boolean
+  readonly touch: (name: string) => void
+} {
+  const [seen, setSeen] = useState<ReadonlySet<string>>(() => new Set())
+  return {
+    isTouched: (name) => seen.has(name),
+    touch: (name) =>
+      setSeen((current) =>
+        current.has(name) ? current : new Set(current).add(name)
+      ),
+  }
+}

@@ -19,10 +19,9 @@ use sqlx::{postgres::PgRow, PgPool, Row};
 
 /// One colour, and how much of the catalogue is wearing it.
 ///
-/// `in_use` counts ARTICLES, not SKUs or units. It is the number that answers
-/// the only question worth asking before retiring a colour — "is anything
-/// still filed under this" — and a SKU count would answer it in a unit nobody
-/// thinks in.
+/// `in_use` counts SKUs (owner, 2026-10-05: "in use berapa SKU"): the
+/// variants of every article that are this colour. It still answers "is
+/// anything filed under this" — zero SKUs is zero articles wearing it.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct ColourTerm {
@@ -280,13 +279,15 @@ impl ColourCursor {
 /// Binds: `$1` the search pattern or NULL.
 const COLOUR_ROWS: &str = "
     SELECT c.code, c.label, c.hex_code, c.display_order, c.active, c.version, c.ever_used,
-           COALESCE(u.articles, 0) AS in_use,
+           COALESCE(u.skus, 0) AS in_use,
            CASE WHEN c.active THEN 'ACTIVE' ELSE 'RETIRED' END AS state,
-           CASE WHEN COALESCE(u.articles, 0) > 0 THEN 'IN_USE' ELSE 'UNUSED' END AS usage
+           CASE WHEN COALESCE(u.skus, 0) > 0 THEN 'IN_USE' ELSE 'UNUSED' END AS usage
       FROM colour c
       LEFT JOIN (
-          SELECT colour_code, count(DISTINCT article_id) AS articles
-            FROM article_colour GROUP BY colour_code
+          SELECT ac.colour_code, count(s.id) AS skus
+            FROM article_colour ac
+            JOIN sku s ON s.article_id = ac.article_id AND s.colour_digit = ac.colour_digit
+           GROUP BY ac.colour_code
       ) u ON u.colour_code = c.code
      WHERE ($1::text IS NULL OR c.code ILIKE $1 OR c.label ILIKE $1)
 ";
@@ -427,8 +428,9 @@ pub async fn colour_vocabulary(
 /// One colour with the only figure that matters for retiring it.
 const COLOUR_WITH_USAGE: &str = "
     SELECT c.code, c.label, c.hex_code, c.display_order, c.active, c.version, c.ever_used,
-           (SELECT count(DISTINCT article_id) FROM article_colour
-             WHERE colour_code = c.code) AS in_use
+           (SELECT count(s.id) FROM article_colour ac
+              JOIN sku s ON s.article_id = ac.article_id AND s.colour_digit = ac.colour_digit
+             WHERE ac.colour_code = c.code) AS in_use
       FROM colour c WHERE c.code = $1";
 
 async fn read_colour(pool: &PgPool, code: &str) -> Result<ColourTerm, AppError> {

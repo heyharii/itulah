@@ -579,7 +579,7 @@ export function Articles() {
                       ))}
                     </div>
                   ) : (
-                    <Card className="overflow-hidden">
+                    <Card className="overflow-clip">
                       {/* Sorting is over what has been loaded, not over the
                           whole catalogue: the cursor is keyed on article code,
                           so a sort by price can only order the pages already
@@ -594,7 +594,9 @@ export function Articles() {
                           row.article.article_code === article.value
                         }
                         more={catalogue}
-                        className="max-h-[calc(100vh-22rem)]"
+                        // The window scrolls, not the table (owner,
+                        // 2026-10-05): no box inside the card with its own bars.
+                        pageScroll
                       />
                     </Card>
                   )}
