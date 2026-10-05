@@ -5,14 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import {
-  Camera,
-  ChevronLeft,
-  ChevronRight,
-  Pencil,
-  Plus,
-  Search,
-} from "lucide-react"
+import { Camera, ChevronLeft, ChevronRight, Pencil, Plus } from "lucide-react"
 import { Popover } from "@base-ui/react/popover"
 import { useEffect, useId, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
@@ -21,8 +14,11 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Dialog, SavedDialog } from "@/components/ui/dialog"
 import { Field, Input, Money } from "@/components/ui/field"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
 import { RecordPanel } from "@/components/ui/record-panel"
 import { SubHead } from "@/components/ui/rows"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { PickMany, PickOne, type Choice } from "@/components/ui/pick"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
@@ -49,7 +45,6 @@ import {
   supplierItemImage,
   uploadArticleImage,
   type SetupSession,
-  type SetupSessionRow,
   type UnidentifiedReceipt,
   catalogueVocabulary,
   openSetupSession,
@@ -211,6 +206,9 @@ export function SetupWorkspace() {
   const poFilter = useSheet("setupFor")
   const supplierOf = useSupplierName()
   const [query, setQuery] = useState("")
+  /// Waiting lines, sessions that did not mint, or both — as Divisions has
+  /// Active, Inactive and All.
+  const [tab, setTab] = useState<ListTab>("WAITING")
 
   /// How the last press of Submit ended, for the record the sheet hands over
   /// to. Not in the URL: it is what just happened in front of one person, not
@@ -271,7 +269,6 @@ export function SetupWorkspace() {
     suppliers.some((one) => one.id === poFilter.value)
       ? poFilter.value
       : null
-  const hereSupplier = suppliers.find((one) => one.id === here)
 
   const needle = query.trim().toLowerCase()
   /// The lines on screen, a supplier at a time (A to Z), newest PO first
@@ -335,10 +332,14 @@ export function SetupWorkspace() {
   /// Previous and Next walk, and what "2 of 7" counts.
   const cards = useMemo<readonly Target[]>(
     () => [
-      ...shown.map((row) => ({ receipt: row.receipt_line_id })),
-      ...stalledShown.map((row) => ({ setup: row.session_id })),
+      ...(tab === "NOT_MINTED" ? [] : shown).map((row) => ({
+        receipt: row.receipt_line_id,
+      })),
+      ...(tab === "WAITING" ? [] : stalledShown).map((row) => ({
+        setup: row.session_id,
+      })),
     ],
-    [shown, stalledShown]
+    [shown, stalledShown, tab]
   )
 
   /// Which delivery the form is for. Looked up in the whole queue, not just
@@ -414,144 +415,187 @@ export function SetupWorkspace() {
 
   return (
     <>
-      {nothingWaiting ? (
-        <Card>
+      {/* The same head Divisions and the order book open on: figures,
+      tabs, then the toolbar over the table. */}
+      <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
+        <Kpi
+          label="New Articles"
+          value={count(waiting.length + stalled.length)}
+        />
+        <Kpi
+          label="Pieces"
+          value={count(
+            waiting.reduce((sum, row) => sum + row.quantity, 0) +
+              stalled.reduce((sum, row) => sum + row.receipt_quantity, 0)
+          )}
+        />
+        <Kpi label="Suppliers" value={count(suppliers.length)} />
+        <Kpi label="Not Minted" value={count(stalled.length)} />
+      </KpiStrip>
+
+      <SubTabs
+        tabs={[
+          {
+            value: "WAITING",
+            label: <TabLabel text="Waiting" n={waiting.length} />,
+          },
+          {
+            value: "NOT_MINTED",
+            label: <TabLabel text="Not Minted" n={stalled.length} />,
+          },
+          {
+            value: "ALL",
+            label: <TabLabel text="All" n={waiting.length + stalled.length} />,
+          },
+        ]}
+        value={tab}
+        onChange={(next) => setTab(next as ListTab)}
+      />
+
+      {/* Search, and the supplier picker once there is more than one
+      supplier to pick from. */}
+      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+        <ExpandingSearch
+          value={query}
+          onChange={setQuery}
+          label="Search New Articles"
+        />
+        {suppliers.length > 1 && (
+          <PickOne
+            label="Supplier"
+            placeholder="All suppliers"
+            choices={suppliers.map((one) => ({
+              value: one.id,
+              label: one.name,
+            }))}
+            value={here}
+            onChange={(next) => go(next === null ? {} : { setupFor: next })}
+            className={cn(
+              "h-[2.125rem] min-h-0 w-56 shrink-0 py-0",
+              here !== null &&
+                "border-accent/40 bg-accent-bg [&_input]:text-accent"
+            )}
+          />
+        )}
+        <BarSpacer />
+      </div>
+
+      {/* A ledger: the supplier said once in its own column and held in
+      place while its lines scroll past, one fact per column. Under 42rem of
+      card the supplier becomes a band above its lines instead. */}
+      <Card className="@container overflow-clip">
+        {nothingWaiting ? (
           <EmptyState>Nothing waiting.</EmptyState>
-        </Card>
-      ) : (
-        // `@container`, so the rail and the cards split on the width the page
-        // actually got rather than on the window.
-        <Card className="@container flex flex-col p-5 min-[100rem]:p-7">
-          <div className="grid items-start gap-6 [--rail-a:13rem] [--rail-gap:1.75rem] [--rail-pr:1.5rem] min-[100rem]:gap-8 min-[100rem]:[--rail-a:15rem] min-[100rem]:[--rail-gap:2.5rem] min-[100rem]:[--rail-pr:2rem] @3xl:grid-cols-[var(--rail-a)_minmax(0,1fr)] @3xl:gap-x-(--rail-gap)">
-            <aside
-              aria-label="Suppliers"
-              className="min-w-0 @3xl:sticky @3xl:top-4 @3xl:max-h-[calc(100dvh-6rem)] @3xl:overflow-y-auto @3xl:border-r @3xl:border-hairline @3xl:pr-(--rail-pr)"
+        ) : cards.length === 0 ? (
+          <EmptyState>
+            {receipts.isPending
+              ? "Reading the queue…"
+              : "Nothing here matches that."}
+          </EmptyState>
+        ) : (
+          <>
+            <div
+              className={cn(
+                LEDGER_COLUMNS,
+                "sticky top-0 z-[3] h-10 border-b border-hairline bg-soft text-[0.875rem] font-medium tracking-[0.04em] text-body"
+              )}
             >
-              <div className="flex min-w-0 flex-col gap-1.5 max-md:-mx-1 max-md:[scrollbar-width:none] max-md:flex-row max-md:items-stretch max-md:overflow-x-auto max-md:px-1 max-md:pb-1 max-md:[&::-webkit-scrollbar]:hidden">
-                <span className="px-3 pb-2 text-[0.875rem] font-semibold tracking-[0.06em] text-mute uppercase max-md:hidden">
-                  Supplier
-                </span>
-                <RailRow
-                  label="All"
-                  tally={waiting.length}
-                  on={here === null}
-                  onClick={() => go({})}
-                />
-                {suppliers.map((one) => (
-                  <RailRow
-                    key={one.id}
-                    label={one.name}
-                    tally={one.tally}
-                    on={here === one.id}
-                    onClick={() => go({ setupFor: one.id })}
+              <span className="hidden px-5 @2xl:block">Supplier</span>
+              <span className="px-4 @2xl:px-5">Article</span>
+              <span className="hidden px-5 @2xl:block">PO</span>
+              <span className="px-4 text-right @2xl:px-5">Quantity</span>
+              <span className="hidden px-5 text-right @2xl:block">
+                Received At
+              </span>
+            </div>
+            {tab !== "NOT_MINTED" &&
+              sections.map((group) => (
+                <LedgerGroup
+                  key={group.id}
+                  name={group.name}
+                  pieces={group.rows.reduce(
+                    (sum, row) => sum + row.quantity,
+                    0
+                  )}
+                  lines={group.rows.length}
+                >
+                  {group.rows.map((row) => (
+                    <WaitingRow
+                      key={row.receipt_line_id}
+                      row={row}
+                      on={row.receipt_line_id === active?.receipt_line_id}
+                      onOpen={() =>
+                        go({
+                          setupFor: railNow,
+                          receipt: row.receipt_line_id,
+                        })
+                      }
+                    />
+                  ))}
+                </LedgerGroup>
+              ))}
+            {/* A session still open is a mint that did not run: the delivery
+            has its identity and is out of the queue, and nothing but a
+            person pressing the button on its record will finish it. */}
+            {tab !== "WAITING" && stalledShown.length > 0 && (
+              <LedgerGroup
+                name="Not Minted"
+                warn
+                pieces={stalledShown.reduce(
+                  (sum, row) => sum + row.receipt_quantity,
+                  0
+                )}
+                lines={stalledShown.length}
+              >
+                {stalledShown.map((row) => (
+                  <LedgerRow
+                    key={row.session_id}
+                    image={null}
+                    name={row.article_name}
+                    division={row.division_code}
+                    code={row.article_code}
+                    pieces={row.receipt_quantity}
+                    since={row.created_at}
+                    on={row.session_id === session.value}
+                    onOpen={() =>
+                      go({ setupFor: railNow, setup: row.session_id })
+                    }
                   />
                 ))}
-              </div>
-            </aside>
-
-            <section
-              aria-label="Items waiting"
-              className="flex min-w-0 flex-col gap-5"
-            >
-              <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-3">
-                <h3 className="min-w-0 truncate text-[1.0625rem] font-semibold tracking-[-0.02em] text-ink">
-                  {hereSupplier === undefined
-                    ? "All Suppliers"
-                    : hereSupplier.name}
-                </h3>
-                <span className="text-[0.9375rem] text-mute tabular-nums">
-                  {count(cards.length)}
-                </span>
-                <span className="flex-1" />
-                {waiting.length + stalled.length > 0 && (
-                  <span className="relative block w-full @xl:w-72">
-                    <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-line-ico" />
-                    <input
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      aria-label="Search the items waiting"
-                      className="h-10 w-full rounded-inner border border-hairline-2 bg-canvas pr-3 pl-9 text-[0.9375rem] text-ink outline-none placeholder:text-body focus:border-accent"
-                    />
-                  </span>
-                )}
-              </div>
-
-              {cards.length === 0 ? (
-                <EmptyState>
-                  {receipts.isPending
-                    ? "Reading the queue…"
-                    : waiting.length === 0 && stalled.length === 0
-                      ? "Nothing waiting."
-                      : "Nothing here matches that."}
-                </EmptyState>
-              ) : (
-                <div className="flex flex-col gap-8">
-                  {sections.map((group) => (
-                    <div
-                      key={group.id}
-                      role="group"
-                      aria-label={group.name}
-                      className="flex min-w-0 flex-col gap-3"
-                    >
-                      {/* On one supplier's rail the page title already says
-                      who; the heading is for All, where the cards of
-                      several suppliers stand under one another. */}
-                      {here === null && (
-                        <h4 className="flex min-w-0 items-baseline gap-2 text-[0.9375rem] font-semibold text-ink">
-                          <span className="min-w-0 truncate">{group.name}</span>
-                          <span className="shrink-0 font-normal text-mute tabular-nums">
-                            {count(group.rows.length)}
-                          </span>
-                        </h4>
-                      )}
-                      <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] items-start gap-4">
-                        {group.rows.map((row) => (
-                          <WaitingCard
-                            key={row.receipt_line_id}
-                            row={row}
-                            on={row.receipt_line_id === active?.receipt_line_id}
-                            onOpen={() =>
-                              go({
-                                setupFor: railNow,
-                                receipt: row.receipt_line_id,
-                              })
-                            }
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                  {/* A session still open is a mint that did not run: the
-                  delivery has its identity and is out of the queue, and
-                  nothing but a person pressing the button on its record will
-                  finish it. */}
-                  {stalledShown.length > 0 && (
-                    <div className="flex min-w-0 flex-col gap-3">
-                      {sections.length > 0 && (
-                        <h4 className="text-[0.9375rem] font-semibold text-ink">
-                          Not Minted
-                        </h4>
-                      )}
-                      <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] items-start gap-4">
-                        {stalledShown.map((row) => (
-                          <StalledCard
-                            key={row.session_id}
-                            row={row}
-                            on={row.session_id === session.value}
-                            onOpen={() =>
-                              go({ setupFor: railNow, setup: row.session_id })
-                            }
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
+              </LedgerGroup>
+            )}
+            <div
+              className={cn(
+                LEDGER_COLUMNS,
+                "sticky bottom-0 z-[3] h-12 border-t border-hairline-2 bg-soft text-[0.875rem] text-mute"
               )}
-            </section>
-          </div>
-        </Card>
-      )}
+            >
+              <span className="px-4 @2xl:px-5">
+                <b className="font-medium text-ink tabular-nums">
+                  {count(cards.length)}
+                </b>{" "}
+                {cards.length === 1 ? "item" : "items"}
+              </span>
+              <span className="hidden @2xl:block" />
+              <span className="hidden @2xl:block" />
+              <span className="px-4 text-right font-medium text-ink tabular-nums @2xl:px-5">
+                {count(
+                  (tab === "NOT_MINTED" ? [] : shown).reduce(
+                    (sum, row) => sum + row.quantity,
+                    0
+                  ) +
+                    (tab === "WAITING" ? [] : stalledShown).reduce(
+                      (sum, row) => sum + row.receipt_quantity,
+                      0
+                    )
+                )}{" "}
+                pcs
+              </span>
+              <span className="hidden @2xl:block" />
+            </div>
+          </>
+        )}
+      </Card>
 
       <Sheet
         open={sheetOpen}
@@ -741,74 +785,77 @@ function codeSpan(codes: readonly string[]): string {
     : sorted.join(", ")
 }
 
-/// One row of the PO rail: which order it is and whose, how many lines are
-/// under it, and whether the rail is standing on it.
-function RailRow({
-  label,
-  sub,
-  tally,
-  on,
-  mono,
-  onClick,
-}: {
-  label: string
-  /// The supplier, muted under the order number.
-  sub?: string
-  tally: number
-  on: boolean
-  mono?: boolean
-  onClick: () => void
-}) {
+type ListTab = "WAITING" | "NOT_MINTED" | "ALL"
+
+/// A tab's word and its count, as Divisions draws them.
+function TabLabel({ text, n }: { text: string; n: number }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-current={on}
-      // The rail is thirteen rem and an order number is sixteen characters,
-      // so the longest of them can lose their tail. The whole of it is here
-      // for anybody who needs to read it off.
-      title={sub === undefined ? label : `${label} · ${sub}`}
-      className={cn(
-        "flex min-h-10 w-full items-center gap-2 rounded-inner px-3 text-left transition-colors min-[100rem]:min-h-11",
-        // A phone lays the rail along the top as chips to swipe.
-        "max-md:w-auto max-md:min-w-36 max-md:shrink-0 max-md:border max-md:border-hairline",
-        sub !== undefined && "py-2",
-        on
-          ? "bg-soft-2 text-ink max-md:border-ink"
-          : "text-text hover:bg-soft-2"
-      )}
-    >
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span
-          className={cn(
-            "truncate text-[0.9375rem]",
-            mono && "font-mono text-id",
-            (on || mono) && "font-medium"
-          )}
-        >
-          {label}
-        </span>
-        {sub !== undefined && (
-          <span className="truncate text-[0.875rem] text-mute">{sub}</span>
-        )}
-      </span>
-      <span className="shrink-0 text-[0.875rem] text-mute tabular-nums">
-        {count(tally)}
-      </span>
-    </button>
+    <span>
+      {text}
+      <span className="ml-1.5 text-body tabular-nums">{count(n)}</span>
+    </span>
   )
 }
 
-/// The frame every card on the page shares: the photograph on top, the name,
-/// a muted line under it, and a foot with the status word, the pieces and how
-/// long it has waited. A button, the whole of it — the card IS the way in.
-function SetupCard({
+/// The ledger's columns, shared by its heading, its rows and its foot so the
+/// three line up: Supplier · Article · PO · Quantity · Received At from 42rem of
+/// card, Article and Quantity below it.
+const LEDGER_COLUMNS =
+  "grid grid-cols-[minmax(0,1fr)_auto] items-center @2xl:grid-cols-[15.5rem_minmax(0,1fr)_10.75rem_7.25rem_8.75rem]"
+
+/// One supplier's lines. The supplier is said once: a column of its own that
+/// holds its place while the lines beside it scroll, or, under 42rem of card,
+/// a band above them that sticks under the heading.
+function LedgerGroup({
+  name,
+  lines,
+  pieces,
+  warn,
+  children,
+}: {
+  name: string
+  lines: number
+  pieces: number
+  /// Not minted: said in the warning colour, as the cards used to say it.
+  warn?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={name}
+      className="grid grid-cols-1 not-first:border-t not-first:border-hairline-2 @2xl:grid-cols-[15.5rem_minmax(0,1fr)]"
+    >
+      <div className="sticky top-10 z-[2] border-b border-hairline bg-soft px-4 py-2.5 @2xl:static @2xl:z-auto @2xl:border-b-0 @2xl:bg-transparent @2xl:px-5 @2xl:py-[1.0625rem]">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 @2xl:sticky @2xl:top-[3.5625rem] @2xl:flex-col @2xl:gap-0.5">
+          <span
+            className={cn(
+              "text-[0.9375rem] font-medium [overflow-wrap:anywhere]",
+              warn ? "text-warn-fg" : "text-ink"
+            )}
+          >
+            {name}
+          </span>
+          <span className="text-[0.875rem] text-mute tabular-nums">
+            {count(lines)} {lines === 1 ? "item" : "items"} · {count(pieces)}{" "}
+            pcs
+          </span>
+        </div>
+      </div>
+      <div className="min-w-0">{children}</div>
+    </div>
+  )
+}
+
+/// One line of the ledger: the photograph and name, the PO it came on (or
+/// the article code, for a session that did not mint), the pieces, and how
+/// long since the goods were received. A button, the whole row — the row IS the
+/// way in.
+function LedgerRow({
   image,
   name,
   division,
-  sub,
-  status,
-  warn,
+  code,
   pieces,
   since,
   on,
@@ -817,11 +864,7 @@ function SetupCard({
   image: string | null
   name: string
   division: string | null
-  sub: React.ReactNode
-  /// Only said when something is wrong ('Not minted'); a card that merely
-  /// waits for its form says nothing.
-  status?: string
-  warn?: boolean
+  code: string
   pieces: number
   since: string
   on: boolean
@@ -833,48 +876,34 @@ function SetupCard({
       onClick={onOpen}
       aria-current={on}
       className={cn(
-        "flex min-h-14 min-w-0 flex-col overflow-hidden rounded-card border bg-canvas text-left shadow-soft transition-colors outline-none focus-visible:border-accent max-md:flex-row",
-        on ? "border-accent/50" : "border-hairline hover:border-hairline-2"
+        "grid min-h-14 w-full grid-cols-[minmax(0,1fr)_auto] items-center text-left transition-colors outline-none not-first:border-t not-first:border-hairline focus-visible:bg-soft-2 @2xl:grid-cols-[minmax(0,1fr)_10.75rem_7.25rem_8.75rem]",
+        on ? "bg-soft-2" : "bg-canvas hover:bg-soft active:bg-soft-2"
       )}
     >
-      <Thumbnail
-        url={image}
-        name={name}
-        division={division}
-        className="aspect-[3/2] w-full border-b border-hairline max-md:aspect-auto max-md:w-24 max-md:shrink-0 max-md:self-stretch max-md:border-r max-md:border-b-0"
-      />
-      <span className="flex min-w-0 flex-col gap-1 px-4 pt-3.5 pb-4 max-md:flex-1 max-md:px-3.5 max-md:py-3">
-        <span className="truncate text-[0.9375rem] font-semibold text-ink">
-          {name}
-        </span>
-        <span className="flex min-w-0 flex-col text-[0.875rem] text-mute">
-          {sub}
-        </span>
-        <span className="mt-3 flex min-w-0 items-center gap-3 border-t border-hairline pt-3 text-[0.875rem] max-md:mt-1.5 max-md:pt-2">
-          {status ? (
-            <span
-              className={cn(
-                "flex min-w-0 flex-1 items-center gap-2 truncate",
-                warn ? "text-warn-fg" : "text-body"
-              )}
-            >
-              <span
-                aria-hidden
-                className={cn(
-                  "size-2 shrink-0 rounded-full",
-                  warn ? "bg-warn" : "bg-accent"
-                )}
-              />
-              {status}
-            </span>
-          ) : (
-            <span className="flex-1" />
-          )}
-          <span className="shrink-0 text-ink tabular-nums">
-            {count(pieces)} pcs
+      <span className="row-span-2 flex min-w-0 items-center gap-3 py-2 pl-4 @2xl:row-span-1 @2xl:px-5">
+        <Thumbnail
+          url={image}
+          name={name}
+          division={division}
+          className="size-8 shrink-0 rounded-[0.375rem]"
+        />
+        <span className="flex min-w-0 flex-col">
+          <span className="text-[0.9375rem] [overflow-wrap:anywhere] text-ink">
+            {name}
           </span>
-          <span className="shrink-0 text-mute tabular-nums">{ago(since)}</span>
+          <span className="font-mono text-[0.875rem] text-mute @2xl:hidden">
+            {code}
+          </span>
         </span>
+      </span>
+      <span className="hidden truncate px-5 font-mono text-[0.875rem] text-mute @2xl:block">
+        {code}
+      </span>
+      <span className="self-end px-4 pt-2 text-right text-[0.9375rem] whitespace-nowrap text-ink tabular-nums @2xl:self-auto @2xl:px-5 @2xl:pt-0">
+        {count(pieces)} pcs
+      </span>
+      <span className="self-start px-4 pb-2 text-right text-[0.875rem] whitespace-nowrap text-mute tabular-nums @2xl:self-auto @2xl:px-5 @2xl:pb-0 @2xl:text-[0.9375rem]">
+        {ago(since)}
       </span>
     </button>
   )
@@ -904,7 +933,7 @@ function useLineImage(row: UnidentifiedReceipt): string | null {
 /// One delivery line waiting for its identity. The photograph is the PO
 /// line's own (`image_url`), else the one kept on the supplier's item, else
 /// the garment placeholder the Thumbnail draws from the name.
-function WaitingCard({
+function WaitingRow({
   row,
   on,
   onOpen,
@@ -915,42 +944,15 @@ function WaitingCard({
 }) {
   const image = useLineImage(row)
   return (
-    <SetupCard
+    <LedgerRow
       image={image}
       name={row.article_name}
       division={row.division_code}
-      // The supplier is the heading the card stands under; the PO is what
+      // The supplier is the column the row stands beside; the PO is what
       // tells one delivery of theirs from another.
-      sub={<span className="block truncate font-mono">{row.po_number}</span>}
+      code={row.po_number}
       pieces={row.quantity}
       since={row.verified_at}
-      on={on}
-      onOpen={onOpen}
-    />
-  )
-}
-
-/// A session that opened and did not mint. Its row carries no photograph
-/// and no supplier, so the placeholder and the article code stand in.
-function StalledCard({
-  row,
-  on,
-  onOpen,
-}: {
-  row: SetupSessionRow
-  on: boolean
-  onOpen: () => void
-}) {
-  return (
-    <SetupCard
-      image={null}
-      name={row.article_name}
-      division={row.division_code}
-      sub={<span className="font-mono">{row.article_code}</span>}
-      status="Not minted"
-      warn
-      pieces={row.receipt_quantity}
-      since={row.created_at}
       on={on}
       onOpen={onOpen}
     />
