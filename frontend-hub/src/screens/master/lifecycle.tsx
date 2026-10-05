@@ -2,7 +2,7 @@ import { useMutation, type UseQueryResult } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { Pill } from "@/components/ui/pill"
+import { Switch } from "@/components/ui/form"
 import { SubHead } from "@/components/ui/rows"
 import { Banner } from "@/components/ui/states"
 import { count } from "@/lib/format"
@@ -118,11 +118,17 @@ export function MasterLifecycle({
       <div>
         <SubHead>Status</SubHead>
         <div className="mb-2.5 flex items-center gap-2.5">
-          {active ? (
-            <Pill tone="ok">Active</Pill>
-          ) : (
-            <Pill tone="neutral">Cancelled</Pill>
-          )}
+          <Switch
+            on={active}
+            busy={change.isPending}
+            label={
+              active ? `Deactivate this ${subject}` : `Activate this ${subject}`
+            }
+            onToggle={() => change.mutate(!active)}
+          />
+          <span className={active ? "text-ink" : "text-mute"}>
+            {active ? "Active" : "Inactive"}
+          </span>
         </div>
 
         {change.isError && (
@@ -137,18 +143,6 @@ export function MasterLifecycle({
         )}
 
         <div className="flex flex-wrap items-center gap-2.5">
-          <Button
-            variant={active ? "soft" : "primary"}
-            pending={change.isPending || remove.isPending}
-            onClick={() => change.mutate(!active)}
-          >
-            {change.isPending
-              ? "Saving…"
-              : active
-                ? `Cancel This ${subject.charAt(0).toUpperCase()}${subject.slice(1)}`
-                : `Restore This ${subject.charAt(0).toUpperCase()}${subject.slice(1)}`}
-          </Button>
-
           {deletable &&
             (confirming ? (
               <>

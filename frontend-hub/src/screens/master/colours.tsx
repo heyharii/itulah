@@ -18,12 +18,13 @@ import {
   ViewPicker,
 } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import { Switch } from "@/components/ui/form"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { count } from "@/lib/format"
+import { toast } from "@/lib/toast"
 import {
   colourKeys,
   colourUsage,
@@ -193,9 +194,9 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
         // answer the curator is looking for.
         options: [
           { value: "ACTIVE", label: "Active" },
-          { value: "RETIRED", label: "Cancelled" },
+          { value: "RETIRED", label: "Inactive" },
         ],
-        format: (value) => (value === "ACTIVE" ? "Active" : "Cancelled"),
+        format: (value) => (value === "ACTIVE" ? "Active" : "Inactive"),
       },
     },
     // Active and Retired, not Offered and Retired. "Offered" made the reader
@@ -203,14 +204,43 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
     // chosen when a colourway is mapped — and matches the segment above.
     // Retired is `neutral`, not `bad`: a colour taken out of the picker is a
     // decision somebody made, not a fault in the row.
-    cell: ({ row }) =>
-      row.original.active ? (
-        <Pill tone="ok">Active</Pill>
-      ) : (
-        <Pill tone="neutral">Cancelled</Pill>
-      ),
+    cell: ({ row }) => <StatusSwitch row={row.original} />,
   },
 ]
+
+/// Active or inactive, in the row (owner, 2026-10-05): one press, no sheet.
+function StatusSwitch({ row }: { row: ColourRow }) {
+  const client = useQueryClient()
+  const change = useMutation({
+    mutationFn: () =>
+      updateColour(
+        row.term.code,
+        { active: !row.active },
+        row.term.version,
+        crypto.randomUUID()
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: colourKeys.all })
+    },
+    onError: (error) =>
+      toast.error(
+        error instanceof Error ? error.message : "That did not save."
+      ),
+  })
+  return (
+    <span className="inline-flex items-center gap-2.5">
+      <Switch
+        on={row.active}
+        busy={change.isPending}
+        label={`${row.active ? "Deactivate" : "Activate"} ${row.term.label}`}
+        onToggle={() => change.mutate()}
+      />
+      <span className={row.active ? "text-ink" : "text-mute"}>
+        {row.active ? "Active" : "Inactive"}
+      </span>
+    </span>
+  )
+}
 
 export function Colours() {
   const [query, setQuery] = useState("")
@@ -317,7 +347,7 @@ export function Colours() {
             </span>
             <span className="mr-auto text-[0.875rem] text-body dock:mr-0">
               <b className="font-medium text-ink">{count(all.length)}</b>{" "}
-              colours · {count(retired)} retired
+              colours · {count(retired)} inactive
               {unswatched > 0 && ` · ${count(unswatched)} with no swatch yet`}
             </span>
             <SortMenu

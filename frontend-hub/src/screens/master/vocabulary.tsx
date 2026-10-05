@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
+import { Switch } from "@/components/ui/form"
 import { FilterOmnibox } from "@/components/ui/filter-omnibox"
 import {
   ColumnsMenu,
@@ -18,12 +19,12 @@ import {
   ViewPicker,
 } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { count } from "@/lib/format"
+import { toast } from "@/lib/toast"
 import {
   createTerm,
   deleteTerm,
@@ -265,9 +266,9 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
           // the answer somebody is looking for.
           options: [
             { value: "ACTIVE", label: "Active" },
-            { value: "RETIRED", label: "Cancelled" },
+            { value: "RETIRED", label: "Inactive" },
           ],
-          format: (value) => (value === "ACTIVE" ? "Active" : "Cancelled"),
+          format: (value) => (value === "ACTIVE" ? "Active" : "Inactive"),
         },
       },
       //
@@ -277,12 +278,12 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
       // the guess, and pairs with the word on the segment above.
       // Retired is `neutral`, not `bad`: a term taken out of the picker is a
       // decision somebody made, not a fault in the row.
-      cell: ({ row }) =>
-        row.original.active ? (
-          <Pill tone="ok">Active</Pill>
-        ) : (
-          <Pill tone="neutral">Cancelled</Pill>
-        ),
+      // A switch, not a word: Active and Inactive are the one decision this
+      // list asks of anybody, and it should be one press from the row
+      // (owner, 2026-10-05) rather than a button down a sheet.
+      cell: ({ row }) => (
+        <StatusSwitch vocabulary={vocabulary} row={row.original} />
+      ),
     }
   )
 
@@ -291,6 +292,47 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
 
 function capitalise(word: string): string {
   return word.charAt(0).toUpperCase() + word.slice(1)
+}
+
+/// Active or inactive, in the row. Inactive is the old "retired": still
+/// there, never deleted, and no longer offered for new work.
+function StatusSwitch({
+  vocabulary,
+  row,
+}: {
+  vocabulary: Vocabulary
+  row: TermRow
+}) {
+  const client = useQueryClient()
+  const change = useMutation({
+    mutationFn: () =>
+      updateTerm(
+        vocabulary.kind,
+        row.term.code,
+        { active: !row.active },
+        row.term.version,
+        crypto.randomUUID()
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: vocabularyKeys.all })
+      void client.invalidateQueries({ queryKey: ["procurement", "vocabulary"] })
+      void client.invalidateQueries({ queryKey: ["articles"] })
+    },
+    onError: (error) => toast.error(said(error)),
+  })
+  return (
+    <span className="inline-flex items-center gap-2.5">
+      <Switch
+        on={row.active}
+        busy={change.isPending}
+        label={`${row.active ? "Deactivate" : "Activate"} ${row.term.label}`}
+        onToggle={() => change.mutate()}
+      />
+      <span className={row.active ? "text-ink" : "text-mute"}>
+        {row.active ? "Active" : "Inactive"}
+      </span>
+    </span>
+  )
 }
 
 function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
@@ -395,7 +437,7 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
             </span>
             <span className="mr-auto text-[0.875rem] text-body dock:mr-0">
               <b className="font-medium text-ink">{count(all.length)}</b>{" "}
-              {vocabulary.title.toLowerCase()} · {count(retired)} retired
+              {vocabulary.title.toLowerCase()} · {count(retired)} inactive
             </span>
             <SortMenu
               table={table}
@@ -460,7 +502,7 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
           kpis={[
             { label: capitalise(vocabulary.title), value: count(all.length) },
             {
-              label: "Cancelled",
+              label: "Inactive",
               value: count(retired),
               note: "Terms no longer offered when an article is described.",
             },
