@@ -159,6 +159,17 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
   },
 ]
 
+type StatusTab = "ALL" | "ACTIVE" | "INACTIVE"
+
+function TabLabel({ text, n }: { text: string; n: number }) {
+  return (
+    <span>
+      {text}
+      <span className="ml-1.5 text-body tabular-nums">{count(n)}</span>
+    </span>
+  )
+}
+
 export function Colours() {
   const [query, setQuery] = useState("")
   const [sorting, setSorting] = useState<SortingState>([])
