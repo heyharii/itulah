@@ -31,11 +31,23 @@ const NARROW = "(width < 64rem)"
 /// record has to cover something, so it goes back to covering the list.
 const WIDE = "(width >= 96rem)"
 
+/// A desk too narrow to stand the screens panel beside the page: an iPad held
+/// sideways (1024–1194) is `desktop` to the shell, and a 14.5rem panel plus the
+/// 4.25rem rail leaves a table ~930px; a record cannot then stand beside it
+/// either. Under 80rem the panel floats over the page on demand instead of
+/// being a column (owner, 2026-10-05).
+const COMPACT = "(width < 80rem)"
+
 export function useLayout(): Layout {
   const phone = useMedia(PHONE)
   const narrow = useMedia(NARROW)
   const wide = useMedia(WIDE)
   return phone ? "phone" : narrow ? "tablet" : wide ? "monitor" : "desktop"
+}
+
+/// Whether the screens panel floats rather than stands. See `COMPACT`.
+export function useCompactDesk(): boolean {
+  return useMedia(COMPACT)
 }
 
 /// Whether the layout is at least this wide.

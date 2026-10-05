@@ -20,6 +20,7 @@ import { SheetSpace } from "@/components/shell/sheet-space"
 import {
   atLeast,
   publishPageWidth,
+  useCompactDesk,
   useLayout,
   useRecordBeside,
 } from "@/lib/layout"
@@ -79,6 +80,9 @@ function Shell() {
   /// for a `md:`/`lg:` class instead, and the two agree because `useLayout`
   /// breaks on Tailwind's own numbers.
   const docked = atLeast(layout, "desktop")
+  /// Docked, but too narrow for the screens panel to stand beside the page
+  /// (an iPad held sideways): the panel floats over it on demand.
+  const compact = useCompactDesk() && docked
   const subSidebar = useSubSidebar()
   // A phone navigates from the bottom bar, not from a drawer behind a
   // hamburger — see `bottom-bar.tsx`. A tablet keeps the drawer.
@@ -114,6 +118,10 @@ function Shell() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen)
+  /// The floating screens panel, on a compact desk. A boolean closed by every
+  /// finished navigation, like the drawer.
+  const [floatOpen, setFloatOpen] = useState(false)
+  if (!compact && floatOpen) setFloatOpen(false)
   /// The column the page lives in, measured and published so the panels that
   /// stand beside a list ask the page's width rather than the window's — see
   /// `lib/layout.ts`. This column, not the scroll area inside it: the scroll
@@ -144,20 +152,25 @@ function Shell() {
   // Docked, ⌘B folds the screens panel away and the rail stays; undocked, it
   // opens and shuts the drawer that holds the whole column.
   const toggleSidebar = useCallback(() => {
-    if (docked) {
+    if (compact) setFloatOpen((open) => !open)
+    else if (docked) {
       setSidebarOpen((open) => {
         writeSidebarOpen(!open)
         return !open
       })
     } else setDrawerOpen((open) => !open)
-  }, [docked])
+  }, [docked, compact])
 
   /// Every finished navigation shuts it. One subscription rather than a rule
   /// each in the drawer, the palette, the domain bar and every link a screen
   /// happens to render — the drawer is over the content, so arriving anywhere
   /// is reason enough, and this cannot be forgotten by the next screen added.
   useEffect(
-    () => router.subscribe("onResolved", () => setDrawerOpen(false)),
+    () =>
+      router.subscribe("onResolved", () => {
+        setDrawerOpen(false)
+        setFloatOpen(false)
+      }),
     [router]
   )
 
@@ -183,7 +196,10 @@ function Shell() {
       // A drawer is over the content, so Escape has to be able to get out of
       // it. Harmless while it is already shut — React drops a set to the
       // value that is already there.
-      if (event.key === "Escape") setDrawerOpen(false)
+      if (event.key === "Escape") {
+        setDrawerOpen(false)
+        setFloatOpen(false)
+      }
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
@@ -200,7 +216,9 @@ function Shell() {
         {docked && (
           <NavColumn
             folded
-            panelOpen={subSidebar === null || sidebarOpen}
+            panelOpen={
+              subSidebar === null || (compact ? floatOpen : sidebarOpen)
+            }
             onSearch={() => setPaletteOpen(true)}
             onToggleNav={toggleSidebar}
           />
@@ -208,8 +226,22 @@ function Shell() {
         {/* Full height, beside the page column: the desk bar spans only the
           page, and the panel's head (the rail brand's height) is what lines
           the three columns' lower edges up. */}
-        {docked && subSidebar !== null && sidebarOpen && (
+        {docked && !compact && subSidebar !== null && sidebarOpen && (
           <SubSidebar onFold={toggleSidebar} />
+        )}
+        {/* On a compact desk the panel is over the page, beside the rail: a
+          scrim to tap away, and the panel in the light, with a shadow. */}
+        {compact && subSidebar !== null && floatOpen && (
+          <>
+            <div
+              aria-hidden
+              onClick={() => setFloatOpen(false)}
+              className="fixed inset-y-0 right-0 left-[4.25rem] z-40 bg-black/20"
+            />
+            <div className="fixed inset-y-0 left-[4.25rem] z-50 shadow-float">
+              <SubSidebar onFold={toggleSidebar} />
+            </div>
+          </>
         )}
         <div ref={page} className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* On a desk the header is a slim strip carrying only the business
