@@ -2,7 +2,7 @@ import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { EyeOff, Pencil, Power, PowerOff, Search } from "lucide-react"
+import { EyeOff, Pencil, Power, PowerOff, Search, Trash2 } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -23,6 +23,7 @@ import { count } from "@/lib/format"
 import { toast } from "@/lib/toast"
 import {
   createTerm,
+  deleteTerm,
   listTerms,
   termUsage,
   updateTerm,
@@ -36,6 +37,7 @@ import {
   ActiveRow,
   CodeFact,
   DeactivateDialog,
+  DeleteDialog,
   SubmitRow,
 } from "@/screens/master/term-form"
 import {
@@ -314,7 +316,19 @@ function RowActions({
     onError: (error) => toast.error(said(error)),
   })
   const [asking, setAsking] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const noun = vocabulary.one
+  const remove = useMutation({
+    mutationFn: () =>
+      deleteTerm(vocabulary.kind, row.term.code, row.term.version),
+    onSuccess: () => {
+      setDeleting(false)
+      void client.invalidateQueries({ queryKey: vocabularyKeys.all })
+      void client.invalidateQueries({ queryKey: ["procurement", "vocabulary"] })
+      void client.invalidateQueries({ queryKey: ["articles"] })
+    },
+    onError: (error) => toast.error(said(error)),
+  })
   const box =
     "inline-flex size-8 cursor-pointer items-center justify-center rounded-inner text-mute transition-colors hover:bg-soft-2 hover:text-ink disabled:cursor-progress disabled:opacity-50"
   return (
@@ -345,6 +359,33 @@ function RowActions({
           <Power className="size-4" />
         )}
       </button>
+      {row.term.in_use === 0 && (
+        <button
+          type="button"
+          aria-label={`Delete: ${row.term.label}`}
+          title="Delete"
+          className="inline-flex size-8 cursor-pointer items-center justify-center rounded-inner text-[#e58aa0] transition-colors hover:bg-[#fdeef2] hover:text-[#d6456b]"
+          onClick={(event) => {
+            event.stopPropagation()
+            setDeleting(true)
+          }}
+        >
+          <Trash2 className="size-4" />
+        </button>
+      )}
+      <DeleteDialog
+        open={deleting}
+        onOpenChange={setDeleting}
+        noun={noun}
+        label={row.term.label}
+        usage={{
+          queryKey: vocabularyKeys.usage(vocabulary.kind, row.term.code),
+          queryFn: ({ signal }) =>
+            termUsage(vocabulary.kind, row.term.code, signal),
+        }}
+        pending={remove.isPending}
+        onConfirm={() => remove.mutate()}
+      />
       <DeactivateDialog
         open={asking}
         onOpenChange={setAsking}

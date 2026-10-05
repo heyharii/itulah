@@ -159,6 +159,63 @@ export function DeactivateDialog({
   )
 }
 
+/// Delete, for a value nothing uses. The server has the last word: a value that
+/// has EVER been used is refused, and that sentence is shown here instead of an
+/// invitation to try.
+export function DeleteDialog({
+  open,
+  onOpenChange,
+  noun,
+  label,
+  usage,
+  pending,
+  onConfirm,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  noun: string
+  label: string
+  usage: UsageSource
+  pending?: boolean
+  onConfirm: () => void
+}) {
+  const read = useQuery({
+    queryKey: usage.queryKey,
+    queryFn: usage.queryFn,
+    enabled: open,
+    staleTime: 0,
+  })
+  const refused = read.data !== undefined && !read.data.can_delete
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={`Delete ${label}?`}
+      confirm={refused ? "Close" : "Delete"}
+      cancel={refused ? "Cancel" : "Keep"}
+      tone="danger"
+      pending={pending}
+      onConfirm={refused ? () => onOpenChange(false) : onConfirm}
+    >
+      {read.isPending ? (
+        <p>Checking what uses this {noun}…</p>
+      ) : read.isError ? (
+        <p>
+          Could not check what uses this {noun}, so it cannot be deleted from
+          here.
+        </p>
+      ) : refused ? (
+        <p>{read.data?.blocked ?? `This ${noun} cannot be deleted.`}</p>
+      ) : (
+        <p>
+          Nothing uses this {noun}. It is removed for good and cannot be brought
+          back.
+        </p>
+      )}
+    </Dialog>
+  )
+}
+
 /// Active or inactive, the way the supplier's sheet says it: the state in
 /// words, what it means, and the switch at the right. Saved with the form;
 /// turning it off asks first.
