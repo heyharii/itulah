@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ImagePlus, Trash2 } from "lucide-react"
+import { Images, ImagePlus, Trash2 } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -356,7 +356,28 @@ export function ItemFormSheet({
   /// that never got as far as the form, and it is answered by choosing
   /// another, not by opening the item again.
   const [photoRefused, setPhotoRefused] = useState<string | null>(null)
+  /// A picture taken or chosen, from either input: converted to a JPEG, and the
+  /// input cleared so choosing the SAME file twice still fires a change — the
+  /// second pick is a person correcting a mistake, and a silent no-op reads as
+  /// the form ignoring them.
+  const pickPicture = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = event.target.files?.[0] ?? null
+    if (picked !== null) {
+      setPhotoRefused(null)
+      void asJpeg(picked).then(setPhoto, (error: Error) =>
+        setPhotoRefused(error.message)
+      )
+    }
+    event.target.value = ""
+  }
   const chooser = useRef<HTMLInputElement>(null)
+  /// The photo library, on a phone, where the picture box itself opens the
+  /// camera (owner, 2026-10-05): somebody adding an item from an order is
+  /// holding the garment, not a gallery.
+  const gallery = useRef<HTMLInputElement>(null)
+  const touch =
+    typeof window !== "undefined" &&
+    window.matchMedia("(pointer: coarse)").matches
   if (seededFor !== seedKey) {
     setSeededFor(seedKey)
     setDraft(seed())
@@ -834,20 +855,31 @@ export function ItemFormSheet({
                   // `lib/image`, which converts what is chosen.
                   accept={PICTURE_TYPES}
                   className="hidden"
-                  onChange={(event) => {
-                    const picked = event.target.files?.[0] ?? null
-                    if (picked !== null) {
-                      setPhotoRefused(null)
-                      void asJpeg(picked).then(setPhoto, (error: Error) =>
-                        setPhotoRefused(error.message)
-                      )
-                    }
-                    // Cleared so choosing the SAME file twice still fires a
-                    // change — the second pick is a person correcting a mistake,
-                    // and a silent no-op reads as the form ignoring them.
-                    event.target.value = ""
-                  }}
+                  // On a phone: the rear camera, straight away. Ignored on a
+                  // desktop, where this stays the file picker.
+                  capture={touch ? "environment" : undefined}
+                  onChange={pickPicture}
                 />
+                {touch && !photoFixed && (
+                  <>
+                    <input
+                      ref={gallery}
+                      type="file"
+                      accept={PICTURE_TYPES}
+                      className="hidden"
+                      onChange={pickPicture}
+                    />
+                    <Button
+                      variant="quiet"
+                      size="sm"
+                      className="self-start"
+                      onClick={() => gallery.current?.click()}
+                    >
+                      <Images />
+                      From gallery
+                    </Button>
+                  </>
+                )}
                 {showing !== null && !photoFixed && (
                   <Button
                     variant="quiet"
