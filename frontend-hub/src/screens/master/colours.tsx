@@ -367,7 +367,6 @@ export function Colours() {
 
   const selected = all.find((row) => row.term.code === editing) ?? null
   const retired = all.filter((row) => !row.active).length
-  const trashed = all.filter((row) => row.term.in_use === 0).length
   const kpis = [
     { label: "Colors", value: count(all.length), note: undefined },
     { label: "Active", value: count(all.length - retired), note: undefined },
@@ -418,16 +417,16 @@ export function Colours() {
         <button
           type="button"
           aria-pressed={tab === "TRASH"}
+          aria-label="Trash Bin"
+          title="Trash Bin"
           onClick={() => setTab(tab === "TRASH" ? "ACTIVE" : "TRASH")}
           className={
             tab === "TRASH"
-              ? "absolute top-0 right-0 inline-flex h-8 items-center gap-1.5 rounded-inner border border-hairline-2 bg-soft-2 px-2.5 text-[0.875rem] font-medium text-ink"
-              : "absolute top-0 right-0 inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-inner border border-transparent px-2.5 text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink"
+              ? "absolute top-0 right-0 inline-flex size-8 items-center justify-center rounded-inner border border-hairline-2 bg-soft-2 text-ink"
+              : "absolute top-0 right-0 inline-flex size-8 cursor-pointer items-center justify-center rounded-inner border border-hairline-2 text-body transition-colors hover:bg-soft-2 hover:text-ink"
           }
         >
           <Trash2 className="size-4" />
-          Trash Bin
-          <span className="tabular-nums">{count(trashed)}</span>
         </button>
       </div>
 
