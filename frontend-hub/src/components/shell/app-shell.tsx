@@ -249,7 +249,7 @@ function Shell() {
               className={cn(
                 "min-h-0 min-w-0 flex-1 overflow-y-auto",
                 // The last row clears the bottom bar on a phone.
-                phone && "pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))]",
+                phone && "pb-[calc(4rem+env(safe-area-inset-bottom,0px))]",
                 beside && "pr-[29.5rem]"
               )}
             >

@@ -98,45 +98,61 @@ export function BottomBar() {
       // light at its top edge rather than a grey rule.
       className="fixed inset-x-0 bottom-0 z-30 border-t border-black/[0.06] bg-canvas/80 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur-xl backdrop-saturate-150 md:hidden"
     >
-      <ul className="grid h-14 grid-cols-4">
+      {/* Taller, in the way a ride-hailing app draws it: the lit tab carries a
+          blue bar on its top edge that fades down into the tab, and its icon
+          is blue and filled; the rest are quiet grey. Labels are 12px here —
+          the one place the 14px floor is lifted, on the owner's word
+          (2026-10-05), because four labels under four icons are read as a
+          caption, not as text. */}
+      <ul className="grid h-16 grid-cols-4">
         {TABS.map((tab) => {
           const on = tab.owns(pathname)
           const Icon = tab.icon
+          // A dot, never a number (owner, 2026-10-05): the count lives on the
+          // screen it opens.
+          const dot =
+            (tab.to === "/system/notifications" && unread > 0) ||
+            (tab.to === "/chat" && chatUnread !== null && chatUnread > 0)
           return (
             <li key={tab.to}>
               <Link
                 to={tab.to as string}
                 aria-current={on ? "page" : undefined}
+                aria-label={dot ? `${tab.label}, something new` : tab.label}
                 className={cn(
-                  "group flex h-full flex-col items-center justify-center gap-[0.1875rem] text-[0.875rem] font-medium tracking-[0.005em]",
-                  // The lit tab is ink, not the accent (2026-09-28): the
-                  // desk's charcoal column says "here" in its own ink, and
-                  // blue is kept for the one thing to press and the counts
-                  // that want somebody — which here are the badges.
-                  on ? "text-ink" : "text-mute"
+                  "group relative flex h-full flex-col items-center justify-center gap-1 text-[0.75rem] font-medium tracking-[0.005em] transition-colors",
+                  on ? "text-accent" : "text-mute"
                 )}
               >
+                {on && (
+                  <>
+                    {/* The wash: the accent at the top edge, gone by the
+                        middle of the tab. */}
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0 bg-gradient-to-b from-accent/15 to-transparent"
+                    />
+                    <span
+                      aria-hidden
+                      className="absolute top-0 h-[3px] w-10 rounded-b-full bg-accent"
+                    />
+                  </>
+                )}
                 <span className="relative transition-[scale] duration-(--t-press) ease-(--ease-out) group-active:scale-[0.9]">
                   <Icon
                     className={cn(
                       "size-6",
-                      on ? "stroke-[2.1]" : "stroke-[1.7]"
+                      on ? "fill-accent stroke-accent" : "stroke-[1.7]"
                     )}
                   />
-                  {tab.to === "/system/notifications" && unread > 0 && (
-                    <span className="absolute -top-1 -right-2 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[0.875rem] font-semibold text-white tabular-nums ring-2 ring-canvas">
-                      {unread > 99 ? "99+" : unread}
-                    </span>
+                  {dot && (
+                    <span
+                      aria-hidden
+                      className="absolute -top-0.5 -right-1 size-2.5 rounded-full bg-accent ring-2 ring-canvas"
+                    />
                   )}
-                  {tab.to === "/chat" &&
-                    chatUnread !== null &&
-                    chatUnread > 0 && (
-                      <span className="absolute -top-1 -right-2 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[0.875rem] font-semibold text-white tabular-nums ring-2 ring-canvas">
-                        {chatUnread > 99 ? "99+" : chatUnread}
-                      </span>
-                    )}
                 </span>
-                {tab.label}
+                <span className="relative">{tab.label}</span>
               </Link>
             </li>
           )
