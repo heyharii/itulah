@@ -222,7 +222,7 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
   columns.push({
     id: "articles",
     accessorFn: (row) => row.term.in_use,
-    header: "Articles",
+    header: vocabulary.kind === "sizes" ? "In Use" : "Articles",
     size: 120,
     // The one clause these lists want: "is 0" is the set worth looking at
     // before tidying up, which on forty tags is not something a sort makes
@@ -230,7 +230,11 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
     // articles are one of five things that can name a tag.
     meta: {
       align: "right",
-      filter: { kind: "number", label: "Articles", unit: "articles" },
+      filter: {
+        kind: "number",
+        label: vocabulary.kind === "sizes" ? "In Use" : "Articles",
+        unit: vocabulary.kind === "sizes" ? "SKUs" : "articles",
+      },
     },
     // Zero is drawn as 0, not as "Unused". It was worded, on the argument
     // that "unused" is the state somebody scans for — but it read as a
