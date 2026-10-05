@@ -54,6 +54,35 @@ export function SubmitRow({
   )
 }
 
+/// What a place that uses a term is called on screen (owner, 2026-10-05): the
+/// article master is "Master Articles", and a delivery line still being named
+/// is "New Articles". The server's own labels ("Articles", "Article setups")
+/// are not the words the menus use.
+export function usageLabel(reference: { key: string; label: string }): string {
+  switch (reference.key) {
+    case "articles":
+      return "Master Articles"
+    case "setups":
+      return "New Articles"
+    case "order_lines":
+      return "Purchase Order Items"
+    case "supplier_items":
+      return "Sourcing Items"
+    case "promotions":
+      return "Promotion Rules"
+    default:
+      // Anything else the server names: Title Case, small words left alone.
+      return reference.label
+        .split(" ")
+        .map((word, index) =>
+          index > 0 && ["of", "to", "in", "for", "and", "or"].includes(word)
+            ? word
+            : word.charAt(0).toUpperCase() + word.slice(1)
+        )
+        .join(" ")
+  }
+}
+
 /// Where to read what uses a term: the query key and the read.
 export interface UsageSource {
   readonly queryKey: readonly unknown[]
@@ -114,7 +143,7 @@ export function DeactivateDialog({
                   key={one.key}
                   className="flex items-baseline justify-between gap-4"
                 >
-                  <dt className="text-body">{one.label}</dt>
+                  <dt className="text-body">{usageLabel(one)}</dt>
                   <dd className="font-medium text-ink tabular-nums">
                     {one.count}
                   </dd>

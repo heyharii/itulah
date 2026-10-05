@@ -1,3 +1,4 @@
+import { usageLabel } from "@/screens/master/term-form"
 import { useMutation, type UseQueryResult } from "@tanstack/react-query"
 import { useState } from "react"
 
@@ -96,7 +97,7 @@ export function MasterLifecycle({
                       : "text-meta text-mute"
                   }
                 >
-                  {one.label}
+                  {usageLabel(one)}
                 </dt>
                 <dd
                   className={
