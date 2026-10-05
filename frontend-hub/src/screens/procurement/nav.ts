@@ -82,6 +82,7 @@ export const procurementNav: AppModule = {
         {
           path: "/procurement/orders",
           label: "Purchase Orders",
+          short: "Orders",
           icon: ClipboardList,
           // Orders whose count is waiting for the buyer's review.
           useCount: useOrdersAwaitingReview,

@@ -80,6 +80,9 @@ export interface NavItem {
   /// from these, so it cannot drift.
   readonly path: string
   readonly label: string
+  /// What the phone's bottom bar calls it when the full label does not fit a
+  /// fifth of the width ("Orders" for Purchase Orders). Absent: the label.
+  readonly short?: string
   readonly icon: LucideIcon
   /// Which tint the count wears. Only read when `useCount` returns a number
   /// above zero — on its own it draws nothing, which is why the modules that

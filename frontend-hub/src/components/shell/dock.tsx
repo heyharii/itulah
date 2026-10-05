@@ -60,9 +60,7 @@ interface DockValue {
   readonly view: DockView
   readonly setView: (view: DockView) => void
   /// The department the screen belongs to, while it is inside one (not the
-  /// launcher, not Chat). The drawer carries its switcher, so moving between
-  /// the department's screens is in the thumb's reach on every screen of it,
-  /// whether or not the screen offers tabs, search or an action.
+  /// launcher, not Chat). The bottom bar turns into its screens.
   readonly department: AppTile | null
   /// How many things hold each slot right now.
   readonly claimed: Readonly<Record<DockSlot, number>>
@@ -160,11 +158,10 @@ export function useDock(): DockValue | null {
 export function useDockRow(): boolean {
   const dock = useContext(DockContext)
   return (
-    (dock?.department ?? null) !== null ||
     (dock?.claimed.search ?? 0) +
       (dock?.claimed.tabs ?? 0) +
       (dock?.claimed.action ?? 0) >
-      0
+    0
   )
 }
 
