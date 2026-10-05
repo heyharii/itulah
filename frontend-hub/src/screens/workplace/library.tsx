@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { FileWarning, LayoutGrid, Rows3, Search, Upload } from "lucide-react"
+import { FileWarning, LayoutGrid, Rows3, Upload } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -11,7 +11,11 @@ import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { ExceptionQueue, type Exception } from "@/components/ui/exception-queue"
 import { FilterPanel } from "@/components/ui/filter-panel"
-import { DockedFilters } from "@/components/ui/list-chrome"
+import {
+  BarSpacer,
+  DockedFilters,
+  ExpandingSearch,
+} from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Banner, EmptyState } from "@/components/ui/states"
@@ -373,16 +377,13 @@ export function Library() {
             the owner asked for this screen's filters to stand where that
             screen's do, and half an answer would have been the panel in the
             right place under a search box still stranded in the page header. */}
-        <div className="mb-3 flex flex-wrap items-center gap-1.5">
-          <span className="relative mr-auto">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              aria-label="Search the library"
-              className="h-[2.125rem] w-56 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
-            />
-          </span>
+        <div className="group/bar mb-3 flex flex-wrap items-center gap-1.5">
+          <ExpandingSearch
+            value={query}
+            onChange={setQuery}
+            label="Search the library"
+          />
+          <BarSpacer />
           {!docked && <FilterPanel model={filters} table={table} />}
           <ViewSwitch grid={grid} onChange={view.open} />
           <PickButton onFiles={setPicked} />

@@ -378,7 +378,7 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
   const selected = all.find((row) => row.term.code === editing) ?? null
   const retired = all.filter((row) => !row.active).length
   const kpis = [
-    { label: capitalise(vocabulary.title), value: count(all.length) },
+    { label: "Total", value: count(all.length) },
     { label: "Active", value: count(all.length - retired) },
     { label: "Inactive", value: count(retired) },
     {

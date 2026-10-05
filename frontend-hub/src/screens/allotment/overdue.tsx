@@ -1,6 +1,6 @@
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
 import { useTable } from "@tanstack/react-table"
-import { Search } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { Card } from "@/components/ui/card"
@@ -119,16 +119,13 @@ export function OverdueTable({
   )
   return (
     <>
-      <div className="mb-5 flex min-h-[2.25rem] items-center">
-        <span className="relative min-w-0 flex-1 md:max-w-64">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            aria-label="Search allotments"
-            className="h-[2.125rem] w-full rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent pointer-coarse:h-11"
-          />
-        </span>
+      <div className="group/bar mb-5 flex min-h-[2.25rem] items-center">
+        <ExpandingSearch
+          value={query}
+          onChange={setQuery}
+          label="Search allotments"
+        />
+        <BarSpacer />
       </div>
       <Card className="overflow-clip">
         {shown.length === 0 ? (

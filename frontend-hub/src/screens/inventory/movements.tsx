@@ -1,7 +1,6 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { Search } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -9,10 +8,11 @@ import { AppLink } from "@/components/ui/app-link"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import {
+  BarSpacer,
   ColumnsMenu,
   DockedFilters,
+  ExpandingSearch,
   SortMenu,
-  ViewPicker,
 } from "@/components/ui/list-chrome"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
@@ -493,20 +493,13 @@ export function Movements() {
           {/* One line the width of the table, carrying everything that acts on
               it: what narrows it at the left, what orders and shapes it at the
               right. The page header above keeps the title and nothing else. */}
-          <div className="mb-3 flex flex-wrap items-center gap-1.5">
-            <span className="relative mr-auto">
-              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
-              <input
-                value={search.value ?? ""}
-                onChange={(event) =>
-                  event.target.value
-                    ? search.open(event.target.value)
-                    : search.close()
-                }
-                aria-label="Search movements"
-                className="h-control w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
-              />
-            </span>
+          <div className="group/bar mb-3 flex flex-wrap items-center gap-1.5">
+            <ExpandingSearch
+              value={search.value ?? ""}
+              onChange={(next) => (next ? search.open(next) : search.close())}
+              label="Search movements"
+            />
+            <BarSpacer />
             {/* The same model as the panel, as the chips over the table and
                 a Filter button beside them — for every width the panel cannot
                 dock at. Rendered only there: the panel unmounts below the dock
@@ -525,7 +518,6 @@ export function Movements() {
             />
             <ColumnsMenu table={table} />
             <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
-            <ViewPicker model={filters} id="movements" all="The whole ledger" />
           </div>
 
           <Card className="overflow-hidden">

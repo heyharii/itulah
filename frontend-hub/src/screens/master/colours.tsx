@@ -277,7 +277,7 @@ export function Colours() {
   const selected = all.find((row) => row.term.code === editing) ?? null
   const retired = all.filter((row) => !row.active).length
   const kpis = [
-    { label: "Colors", value: count(all.length), note: undefined },
+    { label: "Total", value: count(all.length), note: undefined },
     { label: "Active", value: count(all.length - retired), note: undefined },
     { label: "Inactive", value: count(retired), note: undefined },
     {

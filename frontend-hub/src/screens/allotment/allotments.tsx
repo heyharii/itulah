@@ -6,7 +6,6 @@ import {
 } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { Search } from "lucide-react"
 import { Fragment, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -16,7 +15,12 @@ import { DataTable } from "@/components/ui/data-table"
 import { ConfirmButton, SavedDialog } from "@/components/ui/dialog"
 import { Select } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
-import { ColumnsMenu, ListOptionsSheet } from "@/components/ui/list-chrome"
+import {
+  BarSpacer,
+  ColumnsMenu,
+  ExpandingSearch,
+  ListOptionsSheet,
+} from "@/components/ui/list-chrome"
 import { Fab } from "@/components/ui/fab"
 import { PageHeader } from "@/components/ui/page-header"
 import { MiniTable, Section } from "@/components/ui/rows"
@@ -759,7 +763,7 @@ export function Allotments({
             </>
           ) : (
             <>
-              <div className="mb-5 flex min-h-[2.25rem] flex-wrap items-center gap-2.5 md:flex-nowrap">
+              <div className="group/bar mb-5 flex min-h-[2.25rem] flex-wrap items-center gap-2.5 md:flex-nowrap">
                 <Select
                   aria-label="Reading"
                   value={reading}
@@ -770,15 +774,12 @@ export function Allotments({
                   <option value="store">By store</option>
                   <option value="article">By article</option>
                 </Select>
-                <span className="relative min-w-0 flex-1 md:max-w-64">
-                  <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
-                  <input
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    aria-label="Search allotments"
-                    className="h-[2.125rem] w-full rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent pointer-coarse:h-11"
-                  />
-                </span>
+                <ExpandingSearch
+                  value={query}
+                  onChange={setQuery}
+                  label="Search allotments"
+                />
+                <BarSpacer />
                 {(reading === "store" || reading === "article") && (
                   <Choice
                     value={store}
@@ -1262,79 +1263,81 @@ function AllotmentSheet({
   return (
     <>
       <Sheet
-      open={id !== null}
-      subject={id === null ? undefined : { kind: "allotment", id }}
-      onOpenChange={(open) => !open && onClose()}
-      title={record?.allotment_number ?? "Allotment"}
-      // Who and when, and nothing else (the owner, 2026-09-29): how many
-      // stores and items is the body's, and where it stands is the four
-      // figures under the header — a status word beside the number was one
-      // more thing in a header that is read in a glance.
-      caption={
-        record && `Created ${day(record.created_at)} by ${record.created_by}`
-      }
-      actions={
-        record && (
-          <>
-            {(record.type === "TO_STORE" || record.type === "TO_SITE") &&
-              record.fulfillment_status === "ACTIVE" && (
+        open={id !== null}
+        subject={id === null ? undefined : { kind: "allotment", id }}
+        onOpenChange={(open) => !open && onClose()}
+        title={record?.allotment_number ?? "Allotment"}
+        // Who and when, and nothing else (the owner, 2026-09-29): how many
+        // stores and items is the body's, and where it stands is the four
+        // figures under the header — a status word beside the number was one
+        // more thing in a header that is read in a glance.
+        caption={
+          record && `Created ${day(record.created_at)} by ${record.created_by}`
+        }
+        actions={
+          record && (
+            <>
+              {(record.type === "TO_STORE" || record.type === "TO_SITE") &&
+                record.fulfillment_status === "ACTIVE" && (
+                  <ConfirmButton
+                    label="Cancel and re-allot"
+                    variant="ghost"
+                    title="Cancel and re-allot?"
+                    description={`${qty(record.to_pack_qty)} still to pack is released and opens in New allotment.`}
+                    confirmLabel="Cancel and re-allot"
+                    reason={{ label: "Reason" }}
+                    pending={cancel.isPending}
+                    disabled={cancelDisabled}
+                    onConfirm={reallot}
+                  />
+                )}
+              {record.fulfillment_status === "ACTIVE" && nothingPicked && (
                 <ConfirmButton
-                  label="Cancel and re-allot"
+                  label="Cancel allotment"
                   variant="ghost"
-                  title="Cancel and re-allot?"
-                  description={`${qty(record.to_pack_qty)} still to pack is released and opens in New allotment.`}
-                  confirmLabel="Cancel and re-allot"
-                  reason={{ label: "Reason" }}
+                  tone="danger"
+                  title="Cancel this allotment?"
+                  description={`${qty(record.to_pack_qty)} still to pack is released. Nothing has been picked.`}
+                  confirmLabel="Continue"
+                  reason={{
+                    label: "Reason",
+                    hint: "Kept on the cancelled allotment.",
+                  }}
                   pending={cancel.isPending}
                   disabled={cancelDisabled}
-                  onConfirm={reallot}
+                  onConfirm={(reason) => cancel.mutateAsync(reason)}
                 />
               )}
-            {record.fulfillment_status === "ACTIVE" && nothingPicked && (
-              <ConfirmButton
-                label="Cancel allotment"
-                variant="ghost"
-                tone="danger"
-                title="Cancel this allotment?"
-                description={`${qty(record.to_pack_qty)} still to pack is released. Nothing has been picked.`}
-                confirmLabel="Continue"
-                reason={{
-                  label: "Reason",
-                  hint: "Kept on the cancelled allotment.",
-                }}
-                pending={cancel.isPending}
-                disabled={cancelDisabled}
-                onConfirm={(reason) => cancel.mutateAsync(reason)}
-              />
-            )}
-            {record.fulfillment_status === "ACTIVE" && !nothingPicked && (
-              <ConfirmButton
-                label="Close short"
-                variant="quiet"
-                tone="danger"
-                title="Close short what is still to pack?"
-                description={`${qty(record.to_pack_qty)} across ${count(packable.length)} ${packable.length === 1 ? "line" : "lines"} haven't been packed yet. Closing short releases them; anything already packed keeps travelling to the store.`}
-                confirmLabel={`Close short ${qty(record.to_pack_qty)}`}
-                reason={{
-                  label: "Reason",
-                  hint: "Kept on the closed allotment.",
-                }}
-                pending={cancel.isPending}
-                disabled={cancelDisabled}
-                onConfirm={(reason) => cancel.mutateAsync(reason)}
-              />
-            )}
-          </>
-        )
-      }
-      width="workspace"
-      className="md:w-[clamp(27.5rem,98vw,100rem)]"
-    >
-      {queryState(detail, {
-        loading: "Opening the allotment…",
-        render: (data) => <AllotmentDocument record={data} display={display} />,
-      })}
-    </Sheet>
+              {record.fulfillment_status === "ACTIVE" && !nothingPicked && (
+                <ConfirmButton
+                  label="Close short"
+                  variant="quiet"
+                  tone="danger"
+                  title="Close short what is still to pack?"
+                  description={`${qty(record.to_pack_qty)} across ${count(packable.length)} ${packable.length === 1 ? "line" : "lines"} haven't been packed yet. Closing short releases them; anything already packed keeps travelling to the store.`}
+                  confirmLabel={`Close short ${qty(record.to_pack_qty)}`}
+                  reason={{
+                    label: "Reason",
+                    hint: "Kept on the closed allotment.",
+                  }}
+                  pending={cancel.isPending}
+                  disabled={cancelDisabled}
+                  onConfirm={(reason) => cancel.mutateAsync(reason)}
+                />
+              )}
+            </>
+          )
+        }
+        width="workspace"
+        className="md:w-[clamp(27.5rem,98vw,100rem)]"
+      >
+        {queryState(detail, {
+          loading: "Opening the allotment…",
+          render: (data) => (
+            <AllotmentDocument record={data} display={display} />
+          ),
+        })}
+      </Sheet>
       <SavedDialog
         open={closedShort !== null}
         onOpenChange={(next) => {

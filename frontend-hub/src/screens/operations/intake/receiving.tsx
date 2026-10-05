@@ -21,7 +21,7 @@ import { Sheet } from "@/components/ui/sheet"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { dc } from "@/lib/api"
 import { wholeProduct } from "@/lib/decimal"
-import { count, label } from "@/lib/format"
+import { count, label, moment } from "@/lib/format"
 import {
   procurementKeys,
   purchaseOrderDetail,
@@ -31,6 +31,8 @@ import { keys } from "@/lib/operations/keys"
 import { queryState } from "@/lib/query-state"
 import { cn } from "@/lib/utils"
 import { useEdgeActor } from "@/lib/edge-session"
+import { useNameOfLogin } from "@/lib/queries/hr-employees"
+import { titled } from "@/screens/procurement/po-print"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { idempotencyKey } from "@itulah/contract/client"
@@ -69,6 +71,31 @@ export interface OrderRow {
   readonly lines: readonly PurchaseWorkLine[]
   /// Counts on this order waiting for a second pair of eyes.
   readonly awaiting: readonly PurchaseCountAwaitingVerification[]
+}
+
+/// What the Gudang counted on an order, who counted it and when: the count is
+/// the buyer's to review, and the first question is whose it is and how old.
+function CountedBy({
+  awaiting,
+}: {
+  awaiting: readonly PurchaseCountAwaitingVerification[]
+}) {
+  const nameOfLogin = useNameOfLogin()
+  const latest = awaiting.reduce((a, b) =>
+    b.counted_at > a.counted_at ? b : a
+  )
+  return (
+    <span className="flex flex-col items-end leading-5 tabular-nums">
+      <span className="text-ink">
+        {`Counted ${count(awaiting.reduce((sum, one) => sum + one.counted_quantity, 0))} pcs`}
+      </span>
+      <span className="text-mute">
+        {titled(nameOfLogin(latest.counted_by))}
+        {" · "}
+        {moment(latest.counted_at)}
+      </span>
+    </span>
+  )
 }
 
 /// Orders with a button to press — still to count — lead the list.
@@ -218,11 +245,7 @@ export function Receiving() {
           const order = row.original
           // Counted: the Gudang is done, the buyer has it to review.
           if (order.awaiting.length > 0) {
-            return (
-              <span className="text-body tabular-nums">
-                {`Counted ${count(order.awaiting.reduce((sum, one) => sum + one.counted_quantity, 0))} pcs`}
-              </span>
-            )
+            return <CountedBy awaiting={order.awaiting} />
           }
           const again = order.lines.some((line) => line.recount_reason !== null)
           return (

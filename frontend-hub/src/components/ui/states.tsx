@@ -1,3 +1,4 @@
+import { EmptyIllustration, type EmptyArt } from "@/components/ui/empty-art"
 import { useRouterState } from "@tanstack/react-router"
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
@@ -21,12 +22,24 @@ import { ApiError } from "@itulah/contract/client"
 export function EmptyState({
   children,
   action,
+  art,
 }: {
   children: React.ReactNode
   action?: React.ReactNode
+  /// The picture over the sentence. Left out, it follows the sentence: one that
+  /// says nothing matches or was found gets the search, any other the empty
+  /// tray. `null` draws none, for the places too small to hold one.
+  art?: EmptyArt | null
 }) {
+  const picture: EmptyArt | null =
+    art !== undefined
+      ? art
+      : typeof children === "string" && /match|found/i.test(children)
+        ? "search"
+        : "empty"
   return (
-    <div className="mx-auto flex max-w-[28em] flex-col items-center gap-3 px-4 py-14 text-center">
+    <div className="mx-auto flex max-w-[28em] flex-col items-center gap-3 px-4 py-12 text-center">
+      {picture !== null && <EmptyIllustration art={picture} />}
       <p className="text-meta text-body">{children}</p>
       {action}
     </div>

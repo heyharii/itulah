@@ -7,7 +7,7 @@ import {
 } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { Plus, Search } from "lucide-react"
+import { Plus } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -18,10 +18,12 @@ import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import {
+  BarSpacer,
   ColumnsMenu,
   DockedFilters,
-  SortMenu,
+  ExpandingSearch,
   ViewPicker,
+  SortMenu,
 } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
@@ -375,20 +377,13 @@ export function Counts() {
           {/* One line the width of the table, carrying everything that acts on
               it: what narrows it at the left, what orders and shapes it in the
               middle, and what opens a new one at the right. */}
-          <div className="mb-3 flex flex-wrap items-center gap-1.5">
-            <span className="relative mr-auto">
-              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
-              <input
-                value={search.value ?? ""}
-                onChange={(event) =>
-                  event.target.value
-                    ? search.open(event.target.value)
-                    : search.close()
-                }
-                aria-label="Search counts"
-                className="h-control w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
-              />
-            </span>
+          <div className="group/bar mb-3 flex flex-wrap items-center gap-1.5">
+            <ExpandingSearch
+              value={search.value ?? ""}
+              onChange={(next) => (next ? search.open(next) : search.close())}
+              label="Search counts"
+            />
+            <BarSpacer />
             {/* The same model as the panel, as the chips over the table and
                 a Filter button beside them — for every width the panel cannot
                 dock at. Rendered only there: the panel unmounts below the dock

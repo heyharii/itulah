@@ -11,7 +11,7 @@ import type {
   SortingState,
 } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { ChevronRight, Search } from "lucide-react"
+import { ChevronRight } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -22,10 +22,11 @@ import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import {
+  BarSpacer,
   ColumnsMenu,
   DockedFilters,
+  ExpandingSearch,
   SortMenu,
-  ViewPicker,
 } from "@/components/ui/list-chrome"
 import { Dial } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
@@ -754,16 +755,13 @@ export function PoolsBody({ display: given }: { display?: DisplayUnit } = {}) {
           it is the same act: narrow a list, order it, name the question. */}
       <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="flex min-w-0 flex-col">
-          <div className="mb-3 flex flex-wrap items-center gap-1.5">
-            <span className="relative mr-auto">
-              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                aria-label="Search pools"
-                className="h-control w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
-              />
-            </span>
+          <div className="group/bar mb-3 flex flex-wrap items-center gap-1.5">
+            <ExpandingSearch
+              value={query}
+              onChange={setQuery}
+              label="Search pools"
+            />
+            <BarSpacer />
             {/* The same model as the panel, as the chips over the table and
                 a Filter button beside them — for every width the panel cannot
                 dock at. Rendered only there: the panel unmounts below the dock
@@ -780,7 +778,6 @@ export function PoolsBody({ display: given }: { display?: DisplayUnit } = {}) {
             />
             <ColumnsMenu table={table} />
             <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
-            <ViewPicker model={filters} id="pools" all="Every pool" />
           </div>
 
           <Card className="overflow-hidden">

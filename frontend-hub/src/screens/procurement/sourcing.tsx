@@ -19,7 +19,6 @@ import {
   ChoiceMenu,
   DockedFilters,
   ListOptionsSheet,
-  ViewPicker,
 } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Tag } from "@/components/ui/tag"
@@ -509,7 +508,6 @@ export function Sourcing() {
                 }
               />
               <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
-              <ViewPicker model={filters} id="sourcing" all="Everything" />
               <Button onClick={() => adding.open(true)}>
                 <Plus />
                 Add item
