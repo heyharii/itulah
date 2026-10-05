@@ -171,7 +171,7 @@ interface Handover {
 }
 
 /// Where the pane is pointed: a session's record, a delivery's form, and which
-/// PO the rail is narrowed to. All three live in the URL, so a link to any of
+/// supplier the rail is narrowed to. All three live in the URL, so a link to any of
 /// them works cold.
 interface Target {
   readonly setup?: string
@@ -179,20 +179,22 @@ interface Target {
   readonly setupFor?: string
 }
 
-/// The New articles page's work area: POs on the left and, beside them, one
-/// card per delivery line still waiting for an identity on the PO the rail
-/// stands on. A card opens the form in a sheet, with Previous and Next to walk
+/// The New articles page's work area: suppliers on the left and, beside them,
+/// one card per delivery line still waiting for an identity, grouped under the
+/// supplier that sent it (or only the supplier the rail stands on). A card opens the form in a sheet, with Previous and Next to walk
 /// the cards on screen without closing it.
 ///
 /// Was a sheet over Articles until 2026-10-02, when the owner gave it its own
 /// menu row under Merchandise; then three panes (suppliers · lines · form)
 /// until his cards prototype of the same day
 /// (`new-articles-rail-cards-options.html`, option A: cards open a sheet). The
-/// rail grouped by supplier for a while that day, then went back to PO.
+/// rail grouped by supplier for a while that day, went back to PO, and was
+/// put back on supplier on 2026-10-05 (the owner), with the cards sectioned by
+/// supplier on All.
 ///
 /// The URL keys still each point at one thing:
 ///
-///  - `?setupFor=<PO number>` — the rail, narrowed to that PO.
+///  - `?setupFor=<supplier code>` — the rail, narrowed to that supplier.
 ///  - `?receipt=<line>` — the sheet, on that delivery's form.
 ///  - `?setup=<session>` — the sheet, on that session's record. It is the link
 ///    an article's detail follows back to the delivery that minted it, and the
@@ -205,7 +207,7 @@ export function SetupWorkspace() {
   /// Which delivery is being given an identity. A separate key from `setup`:
   /// this line has no session yet, and filling the form is what makes one.
   const chosen = useSheet("receipt")
-  /// Which PO the rail is narrowed to, by its number; absent is All.
+  /// Which supplier the rail is narrowed to, by its code; absent is All.
   const poFilter = useSheet("setupFor")
   const supplierOf = useSupplierName()
   const [query, setQuery] = useState("")
@@ -247,51 +249,74 @@ export function SetupWorkspace() {
   /// both writes, and only the second one failing leaves a session here.
   const stalled = useMemo(() => sessions.data ?? [], [sessions.data])
 
-  /// The POs the queue is standing in, with how many lines of each and whose
-  /// they are. Newest number first, so the order holds while lines leave.
-  /// A receipt carries the supplier's code; the book turns it into the name
-  /// the company writes, "Garmen Nusantara, PT".
-  const orders = (() => {
+  /// The suppliers the queue is standing in, with how many lines of each. A
+  /// receipt carries the supplier's code; the book turns it into the name the
+  /// company writes, "Garmen Nusantara, PT". A to Z, so the order holds while
+  /// lines leave.
+  const suppliers = (() => {
     const counts = new Map<string, number>()
-    const owners = new Map<string, string>()
     for (const row of waiting) {
-      counts.set(row.po_number, (counts.get(row.po_number) ?? 0) + 1)
-      if (!owners.has(row.po_number)) owners.set(row.po_number, row.supplier_id)
+      counts.set(row.supplier_id, (counts.get(row.supplier_id) ?? 0) + 1)
     }
     return [...counts]
-      .map(([number, tally]) => {
-        const owner = owners.get(number) ?? ""
-        return { number, tally, supplier: supplierOf(owner, owner, owner) }
-      })
-      .sort((a, b) =>
-        b.number.localeCompare(a.number, undefined, { numeric: true })
-      )
+      .map(([id, tally]) => ({ id, tally, name: supplierOf(id, id, id) }))
+      .sort((a, b) => a.name.localeCompare(b.name))
   })()
 
-  /// The PO actually being shown. The URL can name one that has just been
-  /// emptied — setting up its last line takes it out of the queue — and a
+  /// The supplier actually being shown. The URL can name one that has just
+  /// been emptied — setting up its last line takes it out of the queue — and a
   /// rail filtered to nothing would read as a queue that had gone.
   const here =
     poFilter.value !== undefined &&
-    orders.some((one) => one.number === poFilter.value)
+    suppliers.some((one) => one.id === poFilter.value)
       ? poFilter.value
       : null
-  const hereOrder = orders.find((one) => one.number === here)
+  const hereSupplier = suppliers.find((one) => one.id === here)
 
   const needle = query.trim().toLowerCase()
+  /// The lines on screen, a supplier at a time (A to Z), newest PO first
+  /// within each — the order the cards are drawn in.
   const shown = useMemo(
     () =>
       waiting
-        .filter((row) => here === null || row.po_number === here)
+        .filter((row) => here === null || row.supplier_id === here)
         .filter(
           (row) =>
             needle === "" ||
             `${row.article_name} ${row.po_number} ${row.supplier_article_code}`
               .toLowerCase()
               .includes(needle)
+        )
+        .sort(
+          (a, b) =>
+            supplierOf(
+              a.supplier_id,
+              a.supplier_id,
+              a.supplier_id
+            ).localeCompare(
+              supplierOf(b.supplier_id, b.supplier_id, b.supplier_id)
+            ) ||
+            a.supplier_id.localeCompare(b.supplier_id) ||
+            b.po_number.localeCompare(a.po_number, undefined, { numeric: true })
         ),
-    [waiting, here, needle]
+    [waiting, here, needle, supplierOf]
   )
+  /// The same lines in sections, one per supplier, for drawing.
+  const sections = useMemo(() => {
+    const groups: { id: string; name: string; rows: UnidentifiedReceipt[] }[] =
+      []
+    for (const row of shown) {
+      const last = groups[groups.length - 1]
+      if (last !== undefined && last.id === row.supplier_id) last.rows.push(row)
+      else
+        groups.push({
+          id: row.supplier_id,
+          name: supplierOf(row.supplier_id, row.supplier_id, row.supplier_id),
+          rows: [row],
+        })
+    }
+    return groups
+  }, [shown, supplierOf])
   /// Not-minted sessions, after the waiting cards. A session row does not
   /// carry its PO, so they stand on every rail, as they always did.
   const stalledShown = useMemo(
@@ -399,12 +424,12 @@ export function SetupWorkspace() {
         <Card className="@container flex flex-col p-5 min-[100rem]:p-7">
           <div className="grid items-start gap-6 [--rail-a:13rem] [--rail-gap:1.75rem] [--rail-pr:1.5rem] min-[100rem]:gap-8 min-[100rem]:[--rail-a:15rem] min-[100rem]:[--rail-gap:2.5rem] min-[100rem]:[--rail-pr:2rem] @3xl:grid-cols-[var(--rail-a)_minmax(0,1fr)] @3xl:gap-x-(--rail-gap)">
             <aside
-              aria-label="Purchase orders"
+              aria-label="Suppliers"
               className="min-w-0 @3xl:sticky @3xl:top-4 @3xl:max-h-[calc(100dvh-6rem)] @3xl:overflow-y-auto @3xl:border-r @3xl:border-hairline @3xl:pr-(--rail-pr)"
             >
               <div className="flex min-w-0 flex-col gap-1.5 max-md:-mx-1 max-md:[scrollbar-width:none] max-md:flex-row max-md:items-stretch max-md:overflow-x-auto max-md:px-1 max-md:pb-1 max-md:[&::-webkit-scrollbar]:hidden">
                 <span className="px-3 pb-2 text-[0.875rem] font-semibold tracking-[0.06em] text-mute uppercase max-md:hidden">
-                  PO
+                  Supplier
                 </span>
                 <RailRow
                   label="All"
@@ -412,15 +437,13 @@ export function SetupWorkspace() {
                   on={here === null}
                   onClick={() => go({})}
                 />
-                {orders.map((one) => (
+                {suppliers.map((one) => (
                   <RailRow
-                    key={one.number}
-                    label={one.number}
-                    sub={one.supplier}
-                    mono
+                    key={one.id}
+                    label={one.name}
                     tally={one.tally}
-                    on={here === one.number}
-                    onClick={() => go({ setupFor: one.number })}
+                    on={here === one.id}
+                    onClick={() => go({ setupFor: one.id })}
                   />
                 ))}
               </div>
@@ -431,20 +454,11 @@ export function SetupWorkspace() {
               className="flex min-w-0 flex-col gap-5"
             >
               <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-3">
-                {hereOrder === undefined ? (
-                  <h3 className="min-w-0 truncate text-[1.0625rem] font-semibold tracking-[-0.02em] text-ink">
-                    All POs
-                  </h3>
-                ) : (
-                  <>
-                    <h3 className="min-w-0 truncate font-mono text-[1.0625rem] font-semibold text-ink">
-                      {hereOrder.number}
-                    </h3>
-                    <span className="min-w-0 truncate text-[0.9375rem] text-mute">
-                      {hereOrder.supplier}
-                    </span>
-                  </>
-                )}
+                <h3 className="min-w-0 truncate text-[1.0625rem] font-semibold tracking-[-0.02em] text-ink">
+                  {hereSupplier === undefined
+                    ? "All Suppliers"
+                    : hereSupplier.name}
+                </h3>
                 <span className="text-[0.9375rem] text-mute tabular-nums">
                   {count(cards.length)}
                 </span>
@@ -471,40 +485,67 @@ export function SetupWorkspace() {
                       : "Nothing here matches that."}
                 </EmptyState>
               ) : (
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] items-start gap-4">
-                  {shown.map((row) => (
-                    <WaitingCard
-                      key={row.receipt_line_id}
-                      row={row}
-                      supplier={supplierOf(
-                        row.supplier_id,
-                        row.supplier_id,
-                        row.supplier_id
+                <div className="flex flex-col gap-8">
+                  {sections.map((group) => (
+                    <div
+                      key={group.id}
+                      role="group"
+                      aria-label={group.name}
+                      className="flex min-w-0 flex-col gap-3"
+                    >
+                      {/* On one supplier's rail the page title already says
+                      who; the heading is for All, where the cards of
+                      several suppliers stand under one another. */}
+                      {here === null && (
+                        <h4 className="flex min-w-0 items-baseline gap-2 text-[0.9375rem] font-semibold text-ink">
+                          <span className="min-w-0 truncate">{group.name}</span>
+                          <span className="shrink-0 font-normal text-mute tabular-nums">
+                            {count(group.rows.length)}
+                          </span>
+                        </h4>
                       )}
-                      showPo={here === null}
-                      on={row.receipt_line_id === active?.receipt_line_id}
-                      onOpen={() =>
-                        go({
-                          setupFor: railNow,
-                          receipt: row.receipt_line_id,
-                        })
-                      }
-                    />
+                      <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] items-start gap-4">
+                        {group.rows.map((row) => (
+                          <WaitingCard
+                            key={row.receipt_line_id}
+                            row={row}
+                            on={row.receipt_line_id === active?.receipt_line_id}
+                            onOpen={() =>
+                              go({
+                                setupFor: railNow,
+                                receipt: row.receipt_line_id,
+                              })
+                            }
+                          />
+                        ))}
+                      </div>
+                    </div>
                   ))}
                   {/* A session still open is a mint that did not run: the
                   delivery has its identity and is out of the queue, and
                   nothing but a person pressing the button on its record will
                   finish it. */}
-                  {stalledShown.map((row) => (
-                    <StalledCard
-                      key={row.session_id}
-                      row={row}
-                      on={row.session_id === session.value}
-                      onOpen={() =>
-                        go({ setupFor: railNow, setup: row.session_id })
-                      }
-                    />
-                  ))}
+                  {stalledShown.length > 0 && (
+                    <div className="flex min-w-0 flex-col gap-3">
+                      {sections.length > 0 && (
+                        <h4 className="text-[0.9375rem] font-semibold text-ink">
+                          Not Minted
+                        </h4>
+                      )}
+                      <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] items-start gap-4">
+                        {stalledShown.map((row) => (
+                          <StalledCard
+                            key={row.session_id}
+                            row={row}
+                            on={row.session_id === session.value}
+                            onOpen={() =>
+                              go({ setupFor: railNow, setup: row.session_id })
+                            }
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </section>
@@ -865,17 +906,10 @@ function useLineImage(row: UnidentifiedReceipt): string | null {
 /// the garment placeholder the Thumbnail draws from the name.
 function WaitingCard({
   row,
-  supplier,
-  showPo,
   on,
   onOpen,
 }: {
   row: UnidentifiedReceipt
-  /// The supplier's name, as the book writes it.
-  supplier: string
-  /// The PO number, on the All rail only — on one PO's rail every card
-  /// would say the same thing.
-  showPo: boolean
   on: boolean
   onOpen: () => void
 }) {
@@ -885,14 +919,9 @@ function WaitingCard({
       image={image}
       name={row.article_name}
       division={row.division_code}
-      sub={
-        <>
-          <span className="block truncate">{supplier}</span>
-          {showPo && (
-            <span className="block truncate font-mono">{row.po_number}</span>
-          )}
-        </>
-      }
+      // The supplier is the heading the card stands under; the PO is what
+      // tells one delivery of theirs from another.
+      sub={<span className="block truncate font-mono">{row.po_number}</span>}
       pieces={row.quantity}
       since={row.verified_at}
       on={on}
