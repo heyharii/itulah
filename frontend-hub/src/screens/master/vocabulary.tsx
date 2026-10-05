@@ -2,7 +2,7 @@ import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { EyeOff, Pencil, Power, PowerOff, Search, Trash2 } from "lucide-react"
+import { EyeOff, Pencil, Search } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -36,7 +36,6 @@ import { tableSetup, type TableSetup } from "@/lib/table"
 import {
   ActiveRow,
   CodeFact,
-  DeactivateDialog,
   DeleteDialog,
   SubmitRow,
 } from "@/screens/master/term-form"
@@ -277,132 +276,27 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
   columns.push({
     id: "action",
     header: "Action",
-    size: 96,
+    size: 80,
     enableSorting: false,
     meta: { align: "right" },
-    cell: ({ row }) => (
-      <RowActions vocabulary={vocabulary} row={row.original} />
-    ),
+    cell: ({ row }) => <RowActions label={row.original.term.label} />,
   })
 
   return columns
 }
 
-/// Edit and Active / Inactive, in the row. Edit is the row's own click (the
-/// button only says so); the other one changes the state at once and is
-/// reversible from the same place.
-function RowActions({
-  vocabulary,
-  row,
-}: {
-  vocabulary: Vocabulary
-  row: TermRow
-}) {
-  const client = useQueryClient()
-  const change = useMutation({
-    mutationFn: () =>
-      updateTerm(
-        vocabulary.kind,
-        row.term.code,
-        { active: !row.active },
-        row.term.version,
-        crypto.randomUUID()
-      ),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: vocabularyKeys.all })
-      void client.invalidateQueries({ queryKey: ["procurement", "vocabulary"] })
-      void client.invalidateQueries({ queryKey: ["articles"] })
-    },
-    onError: (error) => toast.error(said(error)),
-  })
-  const [asking, setAsking] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const noun = vocabulary.one
-  const remove = useMutation({
-    mutationFn: () =>
-      deleteTerm(vocabulary.kind, row.term.code, row.term.version),
-    onSuccess: () => {
-      setDeleting(false)
-      void client.invalidateQueries({ queryKey: vocabularyKeys.all })
-      void client.invalidateQueries({ queryKey: ["procurement", "vocabulary"] })
-      void client.invalidateQueries({ queryKey: ["articles"] })
-    },
-    onError: (error) => toast.error(said(error)),
-  })
-  const box =
-    "inline-flex size-8 cursor-pointer items-center justify-center rounded-inner text-mute transition-colors hover:bg-soft-2 hover:text-ink disabled:cursor-progress disabled:opacity-50"
+/// Edit: the row's own click opens the sheet; the button only says so. Inactive
+/// and Delete live in the sheet (owner, 2026-10-05).
+function RowActions({ label }: { label: string }) {
   return (
-    <span className="inline-flex items-center gap-0.5">
-      <button
-        type="button"
-        aria-label={`Edit ${row.term.label}`}
-        title="Edit"
-        className={box}
-      >
-        <Pencil className="size-4" />
-      </button>
-      <button
-        type="button"
-        disabled={change.isPending}
-        aria-label={`${row.active ? "Make Inactive" : "Make Active"}: ${row.term.label}`}
-        title={row.active ? "Make Inactive" : "Make Active"}
-        className={box}
-        onClick={(event) => {
-          event.stopPropagation()
-          if (row.active) setAsking(true)
-          else change.mutate()
-        }}
-      >
-        {row.active ? (
-          <PowerOff className="size-4" />
-        ) : (
-          <Power className="size-4" />
-        )}
-      </button>
-      {row.term.in_use === 0 && (
-        <button
-          type="button"
-          aria-label={`Delete: ${row.term.label}`}
-          title="Delete"
-          className="inline-flex size-8 cursor-pointer items-center justify-center rounded-inner text-[#e58aa0] transition-colors hover:bg-[#fdeef2] hover:text-[#d6456b]"
-          onClick={(event) => {
-            event.stopPropagation()
-            setDeleting(true)
-          }}
-        >
-          <Trash2 className="size-4" />
-        </button>
-      )}
-      <DeleteDialog
-        open={deleting}
-        onOpenChange={setDeleting}
-        noun={noun}
-        label={row.term.label}
-        usage={{
-          queryKey: vocabularyKeys.usage(vocabulary.kind, row.term.code),
-          queryFn: ({ signal }) =>
-            termUsage(vocabulary.kind, row.term.code, signal),
-        }}
-        pending={remove.isPending}
-        onConfirm={() => remove.mutate()}
-      />
-      <DeactivateDialog
-        open={asking}
-        onOpenChange={setAsking}
-        noun={noun}
-        label={row.term.label}
-        usage={{
-          queryKey: vocabularyKeys.usage(vocabulary.kind, row.term.code),
-          queryFn: ({ signal }) =>
-            termUsage(vocabulary.kind, row.term.code, signal),
-        }}
-        pending={change.isPending}
-        onConfirm={() => {
-          setAsking(false)
-          change.mutate()
-        }}
-      />
-    </span>
+    <button
+      type="button"
+      aria-label={`Edit ${label}`}
+      title="Edit"
+      className="inline-flex size-8 cursor-pointer items-center justify-center rounded-inner text-mute transition-colors hover:bg-soft-2 hover:text-ink"
+    >
+      <Pencil className="size-4" />
+    </button>
   )
 }
 
@@ -410,7 +304,7 @@ function capitalise(word: string): string {
   return word.charAt(0).toUpperCase() + word.slice(1)
 }
 
-type StatusTab = "ALL" | "ACTIVE" | "INACTIVE" | "TRASH"
+type StatusTab = "ALL" | "ACTIVE" | "INACTIVE"
 
 function TabLabel({ text, n }: { text: string; n: number }) {
   return (
@@ -449,9 +343,7 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
     () =>
       all.filter(
         (row) =>
-          (tab === "TRASH"
-            ? row.term.in_use === 0
-            : tab === "ALL" || row.active === (tab === "ACTIVE")) &&
+          (tab === "ALL" || row.active === (tab === "ACTIVE")) &&
           (!inUseOnly || row.term.in_use > 0)
       ),
     [all, tab, inUseOnly]
@@ -507,40 +399,24 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
         ))}
       </KpiStrip>
 
-      <div className="relative">
-        <SubTabs
-          tabs={[
-            {
-              value: "ACTIVE",
-              label: <TabLabel text="Active" n={all.length - retired} />,
-            },
-            {
-              value: "INACTIVE",
-              label: <TabLabel text="Inactive" n={retired} />,
-            },
-            {
-              value: "ALL",
-              label: <TabLabel text="All" n={all.length} />,
-            },
-          ]}
-          value={tab}
-          onChange={(next) => setTab(next as StatusTab)}
-        />
-        <button
-          type="button"
-          aria-pressed={tab === "TRASH"}
-          aria-label="Trash Bin"
-          title="Trash Bin"
-          onClick={() => setTab(tab === "TRASH" ? "ACTIVE" : "TRASH")}
-          className={
-            tab === "TRASH"
-              ? "absolute top-0 right-0 inline-flex size-8 items-center justify-center rounded-inner border border-hairline-2 bg-soft-2 text-ink"
-              : "absolute top-0 right-0 inline-flex size-8 cursor-pointer items-center justify-center rounded-inner border border-hairline-2 text-body transition-colors hover:bg-soft-2 hover:text-ink"
-          }
-        >
-          <Trash2 className="size-4" />
-        </button>
-      </div>
+      <SubTabs
+        tabs={[
+          {
+            value: "ACTIVE",
+            label: <TabLabel text="Active" n={all.length - retired} />,
+          },
+          {
+            value: "INACTIVE",
+            label: <TabLabel text="Inactive" n={retired} />,
+          },
+          {
+            value: "ALL",
+            label: <TabLabel text="All" n={all.length} />,
+          },
+        ]}
+        value={tab}
+        onChange={(next) => setTab(next as StatusTab)}
+      />
 
       {/* One line, as the order book draws it: the search and what narrows the
           list at the left, what shapes the table and what makes a new one at
@@ -735,6 +611,19 @@ function TermForm({
   // keystroke in the field above it.
   const [codeTyped, setCodeTyped] = useState(false)
   const { attempt, reveal } = useReveal()
+  const [deleting, setDeleting] = useState(false)
+  const remove = useMutation({
+    mutationFn: () =>
+      deleteTerm(vocabulary.kind, term!.term.code, term!.term.version),
+    onSuccess: () => {
+      setDeleting(false)
+      void client.invalidateQueries({ queryKey: vocabularyKeys.all })
+      void client.invalidateQueries({ queryKey: ["procurement", "vocabulary"] })
+      void client.invalidateQueries({ queryKey: ["articles"] })
+      onSaved()
+    },
+    onError: (error) => toast.error(said(error)),
+  })
 
   const save = useMutation({
     mutationFn: (draft: TermDraft) => {
@@ -902,7 +791,30 @@ function TermForm({
               pending={save.isPending}
               creating={term === null}
               noun={vocabulary.one}
+              onDelete={
+                term !== null && term.term.in_use === 0
+                  ? () => setDeleting(true)
+                  : undefined
+              }
             />
+            {term !== null && (
+              <DeleteDialog
+                open={deleting}
+                onOpenChange={setDeleting}
+                noun={vocabulary.one}
+                label={term.term.label}
+                usage={{
+                  queryKey: vocabularyKeys.usage(
+                    vocabulary.kind,
+                    term.term.code
+                  ),
+                  queryFn: ({ signal }) =>
+                    termUsage(vocabulary.kind, term.term.code, signal),
+                }}
+                pending={remove.isPending}
+                onConfirm={() => remove.mutate()}
+              />
+            )}
           </>
         )}
       </form.Subscribe>

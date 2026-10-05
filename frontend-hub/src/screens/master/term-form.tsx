@@ -32,15 +32,25 @@ export function SubmitRow({
   pending,
   creating,
   noun,
+  onDelete,
 }: {
   pending: boolean
   /// True while minting a new row.
   creating: boolean
   /// The singular, any case: "tag", "colour".
   noun: string
+  /// Given only for a row nothing uses: Delete sits at the left of the row.
+  onDelete?: () => void
 }) {
   return (
-    <div className="flex items-center justify-end gap-2 pt-1">
+    <div className="flex items-center justify-between gap-2 pt-1">
+      {onDelete ? (
+        <Button type="button" variant="quiet" onClick={onDelete}>
+          Delete
+        </Button>
+      ) : (
+        <span />
+      )}
       <Button type="submit" variant="primary" pending={pending}>
         {pending
           ? "Saving…"
@@ -160,7 +170,7 @@ export function DeactivateDialog({
 }
 
 /// Delete, for a value nothing uses. The server has the last word: a value that
-/// has EVER been used is refused, and that sentence is shown here instead of an
+/// has EVER been used is refused, and its sentence is shown instead of an
 /// invitation to try.
 export function DeleteDialog({
   open,
@@ -200,10 +210,7 @@ export function DeleteDialog({
       {read.isPending ? (
         <p>Checking what uses this {noun}…</p>
       ) : read.isError ? (
-        <p>
-          Could not check what uses this {noun}, so it cannot be deleted from
-          here.
-        </p>
+        <p>Could not check what uses this {noun}, so it cannot be deleted.</p>
       ) : refused ? (
         <p>{read.data?.blocked ?? `This ${noun} cannot be deleted.`}</p>
       ) : (

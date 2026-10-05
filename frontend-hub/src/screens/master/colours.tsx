@@ -2,7 +2,7 @@ import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { EyeOff, Pencil, Power, PowerOff, Search, Trash2 } from "lucide-react"
+import { EyeOff, Pencil, Search } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -39,7 +39,6 @@ import { ColourSwatch } from "@/screens/master/colour-picker"
 import {
   ActiveRow,
   CodeFact,
-  DeactivateDialog,
   DeleteDialog,
   SubmitRow,
 } from "@/screens/master/term-form"
@@ -182,121 +181,29 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
   {
     id: "action",
     header: "Action",
-    size: 96,
+    size: 80,
     enableSorting: false,
     meta: { align: "right" },
-    cell: ({ row }) => <RowActions row={row.original} />,
+    cell: ({ row }) => <RowActions label={row.original.term.label} />,
   },
 ]
 
-/// Edit and Active / Inactive, in the row; see the same in `vocabulary.tsx`.
-function RowActions({ row }: { row: ColourRow }) {
-  const client = useQueryClient()
-  const change = useMutation({
-    mutationFn: () =>
-      updateColour(
-        row.term.code,
-        { active: !row.active },
-        row.term.version,
-        crypto.randomUUID()
-      ),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: colourKeys.all })
-    },
-    onError: (error) =>
-      toast.error(
-        error instanceof Error ? error.message : "That did not save."
-      ),
-  })
-  const [asking, setAsking] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const remove = useMutation({
-    mutationFn: () => deleteColour(row.term.code, row.term.version),
-    onSuccess: () => {
-      setDeleting(false)
-      void client.invalidateQueries({ queryKey: colourKeys.all })
-    },
-    onError: (error) =>
-      toast.error(
-        error instanceof Error ? error.message : "That did not delete."
-      ),
-  })
-  const box =
-    "inline-flex size-8 cursor-pointer items-center justify-center rounded-inner text-mute transition-colors hover:bg-soft-2 hover:text-ink disabled:cursor-progress disabled:opacity-50"
+/// Edit: the row's own click opens the sheet; the button only says so. Inactive
+/// and Delete live in the sheet (owner, 2026-10-05).
+function RowActions({ label }: { label: string }) {
   return (
-    <span className="inline-flex items-center gap-0.5">
-      <button
-        type="button"
-        aria-label={`Edit ${row.term.label}`}
-        title="Edit"
-        className={box}
-      >
-        <Pencil className="size-4" />
-      </button>
-      <button
-        type="button"
-        disabled={change.isPending}
-        aria-label={`${row.active ? "Make Inactive" : "Make Active"}: ${row.term.label}`}
-        title={row.active ? "Make Inactive" : "Make Active"}
-        className={box}
-        onClick={(event) => {
-          event.stopPropagation()
-          if (row.active) setAsking(true)
-          else change.mutate()
-        }}
-      >
-        {row.active ? (
-          <PowerOff className="size-4" />
-        ) : (
-          <Power className="size-4" />
-        )}
-      </button>
-      {row.term.in_use === 0 && (
-        <button
-          type="button"
-          aria-label={`Delete: ${row.term.label}`}
-          title="Delete"
-          className="inline-flex size-8 cursor-pointer items-center justify-center rounded-inner text-[#e58aa0] transition-colors hover:bg-[#fdeef2] hover:text-[#d6456b]"
-          onClick={(event) => {
-            event.stopPropagation()
-            setDeleting(true)
-          }}
-        >
-          <Trash2 className="size-4" />
-        </button>
-      )}
-      <DeleteDialog
-        open={deleting}
-        onOpenChange={setDeleting}
-        noun="color"
-        label={row.term.label}
-        usage={{
-          queryKey: colourKeys.usage(row.term.code),
-          queryFn: ({ signal }) => colourUsage(row.term.code, signal),
-        }}
-        pending={remove.isPending}
-        onConfirm={() => remove.mutate()}
-      />
-      <DeactivateDialog
-        open={asking}
-        onOpenChange={setAsking}
-        noun="color"
-        label={row.term.label}
-        usage={{
-          queryKey: colourKeys.usage(row.term.code),
-          queryFn: ({ signal }) => colourUsage(row.term.code, signal),
-        }}
-        pending={change.isPending}
-        onConfirm={() => {
-          setAsking(false)
-          change.mutate()
-        }}
-      />
-    </span>
+    <button
+      type="button"
+      aria-label={`Edit ${label}`}
+      title="Edit"
+      className="inline-flex size-8 cursor-pointer items-center justify-center rounded-inner text-mute transition-colors hover:bg-soft-2 hover:text-ink"
+    >
+      <Pencil className="size-4" />
+    </button>
   )
 }
 
-type StatusTab = "ALL" | "ACTIVE" | "INACTIVE" | "TRASH"
+type StatusTab = "ALL" | "ACTIVE" | "INACTIVE"
 
 function TabLabel({ text, n }: { text: string; n: number }) {
   return (
@@ -336,9 +243,7 @@ export function Colours() {
     () =>
       all.filter(
         (row) =>
-          (tab === "TRASH"
-            ? row.term.in_use === 0
-            : tab === "ALL" || row.active === (tab === "ACTIVE")) &&
+          (tab === "ALL" || row.active === (tab === "ACTIVE")) &&
           (!inUseOnly || row.term.in_use > 0)
       ),
     [all, tab, inUseOnly]
@@ -395,40 +300,24 @@ export function Colours() {
         ))}
       </KpiStrip>
 
-      <div className="relative">
-        <SubTabs
-          tabs={[
-            {
-              value: "ACTIVE",
-              label: <TabLabel text="Active" n={all.length - retired} />,
-            },
-            {
-              value: "INACTIVE",
-              label: <TabLabel text="Inactive" n={retired} />,
-            },
-            {
-              value: "ALL",
-              label: <TabLabel text="All" n={all.length} />,
-            },
-          ]}
-          value={tab}
-          onChange={(next) => setTab(next as StatusTab)}
-        />
-        <button
-          type="button"
-          aria-pressed={tab === "TRASH"}
-          aria-label="Trash Bin"
-          title="Trash Bin"
-          onClick={() => setTab(tab === "TRASH" ? "ACTIVE" : "TRASH")}
-          className={
-            tab === "TRASH"
-              ? "absolute top-0 right-0 inline-flex size-8 items-center justify-center rounded-inner border border-hairline-2 bg-soft-2 text-ink"
-              : "absolute top-0 right-0 inline-flex size-8 cursor-pointer items-center justify-center rounded-inner border border-hairline-2 text-body transition-colors hover:bg-soft-2 hover:text-ink"
-          }
-        >
-          <Trash2 className="size-4" />
-        </button>
-      </div>
+      <SubTabs
+        tabs={[
+          {
+            value: "ACTIVE",
+            label: <TabLabel text="Active" n={all.length - retired} />,
+          },
+          {
+            value: "INACTIVE",
+            label: <TabLabel text="Inactive" n={retired} />,
+          },
+          {
+            value: "ALL",
+            label: <TabLabel text="All" n={all.length} />,
+          },
+        ]}
+        value={tab}
+        onChange={(next) => setTab(next as StatusTab)}
+      />
 
       <div className="mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
         <span className="relative min-w-0 flex-1 lg:w-44 lg:flex-none">
@@ -628,6 +517,16 @@ function ColourForm({
   // keystroke in the field above it.
   const [codeTyped, setCodeTyped] = useState(false)
   const { attempt, reveal } = useReveal()
+  const [deleting, setDeleting] = useState(false)
+  const remove = useMutation({
+    mutationFn: () => deleteColour(colour!.term.code, colour!.term.version),
+    onSuccess: () => {
+      setDeleting(false)
+      void client.invalidateQueries({ queryKey: colourKeys.all })
+      onSaved()
+    },
+    onError: (error) => toast.error(said(error)),
+  })
 
   const save = useMutation({
     mutationFn: (draft: ColourDraft) => {
@@ -871,7 +770,27 @@ function ColourForm({
               pending={save.isPending}
               creating={colour === null}
               noun="color"
+              onDelete={
+                colour !== null && colour.term.in_use === 0
+                  ? () => setDeleting(true)
+                  : undefined
+              }
             />
+            {colour !== null && (
+              <DeleteDialog
+                open={deleting}
+                onOpenChange={setDeleting}
+                noun="color"
+                label={colour.term.label}
+                usage={{
+                  queryKey: colourKeys.usage(colour.term.code),
+                  queryFn: ({ signal }) =>
+                    colourUsage(colour.term.code, signal),
+                }}
+                pending={remove.isPending}
+                onConfirm={() => remove.mutate()}
+              />
+            )}
           </>
         )}
       </form.Subscribe>
