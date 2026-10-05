@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Images, ImagePlus, Trash2 } from "lucide-react"
+import { Camera, Images, ImagePlus, Trash2 } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -811,45 +811,77 @@ export function ItemFormSheet({
           <div className="grid gap-4 md:grid-cols-[13rem_1fr]">
             <Field label="Photograph" problem={photoRefused ?? undefined}>
               <div className="flex flex-col gap-2">
-                <button
-                  type="button"
-                  disabled={photoFixed}
-                  onClick={() => chooser.current?.click()}
-                  className="group relative block aspect-square w-full overflow-hidden rounded-card border border-hairline bg-soft-2 transition-colors enabled:hover:border-hairline-strong"
-                  aria-label={
-                    showing === null
-                      ? touch
-                        ? "Take a photograph"
-                        : "Choose a photograph"
-                      : "Replace the photograph"
-                  }
-                >
-                  {showing === null &&
-                  (draft.name.trim() !== "" || draft.division !== null) ? (
-                    <>
+                {touch && !photoFixed ? (
+                  // On a phone one row, not a square the width of the screen:
+                  // the camera, the gallery, and a small proof of what was taken.
+                  <div className="flex items-center gap-2">
+                    {showing !== null && (
+                      <span className="size-12 shrink-0 overflow-hidden rounded-inner border border-hairline">
+                        <Thumbnail
+                          url={showing}
+                          fallback="Cannot be read"
+                          className="size-full"
+                        />
+                      </span>
+                    )}
+                    <Button
+                      variant="ghost"
+                      className="flex-1 justify-center"
+                      onClick={() => chooser.current?.click()}
+                    >
+                      <Camera />
+                      Take a Photo
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="flex-1 justify-center"
+                      onClick={() => gallery.current?.click()}
+                    >
+                      <Images />
+                      From Gallery
+                    </Button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={photoFixed}
+                    onClick={() => chooser.current?.click()}
+                    className="group relative block aspect-square w-full overflow-hidden rounded-card border border-hairline bg-soft-2 transition-colors enabled:hover:border-hairline-strong"
+                    aria-label={
+                      showing === null
+                        ? touch
+                          ? "Take a photograph"
+                          : "Choose a photograph"
+                        : "Replace the photograph"
+                    }
+                  >
+                    {showing === null &&
+                    (draft.name.trim() !== "" || draft.division !== null) ? (
+                      <>
+                        <Thumbnail
+                          url={null}
+                          name={draft.name}
+                          division={draft.division}
+                          className="size-full"
+                        />
+                        <span className="absolute inset-x-0 bottom-2 text-center text-[0.875rem] text-mute">
+                          {photoLabel}
+                        </span>
+                      </>
+                    ) : showing === null ? (
+                      <span className="flex size-full flex-col items-center justify-center gap-1.5 text-mute">
+                        <ImagePlus className="size-5" />
+                        <span className="text-[0.875rem]">{photoLabel}</span>
+                      </span>
+                    ) : (
                       <Thumbnail
-                        url={null}
-                        name={draft.name}
-                        division={draft.division}
+                        url={showing}
+                        fallback="Cannot be read"
                         className="size-full"
                       />
-                      <span className="absolute inset-x-0 bottom-2 text-center text-[0.875rem] text-mute">
-                        {photoLabel}
-                      </span>
-                    </>
-                  ) : showing === null ? (
-                    <span className="flex size-full flex-col items-center justify-center gap-1.5 text-mute">
-                      <ImagePlus className="size-5" />
-                      <span className="text-[0.875rem]">{photoLabel}</span>
-                    </span>
-                  ) : (
-                    <Thumbnail
-                      url={showing}
-                      fallback="Cannot be read"
-                      className="size-full"
-                    />
-                  )}
-                </button>
+                    )}
+                  </button>
+                )}
                 {/* The file input itself is never seen. A bare one renders as
                   the browser's own grey "No file chosen" strip, which is the
                   one control on this form nobody could restyle. */}
@@ -868,23 +900,13 @@ export function ItemFormSheet({
                   onChange={pickPicture}
                 />
                 {touch && !photoFixed && (
-                  <>
-                    <input
-                      ref={gallery}
-                      type="file"
-                      accept={PICTURE_TYPES}
-                      className="hidden"
-                      onChange={pickPicture}
-                    />
-                    <Button
-                      variant="ghost"
-                      className="w-full justify-center"
-                      onClick={() => gallery.current?.click()}
-                    >
-                      <Images />
-                      From Gallery
-                    </Button>
-                  </>
+                  <input
+                    ref={gallery}
+                    type="file"
+                    accept={PICTURE_TYPES}
+                    className="hidden"
+                    onChange={pickPicture}
+                  />
                 )}
                 {showing !== null && !photoFixed && (
                   <Button
