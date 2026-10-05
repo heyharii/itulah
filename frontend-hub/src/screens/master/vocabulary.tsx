@@ -138,7 +138,7 @@ const SIZES: Vocabulary = {
   one: "size",
   codePlaceholder: "03",
   labelPlaceholder: "M",
-  empty: "No size has been declared, so no SKU can be minted.",
+  empty: "No size has been declared, so no SKU can be created.",
   // The one list where the order is not a preference. Alphabetically, L comes
   // before M comes before S comes before XS.
   ordered: false,

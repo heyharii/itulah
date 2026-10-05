@@ -710,8 +710,8 @@ function RegisterReaderSheet({
         className="flex flex-col gap-3.5"
       >
         <Banner tone="info">
-          The store server mints this reader's key and hands it back once. This
-          console does not keep it and will not display it, so finish
+          The store server creates this reader's key and hands it back once.
+          This console does not keep it and will not display it, so finish
           provisioning at the server itself.
         </Banner>
 

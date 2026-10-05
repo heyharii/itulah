@@ -229,6 +229,8 @@ function columnsFor(
 }
 
 /// The table version of a board: one row per card, in lane order.
+const ACT_FIRST = { id: "act-first", desc: false } as const
+
 export function StageTable({
   rows,
   first = "Store",
@@ -251,7 +253,17 @@ export function StageTable({
   const [sorting, setSorting] = useState<SortingState>([])
   const pickable = rows.some((row) => row.pick !== undefined)
   const columns = useMemo(
-    () => columnsFor(first, group, pickable, stages),
+    () => [
+      ...columnsFor(first, group, pickable, stages),
+      // Never drawn, only sorted on: rows with a button lead whatever the
+      // headings sort by (owner, 2026-10-05).
+      {
+        id: ACT_FIRST.id,
+        accessorFn: (row: StageRow) => (row.act === undefined ? 1 : 0),
+        header: "",
+        enableHiding: false,
+      } as ColumnDef<TableSetup, StageRow>,
+    ],
     [first, group, pickable, stages]
   )
   const ordered = useMemo(() => byStage(rows), [rows])
@@ -263,8 +275,19 @@ export function StageTable({
         data: ordered,
         columns,
         getRowId: (row: StageRow) => row.key,
-        state: { sorting },
-        onSortingChange: setSorting,
+        state: {
+          sorting: [ACT_FIRST, ...sorting],
+          columnVisibility: { [ACT_FIRST.id]: false },
+        },
+        onSortingChange: (
+          next: SortingState | ((prev: SortingState) => SortingState)
+        ) =>
+          setSorting((was) =>
+            (typeof next === "function"
+              ? next([ACT_FIRST, ...was])
+              : next
+            ).filter((one) => one.id !== ACT_FIRST.id)
+          ),
       }),
       [ordered, columns, sorting]
     )

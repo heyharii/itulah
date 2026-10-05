@@ -111,7 +111,7 @@ const KINDS: Readonly<Record<By, Kind>> = {
     noun: "PO",
     none: "No PO",
     search: "Search PO number or supplier",
-    note: "Each piece counts under the order it came in on, read off its tag. Pieces whose tag was not minted here have no PO.",
+    note: "Each piece counts under the order it came in on, read off its tag. Pieces whose tag was not created here have no PO.",
   },
   supplier: {
     noun: "Supplier",

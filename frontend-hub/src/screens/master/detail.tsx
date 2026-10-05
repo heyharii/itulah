@@ -228,7 +228,7 @@ function Overview({
       </div>
 
       <div>
-        <SubHead>Minted by</SubHead>
+        <SubHead>Created By</SubHead>
         {article.created_by_session_id === null ? (
           <p className="text-meta text-mute">
             No setup session is on record. This article predates the sessions

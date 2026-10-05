@@ -534,7 +534,7 @@ export function Articles() {
                 <EmptyState>
                   {filtered
                     ? "No article matches that. Widen the filters, or search the whole master."
-                    : "No article has been minted yet. Articles are created by an article setup session in Procurement."}
+                    : "No article has been created yet. Articles are created in New Articles."}
                 </EmptyState>
               ) : (
                 <>

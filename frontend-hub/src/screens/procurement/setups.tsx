@@ -499,7 +499,7 @@ export function SetupWorkspace() {
             person pressing the button on its record will finish it. */}
             {stalledShown.length > 0 && (
               <LedgerGroup
-                name="Not Minted"
+                name="Needs Retry"
                 warn
                 pieces={stalledShown.reduce(
                   (sum, row) => sum + row.receipt_quantity,
@@ -625,7 +625,7 @@ export function SetupWorkspace() {
                   session_id: first.session.session_id,
                   problem:
                     outcome.stalled.length > 1
-                      ? `${first.problem} ${count(outcome.stalled.length - 1)} more of these articles are under Not minted.`
+                      ? `${first.problem} ${count(outcome.stalled.length - 1)} more of these articles need a retry.`
                       : first.problem,
                   job: null,
                 })
@@ -2576,8 +2576,8 @@ function SessionComposer({
     ? null
     : over
       ? split
-        ? `The articles come to ${count(allotted)} and the warehouse counted ${count(receipt.quantity)}. A session cannot mint stock that did not arrive.`
-        : `The grid comes to ${count(declared)} and the warehouse counted ${count(receipt.quantity)}. A session cannot mint stock that did not arrive.`
+        ? `The articles come to ${count(allotted)} and the warehouse counted ${count(receipt.quantity)}. A session cannot create stock that did not arrive.`
+        : `The grid comes to ${count(declared)} and the warehouse counted ${count(receipt.quantity)}. A session cannot create stock that did not arrive.`
       : split
         ? `${count(left)} of ${count(receipt.quantity)} pieces not in any article yet.`
         : `${count(receipt.quantity - declared)} of ${count(receipt.quantity)} pieces not in the grid yet.`

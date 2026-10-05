@@ -216,7 +216,7 @@ export function ColourPicker({
                       title="Goods carrying this digit are already tagged and on a shelf. Repointing it would rename them without touching them."
                     >
                       <Lock className="size-3.5 text-line-ico" />
-                      {count(skus)} minted
+                      {count(skus)} {skus === 1 ? "SKU" : "SKUs"}
                     </span>
                   ) : (
                     <span className="flex shrink-0 items-center gap-1">
@@ -331,8 +331,8 @@ export function ColourPicker({
             All ten digits are spoken for, and ten is the ceiling rather than a
             setting: a SKU is eight digits of article, one of colour and two of
             size, so an eleventh colourway has no character to live in. Clear a
-            colour this article no longer comes in — one with no SKUs minted
-            against it — before adding another.
+            colour this article no longer comes in — one with no SKUs made in it
+            — before adding another.
           </Banner>
         )}
 
@@ -341,10 +341,10 @@ export function ColourPicker({
             {locked.length === 1
               ? `Digit ${locked[0]} is locked.`
               : `Digits ${locked.slice(0, -1).join(", ")} and ${locked[locked.length - 1]} are locked.`}{" "}
-            SKUs have already been minted against them, printed onto labels and
-            tagged onto goods sitting in a shop. Repointing one would rename
-            what is on the shelf without anybody touching the shelf, so the
-            colour it means is settled for good — the server refuses it too.
+            SKUs have already been made in them, printed onto labels and tagged
+            onto goods sitting in a shop. Repointing one would rename what is on
+            the shelf without anybody touching the shelf, so the colour it means
+            is settled for good — the server refuses it too.
           </p>
         )}
       </div>
