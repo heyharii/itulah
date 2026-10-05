@@ -306,16 +306,16 @@ export function Colours() {
       <SubTabs
         tabs={[
           {
-            value: "ALL",
-            label: <TabLabel text="All" n={all.length} />,
-          },
-          {
             value: "ACTIVE",
             label: <TabLabel text="Active" n={all.length - retired} />,
           },
           {
             value: "INACTIVE",
             label: <TabLabel text="Inactive" n={retired} />,
+          },
+          {
+            value: "ALL",
+            label: <TabLabel text="All" n={all.length} />,
           },
         ]}
         value={tab}

@@ -529,6 +529,14 @@ export function Suppliers() {
       <SubTabs
         tabs={[
           {
+            value: "ACTIVE",
+            label: <TabLabel text="Active" n={statusCount("ACTIVE")} />,
+          },
+          {
+            value: "INACTIVE",
+            label: <TabLabel text="Non-active" n={statusCount("INACTIVE")} />,
+          },
+          {
             value: "ALL",
             label: (
               <TabLabel
@@ -536,14 +544,6 @@ export function Suppliers() {
                 n={statusCount("ACTIVE") + statusCount("INACTIVE")}
               />
             ),
-          },
-          {
-            value: "ACTIVE",
-            label: <TabLabel text="Active" n={statusCount("ACTIVE")} />,
-          },
-          {
-            value: "INACTIVE",
-            label: <TabLabel text="Non-active" n={statusCount("INACTIVE")} />,
           },
         ]}
         value={tab}
