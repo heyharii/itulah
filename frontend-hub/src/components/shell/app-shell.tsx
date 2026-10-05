@@ -14,7 +14,12 @@ import { BottomBar } from "@/components/shell/bottom-bar"
 import { DockProvider, useDockRow } from "@/components/shell/dock"
 import { CommandPalette } from "@/components/shell/command-palette"
 import { NavColumn } from "@/components/shell/nav-column"
-import { SubSidebar, useSubSidebar } from "@/components/shell/sub-sidebar"
+import { RailPick } from "@/components/shell/rail-pick"
+import {
+  panelForDomain,
+  SubSidebar,
+  useSubSidebar,
+} from "@/components/shell/sub-sidebar"
 import { TopBar } from "@/components/shell/top-bar"
 import { SheetSpace } from "@/components/shell/sheet-space"
 import {
@@ -24,6 +29,8 @@ import {
   useLayout,
   useRecordBeside,
 } from "@/lib/layout"
+import { domains, type AppDomain } from "@/lib/navigation"
+import { useSections } from "@/lib/session"
 import { useSheetsOpen } from "@/lib/sheet-space"
 import { cn } from "@/lib/utils"
 
@@ -120,8 +127,24 @@ function Shell() {
   const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen)
   /// The floating screens panel, on a compact desk. A boolean closed by every
   /// finished navigation, like the drawer.
-  const [floatOpen, setFloatOpen] = useState(false)
-  if (!compact && floatOpen) setFloatOpen(false)
+  const [floatDomain, setFloatDomain] = useState<string | null>(null)
+  if (!compact && floatDomain !== null) setFloatDomain(null)
+  const { sections, bypass } = useSections()
+  const floatPanel =
+    floatDomain === null
+      ? null
+      : (() => {
+          const domain = domains.find((one) => one.id === floatDomain)
+          return domain === undefined
+            ? null
+            : panelForDomain(domain, sections, bypass)
+        })()
+  /// A rail press on a compact desk: that department's screens, floating.
+  const pick = useCallback(
+    (domain: AppDomain) =>
+      setFloatDomain((open) => (open === domain.id ? null : domain.id)),
+    []
+  )
   /// The column the page lives in, measured and published so the panels that
   /// stand beside a list ask the page's width rather than the window's — see
   /// `lib/layout.ts`. This column, not the scroll area inside it: the scroll
@@ -152,14 +175,17 @@ function Shell() {
   // Docked, ⌘B folds the screens panel away and the rail stays; undocked, it
   // opens and shuts the drawer that holds the whole column.
   const toggleSidebar = useCallback(() => {
-    if (compact) setFloatOpen((open) => !open)
+    if (compact)
+      setFloatDomain((open) =>
+        open !== null ? null : (subSidebar?.id ?? null)
+      )
     else if (docked) {
       setSidebarOpen((open) => {
         writeSidebarOpen(!open)
         return !open
       })
     } else setDrawerOpen((open) => !open)
-  }, [docked, compact])
+  }, [docked, compact, subSidebar?.id])
 
   /// Every finished navigation shuts it. One subscription rather than a rule
   /// each in the drawer, the palette, the domain bar and every link a screen
@@ -169,7 +195,7 @@ function Shell() {
     () =>
       router.subscribe("onResolved", () => {
         setDrawerOpen(false)
-        setFloatOpen(false)
+        setFloatDomain(null)
       }),
     [router]
   )
@@ -198,7 +224,7 @@ function Shell() {
       // value that is already there.
       if (event.key === "Escape") {
         setDrawerOpen(false)
-        setFloatOpen(false)
+        setFloatDomain(null)
       }
     }
     window.addEventListener("keydown", onKey)
@@ -206,60 +232,64 @@ function Shell() {
   }, [toggleSidebar, assistant])
 
   return (
-    <DockProvider phone={phone}>
-      <div className="app-shell flex h-full w-full overflow-hidden bg-soft-3">
-        {/* The rail is docked-only and always the icons; the screens live in
+    <RailPick.Provider value={compact ? pick : null}>
+      <DockProvider phone={phone}>
+        <div className="app-shell flex h-full w-full overflow-hidden bg-soft-3">
+          {/* The rail is docked-only and always the icons; the screens live in
           the light panel beside it. Under 64rem both become the drawer:
           68px + 232px of permanent chrome on a 768px screen, to hold
           something a thumb opens once a session, is the trade the drawer
           exists to refuse. */}
-        {docked && (
-          <NavColumn
-            folded
-            panelOpen={
-              subSidebar === null || (compact ? floatOpen : sidebarOpen)
-            }
-            onSearch={() => setPaletteOpen(true)}
-            onToggleNav={toggleSidebar}
-          />
-        )}
-        {/* Full height, beside the page column: the desk bar spans only the
+          {docked && (
+            <NavColumn
+              folded
+              panelOpen={
+                subSidebar === null ||
+                (compact ? floatDomain !== null : sidebarOpen)
+              }
+              onSearch={() => setPaletteOpen(true)}
+              onToggleNav={toggleSidebar}
+            />
+          )}
+          {/* Full height, beside the page column: the desk bar spans only the
           page, and the panel's head (the rail brand's height) is what lines
           the three columns' lower edges up. */}
-        {docked && !compact && subSidebar !== null && sidebarOpen && (
-          <SubSidebar onFold={toggleSidebar} />
-        )}
-        {/* On a compact desk the panel is over the page, beside the rail: a
+          {docked && !compact && subSidebar !== null && sidebarOpen && (
+            <SubSidebar onFold={toggleSidebar} />
+          )}
+          {/* On a compact desk the panel is over the page, beside the rail: a
           scrim to tap away, and the panel in the light, with a shadow. */}
-        {compact && subSidebar !== null && floatOpen && (
-          <>
-            <div
-              aria-hidden
-              onClick={() => setFloatOpen(false)}
-              className="fixed inset-y-0 right-0 left-[4.25rem] z-40 bg-black/20"
-            />
-            <div className="fixed inset-y-0 left-[4.25rem] z-50 shadow-float">
-              <SubSidebar onFold={toggleSidebar} />
-            </div>
-          </>
-        )}
-        <div ref={page} className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {/* On a desk the header is a slim strip carrying only the business
+          {compact && floatPanel !== null && (
+            <>
+              <div
+                aria-hidden
+                onClick={() => setFloatDomain(null)}
+                className="fixed inset-y-0 right-0 left-[4.25rem] z-40 bg-black/20"
+              />
+              <div className="fixed inset-y-0 left-[4.25rem] z-50 shadow-float">
+                <SubSidebar onFold={toggleSidebar} panel={floatPanel} />
+              </div>
+            </>
+          )}
+          <div ref={page} className="flex min-h-0 min-w-0 flex-1 flex-col">
+            {/* On a desk the header is a slim strip carrying only the business
             time (2 Oct 2026; the "Find anything" bar went, search stays on
             ⌘K and in the column). It sits outside the scroller below, so
             sticky table headers at `top-0` still stick to the strip's edge.
             Tablet and phone keep the old bar — the drawer's button and the
             page's name live there. */}
-          {!docked && (
-            <TopBar onOpenNav={phone ? undefined : () => setDrawerOpen(true)} />
-          )}
-          {/* `isolate` makes the page its own stacking context, so a screen's
+            {!docked && (
+              <TopBar
+                onOpenNav={phone ? undefined : () => setDrawerOpen(true)}
+              />
+            )}
+            {/* `isolate` makes the page its own stacking context, so a screen's
             z-index — a sticky table header, a frozen first column — is a
             statement about that screen and can never be read against the
             shell's. Floating layers are unaffected: base-ui portals its
             popups and sheets to `body`, outside this element. */}
-          <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col">
-            {/* The scroll container is here, not on `body`: screens below hold a
+            <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col">
+              {/* The scroll container is here, not on `body`: screens below hold a
               table body or a detail rail that scrolls inside itself, and a page
               that grows instead would put a second scrollbar around the lot.
 
@@ -269,7 +299,7 @@ function Shell() {
               and an animation that reads as considered on the first click reads
               as lag on the tenth. The sidebar's list swaps with that motion
               instead, and only when the domain changes — see `nav-swap`. */}
-            {/* 29.5rem: the panel's 27.5, its 1rem inset off the right edge,
+              {/* 29.5rem: the panel's 27.5, its 1rem inset off the right edge,
               and 1rem of air between it and the page.
 
               Padding rather than a flex sibling, because the panel is
@@ -278,30 +308,31 @@ function Shell() {
               measure their own box to decide how many columns they can afford,
               so an animated width would have them re-deciding twelve times on
               the way. */}
-            <div className="flex min-h-0 min-w-0 flex-1">
-              <PageScroller phone={phone} beside={beside} />
+              <div className="flex min-h-0 min-w-0 flex-1">
+                <PageScroller phone={phone} beside={beside} />
+              </div>
             </div>
           </div>
-        </div>
 
-        {phone && <BottomBar />}
-        {!docked && !phone && (
-          <NavDrawer
-            open={drawerOpen}
-            onClose={() => setDrawerOpen(false)}
-            onSearch={() => {
-              setDrawerOpen(false)
-              setPaletteOpen(true)
-            }}
-          />
-        )}
-        <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
-        {/* Not modal: the panel is meant to be read beside the screen that
+          {phone && <BottomBar />}
+          {!docked && !phone && (
+            <NavDrawer
+              open={drawerOpen}
+              onClose={() => setDrawerOpen(false)}
+              onSearch={() => {
+                setDrawerOpen(false)
+                setPaletteOpen(true)
+              }}
+            />
+          )}
+          <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+          {/* Not modal: the panel is meant to be read beside the screen that
           raised the question, and a modal one would grey out the very rows
           somebody is asking about. */}
-        <AssistantPanel />
-      </div>
-    </DockProvider>
+          <AssistantPanel />
+        </div>
+      </DockProvider>
+    </RailPick.Provider>
   )
 }
 

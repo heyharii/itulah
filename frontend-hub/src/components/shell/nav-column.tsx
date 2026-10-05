@@ -1,3 +1,4 @@
+import { RailPick } from "@/components/shell/rail-pick"
 import { Link, useRouterState } from "@tanstack/react-router"
 import {
   ChevronRight,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react"
 import {
   Fragment,
+  useContext,
   useLayoutEffect,
   useRef,
   useState,
@@ -328,6 +330,7 @@ function Department({
   if (!open && shut) setShut(false)
   const expanded = open && !shut
 
+  const pick = useContext(RailPick)
   if (folded || single) {
     return (
       <DepartmentLink
@@ -337,6 +340,7 @@ function Department({
         lit={open}
         folded={folded}
         openDepartment={open}
+        onPick={pick !== null && !single ? () => pick(domain) : undefined}
         badge={folded ? <DomainCount domain={domain} dot /> : undefined}
       />
     )
@@ -863,6 +867,7 @@ function DepartmentLink({
   folded,
   openDepartment = false,
   badge,
+  onPick,
 }: {
   icon: LucideIcon
   label: string
@@ -870,6 +875,9 @@ function DepartmentLink({
   lit: boolean
   folded: boolean
   openDepartment?: boolean
+  /// Replaces the walk to the department's home: its screens open beside the
+  /// rail instead (compact desk).
+  onPick?: () => void
   /// A count, as a rendered node rather than a value: its `useCount` hook
   /// belongs to the caller's element, never to a loop over these rows.
   badge?: ReactNode
@@ -877,6 +885,14 @@ function DepartmentLink({
   const link = (
     <Link
       to={to}
+      onClick={
+        onPick
+          ? (event) => {
+              event.preventDefault()
+              onPick()
+            }
+          : undefined
+      }
       aria-label={folded ? label : undefined}
       aria-current={lit ? "page" : undefined}
       data-open-department={openDepartment ? "" : undefined}

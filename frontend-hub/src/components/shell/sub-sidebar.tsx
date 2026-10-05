@@ -9,6 +9,7 @@ import {
   moduleForPath,
   modulesOfDomain,
   primaryItems,
+  type AppDomain,
   type AppModule,
 } from "@/lib/navigation"
 import { useSections } from "@/lib/session"
@@ -41,18 +42,7 @@ export function useSubSidebar(): NavPanel | null {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const { sections, bypass } = useSections()
   const domain = domainForPath(pathname)
-  if (domain) {
-    const modules = modulesOfDomain(domain).filter(
-      (module) => !module.hidden && moduleAllowed(module, sections, bypass)
-    )
-    // Counted WITHOUT the audience hooks — the same compromise the one
-    // column's `Department` makes: each module's `useAudience` is a hook,
-    // called by its own row element in the panel, never inside this loop.
-    const own = modules.flatMap((module) => primaryItems(module))
-    return own.length > 1
-      ? { id: domain.id, label: domain.label, modules }
-      : null
-  }
+  if (domain) return panelForDomain(domain, sections, bypass)
   const module = moduleForPath(pathname)
   if (
     module.id !== homeNav.id &&
@@ -62,6 +52,25 @@ export function useSubSidebar(): NavPanel | null {
     return { id: module.id, label: module.label, modules: [module] }
   }
   return null
+}
+
+/// A department's panel, whether or not it is the one on show — the floating
+/// panel on a compact desk opens for the department whose rail icon was
+/// pressed. Null when the department has one screen of its own.
+// eslint-disable-next-line react-refresh/only-export-components -- the shell asks it for the department a rail press names
+export function panelForDomain(
+  domain: AppDomain,
+  sections: ReturnType<typeof useSections>["sections"],
+  bypass: boolean
+): NavPanel | null {
+  const modules = modulesOfDomain(domain).filter(
+    (module) => !module.hidden && moduleAllowed(module, sections, bypass)
+  )
+  // Counted WITHOUT the audience hooks — the same compromise the one column's
+  // `Department` makes: each module's `useAudience` is a hook, called by its
+  // own row element in the panel, never inside this loop.
+  const own = modules.flatMap((module) => primaryItems(module))
+  return own.length > 1 ? { id: domain.id, label: domain.label, modules } : null
 }
 
 /// The light column between the rail and the page: the department you are
@@ -74,9 +83,18 @@ export function useSubSidebar(): NavPanel | null {
 /// window. `onFold` puts the fold in that head (⌘B); while the panel stands
 /// it is the only fold affordance, and when it is away the rail's top takes
 /// the panel back.
-export function SubSidebar({ onFold }: { onFold?: () => void }) {
+export function SubSidebar({
+  onFold,
+  panel: given,
+}: {
+  onFold?: () => void
+  /// A department other than the one on show, when the floating panel is
+  /// opened from the rail.
+  panel?: NavPanel | null
+}) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const panel = useSubSidebar()
+  const current = useSubSidebar()
+  const panel = given === undefined ? current : given
   if (!panel) return null
   return (
     <nav
