@@ -1,13 +1,14 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { Search } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
+import { PickOne, type Choice } from "@/components/ui/pick"
 import { Pill } from "@/components/ui/pill"
 import { EmptyState, LoadMore } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
@@ -15,16 +16,21 @@ import { FilterOmnibox } from "@/components/ui/filter-omnibox"
 import {
   ChoiceMenu,
   ColumnsMenu,
-  DockedFilters,
+  ExpandingSearch,
   ViewPicker,
 } from "@/components/ui/list-chrome"
-import { useFilterState, type FilterField } from "@/lib/filters"
+import {
+  useFilterState,
+  type Filter,
+  type FilterField,
+  type FilterState,
+} from "@/lib/filters"
 import { count, money } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import {
   articleKeys,
   articleScopeFromFilters,
   searchArticles,
-  type ArticleFacets,
   type ArticleRow,
   type ArticleScope,
   type FacetCount,
@@ -435,10 +441,20 @@ export function Articles() {
 
   return (
     <PageContent>
-      <PageHeader
-        title="Articles"
-        sub="Every article the company sells, with the colorways, sizes and SKUs minted against it."
-      />
+      <PageHeader title="Articles" small />
+
+      {/* The same head as the order book, New Articles and Divisions: the
+          figures, then one line of controls over the table. The facets that
+          stood in a panel beside the list are in that line now (owner,
+          2026-10-05), as they are on Purchase Orders. */}
+      {facets !== undefined && (
+        <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
+          <Kpi label="Articles" value={count(searchable)} />
+          <Kpi label="Divisions" value={count(facets.divisions.length)} />
+          <Kpi label="Colors" value={count(facets.colours.length)} />
+          <Kpi label="Sizes" value={count(facets.sizes.length)} />
+        </KpiStrip>
+      )}
 
       {/* Two columns from 1440 up: the catalogue, and the facets standing
           beside it.
@@ -455,87 +471,49 @@ export function Articles() {
           discover that the thing they are after is filed under a division they
           had not thought of — which a panel they have to open first cannot do.
           Below 1440 it is the same model, reached from the omnibox. */}
-      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
-        {/* `@container` on the column the cards are laid out in, not on the
-            page: this column's width is whatever the rail, the sidebar and the
-            filter panel leave it, and a `md:` breakpoint reading the VIEWPORT
-            would put four cards in the space for three. */}
+      <div className="grid min-w-0 items-start">
         <div className="@container flex min-w-0 flex-col">
-          {/* One line, the width of the grid, carrying everything that acts
-              on it — the same line the order book wears, in the same order:
-              what narrows it at the left, what orders and shapes it in the
-              middle, which view it is at the right.
-
-              It was a full-width pill above a second row of controls until
-              2026-09-13. Two rows of chrome over a catalogue is one row too
-              many, and the owner said so: the order book says all of this in
-              one line, and this screen had no reason to be louder.
-
-              The box is one box for the identifiers, because somebody holding
-              a garment does not know which of them they are holding: the swing
-              tag has a QR, the label has a SKU and the carton has the
-              supplier's own code. Asking them to pick the right box first is
-              asking them for the answer. The server does the matching, so all
-              this sends is `q`.
-
-              EPC is not named, on the owner's instruction of 2026-09-12,
-              though the server still accepts one. An EPC identifies a PHYSICAL
-              UNIT — one tag sewn into one garment — and this screen is the
-              product definition, where the honest answer to a scan is a whole
-              article rather than the piece in somebody's hand. That question
-              belongs to Inventory and to global search. */}
-          <div className="mb-3 flex flex-wrap items-center gap-1.5">
-            {/* The plain box, where the panel beside it is carrying the
-                filters. Below 1440 the panel is gone and the omnibox below
-                takes both jobs, so only one of the two is ever on screen. */}
-            <span className="relative mr-auto hidden dock:block">
-              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
-              <input
-                value={search.value ?? ""}
-                onChange={(event) =>
-                  event.target.value
-                    ? search.open(event.target.value)
-                    : search.close()
-                }
-                aria-label="Search the article master — article code, SKU, name, QR payload or the supplier's own code"
-                className="h-control w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
-              />
-            </span>
-            <span className="mr-auto text-[0.875rem] text-body dock:mr-0">
-              <b className="font-medium text-ink">{count(articles.length)}</b>{" "}
-              {filtered
-                ? catalogue.hasNextPage
-                  ? "shown, more to load"
-                  : articles.length === 1
-                    ? "article matches"
-                    : "articles match"
-                : `of ${count(searchable)} shown`}
-            </span>
-            {/* The order the SERVER reads the master in, so it applies to the
-                whole catalogue rather than to the pages that happen to have
-                loaded — and to both views, because it is a property of the
-                list and not of the table.
-            
-                It replaces a `<SortMenu>` that was over the table only. That
-                one reads the TanStack columns, which can only order what is in
-                hand; on a catalogue paged sixty at a time, "sort by price"
-                meant "sort the first sixty by price", which is a control that
-                answers a different question from the one it is asked. The
-                headers still sort what is loaded, and now there is something
-                beside them that sorts the whole thing. */}
-            <ChoiceMenu
-              heading="Order"
-              value={articleOrder.value ?? null}
-              options={ORDERS}
-              onChange={(next) =>
-                next ? articleOrder.open(next) : articleOrder.close()
-              }
+          {/* One line, as the order book draws it: the search and what narrows
+              the catalogue at the left, what orders and shapes it at the right.
+              The box is one box for every identifier, because somebody holding
+              a garment does not know which of them they are holding — the QR on
+              the swing tag, the SKU on the label, the supplier's own code on
+              the carton. The server does the matching; this only sends `q`.
+              EPC is not named (owner, 2026-09-12): it identifies one physical
+              unit, and this screen is the product definition. */}
+          <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+            <ExpandingSearch
+              value={search.value ?? ""}
+              onChange={(next) => (next ? search.open(next) : search.close())}
+              label="Search Articles"
             />
-            {/* Only over the table. A grid of photographs has no columns to
-                hide, and a menu that can only disappoint is worse than no
-                menu. */}
-            {view === "table" && <ColumnsMenu table={table} />}
-            <ViewPicker model={filters} id="articles" all="All articles" />
+            <div className="hidden lg:contents">
+              <FacetPickers
+                filters={filters}
+                divisions={facets?.divisions}
+                tags={facets?.tags}
+                colours={facets?.colours}
+                sizes={facets?.sizes}
+                divisionLabel={divisionLabel}
+                tagLabel={tagLabel}
+                colourLabel={colourLabel}
+                sizeLabel={sizeLabelOf}
+              />
+            </div>
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              {/* The order the SERVER reads the master in, so it applies to the
+                whole catalogue and not only to the pages loaded. */}
+              <ChoiceMenu
+                heading="Order"
+                value={articleOrder.value ?? null}
+                options={ORDERS}
+                onChange={(next) =>
+                  next ? articleOrder.open(next) : articleOrder.close()
+                }
+              />
+              {view === "table" && <ColumnsMenu table={table} />}
+              <ViewPicker model={filters} id="articles" all="All articles" />
+            </div>
           </div>
 
           {/* The same model as the panel, drawn as one line, for the widths
@@ -547,7 +525,7 @@ export function Articles() {
             model={{ ...filters, fields: counted }}
             text={search.value ?? undefined}
             onText={(next) => (next ? search.open(next) : search.close())}
-            className="mb-3 dock:hidden"
+            className="mb-3 lg:hidden"
           />
 
           {queryState(catalogue, {
@@ -598,6 +576,18 @@ export function Articles() {
                         // 2026-10-05): no box inside the card with its own bars.
                         pageScroll
                       />
+                      <div className="flex h-11 items-center border-t border-hairline bg-soft px-5 text-[0.875rem] text-body">
+                        <b className="mr-1 font-medium text-ink">
+                          {count(articles.length)}
+                        </b>
+                        {filtered
+                          ? catalogue.hasNextPage
+                            ? "shown, more to load"
+                            : articles.length === 1
+                              ? "article matches"
+                              : "articles match"
+                          : `of ${count(searchable)} shown`}
+                      </div>
                     </Card>
                   )}
 
@@ -610,20 +600,6 @@ export function Articles() {
               ),
           })}
         </div>
-
-        {/* The facets, standing beside the catalogue rather than behind a
-            button — the same panel the order book, the supplier book and
-            Sourcing wear, so somebody who has learnt one list has learnt all of
-            them. `<DockedFilters>` carries its own clause editor and field
-            picker, which is where an operator is changed and where somebody
-            chooses which of the four questions this panel asks at all. */}
-        <DockedFilters
-          model={{ ...filters, fields: counted }}
-          kpis={catalogueKpis(searchable, facets)}
-          id="articles"
-          subject="Article"
-          className="hidden dock:flex"
-        />
       </div>
 
       <ArticleSheet
@@ -653,22 +629,77 @@ const ORDERS = [
   { value: "oldest", label: "Oldest first" },
 ]
 
-/// Two figures about the catalogue being browsed, above the controls that
-/// narrow it.
-///
-/// Both are the server's own, counted over everything the SEARCH matches and
-/// deliberately not over the current selection — the same numbers the facet
-/// lists are drawn from, so a tile and the rows under it cannot disagree.
-function catalogueKpis(searchable: number, facets: ArticleFacets | undefined) {
-  if (facets === undefined) return undefined
-  return [
-    { label: "Articles", value: count(searchable) },
-    {
-      label: "Divisions",
-      value: count(facets.divisions.length),
-      note: "Divisions something the search matches is filed under.",
-    },
-  ]
+/// The four questions the catalogue is narrowed by, in the line over the
+/// table: one box each, with the server's count beside every value so it is
+/// clear whether a filter is worth pressing before it is.
+/// Each box edits the same `isAnyOf` clause the phone's omnibox does, so a
+/// narrowed catalogue reads the same from either, and from a shared link.
+function FacetPickers({
+  filters,
+  divisions,
+  tags,
+  colours,
+  sizes,
+  divisionLabel,
+  tagLabel,
+  colourLabel,
+  sizeLabel,
+}: {
+  filters: FilterState
+  divisions: readonly FacetCount[] | undefined
+  tags: readonly FacetCount[] | undefined
+  colours: readonly FacetCount[] | undefined
+  sizes: readonly FacetCount[] | undefined
+  divisionLabel: (code: string) => string
+  tagLabel: (code: string) => string
+  colourLabel: (code: string) => string
+  sizeLabel: (code: string) => string
+}) {
+  const valueOf = (column: string): string | null =>
+    filters.filters.find(
+      (one) => one.column === column && one.operator === "isAnyOf"
+    )?.values[0] ?? null
+  const setValue = (column: string, value: string | null) =>
+    filters.set([
+      ...filters.filters.filter((one) => one.column !== column),
+      ...(value === null
+        ? []
+        : [{ column, operator: "isAnyOf", values: [value] } as Filter]),
+    ])
+  const box = (
+    column: string,
+    label: string,
+    facet: readonly FacetCount[] | undefined,
+    read: (code: string) => string
+  ) => {
+    const choices: Choice[] = (facet ?? []).map((one) => ({
+      value: one.value,
+      label: `${read(one.value)} · ${count(one.count)}`,
+    }))
+    const here = valueOf(column)
+    return (
+      <PickOne
+        key={column}
+        label={label}
+        placeholder={label}
+        choices={choices}
+        value={here}
+        onChange={(next) => setValue(column, next)}
+        className={cn(
+          "h-[2.125rem] min-h-0 w-32 shrink-0 py-0",
+          here !== null && "border-accent/40 bg-accent-bg [&_input]:text-accent"
+        )}
+      />
+    )
+  }
+  return (
+    <>
+      {box("division", "Division", divisions, divisionLabel)}
+      {box("tag", "Tag", tags, tagLabel)}
+      {box("colour", "Color", colours, colourLabel)}
+      {box("size", "Size", sizes, sizeLabel)}
+    </>
+  )
 }
 
 /// One article, as somebody sees it before they know they want it.

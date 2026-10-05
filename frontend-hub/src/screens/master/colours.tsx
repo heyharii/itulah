@@ -336,7 +336,7 @@ export function Colours() {
         />
         <BarSpacer />
         <div className="hidden md:contents">
-          <ColumnsMenu table={table} label="View" />
+          <ColumnsMenu table={table} />
         </div>
         <Button
           variant="primary"

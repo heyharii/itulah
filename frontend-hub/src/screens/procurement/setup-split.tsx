@@ -1,5 +1,5 @@
 import { Popover } from "@base-ui/react/popover"
-import { ChevronDown, X } from "lucide-react"
+import { ChevronDown, X, Plus } from "lucide-react"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -15,14 +15,18 @@ import {
   type SplitMode,
 } from "@/screens/procurement/setup-split-model"
 
-/// The row of articles over the grid, drawn once there are two. Every tab but
-/// a lone one can be removed; its pieces go with it, and the counter says so.
+/// The row of articles over the variants: one tab while the delivery line is one
+/// article, a tab each once it is split, and "Split Article" at the far end
+/// (owner, 2026-10-05) — the way a browser ends its tabs with a plus. Every tab
+/// but a lone one can be removed; its pieces go with it, and the counter says so.
 export function ArticleTabStrip({
   tabs,
   pieces,
   active,
   onPick,
   onRemove,
+  onAdd,
+  canAdd,
 }: {
   tabs: readonly ArticleTab[]
   /// Pieces counted into each tab, in tab order.
@@ -30,12 +34,15 @@ export function ArticleTabStrip({
   active: number
   onPick: (index: number) => void
   onRemove: (index: number) => void
+  /// Adds an article, and so a tab.
+  onAdd: () => void
+  canAdd: boolean
 }) {
   return (
     <div
       role="tablist"
       aria-label="Articles"
-      className="mb-5 flex gap-0.5 overflow-x-auto shadow-[inset_0_-1px_0_var(--color-hairline)]"
+      className="mb-5 flex items-end gap-0.5 overflow-x-auto shadow-[inset_0_-1px_0_var(--color-hairline)]"
     >
       {tabs.map((tab, index) => (
         <span
@@ -55,10 +62,14 @@ export function ArticleTabStrip({
               index === active ? "text-ink" : "text-body hover:text-ink"
             )}
           >
-            {tabLabel(index)}
-            <span className="ml-1.5 font-normal text-mute tabular-nums">
-              {pieces[index] ?? 0}
-            </span>
+            {tabs.length === 1 ? "Article" : tabLabel(index)}
+            {/* Said only once there is more than one: pieces counted into
+                each, to see where the delivery's pieces went. */}
+            {tabs.length > 1 && (
+              <span className="ml-1.5 font-normal text-mute tabular-nums">
+                {pieces[index] ?? 0} pcs
+              </span>
+            )}
           </button>
           {tabs.length > 1 && (
             <button
@@ -72,6 +83,15 @@ export function ArticleTabStrip({
           )}
         </span>
       ))}
+      <button
+        type="button"
+        onClick={onAdd}
+        disabled={!canAdd}
+        className="mb-1 ml-auto inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-inner px-2.5 py-1.5 text-[0.875rem] font-medium text-accent transition-colors enabled:hover:bg-accent-bg disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <Plus className="size-4" />
+        Split Article
+      </button>
     </div>
   )
 }

@@ -5,7 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Camera, ChevronLeft, ChevronRight, Pencil, Plus } from "lucide-react"
+import { Camera, ChevronLeft, ChevronRight, Pencil } from "lucide-react"
 import { Popover } from "@base-ui/react/popover"
 import { useEffect, useId, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
@@ -52,17 +52,15 @@ import {
   type NewSetupSession,
   type NewSplitSetup,
 } from "@/lib/queries/procurement"
-import { ArticleTabStrip, SplitMenu } from "@/screens/procurement/setup-split"
+import { ArticleTabStrip } from "@/screens/procurement/setup-split"
 import {
   filledCells,
   findClashes,
   MAX_ARTICLE_TABS,
   piecesIn,
-  splitTab,
   tabLabel,
   type ArticleTab,
   type Clash,
-  type SplitMode,
 } from "@/screens/procurement/setup-split-model"
 import { queryState } from "@/lib/query-state"
 import { useSheet, type SheetSearch } from "@/lib/sheets"
@@ -2393,20 +2391,6 @@ function SessionComposer({
         : current
     )
   }
-  /// "Split automatically": the open tab's variants moved into new tabs right
-  /// after it, for the person to look over before anything is sent.
-  const applySplit = (mode: SplitMode) => {
-    let id = nextTabId
-    const made = splitTab(tab, mode, sizeOrder, () => id++)
-    if (made === null) return
-    setTabs((all) => [
-      ...all.slice(0, current),
-      ...made,
-      ...all.slice(current + 1),
-    ])
-    setNextTabId(id)
-    pickTab(current)
-  }
   const [name, setName] = useState(() => suggestName(receipt.article_name))
   const [division, setDivision] = useState(receipt.division_code ?? "")
   /// What the buyer already filed it under. Editable, because the buyer was
@@ -2830,39 +2814,19 @@ function SessionComposer({
             2026-10-02. The header above is shared; each article is a tab
             holding only its own grid. A single tab is the form it always
             was, so the tabs themselves appear only once there are two. */}
-        <SubHead
-          aside={
-            <span className="inline-flex flex-wrap items-center gap-1">
-              <SplitMenu
-                tab={tab}
-                sizeOrder={sizeOrder}
-                room={MAX_ARTICLE_TABS - tabs.length + 1}
-                onSplit={applySplit}
-              />
-              <Button
-                variant="quiet"
-                type="button"
-                className="bg-accent-bg text-accent enabled:hover:bg-accent-bg/70"
-                onClick={addTab}
-                disabled={tabs.length >= MAX_ARTICLE_TABS}
-              >
-                <Plus />
-                Add article
-              </Button>
-            </span>
-          }
-        >
-          Variants
-        </SubHead>
-        {split && (
-          <ArticleTabStrip
-            tabs={tabs}
-            pieces={tabPieces}
-            active={current}
-            onPick={pickTab}
-            onRemove={removeTab}
-          />
-        )}
+        {/* The articles as tabs — one while the delivery line is one article —
+            with Split Article at the end of the row, and under them the
+            variants of the one that is open (owner, 2026-10-05). */}
+        <ArticleTabStrip
+          tabs={tabs}
+          pieces={tabPieces}
+          active={current}
+          onPick={pickTab}
+          onRemove={removeTab}
+          onAdd={addTab}
+          canAdd={tabs.length < MAX_ARTICLE_TABS}
+        />
+        <SubHead>Variants</SubHead>
 
         {/* Colour and size, under the one heading with the grid they produce.
             They stood in a column of their own headed "What arrived", which
@@ -3107,17 +3071,22 @@ function SessionComposer({
               {left < 0 ? `${count(-left)} over` : `${count(left)} left`}
             </p>
           )}
-          <p
-            className={cn(
-              "min-w-0 text-[0.9375rem] leading-relaxed",
-              over ? "text-bad" : "text-mute"
-            )}
-          >
-            {missing ??
-              (split
-                ? `${count(tabs.length)} articles · ${count(allSkuPrices.length)} SKUs will be created. A size with no pieces is left out.`
-                : `${count(skuCount)} ${skuCount === 1 ? "SKU" : "SKUs"} will be created. A size with no pieces is left out.`)}
-          </p>
+          {/* "Say which colours arrived" and its kind are not said (owner,
+              2026-10-05): the button is simply not ready. What is said is the
+              count, once it is, and a refusal about the counted total. */}
+          {(ready || (missing !== null && missing !== variantsMissing)) && (
+            <p
+              className={cn(
+                "min-w-0 text-[0.9375rem] leading-relaxed",
+                over ? "text-bad" : "text-mute"
+              )}
+            >
+              {missing ??
+                (split
+                  ? `${count(tabs.length)} articles · ${count(allSkuPrices.length)} SKUs will be created. A size with no pieces is left out.`
+                  : `${count(skuCount)} ${skuCount === 1 ? "SKU" : "SKUs"} will be created. A size with no pieces is left out.`)}
+            </p>
+          )}
         </div>
         {/* "Create articles" (was "Add to inventory"), on the owner's word of 2026-09-13. "Set up and
             send to tagging" named the two writes the press performs; this
@@ -3129,7 +3098,7 @@ function SessionComposer({
           variant="primary"
           type="submit"
           disabled={!ready || busy}
-          className="w-full shrink-0 @xl:w-auto @xl:min-w-[13rem]"
+          className="shrink-0"
         >
           {busy ? "Submitting…" : "Submit"}
         </Button>

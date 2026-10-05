@@ -1023,7 +1023,6 @@ export function PurchaseOrders() {
           )}
           <ColumnsMenu
             table={table}
-            label="View"
             extra={
               <Menu.Item
                 closeOnClick={false}
