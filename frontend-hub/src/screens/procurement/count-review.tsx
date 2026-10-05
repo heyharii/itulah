@@ -104,7 +104,10 @@ export function ReviewCountButton({
       <Button
         variant="primary"
         size="sm"
-        className="-my-1 w-fit"
+        // Soft blue on a phone, where the round "+" is the one solid blue
+        // button on the screen (owner, 2026-10-05); solid on a desk, where
+        // there is no "+" beside it.
+        className="-my-1 w-fit max-md:bg-accent-bg max-md:text-accent max-md:hover:bg-accent-bg/70"
         onClick={(event) => {
           event.stopPropagation()
           review.open(po)
