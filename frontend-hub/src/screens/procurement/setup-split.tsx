@@ -19,6 +19,8 @@ import {
 /// article, a tab each once it is split, and "Split Article" at the far end
 /// (owner, 2026-10-05) — the way a browser ends its tabs with a plus. Every tab
 /// but a lone one can be removed; its pieces go with it, and the counter says so.
+const SPLIT_ARTICLE_SHOWN = false
+
 export function ArticleTabStrip({
   tabs,
   pieces,
@@ -83,15 +85,18 @@ export function ArticleTabStrip({
           )}
         </span>
       ))}
-      <button
-        type="button"
-        onClick={onAdd}
-        disabled={!canAdd}
-        className="mb-1 ml-auto inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-inner px-2.5 py-1.5 text-[0.875rem] font-medium text-body transition-colors enabled:hover:bg-soft-2 enabled:hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        <Plus className="size-4" />
-        Split Article
-      </button>
+      {/* Hidden (owner, 2026-10-06): Split Article stays out of sight for now. */}
+      {SPLIT_ARTICLE_SHOWN && (
+        <button
+          type="button"
+          onClick={onAdd}
+          disabled={!canAdd}
+          className="mb-1 ml-auto inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-inner px-2.5 py-1.5 text-[0.875rem] font-medium text-body transition-colors enabled:hover:bg-soft-2 enabled:hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Plus className="size-4" />
+          Split Article
+        </button>
+      )}
     </div>
   )
 }

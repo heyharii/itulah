@@ -21,6 +21,7 @@ import { SubHead } from "@/components/ui/rows"
 import { PickMany, PickOne, type Choice } from "@/components/ui/pick"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
+import { ZoomPhoto } from "@/components/ui/photo-viewer"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { ago, count, money } from "@/lib/format"
 import { asJpeg, PICTURE_TYPES } from "@/lib/image"
@@ -1247,11 +1248,17 @@ function SessionRecord({
                 picture of anything. */}
             <div className="flex min-w-0 items-center gap-3.5">
               {cover !== null && (
-                <img
-                  src={cover}
-                  alt={session.article_name}
-                  className="size-14 shrink-0 rounded-inner border border-hairline object-cover"
-                />
+                <ZoomPhoto
+                  url={cover}
+                  name={session.article_name}
+                  className="size-14"
+                >
+                  <img
+                    src={cover}
+                    alt=""
+                    className="size-14 rounded-inner border border-hairline object-cover"
+                  />
+                </ZoomPhoto>
               )}
               {/* The name, and only the name. The code was a mono line over
                   it — a second identifier standing above the first, in the
@@ -1479,6 +1486,58 @@ function ColourwayPhoto({
       }),
   })
 
+  const picker = (
+    <input
+      type="file"
+      accept={PICTURE_TYPES}
+      className="sr-only"
+      disabled={upload.isPending}
+      onChange={(event) => {
+        const file = event.target.files?.[0]
+        if (file) upload.mutate(file)
+        event.target.value = ""
+      }}
+    />
+  )
+
+  // With a photograph, a tap shows it full size; replacing it is the small
+  // camera on its corner. Without one, the whole tile is the way to add it.
+  if (url)
+    return (
+      <span className="relative inline-grid shrink-0">
+        <ZoomPhoto url={url} name={`${articleName} ${colourLabel}`}>
+          <span
+            className={cn(
+              "relative grid size-9 place-items-center overflow-hidden rounded-inner border",
+              upload.isError ? "border-bad" : "border-hairline"
+            )}
+          >
+            <img
+              src={url}
+              alt={colourLabel}
+              className="size-full object-cover"
+            />
+            {upload.isPending && (
+              <span className="absolute inset-0 grid place-items-center bg-canvas/75 text-[0.875rem] font-medium text-body">
+                …
+              </span>
+            )}
+          </span>
+        </ZoomPhoto>
+        <label
+          title={
+            upload.isError
+              ? (upload.error as Error).message
+              : `Replace the photo of ${colourLabel}`
+          }
+          className="absolute -right-1.5 -bottom-1.5 grid size-5 cursor-pointer place-items-center rounded-full border border-hairline bg-canvas text-body shadow-soft after:absolute after:-inset-1.5 after:content-['']"
+        >
+          <Camera className="size-3" />
+          {picker}
+        </label>
+      </span>
+    )
+
   return (
     <label
       title={
@@ -1516,17 +1575,7 @@ function ColourwayPhoto({
           …
         </span>
       )}
-      <input
-        type="file"
-        accept={PICTURE_TYPES}
-        className="sr-only"
-        disabled={upload.isPending}
-        onChange={(event) => {
-          const file = event.target.files?.[0]
-          if (file) upload.mutate(file)
-          event.target.value = ""
-        }}
-      />
+      {picker}
     </label>
   )
 }
