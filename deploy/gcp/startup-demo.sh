@@ -149,6 +149,20 @@ else
   }"
 fi
 
+# /rembg takes the background off a garment photo: a Cloud Run service
+# (deploy/gcp/rembg) the hub's web server calls with a key the browser never
+# holds. Both values come from the shared env secret; without them there is no
+# route and the hub's photo simply stays as it was taken.
+rembg_route=""
+if [ -n "${REMBG_URL:-}" ] && [ -n "${REMBG_KEY:-}" ]; then
+  rembg_route="  handle_path /rembg/* {
+    reverse_proxy $REMBG_URL {
+      header_up Host {upstream_hostport}
+      header_up X-Api-Key $REMBG_KEY
+    }
+  }"
+fi
+
 site() {  # site <name> <api-block>   static bundle from $state/www/<name>
   cat <<E3
 $1.$domain {
@@ -190,6 +204,7 @@ $edge_route
 }
 E2
 site hub "$edge_route
+$rembg_route
   handle /api/* {
     reverse_proxy cloud:8080
   }"
