@@ -1791,12 +1791,12 @@ function prefillFromReceipt(receipt: UnidentifiedReceipt): {
 }
 
 /// The box shared by the count and the price line: 47px like every form field
-/// in the hub, flat at rest, a canvas fill and a hairline ring once the cell it
-/// sits in is hovered, a heavier blue ring while it holds focus. `(hover:
-/// none)` — a finger — shows the ring always, since nothing on that device
-/// ever hovers a cell first.
+/// in the hub, with its ring always drawn (owner, 2026-10-07: it only showed
+/// once the cell was hovered, so an untouched grid looked like bare numbers),
+/// a canvas fill when the cell is hovered, a heavier blue ring while it holds
+/// focus.
 const SKU_BOX =
-  "block h-[var(--form-box,2.75rem)] w-full rounded-inner px-3 text-right text-[0.9375rem] tabular-nums transition-[background-color,box-shadow] duration-(--t-press) ease-(--ease-out) group-hover:bg-canvas group-hover:shadow-[inset_0_0_0_1px_var(--hairline-strong)] [@media(hover:none)]:shadow-[inset_0_0_0_1px_var(--hairline)]"
+  "block h-[var(--form-box,2.75rem)] w-full rounded-inner px-3 text-right text-[0.9375rem] tabular-nums shadow-[inset_0_0_0_1px_var(--hairline-strong)] transition-[background-color,box-shadow] duration-(--t-press) ease-(--ease-out) group-hover:bg-canvas"
 
 /// A small dark note hung under an element, drawn on the page rather than
 /// inside the cell: the grid scrolls sideways in its own box, and anything
