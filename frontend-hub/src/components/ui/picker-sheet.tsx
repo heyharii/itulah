@@ -153,6 +153,11 @@ export function PickerSheet({
               role="option"
               aria-selected={on}
               disabled={one.disabled}
+              // The search field keeps the keyboard. A press that took the
+              // focus away closed the keyboard first, the sheet came down
+              // with it, and the tap landed on nothing: a second one was
+              // needed to choose (owner, 2026-10-06, the Division sheet).
+              onMouseDown={(event) => event.preventDefault()}
               onClick={() => pick(one.value)}
               className={cn(
                 "flex min-h-12 w-full items-center gap-3 rounded-inner px-3 text-left text-[0.9375rem] text-ink active:bg-soft-2",
@@ -186,6 +191,7 @@ export function PickerSheet({
             <div className="mx-3 my-1 border-t border-hairline" />
             <button
               type="button"
+              onMouseDown={(event) => event.preventDefault()}
               onClick={() => {
                 onOpenChange(false)
                 action.onSelect()
