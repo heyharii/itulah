@@ -592,6 +592,24 @@ function problemsWith(
   return problems
 }
 
+/// A new size's two-digit code, chosen for it (owner, 2026-10-07: nobody types
+/// one): the one after the highest in use, so 01 02 03 stay where they are, and
+/// the lowest free one once 99 is taken. Empty when every code is spoken for.
+function nextSizeCode(existing: readonly TermRow[]): string {
+  const used = new Set(existing.map((row) => row.term.code))
+  const highest = Math.max(
+    0,
+    ...existing
+      .map((row) => Number(row.term.code))
+      .filter((code) => Number.isInteger(code) && code >= 0 && code <= 99)
+  )
+  for (let step = 1; step <= 99; step++) {
+    const code = String(((highest + step - 1) % 99) + 1).padStart(2, "0")
+    if (!used.has(code)) return code
+  }
+  return ""
+}
+
 function TermForm({
   vocabulary,
   term,
@@ -662,15 +680,26 @@ function TermForm({
     },
   })
 
+  // A size's code is not asked for: it is the next free two digits.
+  const autoCode = term === null && vocabulary.kind === "sizes"
   const form = useForm({
     defaultValues: {
-      code: term?.term.code ?? "",
+      code: term?.term.code ?? (autoCode ? nextSizeCode(existing) : ""),
       label: term?.term.label ?? "",
       order: String(term?.order ?? 0),
       active: term?.active ?? true,
     } as TermDraft,
-    onSubmit: ({ value }) => {
+    onSubmit: ({ value: typed }) => {
       attempt()
+      // Chosen again at the moment of saving: the list may have grown since
+      // the form opened.
+      const value = autoCode
+        ? { ...typed, code: nextSizeCode(existing) }
+        : typed
+      if (autoCode && value.code === "") {
+        toast.error("Every two-digit size code is already taken.")
+        return
+      }
       const found = problemsWith(value, vocabulary, term, existing)
       if (Object.keys(found).length > 0) return
       save.mutate(value)
@@ -719,7 +748,7 @@ function TermForm({
               )}
             </form.Field>
 
-            {term === null ? (
+            {autoCode ? null : term === null ? (
               <form.Field name="code">
                 {(field) => (
                   <Field
