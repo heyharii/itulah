@@ -2286,17 +2286,19 @@ function OrderEditor({
       open={order !== undefined}
       editing={order}
       onClose={onClose}
-      onRaised={(saved) => {
-        // The composer says the number itself, in the receipt dialog — this
-        // only walks back to the order, in one navigation, because two
-        // navigation calls would each read the search that is on screen NOW
-        // and whichever landed second would put the other's parameter back.
+      onRaised={() => {
+        // The composer says the number itself, in the receipt dialog. Saving
+        // an edit closes the form AND the order's sheet behind it, back to the
+        // list (owner, 2026-10-06) — it used to walk back to the order and
+        // leave its detail open. One navigation for both, because two calls
+        // would each read the search that is on screen NOW and whichever
+        // landed second would put the other's parameter back.
         void navigate({
           to: ".",
           search: (prev: Record<string, unknown>) => ({
             ...prev,
             "edit-order": undefined,
-            order: saved.purchase_order_id,
+            order: undefined,
           }),
           viewTransition: false,
         })
