@@ -117,6 +117,11 @@ svg{display:block;flex:none}
     <p>No screen in between. The photo lands in the form, tidies itself in a few seconds, and says so. One quiet <b>Show original</b> if it got the garment wrong.</p>
     <div class="phone" data-o="C"></div>
   </section>
+  <section class="opt" data-o="D">
+    <h2>D · A sheet shows the photo; Clean Up and Crop are options on it</h2>
+    <p>After the photo, a sheet shows it as taken. <b>Clean Up</b> and <b>Crop</b> are two buttons under it, both optional. Clean Up adds an Original | Clean switch; Crop shows a square frame and one zoom slider. <b>Use Photo</b> keeps what is on show, <b>Retake</b> starts again.</p>
+    <div class="phone" data-o="D"></div>
+  </section>
 </div>
 
 <script>
@@ -126,6 +131,8 @@ const I={
   img:'<svg class="ico" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M4 18l5-5 4 4 3-3 4 4"/></svg>',
   plus:'<svg class="ico" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 9v6M9 12h6"/></svg>',
   crop:'<svg class="ico" viewBox="0 0 24 24"><path d="M7 3v14h14M3 7h14v14"/></svg>',
+  spark:'<svg class="ico" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16v4M17 18h4"/></svg>',
+  trash:'<svg class="ico" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
   chev:'<svg class="ico" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M6 9l6 6 6-6"/></svg>'
 };
 /* a garment, drawn twice: as it comes off a phone, and as it is kept */
@@ -157,6 +164,7 @@ function build(host){
     <button class="row" data-act="take">${I.cam}Take a Photo</button>
     <button class="row" data-act="take">${I.img}From Gallery</button></div>
   <div class="full" data-slot="review"></div>
+  <div class="full" data-slot="crop"></div>
   <div class="cam" data-slot="cam">${I.cam}&nbsp; Taking the photo…</div>`;
   const q=s=>host.querySelector(`[data-slot=${s}]`);
   const S={o,host,q,kept:null,run:0};
@@ -164,17 +172,30 @@ function build(host){
     const a=e.target.closest('[data-act]'); if(!a) return;
     ({menu:()=>openMenu(S),take:()=>take(S),close:()=>closeAll(S),useclean:()=>keep(S,'clean'),useorig:()=>keep(S,'orig'),
       usephoto:()=>keep(S,S.pick||'clean'),again:()=>process(S),pickorig:()=>pick(S,'orig'),pickclean:()=>pick(S,'clean'),
-      toggle:()=>toggleKept(S),retry:()=>process(S)})[a.dataset.act]?.();
+      toggle:()=>toggleKept(S),retry:()=>process(S),
+      dedit:()=>{closeAll(S);setTimeout(()=>openD(S,true),120)},dclean:()=>dClean(S),dcrop:()=>{S.d.crop=true;S.d.zoomWas=S.d.zoom;renderD(S)},dcropdone:()=>{S.d.crop=false;renderD(S)},dcropcancel:()=>{S.d.zoom=S.d.zoomWas||1;S.d.crop=false;renderD(S)},dpick:()=>{},dretake:()=>{closeAll(S);take(S)},duse:()=>dUse(S),
+      remove:()=>{closeAll(S);S.hasPhoto=false;S.zoom=1;S.kept=null;S.q('form').innerHTML=skeleton()},
+      usecrop:()=>useCrop(S)})[a.dataset.act]?.();
   });
   q('veil').onclick=()=>closeAll(S);
 }
-function openMenu(S){S.q('veil').classList.add('on');S.q('menu').classList.add('on')}
-function closeAll(S){S.q('veil').classList.remove('on');S.q('menu').classList.remove('on');S.q('review').classList.remove('on')}
+function openMenu(S){
+  if(S.o==='D'&&S.hasPhoto){
+    S.q('menu').innerHTML=`<div class="grab"></div><h3>Photo</h3>
+      <button class="row" data-act="take">${I.cam}Take a Photo</button>
+      <button class="row" data-act="take">${I.img}From Gallery</button>
+      <button class="row" data-act="dedit">${I.spark}Edit Photo</button>
+      <button class="row" data-act="remove" style="color:var(--bad-fg)">${I.trash}<span style="color:var(--bad-fg)">Remove Photo</span></button>`;
+  }
+  S.q('veil').classList.add('on');S.q('menu').classList.add('on')}
+function closeAll(S){S.q('veil').classList.remove('on');S.q('menu').classList.remove('on');S.q('review').classList.remove('on');S.q('crop').classList.remove('on')}
 function take(S){
   closeAll(S);
   const cam=S.q('cam');cam.classList.add('on');
   setTimeout(()=>{cam.classList.remove('on');S.q('veil').classList.remove('on');S.kept=null;S.run++;
-    if(S.o==='C') keepInForm(S); else openReview(S);},550);
+    if(S.o==='C') keepInForm(S);
+    else if(S.o==='D') openD(S,false);
+    else openReview(S);},550);
 }
 /* the cleaning itself: resolves 'clean' or 'down' */
 function cleaning(S){
@@ -187,7 +208,7 @@ function openReview(S){
   const A=S.o==='A';
   S.pick='clean';
   S.q('review').innerHTML=`
-    <div class="head"><b>${A?'Your photo':'Check the photo'}</b><button class="x" data-act="close" style="width:44px;height:44px;display:grid;place-items:center;font-size:20px;color:var(--line-ico)">${I.x}</button></div>
+    <div class="head"><b>${A?'Your photo':S.o==='D'?'Clean Up Photo':'Check the photo'}</b><button class="x" data-act="close" style="width:44px;height:44px;display:grid;place-items:center;font-size:20px;color:var(--line-ico)">${I.x}</button></div>
     <div class="body">
       ${A?'':`<div class="segm" data-slot="segm"><button data-act="pickorig" aria-pressed="false">Original</button><button data-act="pickclean" aria-pressed="true" disabled>Clean</button></div>`}
       <div class="stagebox"><div class="sq busy" data-slot="sq">${original}${cleanArt}<div class="shim"></div></div></div>
@@ -229,11 +250,11 @@ function setStatus(S,html){S.q('status').innerHTML=html}
 function setButtons(S,html){S.q('buttons').innerHTML=html}
 function keep(S,which){
   S.kept=which; S.q('review').classList.remove('on');
-  fillThumb(S,which,which==='clean'?'Cleaned and squared.':'Original photo.');
+  fillThumb(S,which,S.o==='D'?(which==='clean'?'Cleaned up.':'Kept as taken.'):(which==='clean'?'Cleaned and squared.':'Original photo.'));
 }
 function fillThumb(S,which,msg,extra){
   const f=S.q('form');
-  f.querySelector('.photo').innerHTML=`<button class="thumb" data-act="menu" aria-label="Edit the photo"><span class="sq ${which==='clean'?'clean':''}" style="position:absolute;inset:0">${original}${cleanArt}</span></button><button class="btn" data-act="menu">Edit Photo ${I.chev}</button>`;
+  f.querySelector('.photo').innerHTML=`<button class="thumb" data-act="menu" aria-label="Edit the photo"><span class="sq ${which==='clean'?'clean':''}" style="position:absolute;inset:0;transform:scale(${S.zoom||1})">${original}${cleanArt}</span></button><button class="btn" data-act="menu">Edit Photo ${I.chev}</button>`;
   S.q('note').innerHTML=msg+(extra||'');
 }
 
@@ -261,6 +282,64 @@ function processC(S){
 function toggleKept(S){
   const sq=S.q('sq'); const showClean=!sq.classList.contains('clean'); sq.classList.toggle('clean',showClean);
   S.q('note').innerHTML=showClean?`<span style="color:var(--ok-fg)">Cleaned</span> · <button class="lnk" data-act="toggle">Show Original</button>`:`Original · <button class="lnk" data-act="toggle">Show Cleaned</button>`;
+}
+function openCrop(S){
+  S.zoom=S.zoom||1; const cl=S.kept==='clean'?'clean':'';
+  S.q('crop').innerHTML=`
+    <div class="head"><b>Crop Photo</b><button class="x" data-act="close" style="width:44px;height:44px;display:grid;place-items:center;font-size:20px;color:var(--line-ico)">${I.x}</button></div>
+    <div class="body">
+      <div class="stagebox" style="background:#111"><div class="sq ${cl}" style="overflow:hidden" data-slot="cropsq"><span style="position:absolute;inset:0;transform:scale(${S.zoom});transform-origin:50% 50%;transition:transform .15s var(--ease-out)" data-slot="zoomed">${original}${cleanArt}</span>
+        <i style="position:absolute;inset:0;border:2px solid #fff;box-shadow:0 0 0 999px rgb(0 0 0 / .45);pointer-events:none"></i></div></div>
+      <input type="range" min="1" max="2.5" step="0.01" value="${S.zoom}" aria-label="Zoom" data-slot="zoomrange" style="width:100%;height:44px">
+      <div style="display:flex;gap:8px"><button class="btn big" data-act="close">Cancel</button><button class="btn big pri" data-act="usecrop">Use Photo</button></div>
+    </div>`;
+  const r=S.q('zoomrange'); r.oninput=()=>{S.zoom=Number(r.value);S.q('zoomed').style.transform=`scale(${S.zoom})`};
+  S.q('crop').classList.add('on');
+}
+function useCrop(S){
+  S.q('crop').classList.remove('on');
+  fillThumb(S,S.kept==='clean'?'clean':'orig',S.zoom>1?'Cropped.':(S.kept==='clean'?'Cleaned up.':'Kept as taken.'));
+}
+/* D: a sheet shows the photo; Clean Up and Crop are options on it */
+function openD(S,existing){
+  S.run++;
+  S.d=existing&&S.d?{...S.d,crop:false}:{cleaned:false,pick:'orig',state:'idle',zoom:1,crop:false};
+  renderD(S); S.q('review').classList.add('on');
+}
+function dArt(S){const d=S.d;return `<span style="position:absolute;inset:0;transform:scale(${d.zoom});transform-origin:50% 50%;transition:transform .15s var(--ease-out)">${original}${cleanArt}</span>`}
+function renderD(S){
+  const d=S.d;
+  const seg=d.cleaned?`<div class="segm"><button data-act="dpickorig" aria-pressed="${d.pick==='orig'}">Original</button><button data-act="dpickclean" aria-pressed="${d.pick==='clean'}">Clean</button></div>`:'';
+  const frame=d.crop?'<i style="position:absolute;inset:0;border:2px solid #fff;box-shadow:0 0 0 999px rgb(0 0 0 / .45);pointer-events:none"></i>':'';
+  const opts=d.crop
+    ?`<input type="range" min="1" max="2.5" step="0.01" value="${d.zoom}" aria-label="Zoom" data-slot="dzoom" style="width:100%;height:44px"><div style="display:flex;gap:8px"><button class="btn big" data-act="dcropcancel">Cancel</button><button class="btn big pri" data-act="dcropdone">Done</button></div>`
+    :`<div style="display:flex;gap:8px"><button class="btn big" data-act="dclean" ${d.state==='working'||d.cleaned?'disabled style="opacity:.55"':''}>${d.state==='working'?'<span class="spin"></span>Cleaning…':d.cleaned?'Cleaned':d.state==='failed'?I.spark+'Try Again':I.spark+'Clean Up'}</button><button class="btn big" data-act="dcrop">${I.crop}Crop</button></div>`;
+  const status=d.state==='failed'?`<span style="color:var(--bad-fg)">Couldn't clean this photo. The original is fine to use.</span>`:d.state==='working'?'':(d.cleaned&&d.pick==='clean'?'Background removed, photo squared.':d.zoom>1?'Cropped.':'As it was taken.');
+  S.q('review').innerHTML=`
+    <div class="head"><b>Check the Photo</b><button class="x" data-act="close" style="width:44px;height:44px;display:grid;place-items:center;font-size:20px;color:var(--line-ico)">${I.x}</button></div>
+    <div class="body">
+      ${seg}
+      <div class="stagebox" ${d.crop?'style="background:#111"':''}><div class="sq ${d.pick==='clean'?'clean':''} ${d.state==='working'?'busy':''}" style="overflow:hidden">${dArt(S)}${frame}<div class="shim"></div></div></div>
+      ${opts}
+      <div class="status" style="justify-content:center">${status}</div>
+      <div style="display:flex;gap:8px"><button class="btn big" data-act="dretake" ${d.crop?'disabled style="opacity:.5"':''}>Retake</button><button class="btn big pri" data-act="duse" ${d.crop||d.state==='working'?'disabled style="opacity:.5"':''}>Use Photo</button></div>
+    </div>`;
+  const r=S.q('review').querySelector('[data-slot=dzoom]');
+  if(r) r.oninput=()=>{d.zoom=Number(r.value);const w=S.q('review').querySelector('.sq > span');w.style.transform=`scale(${d.zoom})`};
+  S.q('review').querySelectorAll('[data-act=dpickorig],[data-act=dpickclean]').forEach(b=>b.onclick=()=>{d.pick=b.dataset.act==='dpickclean'?'clean':'orig';renderD(S)});
+}
+function dClean(S){
+  const d=S.d; if(d.state==='working'||d.cleaned) return;
+  const run=++S.run; d.state='working'; renderD(S);
+  cleaning(S).then(res=>{ if(run!==S.run) return;
+    if(res==='clean'){d.state='idle';d.cleaned=true;d.pick='clean'} else {d.state='failed'}
+    renderD(S)});
+}
+function dUse(S){
+  const d=S.d; S.hasPhoto=true; S.zoom=d.zoom; S.kept=d.pick;
+  S.q('review').classList.remove('on');
+  const bits=[d.pick==='clean'?'Cleaned up':'', d.zoom>1?'Cropped':''].filter(Boolean);
+  fillThumb(S,d.pick,bits.length?bits.join(' · ')+'.':'Kept as taken.');
 }
 document.querySelectorAll('.phone').forEach(build);
 </script>
