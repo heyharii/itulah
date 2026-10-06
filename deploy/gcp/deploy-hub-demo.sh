@@ -20,8 +20,13 @@ set -euo pipefail
 PROJECT=${PROJECT:-project-21f41328-b088-4894-b3f}
 ZONE=${ZONE:-asia-southeast2-a}
 VM=${VM:-itulah-demo}
-HOST=${HOST:-hub.34-128-98-21.sslip.io}
-HIDE_DOMAINS=${HIDE_DOMAINS-hr,ga}
+# Which web root the build goes to: `hub` (the demo, the default) or `sandbox`
+# — its own folder, served at the sandbox's own host, so a build that is still
+# being tried never reaches the demo. TARGET=sandbox deploy/gcp/deploy-hub-demo.sh
+TARGET=${TARGET:-hub}
+HOST=${HOST:-$TARGET.34-128-98-21.sslip.io}
+# The demo hides HR and GA; the sandbox is where everything is tried, so it hides nothing.
+if [ "$TARGET" = sandbox ]; then HIDE_DOMAINS=${HIDE_DOMAINS-}; else HIDE_DOMAINS=${HIDE_DOMAINS-hr,ga}; fi
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$root/frontend-hub"
@@ -36,9 +41,9 @@ gcloud --project "$PROJECT" compute scp "$tgz" "$VM:/tmp/hub-dist.tgz" \
   --zone "$ZONE" --tunnel-through-iap >/dev/null 2>&1
 rm -f "$tgz"
 
-gcloud --project "$PROJECT" compute ssh "$VM" --zone "$ZONE" --tunnel-through-iap --command '
+gcloud --project "$PROJECT" compute ssh "$VM" --zone "$ZONE" --tunnel-through-iap --command "TARGET=$TARGET"'
 set -e
-W=/var/lib/itulah/www/hub; N=/var/lib/itulah/www/hub.new
+W=/var/lib/itulah/www/$TARGET; N=/var/lib/itulah/www/$TARGET.new
 sudo rm -rf $N; sudo mkdir -p $N
 sudo tar xzf /tmp/hub-dist.tgz -C $N 2>/dev/null
 sudo test -f $N/index.html
@@ -47,10 +52,10 @@ sudo test -f $N/index.html
 # the "Something went wrong" screen. Chunks nobody has loaded for 30 days go.
 if sudo test -d $W/assets; then sudo cp -an $W/assets/. $N/assets/; fi
 sudo find $N/assets -type f -mtime +30 -delete
-sudo rm -rf /var/lib/itulah/www/hub.old
-sudo mv $W /var/lib/itulah/www/hub.old
+sudo rm -rf /var/lib/itulah/www/$TARGET.old
+sudo mv $W /var/lib/itulah/www/$TARGET.old
 sudo mv $N $W
-sudo rm -rf /var/lib/itulah/www/hub.old /tmp/hub-dist.tgz
+sudo rm -rf /var/lib/itulah/www/$TARGET.old /tmp/hub-dist.tgz
 echo INSTALLED' 2>&1 | grep -v "WARNING\|NumPy\|please see\|^$"
 
 # Every asset the new index names must answer 200 from the public host.

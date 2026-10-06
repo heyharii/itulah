@@ -98,6 +98,12 @@ TENANCY_TEMPLATE_DATABASE=itulah_blank
 DATABASE_URL=postgresql://itulah:$PG_PASSWORD@pg:5432/itulah_control
 INVENTORY_NODE_ID=cloud-sandbox
 INVENTORY_NODE_ROLE=CLOUD
+# The Gudang is run by the cloud here too, as on the demo: no DC server. Without
+# it the hub asked for a "warehouse node" that does not exist (7 Oct 2026). The
+# hub also needs `dc_hosting` from /api/v1/health, which the gateway answers
+# with its own mode only — the sandbox's Caddy site answers it like the hub's
+# (see the live Caddyfile) until the gateway's health carries it.
+INVENTORY_DC_HOSTING=cloud
 # Required of an authenticated cloud; nothing syncs into the sandbox.
 SYNC_INGEST_KEY=$SYNC_INGEST_KEY
 INVENTORY_AUTH_MODE=required
@@ -217,15 +223,17 @@ site customer "  handle /api/* {
 site pos "  handle /api/* {
     reverse_proxy store:8080
   }"
-# The sandbox serves the same hub bundle against its own gateway.
+# The sandbox has its own web folder (www/sandbox, filled by
+# `TARGET=sandbox deploy/gcp/deploy-hub-demo.sh`): what is being tried reaches
+# it first and the demo's hub only when it is ready.
 site sandbox "  handle /edge/* {
     reverse_proxy cloud-sandbox:8080
   }
   handle /api/* {
     reverse_proxy cloud-sandbox:8080
-  }" | sed 's#root \* /srv/sandbox#root * /srv/hub#'
+  }"
 } > "$state/Caddyfile"
-mkdir -p "$state/www"/{hub,store,customer,pos}
+mkdir -p "$state/www"/{hub,store,customer,pos,sandbox}
 
 gcloud auth configure-docker "$registry" -q
 docker pull "$image"
