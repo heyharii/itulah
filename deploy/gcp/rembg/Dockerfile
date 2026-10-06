@@ -2,8 +2,14 @@
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 U2NET_HOME=/models
 RUN pip install --no-cache-dir "rembg[cpu]==2.0.*" fastapi "uvicorn[standard]" python-multipart pillow
-# The model is baked in: a cold start loads it from disk, it does not download it.
-RUN python -c "from rembg import new_session; new_session('u2net')"
+# Two things are baked in, so a cold start is seconds, not a minute:
+#  - the model, loaded from disk and not downloaded;
+#  - numba's compiled code for `pymatting` (imported by rembg). Without it the
+#    first import compiles for ~25s on a laptop and over a minute on a small
+#    Cloud Run CPU — every cold start. `generic` makes the cache valid on any
+#    x86 machine, not only the one that built it.
+ENV NUMBA_CACHE_DIR=/numba NUMBA_CPU_NAME=generic
+RUN mkdir -p /numba && python -c "import rembg; from rembg import new_session; new_session('u2net')"
 WORKDIR /app
 COPY app.py .
 ENV PORT=8080

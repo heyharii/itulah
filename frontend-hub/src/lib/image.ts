@@ -94,28 +94,16 @@ function jpegName(name: string): string {
   return `${dot === -1 ? name : name.slice(0, dot)}.jpg`
 }
 
-/// Whether the background service answers. Asked once and remembered; asked
-/// again a minute after a "no", so a service that was starting is found.
-///
-/// A GET with no picture is a question it answers with a 422 and a JSON body
-/// — which is also how this is told from the web server's own page, handed
-/// back with a 200 for any path it does not know.
-let reachable: { at: number; yes: boolean } | null = null
-export async function cleaningAvailable(): Promise<boolean> {
-  if (
-    reachable !== null &&
-    (reachable.yes || Date.now() - reachable.at < 60_000)
-  )
-    return reachable.yes
-  let yes: boolean
+/// Wake the background service. A service that has been idle is not running,
+/// and its first answer takes a few seconds; asking as the photo form opens
+/// puts that wait before the photograph, not after it. The answer is not read —
+/// a GET with no picture is a question it answers with a 422.
+export async function warmCleaning(): Promise<void> {
   try {
-    const response = await fetch("/rembg/api/remove")
-    yes = (response.headers.get("content-type") ?? "").includes("json")
+    await fetch("/rembg/api/remove")
   } catch {
-    yes = false
+    // Not there: Clean Up says so when it is pressed.
   }
-  reachable = { at: Date.now(), yes }
-  return yes
 }
 
 /// A garment photograph tidied for the catalogue: its background taken off,
@@ -134,7 +122,13 @@ export async function tidyPhoto(photo: Blob): Promise<File> {
   body.append("file", photo, "photo.jpg")
   let response: Response
   try {
-    response = await fetch("/rembg/api/remove", { method: "POST", body })
+    // A cold service can take most of a minute to start: wait for it, but not
+    // for ever.
+    response = await fetch("/rembg/api/remove", {
+      method: "POST",
+      body,
+      signal: AbortSignal.timeout(150_000),
+    })
   } catch {
     throw new Error("the cleaning service cannot be reached right now")
   }

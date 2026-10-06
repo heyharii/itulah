@@ -1832,7 +1832,10 @@ export async function uploadSupplierItemImage(
       "This bucket hands out expiring links, which cannot be stored against an item. Set a public base URL on the node."
     )
   }
-  return stored.url
+  // The same photograph key is written again when a picture is replaced, and
+  // the store serves its pictures to be cached for a long time: the link says
+  // which version it is, so the new one is fetched and not the old one kept.
+  return `${stored.url}${stored.url.includes("?") ? "&" : "?"}v=${Date.now()}`
 }
 
 /// Put a photograph on a colourway.

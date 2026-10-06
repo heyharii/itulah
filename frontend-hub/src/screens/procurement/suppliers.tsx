@@ -21,6 +21,7 @@ import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { Switch, Toggle } from "@/components/ui/form"
 import { RecordPanel } from "@/components/ui/record-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { SupplierBand } from "@/screens/procurement/supplier-band"
 import { ColumnsMenu, ExportCsv } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
@@ -572,7 +573,17 @@ export function Suppliers() {
       <PageHeader title="Suppliers" small />
 
       {/* The owner's five figures, as cards over the list. */}
-      <KpiStrip className="md:grid-cols-5 xl:grid-cols-5">
+      <SupplierBand
+        active={whole.data ? bandOf(whole.data, "ACTIVE") : undefined}
+        inactive={whole.data ? bandOf(whole.data, "INACTIVE") : undefined}
+        orders={whole.data?.book.open_orders}
+        pieces={whole.data?.book.open_units}
+        value={
+          whole.data ? brief(whole.data.book.open_value_minor) : undefined
+        }
+        className="md:hidden"
+      />
+      <KpiStrip className="max-md:hidden md:grid-cols-5 xl:grid-cols-5">
         {bookKpis(whole.data)?.map((kpi) => (
           <div key={kpi.label} title={kpi.note}>
             <Kpi label={kpi.label} value={kpi.value} />
@@ -905,6 +916,13 @@ function brief(minor: number): string {
   const shown =
     scale === 1 ? String(minor) : scaled.toFixed(scaled < 10 ? 1 : 0)
   return `Rp ${shown.replace(".", ",")}${suffix}`
+}
+
+/// How many suppliers hold a status, the server's own facet.
+function bandOf(page: SupplierPage, status: string): number {
+  return (
+    page.facets.statuses.find((facet) => facet.value === status)?.count ?? 0
+  )
 }
 
 /// The five figures the owner asked for, all the server's own: the status

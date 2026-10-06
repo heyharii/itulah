@@ -22,17 +22,15 @@ const LONGEST_EDGE = 1600
 ///    to zoom. Nothing to size, nothing to choose between.
 ///
 /// **Use Photo** keeps what is on show; **Retake** starts again. Skip both
-/// buttons and the photo is kept as it was taken.
+/// buttons and the photo is kept as it was taken. **Done** in the crop keeps
+/// the cut picture and closes the sheet, as Use Photo does.
 export function PhotoSheet({
   file,
-  canClean,
   onUse,
   onRetake,
   onCancel,
 }: {
   file: Blob
-  /// Whether the cleaning service answers; the button is offered only if so.
-  canClean: boolean
   onUse: (photo: Blob) => void
   onRetake: () => void
   onCancel: () => void
@@ -45,7 +43,7 @@ export function PhotoSheet({
     () => ({ blob: file, url: URL.createObjectURL(file) }),
     [file]
   )
-  const [original, setOriginal] = useState<{ blob: Blob; url: string }>(first)
+  const original = first
   const [clean, setClean] = useState<{ blob: Blob; url: string } | null>(null)
   const [pick, setPick] = useState<"original" | "clean">("original")
   const [state, setState] = useState<"idle" | "working" | "failed">("idle")
@@ -59,7 +57,6 @@ export function PhotoSheet({
 
   const finish = (after: () => void) => {
     URL.revokeObjectURL(original.url)
-    if (original.url !== first.url) URL.revokeObjectURL(first.url)
     if (clean !== null) URL.revokeObjectURL(clean.url)
     after()
   }
@@ -98,15 +95,9 @@ export function PhotoSheet({
     if (area === null) return
     try {
       const cut = await cutOut(shown.url, area)
-      const next = { blob: cut, url: URL.createObjectURL(cut) }
-      if (pick === "clean" && clean !== null) {
-        URL.revokeObjectURL(clean.url)
-        setClean(next)
-      } else {
-        if (original.url !== first.url) URL.revokeObjectURL(original.url)
-        setOriginal(next)
-      }
-      setCropping(false)
+      // Done is the end of the edit: the cut picture is the one kept and the
+      // sheet closes (owner, 2026-10-06 — it came back up after a crop).
+      finish(() => onUse(cut))
     } catch {
       setFailed(true)
     }
@@ -256,7 +247,7 @@ export function PhotoSheet({
         ) : (
           <>
             <div className="flex gap-2">
-              {canClean && (
+              {
                 <Button
                   size="lg"
                   className="h-12 flex-1 justify-center"
@@ -282,7 +273,7 @@ export function PhotoSheet({
                     </>
                   )}
                 </Button>
-              )}
+              }
               <Button
                 size="lg"
                 className="h-12 flex-1 justify-center"

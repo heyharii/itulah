@@ -23,7 +23,7 @@ import { Sheet } from "@/components/ui/sheet"
 import { Banner } from "@/components/ui/states"
 import { ColourSwatch } from "@/components/ui/swatch"
 import { Thumbnail } from "@/components/ui/thumbnail"
-import { asJpeg, cleaningAvailable, PICTURE_TYPES } from "@/lib/image"
+import { asJpeg, PICTURE_TYPES, warmCleaning } from "@/lib/image"
 import { wholeProduct } from "@/lib/decimal"
 import { unitFactor, useUnits } from "@/lib/queries/units"
 import {
@@ -389,10 +389,13 @@ export function ItemFormSheet({
   }
   /// A picture on the Check the Photo sheet.
   const [reviewing, setReviewing] = useState<Blob | null>(null)
-  /// Whether the cleaning service answers; the button is offered only if so.
-  const [canClean, setCanClean] = useState(false)
+  // The cleaning service is woken as the form opens, so that by the time a
+  // photo is taken and Clean Up is pressed it is warm. Its answer is not asked
+  // of: the button is always there, and says so if the service cannot be
+  // reached (a button that appeared only once a probe came back was gone for
+  // the first minute of a cold start).
   useEffect(() => {
-    void cleaningAvailable().then(setCanClean)
+    void warmCleaning()
   }, [])
   /// Edit the photo that is on the form: the one just taken, or the item's own
   /// from the image store, read back (the bucket allows this origin to read).
@@ -1069,7 +1072,6 @@ export function ItemFormSheet({
             {reviewing !== null && (
               <PhotoSheet
                 file={reviewing}
-                canClean={canClean}
                 onUse={(kept) => {
                   setPhoto(kept)
                   setReviewing(null)
