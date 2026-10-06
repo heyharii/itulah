@@ -1000,7 +1000,7 @@ export function Matrix({
                 scope="col"
                 className="h-9 border-b border-l border-hairline bg-canvas px-3 text-right text-cell font-medium text-ink"
               >
-                All
+                Quantity
               </th>
             )}
           </tr>
@@ -1053,7 +1053,7 @@ export function Matrix({
                 scope="row"
                 className="h-9 border-t border-r border-hairline bg-soft-2 px-3 text-left text-cell font-normal text-body"
               >
-                All
+                Quantity
               </th>
               {sizes.map((size, at) => (
                 <td
