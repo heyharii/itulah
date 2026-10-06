@@ -47,6 +47,7 @@ import {
   SubmitRow,
 } from "@/screens/master/term-form"
 import {
+  codeFromLabel,
   said,
   snake,
   useIdempotencyKey,
@@ -514,7 +515,7 @@ function ColourForm({
   // Suggested from the label until somebody types over it, and then left alone:
   // a code corrected by hand should not be silently rewritten by the next
   // keystroke in the field above it.
-  const [codeTyped, setCodeTyped] = useState(false)
+  const [codeTyped] = useState(false)
   const { attempt, reveal } = useReveal()
   const [deleting, setDeleting] = useState(false)
   const remove = useMutation({
@@ -578,8 +579,20 @@ function ColourForm({
       order: String(colour?.order ?? 0),
       active: colour?.active ?? true,
     } as ColourDraft,
-    onSubmit: ({ value }) => {
+    onSubmit: ({ value: typed }) => {
       attempt()
+      // No code is asked for (owner, 2026-10-07): the label in upper snake,
+      // made unique, chosen at the moment of saving.
+      const value =
+        colour === null
+          ? {
+              ...typed,
+              code: codeFromLabel(
+                typed.label,
+                existing.map((row) => row.term.code)
+              ),
+            }
+          : typed
       const found = problemsWith(value, colour, existing)
       if (Object.keys(found).length > 0) return
       save.mutate(value)
@@ -635,28 +648,7 @@ function ColourForm({
               )}
             </form.Field>
 
-            {colour === null ? (
-              <form.Field name="code">
-                {(field) => (
-                  <Field
-                    label="Code"
-                    required
-                    problem={reveal(field.state.meta.isTouched, problems.code)}
-                  >
-                    <Input
-                      value={field.state.value}
-                      onBlur={field.handleBlur}
-                      onChange={(event) => {
-                        setCodeTyped(true)
-                        field.handleChange(event.target.value)
-                      }}
-                    />
-                  </Field>
-                )}
-              </form.Field>
-            ) : (
-              <CodeFact code={colour.term.code} />
-            )}
+            {colour === null ? null : <CodeFact code={colour.term.code} />}
 
             <div className="grid grid-cols-2 gap-3">
               <form.Field name="hex">

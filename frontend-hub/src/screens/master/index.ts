@@ -6,6 +6,7 @@ import { NewArticles } from "@/screens/master/new-articles"
 import { PaymentTemplates } from "@/screens/master/payment-templates"
 import { Divisions, Sizes, Tags } from "@/screens/master/vocabulary"
 import { Destinations } from "@/screens/procurement/destinations"
+import { SuppliersGate } from "@/screens/procurement/offline-suppliers"
 import { Units } from "@/screens/inventory/units"
 import { Organisation } from "@/screens/system/organisation"
 
@@ -25,6 +26,8 @@ export const screens: ScreenMap = {
   "/master/organisation": Organisation,
   "/master/units": Units,
   "/master/destinations": Destinations,
+  // The supplier book, as Procurement has it: one screen, two paths.
+  "/master/suppliers": SuppliersGate,
   "/master/divisions": Divisions,
   "/master/colours": Colours,
   "/master/name-suggestions": NameSuggestions,

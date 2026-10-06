@@ -36,7 +36,7 @@ import {
 /// the Master menu on 2026-10-04 ("master supplier, master articles, dan semua
 /// master") and now stays where the buyer buys. The Master menu keeps the
 /// article words — Divisions, Tags, Sizes, Colours. The screen's code is in
-/// `procurement/`; `/master/suppliers` redirects to `/procurement/suppliers`.
+/// `procurement/`; `/master/suppliers` opens the same screen from the Master menu.
 ///
 /// Article setups are not here: since 2026-10-02 they are their own page,
 /// Merchandise › New articles — see `SetupWorkspace` in `setups.tsx`.
@@ -89,13 +89,12 @@ export const procurementNav: AppModule = {
           badge: "warn",
         },
         {
-          // Procurement only (the owner, 2026-10-05): the supplier master lives
-          // where the buyer buys. The Master menu no longer lists it, and its
-          // old path lands here, search parameters and all.
+          // In Procurement, where the buyer buys, and in the Master menu too
+          // (owner, 2026-10-07): the same screen at `/master/suppliers`, no
+          // longer a redirect to this one.
           path: "/procurement/suppliers",
           label: "Suppliers",
           icon: Building2,
-          moved: ["/master/suppliers"],
         },
         {
           // In the sidebar as of 2026-09-13, on the owner's instruction: it is

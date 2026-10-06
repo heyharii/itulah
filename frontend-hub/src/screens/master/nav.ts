@@ -49,9 +49,9 @@ export const useNewArticlesCount = () =>
 /// ("master supplier, master articles, dan semua master"). It is the row's
 /// third filing — here until 2026-09-12, Procurement since, now its own
 /// section between the record and the words, because a supplier is still not
-/// a word an article is described with. Suppliers is not here: the owner
-/// (2026-10-05) keeps it in Procurement only, and `/master/suppliers` redirects
-/// there. Divisions, Tags, Sizes and Colours stay in this menu only.
+/// a word an article is described with. Suppliers is here again (owner,
+/// 2026-10-07) and stays in Procurement too: the same screen under both paths.
+/// Divisions, Tags, Sizes and Colours stay in this menu only.
 export const masterNav: AppModule = {
   id: "master",
   label: "Articles",
@@ -127,6 +127,19 @@ export const masterNav: AppModule = {
           icon: Scale,
           moved: ["/inventory/units"],
           hidden: true,
+        },
+      ],
+    },
+    {
+      /// Suppliers, in the Master menu as well as Procurement's (owner,
+      /// 2026-10-07: "supplier into master, but it stays in procurement"). One
+      /// screen under two paths — the way Merchandise reaches the article
+      /// screens — so each menu opens it in its own department.
+      items: [
+        {
+          path: "/master/suppliers",
+          label: "Suppliers",
+          icon: Building2,
         },
       ],
     },

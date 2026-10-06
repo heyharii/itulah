@@ -39,6 +39,23 @@ export function snake(label: string): string {
     .replace(/^_+|_+$/g, "")
 }
 
+/// A code for a term nobody types one for (owner, 2026-10-07): the label in
+/// upper snake, and `_2`, `_3` … after it while that is taken. A label with
+/// nothing in it to make a code from falls back to `ITEM`. A code is permanent
+/// once an article points at it, so it is chosen once, at saving, and shown
+/// afterwards as a fact.
+export function codeFromLabel(
+  label: string,
+  taken: Iterable<string>,
+  fallback = "ITEM"
+): string {
+  const used = new Set(taken)
+  const base = snake(label) || fallback
+  let code = base
+  for (let n = 2; used.has(code); n++) code = `${base}_${n}`
+  return code
+}
+
 /// Nothing is called wrong before it has been touched: a new form used to open
 /// red, an error under every empty box. A gap is named once its field has been
 /// left, or once Submit has been pressed on a form that is not ready.

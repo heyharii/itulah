@@ -44,6 +44,7 @@ import {
   SubmitRow,
 } from "@/screens/master/term-form"
 import {
+  codeFromLabel,
   said,
   snake,
   useIdempotencyKey,
@@ -680,8 +681,9 @@ function TermForm({
     },
   })
 
-  // A size's code is not asked for: it is the next free two digits.
-  const autoCode = term === null && vocabulary.kind === "sizes"
+  // No code is asked for (owner, 2026-10-07): a size's is the next free two
+  // digits, any other's is its label in upper snake, made unique.
+  const autoCode = term === null
   const form = useForm({
     defaultValues: {
       code: term?.term.code ?? (autoCode ? nextSizeCode(existing) : ""),
@@ -694,7 +696,16 @@ function TermForm({
       // Chosen again at the moment of saving: the list may have grown since
       // the form opened.
       const value = autoCode
-        ? { ...typed, code: nextSizeCode(existing) }
+        ? {
+            ...typed,
+            code:
+              vocabulary.kind === "sizes"
+                ? nextSizeCode(existing)
+                : codeFromLabel(
+                    typed.label,
+                    existing.map((row) => row.term.code)
+                  ),
+          }
         : typed
       if (autoCode && value.code === "") {
         toast.error("Every two-digit size code is already taken.")
