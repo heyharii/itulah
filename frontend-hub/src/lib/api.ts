@@ -196,8 +196,14 @@ export interface PoolsAnswer {
 /// whoever asked first decided the shape, and the other call site read
 /// `.filter` on an object. One key, one shape: callers that only want the rows
 /// say `.items`.
-export function poolsAnswer(signal?: AbortSignal): Promise<PoolsAnswer> {
-  return dcNode().get<PoolsAnswer>("/api/v1/inventory/pools", { signal })
+export async function poolsAnswer(signal?: AbortSignal): Promise<PoolsAnswer> {
+  // A DC server answers `{items}`; the cloud hosting the warehouse answers its
+  // own paged list, `{rows}`. Both are read as `items`, or no rack is found
+  // and the picklist's Submit stays dead.
+  const answer = await dcNode().get<
+    Omit<PoolsAnswer, "items"> & { items?: PoolRow[]; rows?: PoolRow[] }
+  >("/api/v1/inventory/pools", { signal })
+  return { ...answer, items: answer.items ?? answer.rows ?? [] }
 }
 
 /// A purchase return, as this node sees it: excess a buyer at the centre put
