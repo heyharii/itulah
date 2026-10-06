@@ -656,9 +656,13 @@ export function ReturnSheet({
                   title={`Close ${row.number} Short?`}
                   description={`${money(row.owedMinor)} owed is written off.`}
                   confirmLabel="Close Short"
-                  reason={{ label: "Reason" }}
+                  reason={{ label: "Reason", optional: true }}
                   pending={short.isPending}
-                  onConfirm={(reason) => short.mutateAsync(reason)}
+                  onConfirm={(reason) =>
+                    short.mutateAsync(
+                      reason.trim() === "" ? "Closed short" : reason
+                    )
+                  }
                 />
               </span>
             </div>

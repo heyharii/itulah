@@ -2132,7 +2132,7 @@ export function OrderSheet({
           variant="ghost"
           size="sm"
           pending={closeShort.isPending}
-          reason={{ label: "Reason for Closing" }}
+          reason={{ label: "Reason for Closing", optional: true }}
           onConfirm={(reason) => closeShort.mutateAsync(reason)}
         />
       )

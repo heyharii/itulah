@@ -1478,10 +1478,15 @@ function AllotmentSheet({
                   reason={{
                     label: "Reason",
                     hint: "Kept on the closed allotment.",
+                    optional: true,
                   }}
                   pending={cancel.isPending}
                   disabled={cancelDisabled}
-                  onConfirm={(reason) => cancel.mutateAsync(reason)}
+                  onConfirm={(reason) =>
+                    cancel.mutateAsync(
+                      reason.trim() === "" ? "Closed short" : reason
+                    )
+                  }
                 />
               )}
             </>

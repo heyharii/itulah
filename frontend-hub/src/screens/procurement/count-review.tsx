@@ -1062,7 +1062,7 @@ function Review({
                   title="Close This Short?"
                   description={`${pcs(shortQty)} will be removed from the order, and the PO completes as received. This can't be undone.`}
                   confirmLabel="Close Short"
-                  reason={{ label: "Reason for Closing" }}
+                  reason={{ label: "Reason for Closing", optional: true }}
                   disabled={unnamed || rows.length === 0 || accept.isPending}
                   pending={accept.isPending}
                   onConfirm={(reason) => {
