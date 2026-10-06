@@ -482,7 +482,11 @@ function ItemSheet({
               open={editing}
               item={item}
               onClose={() => setEditing(false)}
-              onSaved={() => setEditing(false)}
+              onSaved={() => {
+                // Saved: the form and the record behind it both close.
+                setEditing(false)
+                onClose()
+              }}
             />
           </div>
         ),

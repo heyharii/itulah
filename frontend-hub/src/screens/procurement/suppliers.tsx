@@ -2596,9 +2596,11 @@ function SupplierCatalogue({ supplierId }: { supplierId: string }) {
           open={editing}
           item={reading}
           onClose={() => setEditing(false)}
-          onSaved={(saved) => {
+          onSaved={() => {
+            // Saved: the form and the record behind it both close, back to
+            // the list (owner, 2026-10-06) — the record stayed open under it.
             setEditing(false)
-            setReading(saved)
+            setReading(null)
           }}
         />
       )}
