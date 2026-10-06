@@ -12,7 +12,7 @@ import { createPortal } from "react-dom"
 
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Dialog, SavedDialog } from "@/components/ui/dialog"
+import { SavedDialog } from "@/components/ui/dialog"
 import { Field, Input, Money } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { BarSpacer, SearchSuggest } from "@/components/ui/list-chrome"
@@ -25,6 +25,11 @@ import { ZoomPhoto } from "@/components/ui/photo-viewer"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { ago, count, money } from "@/lib/format"
 import { asJpeg, PICTURE_TYPES } from "@/lib/image"
+import {
+  clearSetupDraft,
+  readSetupDraft,
+  writeSetupDraft,
+} from "@/screens/procurement/setup-draft"
 import { problemOf } from "@/lib/problem"
 import { POPUP } from "@/lib/filter-chrome"
 import { cn } from "@/lib/utils"
@@ -213,8 +218,7 @@ export function SetupWorkspace() {
   /// The form holds something typed. Moving to another delivery or PO,
   /// or closing the sheet, asks "Discard this draft?" first; `pending` is the
   /// move waiting on it.
-  const [dirty, setDirty] = useState(false)
-  const [pending, setPending] = useState<Target | null>(null)
+  const [, setDirty] = useState(false)
 
   /// The words a division may be named with. Fetched here rather than in the
   /// form, so moving to the next delivery does not start a request the person
@@ -371,8 +375,7 @@ export function SetupWorkspace() {
   /// A move the person asked for, held behind the discard prompt while the
   /// form has a draft in it.
   const go = (next: Target) => {
-    if (dirty) setPending(next)
-    else void point(next)
+    void point(next)
   }
 
   const railNow = poFilter.value
@@ -380,6 +383,7 @@ export function SetupWorkspace() {
   /// one after it, else the one before — when Submit and Next was pressed, or
   /// the sheet closes on Submit, and on the last card either way.
   const advance = (done: string, toNext = true) => {
+    clearSetupDraft(done)
     client.setQueryData<UnidentifiedReceipt[]>(
       procurementKeys.unidentified(),
       (rows) => rows?.filter((row) => row.receipt_line_id !== done)
@@ -652,24 +656,6 @@ export function SetupWorkspace() {
           />
         ) : null}
       </Sheet>
-      <Dialog
-        open={pending !== null}
-        onOpenChange={(open) => {
-          if (!open) setPending(null)
-        }}
-        title="Discard This Draft?"
-        confirm="Discard"
-        cancel="Keep editing"
-        tone="danger"
-        onConfirm={() => {
-          const next = pending
-          setPending(null)
-          setDirty(false)
-          if (next !== null) void point(next)
-        }}
-      >
-        Nothing has been saved.
-      </Dialog>
       <SavedDialog
         open={minted !== null}
         onOpenChange={(next) => {
@@ -2322,7 +2308,9 @@ function SessionComposer({
   /// several sibling articles, and each tab is one of them — its own colours,
   /// sizes, pieces and SKU prices under the one shared header. With a single
   /// tab this is exactly the form it always was.
+  const [saved] = useState(() => readSetupDraft(receipt.receipt_line_id))
   const [tabs, setTabs] = useState<readonly ArticleTab[]>(() => {
+    if (saved !== null) return saved.tabs
     const start = prefillFromReceipt(receipt)
     return [
       {
@@ -2334,8 +2322,8 @@ function SessionComposer({
       },
     ]
   })
-  const [tabAt, setTabAt] = useState(0)
-  const [nextTabId, setNextTabId] = useState(1)
+  const [tabAt, setTabAt] = useState(saved?.tabAt ?? 0)
+  const [nextTabId, setNextTabId] = useState(saved?.nextTabId ?? 1)
   const current = Math.min(tabAt, tabs.length - 1)
   const tab = tabs[current]
   const patchTab = (change: (was: ArticleTab) => ArticleTab) =>
@@ -2406,11 +2394,17 @@ function SessionComposer({
         : current
     )
   }
-  const [name, setName] = useState(() => suggestName(receipt.article_name))
-  const [division, setDivision] = useState(receipt.division_code ?? "")
+  const [name, setName] = useState(
+    () => saved?.name ?? suggestName(receipt.article_name)
+  )
+  const [division, setDivision] = useState(
+    saved?.division ?? receipt.division_code ?? ""
+  )
   /// What the buyer already filed it under. Editable, because the buyer was
   /// describing an order line and this is the article the company will keep.
-  const [tags, setTags] = useState<readonly string[]>(receipt.tags)
+  const [tags, setTags] = useState<readonly string[]>(
+    saved?.tags ?? receipt.tags
+  )
   /// Purchase price, markup and base price, kept in step the way
   /// `PricingFields` keeps them — typing either of the last two fills the
   /// other. The purchase price itself is never typed here: it is the PO
@@ -2418,6 +2412,7 @@ function SessionComposer({
   /// box, because nobody setting up a delivery is re-negotiating what it cost.
   const [pricing, setPricing] = useState<Pricing>(() => {
     const purchase = String(receipt.purchase_price_minor)
+    if (saved !== null) return { ...saved.pricing, purchase }
     const base =
       receipt.base_price_minor !== null ? String(receipt.base_price_minor) : ""
     if (receipt.markup_bps !== null)
@@ -2447,6 +2442,21 @@ function SessionComposer({
     onDirty?.(dirty)
     return () => onDirty?.(false)
   }, [dirty, onDirty])
+  // The form is kept as it stands: what is typed here is a draft until the
+  // delivery has its identity.
+  useEffect(() => {
+    if (dirty)
+      writeSetupDraft(receipt.receipt_line_id, {
+        tabs,
+        tabAt,
+        nextTabId,
+        name,
+        division,
+        tags,
+        pricing,
+      })
+    else clearSetupDraft(receipt.receipt_line_id)
+  }, [dirty, receipt.receipt_line_id, tabs, tabAt, nextTabId, name, division, tags, pricing])
 
   const colours = useMemo(() => master.data?.colours ?? [], [master.data])
   const colourChoices = useMemo<Choice[]>(
