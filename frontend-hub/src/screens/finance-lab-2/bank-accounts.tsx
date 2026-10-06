@@ -406,6 +406,7 @@ function DescribeForm({
           hint="Typed the way the passbook groups it."
         >
           <Input
+            keyboard
             value={number}
             onChange={(event) => setNumber(event.target.value)}
             inputMode="numeric"

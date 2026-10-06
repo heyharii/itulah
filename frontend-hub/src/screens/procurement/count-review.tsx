@@ -104,12 +104,9 @@ export function ReviewCountButton({
       <Button
         variant="primary"
         size="sm"
-        // Soft blue on a phone, where the round "+" is the one solid blue
-        // button on the screen (owner, 2026-10-05); solid on a desk, where
-        // there is no "+" beside it. On a card it is a capsule at iOS's small
-        // button size (28pt tall, 14px, medium): a status beside the title
-        // takes the title's weight down, never up.
-        className="-my-1 w-fit relative max-md:my-0 max-md:h-7 max-md:pointer-coarse:h-7 max-md:pointer-coarse:px-3 max-md:rounded-full max-md:bg-accent-bg max-md:px-3 after:absolute after:inset-x-0 after:-inset-y-2 after:content-[''] max-md:text-[0.875rem] max-md:font-medium max-md:text-accent max-md:hover:bg-accent-bg/70"
+        // The same solid blue button on every screen (owner, 2026-10-06):
+        // the soft capsule it wore on a phone is gone, one look to learn.
+        className="relative -my-1 w-fit after:absolute after:inset-x-0 after:-inset-y-2 after:content-['']"
         onClick={(event) => {
           event.stopPropagation()
           review.open(po)
@@ -153,7 +150,7 @@ export function CountReview({
     : BaseDialog
 
   const head = (
-    <div className="flex items-center gap-3 border-b border-hairline px-6 py-4 max-md:px-5">
+    <div className="flex items-center gap-3 border-b border-hairline px-4 py-4 md:px-7 md:py-3">
       <div className="min-w-0 flex-1">
         <Parts.Title className="flex items-center gap-2 text-card-title font-semibold text-ink">
           Review Count
@@ -177,12 +174,11 @@ export function CountReview({
         )}
       </div>
       <Parts.Close
-        render={
-          <Button variant="ghost" size="icon" aria-label="Close">
-            <X />
-          </Button>
-        }
-      />
+        aria-label="Close"
+        className="grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-ink pointer-coarse:size-tap"
+      >
+        <X className="size-4" />
+      </Parts.Close>
     </div>
   )
   const body = po !== null && (
@@ -1005,7 +1001,11 @@ function Review({
         <Problem error={accept.error ?? recount.error} />
       </div>
 
-      <div className="grid grid-cols-2 gap-2 border-t border-hairline px-4 py-3 md:flex md:items-center md:gap-3 md:px-6 md:py-4">
+      {/* One row on every screen, the main action last — not a grid on a phone
+          with it on top and full width, and a row on a desk with it at the
+          right (the owner, 2026-10-05: "jangan dibedakan"). It wraps only when
+          the buttons cannot share the width. */}
+      <div className="flex flex-wrap items-center gap-2 border-t border-hairline px-4 py-3 md:gap-3 md:px-6 md:py-4 [&_button]:h-9">
         {recounting ? (
           <>
             <Button
@@ -1032,19 +1032,21 @@ function Review({
           </>
         ) : (
           <>
+            {/* An icon on every screen, as Print is on the order: three
+              labelled buttons are wider than a phone, and the one that is
+              not a decision about this count's outcome gives way. */}
             <Button
               variant="soft"
-              className={cn(
-                "max-md:justify-center",
-                shorts.length === 0 && "max-md:col-span-2"
-              )}
+              size="icon"
+              aria-label="Recount"
+              title="Recount"
+              className="size-9! px-0!"
               disabled={unnamed || rows.length === 0 || accept.isPending}
               onClick={startRecount}
             >
               <RotateCcw />
-              Recount
             </Button>
-            <span className="flex-1 max-md:hidden" />
+            <span className="flex-1" />
             {/* A short count's one decision is the button itself: no choice to
               set and then confirm. Primary is the one that keeps the order
               open; closing it short is the deliberate other. */}
@@ -1057,7 +1059,6 @@ function Review({
                   label="Close Short"
                   variant="soft"
                   tone="danger"
-                  className="max-md:justify-center"
                   title="Close This Short?"
                   description={`${pcs(shortQty)} will be removed from the order, and the PO completes as received. This can't be undone.`}
                   confirmLabel="Close Short"
@@ -1071,7 +1072,6 @@ function Review({
                 />
                 <Button
                   variant="primary"
-                  className="max-md:order-first max-md:col-span-2 max-md:justify-center"
                   pending={accept.isPending}
                   title={`${pcs(shortQty)} stay open on the order`}
                   disabled={unnamed || rows.length === 0}
@@ -1084,7 +1084,6 @@ function Review({
             ) : (
               <Button
                 variant="primary"
-                className="max-md:order-first max-md:col-span-2 max-md:justify-center"
                 pending={accept.isPending}
                 disabled={unnamed || rows.length === 0}
                 onClick={() => accept.mutate("keep")}

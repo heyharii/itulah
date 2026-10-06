@@ -10,6 +10,7 @@ import { ConfirmButton } from "@/components/ui/dialog"
 import { type FacetValue } from "@/components/ui/facets"
 import { Banner, EmptyState, Receipt } from "@/components/ui/states"
 import { Thumbnail } from "@/components/ui/thumbnail"
+import { useColourwayFill } from "@/lib/colourway-fill"
 import { count } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { toast } from "@/lib/toast"
@@ -1611,6 +1612,7 @@ function ArticleRow({
   onToggle: () => void
   onSave: () => void
 }) {
+  const colourFill = useColourwayFill()
   const subtotal = (destinationId: string) =>
     group.skus.reduce(
       (total, sku) => total + (cells[cellKey(sku.sku_id, destinationId)] ?? 0),
@@ -1644,6 +1646,7 @@ function ArticleRow({
             url={group.image}
             name={group.name}
             division={group.division}
+            colours={colourFill(group.skus[0]?.colour)}
             className="size-11 shrink-0 rounded-inner max-md:hidden"
           />
           <span className="min-w-0 flex-1">

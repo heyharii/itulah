@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PO & Supplier Phone Options</title>
+<style>
+:root{
+  --ink:#20242c;--text:#394150;--body:#565f6d;--mute:#666f7d;--faint:#b9c0c9;--line-ico:#89919d;
+  --canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--page:#f6f6f7;--hairline:#e6e6e9;--hairline-2:#dadade;
+  --accent:#2563eb;--accent-bg:#eff5ff;--ok-fg:#137a37;--ok-line:#b9dcbf;--bad:#b42318;--info:#1e40af;--info-line:#c3d4f7;
+  --shadow-soft:0 1px 2px rgb(24 39 60 / 6%),0 1px 1px rgb(24 39 60 / 4%);
+  --ease-out:cubic-bezier(.23,1,.32,1);--t-press:120ms;--w:414px;
+}
+*{box-sizing:border-box;margin:0}
+body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:#e4e4e8;color:var(--ink);-webkit-font-smoothing:antialiased;font-size:15px}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;text-align:inherit;padding:0}
+svg{display:block;flex:none}
+.ico{width:1em;height:1em;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.9}
+
+/* page chrome */
+.bar{position:sticky;top:0;left:0;z-index:20;display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;padding:12px 20px;background:rgb(255 255 255 / .92);backdrop-filter:blur(10px);border-bottom:1px solid var(--hairline-2)}
+.bar h1{font-size:15px;font-weight:600;margin-right:6px}
+.seg{display:inline-flex;gap:2px;padding:2px;border-radius:9px;background:#d9d9de}
+.seg button{padding:5px 11px;border-radius:7px;font-size:14px;font-weight:500;color:#444;transition:background-color 120ms ease,color 120ms ease}
+.seg button[aria-pressed=true]{background:#fff;color:#111;box-shadow:0 1px 2px rgb(0 0 0 / .15)}
+.lab{font-size:14px;color:#555;margin-right:8px}
+.stage{display:flex;gap:28px;padding:24px 20px 60px;overflow-x:auto;align-items:flex-start;scroll-snap-type:x proximity}
+.opt{flex:none;scroll-snap-align:start}
+.opt h2{font-size:15px;font-weight:600;margin:0 4px 2px;display:flex;align-items:baseline;gap:10px}
+.opt h2 small{font-size:14px;font-weight:400;color:#666}
+.opt p{font-size:14px;color:#555;margin:0 4px 10px;max-width:var(--w);min-height:42px}
+
+/* the phone */
+.phone{width:var(--w);height:896px;background:var(--page);border-radius:30px;border:1px solid #cfcfd6;box-shadow:0 18px 40px rgb(0 0 0 / .14);overflow:hidden;display:flex;flex-direction:column}
+.top{height:51px;flex:none;background:#fff;border-bottom:1px solid var(--hairline);display:flex;align-items:center;gap:10px;padding:0 12px 0 16px}
+.top b{font-weight:600;font-size:17px;letter-spacing:-.01em}.top .sp{flex:1}
+.top .ib{width:36px;height:36px;display:grid;place-items:center;font-size:20px;color:var(--line-ico)}
+.top .ib.ac{color:var(--accent)}
+.av{width:32px;height:32px;border-radius:50%;background:var(--accent-bg);color:var(--accent);display:grid;place-items:center;font-weight:600;font-size:15px}
+.scroll{flex:1;overflow-y:auto;padding:16px 16px 24px;position:relative}
+.kpis{display:flex;gap:10px;margin:0 -16px 14px;padding:0 16px;overflow-x:auto;scrollbar-width:none}
+.kpi{flex:none;width:140px;padding:12px 14px;border:1px solid var(--hairline);border-radius:10px;background:#fff;box-shadow:var(--shadow-soft)}
+.kpi span{display:block;font-size:14px;color:var(--mute)}.kpi b{display:block;margin-top:2px;font-size:20px;font-weight:600;white-space:nowrap}
+.tools{display:flex;align-items:center;gap:14px;margin-bottom:14px;font-size:14px;color:var(--body)}
+.tools .sw{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:8px;background:#fff;box-shadow:var(--shadow-soft);color:var(--text)}
+.tools .sw i{width:30px;height:18px;border-radius:9px;background:#d4d6db;position:relative}
+.tools .sw i::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff}
+.tools .t{display:flex;align-items:center;gap:6px}
+.tabs{height:80px;flex:none;background:#fff;border-top:1px solid var(--hairline);display:grid;grid-template-columns:repeat(5,1fr);padding-bottom:24px;position:relative}
+.tabs::after{content:"";position:absolute;bottom:8px;left:50%;width:134px;height:5px;margin-left:-67px;border-radius:3px;background:#1a1a1a}
+.tabs button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:14px;font-weight:500;color:var(--mute);position:relative}
+.tabs button .ico{font-size:22px;color:var(--line-ico)}
+.tabs button.on{color:var(--accent);background:linear-gradient(180deg,rgb(37 99 235 / .08),transparent)}.tabs button.on .ico{color:var(--accent)}
+.tabs button.on::before{content:"";position:absolute;top:0;left:30%;right:30%;height:2px;background:var(--accent)}
+.dock{flex:none;display:flex;gap:8px;align-items:center;padding:8px 12px;background:rgb(255 255 255 / .96);border-top:1px solid var(--hairline)}
+.dock .st{display:inline-flex;align-items:center;gap:4px;height:36px;padding:0 10px 0 14px;border-radius:999px;background:var(--soft-2);font-size:14px;font-weight:500}
+.dock .fd{flex:1;display:flex;align-items:center;gap:8px;height:36px;border-radius:999px;background:var(--soft-2);padding:0 12px;color:var(--mute);font-size:14px}
+.dock .fd .sp{flex:1}
+.dock .fab{width:36px;height:36px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:20px}
+.empty{padding:36px 16px;text-align:center;font-size:14px;color:var(--body)}
+
+/* card atoms */
+.cards{display:flex;flex-direction:column;gap:10px}
+.card{position:relative;border:1px solid var(--hairline);border-radius:10px;background:var(--canvas);box-shadow:var(--shadow-soft);padding:16px;transition:scale var(--t-press) var(--ease-out);width:100%}
+.card.press:active{scale:.985}
+.nm{font-size:16px;font-weight:600;color:var(--ink);letter-spacing:-.01em;overflow-wrap:anywhere;line-height:1.3}
+.c2{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.c3{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}
+.sm{font-size:15px}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:14px;color:var(--mute)}
+.q{font-size:14px;color:var(--mute);line-height:1.45;overflow-wrap:anywhere}
+.q b,.q .k{font-weight:500;color:var(--ink)}
+.bad{color:var(--bad)}.m{color:var(--mute);font-weight:400}.z{color:var(--mute)}
+.row{display:flex;gap:12px}.grow{min-width:0;flex:1}
+.stack2{display:flex;flex-direction:column;gap:2px}
+.tr{align-self:flex-start}
+.pill{display:inline-flex;align-items:center;height:30px;padding:0 12px;border-radius:8px;border:1px solid var(--ok-line);color:var(--ok-fg);font-size:14px;font-weight:500;background:#fff;white-space:nowrap}
+.pill.n{border-color:var(--hairline-2);color:var(--body)}
+.pill.rc{border-color:transparent;background:var(--accent-bg);color:var(--accent)}
+.pill.info{border-color:var(--info-line);color:var(--info)}
+.pill.warn{border-color:#e9d3a6;color:#9a5b00}
+.dw{display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:500;white-space:nowrap}
+.dw i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.dw.warn{color:#9a5b00}.dw.rc{color:var(--accent)}.dw.ok{color:var(--ok-fg)}.dw.info{color:var(--info)}.dw.n{color:var(--mute)}
+.f1{font-size:15px;font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.5}
+.f2{font-size:14px;color:var(--mute);font-variant-numeric:tabular-nums;line-height:1.5}
+.figr{text-align:right;min-width:0}
+.figr .f1,.figr .f2{overflow-wrap:anywhere}
+
+/* Today */
+.now dl{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;margin-top:6px}
+.now dt{font-size:14px;color:var(--mute)}.now dd{margin-top:2px;font-size:15px;color:var(--ink)}
+.row.mid{align-items:center}
+
+/* A · labelled two columns */
+.two{display:grid;grid-template-columns:1fr 1fr;gap:0 16px;margin:12px -16px -16px;padding:12px 16px 14px;border-top:1px solid var(--hairline)}
+.two dt{font-size:14px;color:var(--mute)}
+.two dd{margin:0;font-size:15px;font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.5}
+.two dd.s{font-size:14px;font-weight:400;color:var(--mute)}
+.two dd.z{color:var(--mute);font-weight:400}
+.strip{display:grid;grid-template-columns:repeat(3,1fr);margin:14px -16px -16px;border-top:1px solid var(--hairline)}
+.strip div{padding:10px 8px 12px;text-align:center}
+.strip div+div{border-left:1px solid var(--hairline)}
+.strip b{display:block;font-size:17px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.strip b.z{color:var(--mute);font-weight:500}
+.strip span{display:block;font-size:14px;color:var(--mute);line-height:1.3}
+
+/* B · of ordered */
+.figs{margin-top:10px}
+
+/* C · lead */
+.lead{text-align:right;min-width:0}
+.lead b{display:block;font-size:24px;line-height:1.1;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.lead b small{font-size:14px;font-weight:400;color:var(--mute);letter-spacing:0}
+.lead b.z{color:var(--mute)}
+.lead span{display:block;margin-top:3px;font-size:14px;color:var(--mute);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px;margin:12px -16px -16px;padding:10px 16px;border-top:1px solid var(--hairline)}
+
+/* D · table */
+.tcard{border:1px solid var(--hairline);border-radius:10px;background:#fff;box-shadow:var(--shadow-soft);overflow:clip}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{position:sticky;top:-16px;z-index:2;background:var(--soft);padding:10px 12px;font-size:14px;font-weight:500;color:var(--mute);text-align:left;border-bottom:1px solid var(--hairline);white-space:nowrap}
+.tbl th.r,.tbl td.r{text-align:right}
+.tbl td{padding:12px 12px 0;vertical-align:top}
+.tbl .r1 td{padding-top:12px}
+.tbl .r2 td{padding:4px 12px 12px}
+.tbl .r2 .in{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:6px 12px}
+.tbl .rec+.rec .r1 td{border-top:1px solid var(--hairline)}
+.tbl .rec{transition:background-color 100ms ease-out}
+.tbl .rec:active{background:var(--soft)}
+.tbl td.c1{width:99%;min-width:0}
+.tbl .v{font-size:15px;font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;line-height:1.5}
+.tbl .s{font-size:14px;color:var(--mute);font-variant-numeric:tabular-nums;white-space:nowrap;line-height:1.5}
+.tbl tfoot td{padding:12px;border-top:1px solid var(--hairline);background:var(--soft);vertical-align:top}
+.tbl td.num{font-size:15px;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.tbl td.num.z{color:var(--mute)}
+.tbl tr.srow td{padding:14px 12px;vertical-align:middle}
+.tbl tr.srow+tr.srow td{border-top:1px solid var(--hairline)}
+.tbl tr.srow{transition:background-color 100ms ease-out}
+.tbl tr.srow:active{background:var(--soft)}
+
+/* E · grouped / expand */
+.grp{padding:0;overflow:hidden}
+.ghead{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:14px 16px 12px}
+.ghead .q{white-space:nowrap}
+.orow{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 12px;padding:12px 16px 14px;border-top:1px solid var(--hairline);transition:background-color 100ms ease-out}
+.orow:active{background:var(--soft)}
+.orow .l{flex:1 1 150px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.orow .figr{flex:0 1 auto;margin-left:auto}
+.sacc{padding:0;overflow:hidden}
+.shead{display:flex;gap:10px;width:100%;padding:16px 16px 16px 8px;align-items:flex-start;transition:background-color 100ms ease-out}
+.shead:active{background:var(--soft)}
+.shead[disabled]{cursor:default}.shead[disabled]:active{background:none}
+.chev{width:28px;height:28px;display:grid;place-items:center;font-size:20px;color:var(--line-ico);transition:rotate 200ms var(--ease-out)}
+.shead[disabled] .chev{color:var(--faint)}
+.sacc.open .chev{rotate:180deg}
+.acc{display:grid;grid-template-rows:0fr;transition:grid-template-rows 240ms var(--ease-out)}
+.sacc.open .acc{grid-template-rows:1fr}
+.acc>.in{overflow:hidden;min-height:0}
+.mo{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 12px;padding:12px 16px;border-top:1px solid var(--hairline)}
+.mo .l{flex:1 1 140px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.mo .figr{flex:0 1 auto;margin-left:auto}
+.viewall{display:flex;align-items:center;height:44px;padding:0 16px;border-top:1px solid var(--hairline);font-size:14px;font-weight:500;color:var(--accent)}
+.viewall:active{background:var(--soft)}
+
+/* Lead Figure study */
+.stamp{display:inline-block;rotate:-12deg;border:3px double currentColor;border-radius:6px;padding:2px 10px;text-align:center;font-size:14px;font-weight:700;line-height:20px;letter-spacing:.06em;text-transform:uppercase;mix-blend-mode:multiply;opacity:.85;white-space:nowrap}
+.stamp.ok{color:var(--ok-fg)}.stamp.bad{color:var(--bad)}.stamp.n{color:var(--mute)}
+.foot{border-radius:0 0 9px 9px}
+.foot .stamp{margin:0 4px 0 0}
+.foot.t1{background:#fbeaea;border-top-color:#f6dcdc}
+.foot.t2{background:#fdf4f4;border-top-color:#f9e9e9}
+.foot.t3{background:#fef9f9;border-top-color:#f9eeee}
+.rcv{min-width:0;line-height:1.5}
+.rcv .l{font-size:14px;color:var(--mute)}
+.rcv b{font-size:15px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.rcv b.bad{color:var(--bad)}
+.rcv .s{font-size:14px;color:var(--mute);font-variant-numeric:tabular-nums}
+.two .bad{font-weight:600}
+.sl{align-self:flex-start;margin:8px 6px 0 0}
+.kstrip{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;margin-bottom:14px;border:1px solid var(--hairline);border-radius:10px;background:#fff;box-shadow:var(--shadow-soft)}
+.kstrip div{padding:12px 6px;text-align:center;min-width:0}
+.kstrip div+div{border-left:1px solid var(--hairline)}
+.kstrip b{display:block;font-size:17px;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+.kstrip span{display:block;font-size:14px;color:var(--mute)}
+
+
+/* Header Band study: the summary inside the white header, one bold fact */
+.hb{flex:none;background:#fff;border-bottom:1px solid var(--hairline)}
+.hb .top{border-bottom:0}
+.hb .say{padding:0 16px 14px;margin-top:-4px;font-size:15px;line-height:1.5;color:var(--body);text-wrap:pretty}
+.hb .say b{font-weight:600;color:var(--ink)}
+.hb .say b.red{color:var(--bad)}
+.hb .say b.blue{color:var(--accent)}
+.hb.big .say{font-size:17px;line-height:1.45;color:var(--text);letter-spacing:-.01em}
+.hb .hi2{display:block;font-size:14px;color:var(--mute);margin-bottom:2px}
+.hb.tint{background:#fff}
+.hb.tint .say{margin:0 12px 12px;padding:10px 12px;border-radius:10px;background:var(--soft-2)}
+.hb.rule .say{margin:0 16px;padding:10px 0 12px;border-top:1px solid var(--hairline)}
+.hb .lead1{display:block;font-size:20px;line-height:1.25;font-weight:600;letter-spacing:-.02em;color:var(--ink);margin-bottom:2px}
+.hb .lead1.red{color:var(--bad)}
+.hb .mutedline{display:block;font-size:14px;color:var(--mute)}
+
+@media (hover:hover) and (pointer:fine){
+  .seg button:not([aria-pressed=true]):hover{background:rgb(255 255 255 / .5)}
+}
+@media (prefers-reduced-motion:reduce){
+  .acc,.chev{transition:none}
+}
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>PO & Suppliers · Phone Options</h1>
+  <span><span class="lab">Screen</span><span class="seg" id="screen"></span></span>
+  <span id="tabwrap"><span class="lab">Tab</span><span class="seg" id="tab"></span></span>
+  <span><span class="lab">Data</span><span class="seg" id="data"></span></span>
+  <span><span class="lab">Width</span><span class="seg" id="width"></span></span>
+</div>
+<div class="stage" id="stage"></div>
+<script>
+const ICON = {
+  clock:'<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  sparkles:'<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>',
+  chevron:'<path d="m6 9 6 6 6-6"/>', search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>', plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  sliders:'<path d="M4 6h10"/><path d="M18 6h2"/><circle cx="16" cy="6" r="2"/><path d="M4 12h2"/><path d="M10 12h10"/><circle cx="8" cy="12" r="2"/><path d="M4 18h12"/><path d="M20 18h0"/><circle cx="18" cy="18" r="2"/>',
+  columns:'<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/>',
+  download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
+  back:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  building:'<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4M10 10h4M10 14h4M10 18h4"/>',
+  cube:'<path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
+  undo:'<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/>',
+  clip:'<rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>'
+};
+const svg=n=>`<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${ICON[n]}</svg>`;
+const fmt=n=>new Intl.NumberFormat("id-ID").format(n);
+const rp=n=>"Rp "+fmt(n);
+const pcs=n=>fmt(n)+(n===1?" pc":" pcs");
+const bil=v=>`Rp ${(v/1e9).toFixed(1).replace(".",",")} billion`;
+const MON={Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+const when=s=>{const [d,m,y]=s.split(" ");return new Date(+y,MON[m],+d).getTime()};
+
+/* ---------- data (Demo = what the rig at :5480 holds) ---------- */
+const LONG="Perusahaan Dagang Sinar Jaya Abadi Sentosa Makmur Sejahtera, PT";
+const TOKO="Toko Kain & Benang “Tiga Saudara”, UD";
+const O=(sup,po,items,issued,due,ord,ordRp,got,beyond,gotRp,st,late,done)=>({sup,po,items,issued,due,ord,ordRp,got,beyond,gotRp,st,late:!!late,done});
+const ORD_DEMO=[
+  O("Indorama, PT","PO-051026-001",1,"05 Oct 2026","22 Oct 2026",10,399000,6,0,239400,"RC"),
+  O("Indorama, PT","PO-041026-012",1,"04 Oct 2026","14 Oct 2026",200,7800000,200,500,7800000,"RC"),
+  O("Indorama, PT","PO-041026-007",1,"04 Oct 2026","07 Oct 2026",8,320000,8,12,320000,"RC"),
+  O("Indorama, PT","PO-021026-001",2,"02 Oct 2026","10 Oct 2026",600,6720000,600,300,6720000,"RC"),
+  O("Garmen AA, UD","PO-051026-003",1,"05 Oct 2026","22 Oct 2026",30,2400000,0,0,0,"AC"),
+  O("Indorama, PT","PO-051026-002",1,"05 Oct 2026","20 Oct 2026",12,540000,0,0,0,"AC"),
+  O("Indorama, PT","PO-041026-011",1,"04 Oct 2026","14 Oct 2026",20000,3999980000,0,0,0,"AC"),
+  O("Garmen AA, UD","PO-031026-005",1,"03 Oct 2026","15 Oct 2026",200,3200000,0,0,0,"AC"),
+];
+const ORD_WORST=[
+  O(LONG,"PO-051026-1284",128,"28 Sep 2026","30 Sep 2026",1284000,11976240000,842113,99999,7882140000,"PT",true),
+  O("CV Maju","PO-011026-001",1,"01 Oct 2026",null,1,1000,0,0,0,"AC"),
+  O("A","PO-061026-002",1,"06 Oct 2026","31 Dec 2026",12,540000,12,0,540000,"RC"),
+  O(TOKO,"PO-031026-009",2,"03 Oct 2026","09 Oct 2026",96,2880000,50,0,1500000,"PT"),
+  O(LONG,"PO-041026-1201",3,"04 Oct 2026","12 Oct 2026",5000,1250000000,0,0,0,"AC"),
+];
+/* Completed + Cancelled tabs: what the rig holds today (12 completed, 1 cancelled) */
+const ORD_DONE=[
+  O("Indorama, PT","PO-041026-009",1,"04 Oct 2026","07 Oct 2026",12,600000,12,12,600000,"FR",false,"04 Oct"),
+  O("Indorama, PT","PO-041026-006",1,"04 Oct 2026","07 Oct 2026",8,320000,8,0,320000,"FR",false,"04 Oct"),
+  O("Indorama, PT","PO-041026-005",1,"04 Oct 2026","07 Oct 2026",8,320000,8,3,320000,"FR",false,"04 Oct"),
+  O("Indorama, PT","PO-041026-004",1,"04 Oct 2026","07 Oct 2026",8,320000,5,0,200000,"CS",false,"04 Oct"),
+  O("Indorama, PT","PO-041026-003",1,"04 Oct 2026","07 Oct 2026",12,480000,12,0,480000,"FR",false,"04 Oct"),
+  O("Garmen AA, UD","PO-021026-006",2,"02 Oct 2026","10 Oct 2026",180,19200000,180,0,19200000,"FR",false,"02 Oct"),
+  O("Garmen Nusantara, PT","PO-021026-005",2,"02 Oct 2026","23 Oct 2026",280,2160000,270,0,2130008,"CS",false,"02 Oct"),
+  O("Garmen Nusantara, PT","PO-021026-003",2,"02 Oct 2026","22 Oct 2026",280,8170000,280,60,8170004,"FR",false,"02 Oct"),
+  O("Indorama, PT","PO-021026-002",1,"02 Oct 2026","15 Oct 2026",200,8000000,200,100,8000000,"FR",false,"02 Oct"),
+];
+const ORD_CANC=[O("Indorama, PT","PO-041026-008",1,"04 Oct 2026","07 Oct 2026",8,320000,0,0,0,"CN",false,"04 Oct")];
+const WORST_DONE=[
+  O(LONG,"PO-031026-1100",96,"01 Oct 2026","20 Oct 2026",500000,4200000000,500000,99999,4200000000,"FR",false,"03 Oct"),
+  O("CV Maju","PO-011026-002",1,"01 Oct 2026",null,50,125000,31,0,77500,"CS",false,"04 Oct"),
+  O(TOKO,"PO-021026-007",2,"02 Oct 2026","09 Oct 2026",96,2880000,96,0,2880000,"FR",false,"05 Oct"),
+];
+const WORST_CANC=[O(LONG,"PO-041026-1300",40,"04 Oct 2026","30 Oct 2026",2000000,18000000000,0,0,0,"CN",false,"04 Oct")];
+/* Orders made with no connection (held-orders.tsx): no number yet, nothing received, they stand near the top */
+const H=(sup,items,due,ord,ordRp,st,made)=>({...O(sup,"—",items,made.slice(0,11),due,ord,ordRp,0,0,0,st),made,held:true});
+const HELD_DEMO=[H("Garmen AA, UD",1,"24 Oct 2026",60,4500000,"OF","06 Oct 2026, 09:14"),H("Indorama, PT",2,"21 Oct 2026",300,11250000,"NS","06 Oct 2026, 08:52")];
+const HELD_WORST=[H(LONG,64,"15 Nov 2026",250000,2400000000,"OF","06 Oct 2026, 09:31"),H("A",1,null,1,1000,"NS","06 Oct 2026, 07:05")];
+const S=(name,code,on,a,c,x,last)=>({name,code,on,a,c,x,last});
+const SUP_DEMO=[S("Garmen AA, UD","0004",true,2,1,0,"05 Oct 2026"),S("Indorama, PT","0001",true,6,8,1,"05 Oct 2026"),S("PT Sumber Sandang, PT","0005",true,0,0,0,null),S("Supplier Garms, PT","0006",true,0,0,0,null)];
+const SUP_WORST=[S(LONG,"0001284",true,1284,10432,97,"28 Dec 2026"),S("CV Maju","0002",false,1,0,0,null),S("A","0003",true,0,0,0,null),S(TOKO,"0007",false,12,12,3,"14 Jun 2026")];
+const DATA={
+  "Demo":{held:HELD_DEMO,orders:ORD_DEMO,done:ORD_DONE,cancelled:ORD_CANC,sups:SUP_DEMO,inactive:2},
+  "Worst Case":{held:HELD_WORST,orders:ORD_WORST,done:WORST_DONE,cancelled:WORST_CANC,sups:SUP_WORST,inactive:0},
+  "One":{held:[HELD_DEMO[0]],orders:[ORD_DEMO[0]],done:[ORD_DONE[3]],cancelled:ORD_CANC,sups:[SUP_DEMO[1]],inactive:0},
+  "None":{held:[],orders:[],done:[],cancelled:[],sups:[],inactive:0},
+};
+const WIDTHS=[320,360,375,414];
+const SCREENS=["Header Band","Lead Figure","Orders","Suppliers"];
+const TABS=["Active","Completed","Cancelled"];
+const q=new URLSearchParams(location.search);
+let key=q.get("data")||"Demo"; if(!DATA[key]) key="Demo";
+let width=Number(q.get("w"))||414;
+let screen=SCREENS.includes(q.get("screen"))?q.get("screen"):"Header Band";
+let tab=TABS.includes(q.get("tab"))?q.get("tab"):"Active";
+
+/* ---------- order helpers ---------- */
+const started=o=>o.got>0||o.beyond>0;
+const items=o=>`${fmt(o.items)} ${o.items===1?"item":"items"}`;
+const poLine=o=>`<span class="mono">${o.po}</span> · ${items(o)}`;
+const dueLine=o=>o.due?`Delivery <span class="${o.late?"bad k":"k"}">${o.due}</span>`:"";
+const ST={RC:{l:"Review Count",c:"rc"},AC:{l:"Active",c:"ok"},PT:{l:"Partially received",c:"info"},OF:{l:"Offline",c:"warn"},NS:{l:"Not sent",c:"warn"}};
+const pillO=o=>`<span class="pill ${ST[o.st].c}">${ST[o.st].l}</span>`;
+const dotO=o=>`<span class="dw ${ST[o.st].c}"><i></i>${ST[o.st].l}</span>`;
+const beyond=o=>o.beyond?` <span class="bad">(+${fmt(o.beyond)})</span>`:"";
+const recvPcs=o=>started(o)?`<span class="${o.got!==o.ord?"bad":""}">${pcs(o.got)}</span>${beyond(o)}`:`<span class="z">0 pcs</span>`;
+const ofPcs=o=>started(o)?`<span class="${o.got!==o.ord?"bad":""}">${fmt(o.got)}</span><span class="m"> / </span>${pcs(o.ord)}${beyond(o)}`:pcs(o.ord);
+const ofRp=o=>started(o)?`${rp(o.gotRp)}<span> / </span>${fmt(o.ordRp)}`:rp(o.ordRp);
+const cards=fn=>rows=>`<div class="cards" data-list>${rows.map(fn).join("")}</div>`;
+
+/* ---------- Lead Figure study: red that shows, and the stamp ---------- */
+const DONE={FR:{l:"Fully received",c:"ok"},CS:{l:"Closed short",c:"bad"},CN:{l:"Cancelled",c:"n"}};
+const isDone=o=>!!DONE[o.st];
+const stampO=o=>`<span class="stamp ${DONE[o.st].c}">${DONE[o.st].l}<br>${o.done}</span>`;
+const slot=o=>isDone(o)?stampO(o):pillO(o);
+const mm=o=>started(o)&&(o.got!==o.ord||o.beyond>0);
+const leadTop=o=>`<div class="row"><div class="grow stack2"><div class="nm c2">${o.sup}</div><div class="q">${poLine(o)}</div>${o.due?`<div class="q">${dueLine(o)}</div>`:""}</div>
+  <div class="lead"><b>${fmt(o.ord)}<small> ${o.ord===1?"pc":"pcs"}</small></b><span>${rp(o.ordRp)}</span></div></div>`;
+const footHeld=o=>`<div class="foot"><div class="q">Made ${o.made}</div>${pillO(o)}</div>`;
+const footQ=o=>o.held?footHeld(o):`<div class="foot"><div class="q">Received ${recvPcs(o)}${started(o)?`<br>${rp(o.gotRp)}`:""}</div>${slot(o)}</div>`;
+const footS=(o,level)=>o.held?footHeld(o):`<div class="foot${level&&mm(o)?" t"+level:""}"><div class="rcv"><div><span class="l">Received</span> ${started(o)?`<b class="${o.got!==o.ord?"bad":""}">${pcs(o.got)}</b>${o.beyond?` <b class="bad">(+${fmt(o.beyond)})</b>`:""}`:`<span class="z">0 pcs</span>`}</div>${started(o)?`<div class="s">${rp(o.gotRp)}</div>`:""}</div>${slot(o)}</div>`;
+const cardY=o=>`<article class="card press"><div class="row"><div class="grow stack2"><div class="nm c2">${o.sup}</div><div class="q">${poLine(o)}</div>${o.due?`<div class="q">${dueLine(o)}</div>`:""}</div><div class="sl">${stampO(o)}</div></div>
+  <dl class="two"><div><dt>Ordered</dt><dd>${pcs(o.ord)}</dd><dd class="s">${rp(o.ordRp)}</dd></div><div><dt>Received</dt><dd>${recvPcs(o)}</dd>${started(o)?`<dd class="s">${rp(o.gotRp)}</dd>`:""}</div></dl></article>`;
+const LD=(name,blurb,fn)=>({name,blurb,unit:"order",list:cards(fn)});
+const doneSet=[
+  LD("Stamp in the foot · as built","The wash the app draws today (bad-bg, full strength).",o=>`<article class="card press">${leadTop(o)}${footS(o,1)}</article>`),
+  LD("Stamp in the foot · soft","Half the strength: the red numbers and the stamp carry it, the wash only hints.",o=>`<article class="card press">${leadTop(o)}${footS(o,2)}</article>`),
+  LD("Stamp in the foot · softest","A quarter: barely a tint, the foot still reads as set apart.",o=>`<article class="card press">${leadTop(o)}${footS(o,3)}</article>`),
+];
+const LEAD={
+  Active:[
+    LD("Strong foot · no wash","Received at figure weight, red where it is not the whole order. No wash.",o=>`<article class="card press">${leadTop(o)}${footS(o,0)}</article>`),
+    LD("Tinted · as built","The wash the app draws today (bad-bg, full strength).",o=>`<article class="card press">${leadTop(o)}${footS(o,1)}</article>`),
+    LD("Tinted · soft","Half the strength: reads as a hint, the red figures still lead.",o=>`<article class="card press">${leadTop(o)}${footS(o,2)}</article>`),
+    LD("Tinted · softest","A quarter: barely a tint.",o=>`<article class="card press">${leadTop(o)}${footS(o,3)}</article>`),
+  ],
+  Completed:doneSet,
+  Cancelled:doneSet,
+};
+
+
+/* ---------- Header Band study: the summary in the header, one bold fact ---------- */
+const NAME="Rina";
+const nbs=t=>t.replace(/ /g,"\u00a0");
+const plu=(n,a,b)=>n===1?a:b;
+const brief=v=>v===0?"Rp 0":v>=1e9?`Rp ${(v/1e9).toFixed(1).replace(".",",")} billion`:v>=1e6?`Rp ${Math.round(v/1e6)} million`:`Rp ${Math.round(v/1e3)} thousand`;
+/* The facts a tab can say, from the rows on it. */
+function facts(t,all){
+  const rows=all.filter(o=>!o.held), sum=k=>rows.reduce((a,o)=>a+o[k],0);
+  return {t,n:rows.length,review:rows.filter(o=>o.st==="RC").length,late:rows.filter(o=>o.late).length,
+    on:brief(sum("ordRp")),got:brief(sum("gotRp")),short:rows.filter(o=>o.st==="CS").length,gone:brief(sum("ordRp"))};
+}
+/* The one thing that is bold, and the plain rest. lead: which fact leads. */
+function words(f,lead="act"){
+  const B=(x,c="")=>`<b class="${c}">${nbs(x)}</b>`;
+  if(f.t!=="Cancelled"&&f.n===0) return {first:"",rest:[`No ${f.t.toLowerCase()} orders.`],act:null};
+  if(f.t==="Active"){
+    const act=f.late>0?{x:`${f.late} ${plu(f.late,"order is","orders are")} late`,c:"red"}:f.review>0?{x:`${f.review} ${plu(f.review,"order","orders")} in review`,c:""}:null;
+    const rest=[];
+    if(f.late>0&&f.review>0) rest.push(`${nbs(f.review+" in review")}.`);
+    if(lead==="money") return {bold:B(f.on),lead:f.on,first:`${B(f.on)} on order across ${nbs(f.n+" "+plu(f.n,"order","orders"))}.`,rest:[act?`${nbs(act.x)}.`:""].filter(Boolean),act};
+    rest.push(`${nbs(f.n+" "+plu(f.n,"order is","orders are"))} active, ${nbs(f.on)} in total.`);
+    return act?{first:`${B(act.x,act.c)}.`,rest,act}:{first:"",rest,act:null};
+  }
+  if(f.t==="Completed"){
+    const rest=[`${nbs(f.n+" "+plu(f.n,"order is","orders are"))} complete, with ${nbs(f.got)} received.`];
+    const sx=`${f.short} ${plu(f.short,"order was","orders were")} closed short`;
+    return f.short>0?{first:`${B(sx,"red")}.`,rest,act:{x:sx,c:"red"}}:{first:"",rest,act:null};
+  }
+  return f.n===0?{first:"",rest:["Nothing has been cancelled."],act:null}:{first:`${B(f.n+" "+plu(f.n,"order","orders"))} for ${nbs(f.gone)} ${plu(f.n,"was","were")} cancelled.`,rest:[],act:{x:`${f.n}`}};
+}
+const lower=x=>x.replace(/^(Nothing|No )/,m=>m.toLowerCase());
+const sentence=(w,greet=true)=>{const body=[w.first,...w.rest].filter(Boolean).join(" ");return greet?`Hi ${NAME}, ${lower(body)}`:body};
+const HB=(name,blurb,band,cls="")=>({name,blurb,cls,band,unit:"order"});
+const HBOPTS=[
+  HB("1 · Band","The sentence under the title in the white header. One fact bold; the rest is plain.",f=>sentence(words(f))),
+  HB("2 · Band, Larger","The same at 17px: reads first, costs a few pixels.",f=>sentence(words(f)),"big"),
+  HB("3 · Greeting Line","\u201cHi Rina\u201d small and quiet on its own line, the sentence under it.",f=>`<span class="hi2">Hi ${NAME},</span>${sentence(words(f),false)||"Nothing to say."}`),
+  HB("4 · Bold in Blue","The one bold fact in the accent colour; late and short stay red.",f=>sentence(words(f)).replace('<b class="">','<b class="blue">')),
+  HB("5 · Money Leads","The value is the bold fact; what needs you follows, plain.",f=>f.t==="Active"?sentence(words(f,"money")):sentence(words(f))),
+  HB("6 · Soft Panel","The sentence on a soft grey panel inside the header, so it reads as one note.",f=>sentence(words(f)),"tint"),
+  HB("7 · Hairline","A hairline under the title, the sentence below it: title and note kept apart.",f=>sentence(words(f)),"rule"),
+  HB("8 · Headline","The bold fact as a headline, the rest as one quiet line under it.",f=>{const w=words(f);
+    const strip=x=>x.replace(/<\/?b[^>]*>/g,"");
+    const head=w.first?`<span class="lead1 ${w.act&&w.act.c==="red"?"red":""}">${strip(w.first)}</span>`:`<span class="lead1">Hi ${NAME}.</span>`;
+    const rest=w.rest.join(" ");
+    return head+(rest?`<span class="mutedline">${w.first?`Hi ${NAME}, ${lower(rest)}`:rest}</span>`:"")}),
+  HB("9 · One Line","Short form: the bold fact, then the rest as fragments.",f=>{const w=words(f);
+    const tail=f.n===0?"":f.t==="Active"?`${nbs(f.n+" active")} · ${nbs(f.on)}`:f.t==="Completed"?`${nbs(f.n+" complete")} · ${nbs(f.got)}`:"";
+    if(f.n===0||(f.t==="Cancelled")) return sentence(w);
+    return `Hi ${NAME}, ${w.first?w.first.replace(/\.$/,""):""}${w.first&&tail?" · ":""}${f.t==="Cancelled"?lower(w.rest.join(" ")||""):tail}`}),
+];
+const hbCard=t=>t==="Active"?(o=>`<article class="card press">${leadTop(o)}${footS(o,false)}</article>`):(o=>`<article class="card press">${leadTop(o)}${footS(o,false)}</article>`);
+const hbHead=(o,f)=>`<div class="hb ${o.cls}">${topBar("Purchase Orders")}<p class="say">${o.band(f)}</p></div>`;
+
+/* ---------- order cards ---------- */
+const PO_OPTS=[
+ {name:"Today",blurb:"What the rig draws now: name, number, issue date, status. No quantity, no value, no delivery date.",unit:"order",
+  list:cards(o=>`<article class="card press"><div class="row mid"><div class="grow stack2"><div class="nm c2">${o.sup}</div><div class="mono">${o.po}</div><div class="q">${o.issued.slice(0,6)}</div></div>${pillO(o)}</div></article>`)},
+ {name:"A · Two Columns",blurb:"The desktop's Ordered and Received columns, labelled. Every fact, nothing merged.",unit:"order",
+  list:cards(o=>`<article class="card press"><div class="row"><div class="grow stack2"><div class="nm c2">${o.sup}</div><div class="q">${poLine(o)}</div>${o.due?`<div class="q">${dueLine(o)}</div>`:""}</div><div class="tr">${pillO(o)}</div></div>
+    <dl class="two"><div><dt>Ordered</dt><dd>${pcs(o.ord)}</dd><dd class="s">${rp(o.ordRp)}</dd></div><div><dt>Received</dt><dd>${recvPcs(o)}</dd>${started(o)?`<dd class="s">${rp(o.gotRp)}</dd>`:""}</div></dl></article>`)},
+ {name:"B · Of Ordered",blurb:"Received over ordered, pieces then rupiah. No labels; red when it is not the whole order.",unit:"order",
+  list:cards(o=>`<article class="card press"><div class="row"><div class="grow stack2"><div class="nm c2">${o.sup}</div><div class="q">${poLine(o)}</div>${o.due?`<div class="q">${dueLine(o)}</div>`:""}</div><div class="tr">${pillO(o)}</div></div>
+    <div class="figs"><div class="f1">${ofPcs(o)}</div><div class="f2">${ofRp(o)}</div></div></article>`)},
+ {name:"C · Lead Figure",blurb:"What was ordered leads on the right. Received and the status sit in a quiet foot, under the thumb.",unit:"order",
+  list:cards(o=>`<article class="card press"><div class="row"><div class="grow stack2"><div class="nm c2">${o.sup}</div><div class="q">${poLine(o)}</div>${o.due?`<div class="q">${dueLine(o)}</div>`:""}</div>
+    <div class="lead"><b>${fmt(o.ord)}<small> ${o.ord===1?"pc":"pcs"}</small></b><span>${rp(o.ordRp)}</span></div></div>
+    <div class="foot"><div class="q">Received ${recvPcs(o)}${started(o)?`<br>${rp(o.gotRp)}`:""}</div>${pillO(o)}</div></article>`)},
+ {name:"D · Table",blurb:"A real table, three columns: PO, Ordered, Received. Delivery and status ride on a line under each row; totals close it.",unit:"order",
+  list:rows=>{
+    const t=rows.reduce((a,o)=>({ord:a.ord+o.ord,ordRp:a.ordRp+o.ordRp,got:a.got+o.got,beyond:a.beyond+o.beyond,gotRp:a.gotRp+o.gotRp}),{ord:0,ordRp:0,got:0,beyond:0,gotRp:0});
+    return `<div class="tcard" data-list><table class="tbl"><thead><tr><th>PO</th><th class="r">Ordered</th><th class="r">Received</th></tr></thead>
+    ${rows.map(o=>`<tbody class="rec"><tr class="r1"><td class="c1"><div class="nm c3 sm">${o.sup}</div></td>
+      <td class="r"><div class="v">${pcs(o.ord)}</div><div class="s">${rp(o.ordRp)}</div></td>
+      <td class="r"><div class="v">${recvPcs(o)}</div>${started(o)?`<div class="s">${rp(o.gotRp)}</div>`:""}</td></tr>
+      <tr class="r2"><td colspan="3"><div class="in"><div class="stack2"><span class="q">${poLine(o)}</span>${o.due?`<span class="q">${dueLine(o)}</span>`:""}</div>${dotO(o)}</div></td></tr></tbody>`).join("")}
+    <tfoot><tr><td class="c1"><div class="q"><b>${fmt(rows.length)}</b> ${rows.length===1?"order":"orders"}</div></td>
+      <td class="r"><div class="v">${pcs(t.ord)}</div><div class="s">${rp(t.ordRp)}</div></td>
+      <td class="r"><div class="v">${fmt(t.got)} pcs${t.beyond?` <span class="bad">(+${fmt(t.beyond)})</span>`:""}</div><div class="s">${rp(t.gotRp)}</div></td></tr></tfoot></table></div>`}},
+ {name:"E · By Supplier",blurb:"Orders gathered under their supplier, so a name is written once. Rows are short; the figures stay on the right.",unit:"order",
+  list:rows=>{
+    const groups=[];rows.forEach(o=>{let g=groups.find(x=>x.sup===o.sup);if(!g)groups.push(g={sup:o.sup,rows:[]});g.rows.push(o)});
+    return `<div class="cards" data-list>${groups.map(g=>`<article class="card grp"><div class="ghead"><div class="nm c2">${g.sup}</div><span class="q">${fmt(g.rows.length)} ${g.rows.length===1?"order":"orders"}</span></div>
+      ${g.rows.map(o=>`<div class="orow"><div class="l"><div class="q"><span class="mono">${o.po}</span></div>${o.due?`<div class="q">${dueLine(o)}</div>`:""}<div class="q">${dotO(o)} · ${items(o)}</div></div>
+        <div class="figr"><div class="f1">${ofPcs(o)}</div><div class="f2">${ofRp(o)}</div></div></div>`).join("")}</article>`).join("")}</div>`}},
+];
+
+/* ---------- supplier cards ---------- */
+const pillS=s=>`<span class="pill ${s.on?"":"n"}">${s.on?"Active":"Non-active"}</span>`;
+const cnt=(v,w)=>v===0?`<span class="z">${fmt(v)} ${w}</span>`:`<span class="k">${fmt(v)}</span> ${w}`;
+const counts=s=>`${cnt(s.a,"active")} · ${cnt(s.c,"completed")} · ${cnt(s.x,"cancelled")}`;
+const lastP=s=>s.last?`Last purchased ${s.last}`:"";
+const ordersOf=(s,all)=>all.filter(o=>o.sup===s.name).sort((a,b)=>when(b.issued)-when(a.issued)||(a.po<b.po?1:-1)).slice(0,5);
+const SUP_OPTS=[
+ {name:"Today",blurb:"What the rig draws now: a two-by-two of labelled figures, status pill on the side.",unit:"supplier",
+  list:cards(s=>`<article class="card press now"><div class="row mid"><div class="grow"><div class="nm c2">${s.name}</div><div class="mono">${s.code}</div>
+    <dl><div><dt>Active Order</dt><dd>${fmt(s.a)}</dd></div><div><dt>Completed Order</dt><dd>${fmt(s.c)}</dd></div><div><dt>Cancelled Order</dt><dd>${fmt(s.x)}</dd></div>${s.last?`<div><dt>Last Purchased</dt><dd>${s.last.slice(0,6)}</dd></div>`:""}</dl></div>${pillS(s)}</div></article>`)},
+ {name:"A · Three Columns",blurb:"Header, then three equal cells with the desktop's column names. Tidy and scannable; the most card-like.",unit:"supplier",
+  list:cards(s=>`<article class="card press"><div class="row"><div class="grow stack2"><div class="nm c2">${s.name}</div><div class="mono">${s.code}</div>${s.last?`<div class="q">${lastP(s)}</div>`:""}</div><div class="tr">${pillS(s)}</div></div>
+    <div class="strip"><div><b class="${s.a?"":"z"}">${fmt(s.a)}</b><span>Active Order</span></div><div><b class="${s.c?"":"z"}">${fmt(s.c)}</b><span>Completed Order</span></div><div><b class="${s.x?"":"z"}">${fmt(s.x)}</b><span>Cancelled Order</span></div></div></article>`)},
+ {name:"B · One Line",blurb:"Name and code, one line of counts, last purchase. The PO card's shape, so the two screens read alike.",unit:"supplier",
+  list:cards(s=>`<article class="card press"><div class="row"><div class="grow stack2"><div class="nm c2">${s.name}</div><div class="mono">${s.code}</div><div class="q" style="margin-top:6px">${counts(s)}</div>${s.last?`<div class="q">${lastP(s)}</div>`:""}</div><div class="tr">${pillS(s)}</div></div></article>`)},
+ {name:"C · Lead Figure",blurb:"Same build as the PO card: open orders lead on the right; completed, cancelled and last purchase sit in the foot with the status.",unit:"supplier",
+  list:cards(s=>`<article class="card press"><div class="row"><div class="grow stack2"><div class="nm c2">${s.name}</div><div class="mono">${s.code}</div></div>
+    <div class="lead"><b class="${s.a?"":"z"}">${fmt(s.a)}</b><span>active</span></div></div>
+    <div class="foot"><div class="q">${cnt(s.c,"completed")} · ${cnt(s.x,"cancelled")}${s.last?`<br>${lastP(s)}`:""}</div>${pillS(s)}</div></article>`)},
+ {name:"D · Table",blurb:"One table: Supplier, Active, Completed, Cancelled — the desktop's columns, with its totals row at the foot.",unit:"supplier",
+  list:rows=>{
+    const t=rows.reduce((a,s)=>({a:a.a+s.a,c:a.c+s.c,x:a.x+s.x}),{a:0,c:0,x:0});
+    const num=v=>`<td class="num ${v?"":"z"}">${fmt(v)}</td>`;
+    return `<div class="tcard" data-list><table class="tbl"><thead><tr><th>Supplier</th><th class="r">Active</th><th class="r">Completed</th><th class="r">Cancelled</th></tr></thead><tbody>
+    ${rows.map(s=>`<tr class="srow"><td class="c1"><div class="nm c3 sm">${s.name}</div><div class="q"><span class="mono">${s.code}</span> · <span class="dw ${s.on?"ok":"n"}" style="gap:0">${s.on?"Active":"Non-active"}</span></div>${s.last?`<div class="q">${lastP(s)}</div>`:""}</td>${num(s.a)}${num(s.c)}${num(s.x)}</tr>`).join("")}
+    </tbody><tfoot><tr><td class="c1"><div class="q"><b>${fmt(rows.length)}</b> ${rows.length===1?"supplier":"suppliers"}</div></td><td class="num">${fmt(t.a)}</td><td class="num">${fmt(t.c)}</td><td class="num">${fmt(t.x)}</td></tr></tfoot></table></div>`}},
+ {name:"E · Expand",blurb:"The desktop's expandable row: tap a supplier to open its active orders in place. Counts stay on one line.",unit:"supplier",
+  list:(rows,ctx)=>{
+    const openName=(rows.find(s=>s.name==="Indorama, PT")||rows.find(s=>s.a>0)||{}).name;
+    return `<div class="cards" data-list>${rows.map(s=>{
+      const ords=ordersOf(s,ctx.orders), can=s.a>0&&ords.length>0, open=can&&s.name===openName;
+      return `<article class="card sacc${open?" open":""}"><button class="shead" ${can?"":"disabled"} aria-expanded="${open}"><span class="chev">${svg("chevron")}</span>
+        <div class="grow stack2"><div class="nm c2">${s.name}</div><div class="q"><span class="mono">${s.code}</span>${s.last?` · ${lastP(s)}`:""}</div><div class="q" style="margin-top:4px">${counts(s)}</div></div><div class="tr">${pillS(s)}</div></button>
+        <div class="acc"><div class="in">${ords.map(o=>`<div class="mo"><div class="l"><span class="mono">${o.po}</span><div class="q">Issued ${o.issued}</div><div class="q">${dueLine(o)||"&nbsp;"}</div></div><div class="figr"><div class="f1">${pcs(o.ord)}</div><div class="f2">${rp(o.ordRp)}</div></div></div>`).join("")}
+        ${s.a>ords.length?`<button class="viewall">View all ${fmt(s.a)}</button>`:""}</div></div></article>`}).join("")}</div>`}},
+];
+
+/* ---------- chrome ---------- */
+const topBar=t=>`<div class="top"><b>${t}</b><span class="sp"></span><span class="ib">${svg("clock")}</span><span class="ib ac">${svg("sparkles")}</span><div class="av">R</div></div>`;
+const kpi=(a,b)=>`<div class="kpi"><span>${a}</span><b>${b}</b></div>`;
+const sho=v=>v>=1e9?`Rp ${(v/1e9).toFixed(1).replace(".",",")} bn`:v>=1e6?`Rp ${Math.round(v/1e6)} mn`:`Rp ${Math.round(v/1e3)} k`;
+function kstrip(t,all){
+  const rows=all.filter(o=>!o.held);
+  const sum=k=>rows.reduce((a,o)=>a+o[k],0);
+  const cells=t==="Active"?[["Orders",fmt(rows.length)],["On order",sho(sum("ordRp"))],["Review",fmt(rows.filter(o=>o.st==="RC").length)],["Overdue",fmt(rows.filter(o=>o.late).length)]]
+    :t==="Completed"?[["Orders",fmt(rows.length)],["Value",sho(sum("ordRp"))],["Short",fmt(rows.filter(o=>o.st==="CS").length)],["Qty",fmt(sum("got"))]]
+    :[["Orders",fmt(rows.length)],["Value",sho(sum("ordRp"))],["Qty",fmt(sum("ord"))]];
+  return `<div class="kstrip">${cells.map(([l,v])=>`<div><b>${v}</b><span>${l}</span></div>`).join("")}</div>`;
+}
+function kpis(d,rows){
+  if(screen!=="Suppliers") return kstrip(screen==="Lead Figure"?tab:"Active",rows);
+  const on=d.sups.filter(s=>s.on).length, off=d.sups.filter(s=>!s.on).length+d.inactive;
+  const act=d.sups.reduce((a,s)=>a+s.a,0), qty=d.orders.reduce((a,o)=>a+o.ord,0), val=d.orders.reduce((a,o)=>a+o.ordRp,0);
+  return `<div class="kpis">${kpi("Active suppliers",fmt(on))}${kpi("Non-active suppliers",fmt(off))}${kpi("Active PO",fmt(act))}${kpi("Active PO qty",pcs(qty))}${kpi("Active PO value",bil(val))}</div>`}
+const tools=`<div class="tools"><span class="sw"><i></i>Active order</span><span class="t">${svg("columns")}Columns</span><span class="t">${svg("download")}Export CSV</span></div>`;
+const tabs=()=>`<div class="tabs"><button>${svg("back")}Back</button><button class="${screen!=="Suppliers"?"on":""}">${svg("clip")}Orders</button><button class="${screen==="Suppliers"?"on":""}">${svg("building")}Suppliers</button><button>${svg("cube")}Sourcing</button><button>${svg("undo")}Return PO</button></div>`;
+const dock=()=>`<div class="dock"><span class="st">${screen==="Lead Figure"||screen==="Header Band"?tab:"Active"} ${svg("chevron")}</span><span class="fd">${svg("search")}Search ${screen==="Suppliers"?"Suppliers":"Orders"}<span class="sp"></span>${svg("sliders")}</span><span class="fab">${svg("plus")}</span></div>`;
+
+function paint(){
+  document.documentElement.style.setProperty("--w",width+"px");
+  const d=DATA[key], band=screen==="Header Band", lead=screen==="Lead Figure"||band;
+  const opts=band?HBOPTS:lead?LEAD[tab]:screen==="Orders"?PO_OPTS:SUP_OPTS;
+  const rows=lead?({Active:[...d.held,...d.orders],Completed:d.done,Cancelled:d.cancelled})[tab]:screen==="Orders"?d.orders:d.sups;
+  const empty=screen==="Suppliers"?"No suppliers yet.":`No ${lead?tab.toLowerCase():"active"} orders.`;
+  const f=facts(tab,rows);
+  document.getElementById("stage").innerHTML=opts.map(o=>`<section class="opt"><h2>${o.name}<small></small></h2><p>${o.blurb}</p>
+    <div class="phone">${band?hbHead(o,f):topBar(screen==="Suppliers"?"Suppliers":"Purchase Orders")}<div class="scroll">${band?"":kpis(d,rows)}${screen==="Suppliers"?tools:""}${rows.length?(band?cards(hbCard(tab))(rows):o.list(rows,d)):`<p class="empty" data-list>${empty}</p>`}</div>${dock()}${tabs()}</div></section>`).join("");
+  seg("screen",SCREENS,screen,v=>{screen=v;paint();sync()});
+  document.getElementById("tabwrap").style.display=lead?"":"none";
+  seg("tab",TABS,tab,v=>{tab=v;paint();sync()});
+  seg("data",Object.keys(DATA),key,v=>{key=v;paint();sync()});
+  seg("width",WIDTHS.map(String),String(width),v=>{width=Number(v);paint();sync()});
+  measure(opts,rows.length);
+}
+/* px a record takes, and how many a screen shows — measured from the DOM, accordions closed */
+function measure(opts,n){
+  if(!n) return;
+  document.querySelectorAll(".opt").forEach((sec,i)=>{
+    const list=sec.querySelector("[data-list]"), sc=sec.querySelector(".scroll");
+    const acc=[...sec.querySelectorAll(".acc")].reduce((a,e)=>a+e.offsetHeight,0);
+    const per=(list.offsetHeight-acc)/n;
+    sec.querySelector("h2 small").textContent=`${Math.round(per)}px ${opts[i].unit==="order"?"an order":"a supplier"} · ${(sc.clientHeight/per).toFixed(1)} a screen`;
+  });
+}
+function seg(id,values,cur,on){const el=document.getElementById(id);el.innerHTML=values.map(v=>`<button aria-pressed="${v===cur}">${v}</button>`).join("");[...el.children].forEach((b,i)=>b.onclick=()=>on(values[i]))}
+function sync(){history.replaceState(null,"","?"+new URLSearchParams({screen,tab,data:key,w:String(width)}))}
+document.getElementById("stage").addEventListener("click",e=>{
+  const h=e.target.closest(".shead"); if(!h||h.disabled) return;
+  const card=h.closest(".sacc"), open=card.classList.toggle("open"); h.setAttribute("aria-expanded",open);
+});
+paint();
+</script>
+</body>
+</html>

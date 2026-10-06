@@ -59,6 +59,7 @@ export function Swatches({
   colours,
   cap = 6,
   className,
+  onShow,
 }: {
   colours: readonly {
     readonly colour_code: string
@@ -67,6 +68,9 @@ export function Swatches({
   }[]
   cap?: number
   className?: string
+  /// Which dot the pointer rests on, by its place in `colours` — null when it
+  /// leaves the row. For a card whose placeholder repaints in that colourway.
+  onShow?: (at: number | null) => void
 }) {
   if (colours.length === 0)
     return <span className="text-[0.875rem] text-mute">—</span>
@@ -75,14 +79,28 @@ export function Swatches({
   const rest = colours.length - shown.length
 
   return (
-    <span className={cn("inline-flex items-center gap-1", className)}>
-      {shown.map((colour) => (
-        <ColourSwatch
-          key={colour.colour_code}
-          hex={colour.hex_code}
-          label={colour.label}
-        />
-      ))}
+    <span
+      className={cn("inline-flex items-center gap-1", className)}
+      onPointerLeave={onShow && (() => onShow(null))}
+    >
+      {shown.map((colour, at) =>
+        onShow ? (
+          // A 12px dot is a hard target; the padding widens it to the gap.
+          <span
+            key={colour.colour_code}
+            className="-m-0.5 flex p-0.5"
+            onPointerEnter={() => onShow(at)}
+          >
+            <ColourSwatch hex={colour.hex_code} label={colour.label} />
+          </span>
+        ) : (
+          <ColourSwatch
+            key={colour.colour_code}
+            hex={colour.hex_code}
+            label={colour.label}
+          />
+        )
+      )}
       {rest > 0 && (
         <span className="text-[0.875rem] text-mute tabular-nums">
           +{count(rest)}

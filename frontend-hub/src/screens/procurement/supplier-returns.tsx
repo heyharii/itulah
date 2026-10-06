@@ -1,14 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Download, Printer, ChevronRight } from "lucide-react"
+import { Download, Printer, ChevronRight, Search } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { ConfirmButton, SavedDialog } from "@/components/ui/dialog"
 import { Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Segmented } from "@/components/ui/segmented"
+import { Fab } from "@/components/ui/fab"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Collapsible } from "@base-ui/react/collapsible"
 import { SubTabs } from "@/components/ui/sub-tabs"
@@ -282,13 +284,25 @@ export function SupplierReturns() {
   /// The return the confirm minted, held in the receipt dialog until read.
   const [savedReturn, setSavedReturn] = useState<string | null>(null)
   const sheet = useSheet("allotment")
+  /// What was typed in the search, in the URL like the order list's: a supplier,
+  /// a return's number or the order it came from.
+  const search = useSheet("q")
+  const needle = (search.value ?? "").trim().toLowerCase()
 
   const { all, returns } = useReturnRows()
 
   const owed = all.reduce((sum, row) => sum + row.owedMinor, 0)
   const rows = useMemo(
-    () => all.filter((row) => row.open === (tab === "open")),
-    [all, tab]
+    () =>
+      all.filter(
+        (row) =>
+          row.open === (tab === "open") &&
+          (needle === "" ||
+            [row.supplier, row.number, row.reference ?? ""].some((text) =>
+              text.toLowerCase().includes(needle)
+            ))
+      ),
+    [all, tab, needle]
   )
   const opened = all.find((row) => row.id === sheet.value) ?? null
 
@@ -316,17 +330,13 @@ export function SupplierReturns() {
 
   return (
     <PageContent>
-      <PageHeader
-        title="Return PO"
-        actions={
-          <Button variant="primary" onClick={() => setAsking(true)}>
-            New return
-          </Button>
-        }
-      />
+      <PageHeader title="Return PO" />
 
       <div className="flex flex-wrap items-end justify-between gap-x-6">
         <SubTabs
+          // Hidden on a phone: the status is the button in the drawer over the
+          // bottom bar (`DockTools`), as on the order list (owner, 2026-10-05).
+          className="max-md:hidden"
           value={tab}
           onChange={(next) => setTab(next as Tab)}
           tabs={[
@@ -344,6 +354,48 @@ export function SupplierReturns() {
           </span>
         </span>
       </div>
+
+      {/* The same search and the same New return as every list: a field and a
+          button here, the dock's field and round "+" on a phone. */}
+      <div className="mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden md:flex-nowrap">
+        <span className="relative min-w-[11rem] flex-1 lg:max-w-64">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
+          <input
+            value={search.value ?? ""}
+            onChange={(event) =>
+              event.target.value
+                ? search.open(event.target.value)
+                : search.close()
+            }
+            aria-label="Search returns"
+            className="h-[2.125rem] w-full rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.9375rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
+          />
+        </span>
+        <span className="flex-1" />
+        <Button variant="primary" onClick={() => setAsking(true)}>
+          New return
+        </Button>
+      </div>
+      <Fab label="New Return" onClick={() => setAsking(true)} />
+      <DockTools
+        search={{
+          value: search.value ?? "",
+          onChange: (next) => (next ? search.open(next) : search.close()),
+          label: "Search Returns",
+        }}
+        status={{
+          value: tab,
+          options: [
+            { value: "open", label: "Open", count: openCount },
+            {
+              value: "closed",
+              label: "Completed",
+              count: all.length - openCount,
+            },
+          ],
+          onChange: (next) => setTab(next as Tab),
+        }}
+      />
 
       {queryState(returns, {
         loading: "Reading the returns…",

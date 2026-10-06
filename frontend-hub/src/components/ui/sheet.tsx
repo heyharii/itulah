@@ -272,7 +272,10 @@ export function Sheet({
         {!sections && subject && <RecordPanel subject={subject} />}
       </div>
       {footer && (
-        <div className="shrink-0 border-t border-hairline px-4 py-3 md:px-7 md:py-3.5">
+        // Buttons in the foot are one height on every screen — 36px, the
+        // desk's — whatever the pointer: a thumb-tall 44px bar of them read as
+        // oversized (the owner, 2026-10-05).
+        <div className="shrink-0 border-t border-hairline px-4 py-3 md:px-7 md:py-3.5 [&_button]:h-9">
           {footer}
         </div>
       )}

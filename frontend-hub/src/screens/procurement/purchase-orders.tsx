@@ -15,24 +15,23 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   ClipboardCheck,
-  Pencil,
   RotateCcw,
   X,
 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+
+import { useIdentity } from "@/lib/session"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { ConfirmButton, SavedDialog } from "@/components/ui/dialog"
-import { DataTable } from "@/components/ui/data-table"
-import { columnName } from "@/components/ui/column-name"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Fab } from "@/components/ui/fab"
 import { Switch } from "@/components/ui/form"
 import { DayRange, type DayWindow } from "@/components/ui/day-range"
 import { PageHeader } from "@/components/ui/page-header"
-import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import {
   BarSpacer,
   ColumnsMenu,
@@ -44,7 +43,6 @@ import { Section } from "@/components/ui/rows"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/ui/states"
-import { Thumbnail } from "@/components/ui/thumbnail"
 import {
   useFilterState,
   type Filter,
@@ -72,7 +70,17 @@ import {
   type PurchaseOrderRow,
   type PurchaseOrderScope,
 } from "@/lib/queries/procurement"
+import type { PurchaseCountAwaitingVerification } from "@itulah/contract"
+import { useOutbox, type OutboxJob } from "@/lib/offline/po-outbox"
+import { refreshReference, useOnline } from "@/lib/offline/reference"
 import { OrderComposer } from "@/screens/procurement/composer"
+import { ItemsTable } from "@/screens/procurement/items-table"
+import {
+  HeldOrderSheet,
+  HELD_PREFIX,
+  heldRow,
+  isHeld,
+} from "@/screens/procurement/held-orders"
 import {
   percentFromDiscount,
   percentText,
@@ -107,7 +115,6 @@ import {
   lineValue,
   pcs,
   poStatus,
-  receivedGap,
   receivedTone,
   sentence,
   flattenSingles,
@@ -115,6 +122,7 @@ import {
   useActor,
   useIdempotencyKey,
 } from "@/screens/procurement/shared"
+import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -285,24 +293,148 @@ const STATUS_TEXT: Record<ReturnType<typeof poStatus>["tone"], string> = {
   neutral: "text-mute",
 }
 
-/// The list's columns (2026-09-29, the owner's order): PO · Delivery date ·
-/// Qty ordered · Order value · Received qty · Received value · Status. One
-/// figure a column, one line a cell; what has arrived is a bar against what
-/// was ordered. Date created stays behind Columns. Widths are what each
-/// heading and figure needs; the order's own column takes the rest.
+/// What the counts waiting for review would add to an order if they were
+/// taken as counted: the pieces that match the order (as many as the line
+/// can still take), and beyond it the pieces that are not the article plus
+/// any the line cannot take — the same split the review dialog makes. The
+/// value is the matching pieces at the agreed price, less the order's
+/// discount as the order's own value is (`net / gross`), or null when a line
+/// has no price to go by.
+interface Counted {
+  readonly matched: number
+  readonly beyond: number
+  readonly value: number | null
+}
+
+function countedOf(
+  counts: readonly PurchaseCountAwaitingVerification[] | undefined,
+  order: PurchaseOrderRow
+): Counted | undefined {
+  if (counts === undefined || counts.length === 0) return undefined
+  const kept = order.gross_minor > 0 ? order.net_minor / order.gross_minor : 1
+  const lines = new Map<
+    string,
+    {
+      correct: number
+      wrong: number
+      outstanding: number
+      price: number | null
+    }
+  >()
+  for (const one of counts) {
+    const line = lines.get(one.po_line_id) ?? {
+      correct: 0,
+      wrong: 0,
+      outstanding: one.outstanding_stock_units,
+      price: one.unit_price_minor,
+    }
+    const wrong = one.wrong_quantity ?? 0
+    line.correct += one.counted_quantity - wrong
+    line.wrong += wrong
+    lines.set(one.po_line_id, line)
+  }
+  let matched = 0
+  let beyond = 0
+  let value: number | null = 0
+  for (const line of lines.values()) {
+    const taken = Math.max(0, Math.min(line.correct, line.outstanding))
+    matched += taken
+    beyond += line.wrong + (line.correct - taken)
+    value =
+      value === null || line.price === null ? null : value + taken * line.price
+  }
+  return {
+    matched,
+    beyond,
+    value: value === null ? null : Math.round(value * kept),
+  }
+}
+
+/// A row of the list: the order, and whether and what the Gudang has counted
+/// on it that waits for the buyer.
+type ListRow = PurchaseOrderRow & {
+  readonly review?: boolean
+  readonly counted?: Counted
+}
+
+/// What an order has received as the list says it: what came in and was
+/// accepted, plus what the Gudang has counted and nobody has yet reviewed —
+/// so an order with "Review Count" next to it already says how many (the
+/// owner, 2026-10-05). Beyond is the pieces that are not what was ordered.
+function receivedOf(row: ListRow): {
+  readonly matched: number
+  readonly beyond: number
+  readonly value: number
+} {
+  const counted = row.counted
+  return {
+    matched: row.received_stock_units + (counted?.matched ?? 0),
+    beyond: row.excess_stock_units + (counted?.beyond ?? 0),
+    value: row.received_value_minor + (counted?.value ?? 0),
+  }
+}
+
+/// A finished order's status, pressed on like a rubber date stamp: the state
+/// over the day it was reached, a double rule in the ink's colour, capitals,
+/// a few degrees off true. On a card it stands in the foot where an open
+/// order has its pill (the owner, 2026-10-06); in the table it stands in the
+/// Status cell, a little less tilted. Multiplied into the paper like ink, so a
+/// figure under it still reads. Open orders have no stamp: they keep their
+/// status word (the owner, 2026-10-05).
+const STAMP =
+  "pointer-events-none inline-block -rotate-12 rounded-[6px] border-[3px] border-double border-current px-2.5 py-0.5 text-center text-[0.875rem] leading-5 font-bold tracking-[0.06em] whitespace-nowrap uppercase opacity-85 mix-blend-multiply lg:-rotate-6"
+
+/// The list's columns (the owner, 2026-10-05): PO · Delivery date · Ordered ·
+/// Received · Status. Ordered and Received each hold the pieces over what they
+/// are worth, one heading over both, and the heading's menu sorts by either
+/// (`meta.sortBy`, through the four hidden columns below). Date created and
+/// Invoicing stay behind Columns. Widths are what each heading and figure
+/// needs; the order's own column takes the rest.
 const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
   {
     // The sort key that keeps the orders somebody has to act on on top: first
-    // those with a count waiting for the buyer's review, then the late ones
-    // (owner, 2026-10-05). Never shown.
+    // those with a count waiting for the buyer's review, then the orders made
+    // offline and not yet sent, then the late ones (owner, 2026-10-05). Never
+    // shown.
     id: "overdue",
     accessorFn: (row) =>
       (row as PurchaseOrderRow & { readonly review?: boolean }).review
         ? 0
-        : row.overdue
+        : isHeld(row)
           ? 1
-          : 2,
+          : row.overdue
+            ? 2
+            : 3,
     header: "",
+    enableHiding: false,
+    meta: { card: "hide" },
+  },
+  // Each figure of Ordered and Received as a column of its own, never drawn:
+  // what the two headings' menus and the phone's sort sheet sort by.
+  {
+    id: "qty_ordered",
+    accessorFn: (row) => row.expected_stock_units,
+    header: "Ordered Quantity",
+    enableHiding: false,
+    meta: { card: "hide" },
+  },
+  {
+    accessorKey: "net_minor",
+    header: "Ordered Value",
+    enableHiding: false,
+    meta: { card: "hide" },
+  },
+  {
+    id: "received_qty",
+    accessorFn: (row) => receivedOf(row as ListRow).matched,
+    header: "Received Quantity",
+    enableHiding: false,
+    meta: { card: "hide" },
+  },
+  {
+    id: "received_value_minor",
+    accessorFn: (row) => receivedOf(row as ListRow).value,
+    header: "Received Value",
     enableHiding: false,
     meta: { card: "hide" },
   },
@@ -317,11 +449,11 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     cell: ({ row }) => (
       <span className="flex min-w-0 flex-col gap-0.5 leading-5">
         <span
-          // The name is what somebody is looking for, so on a phone, where the
-          // row is a card, it is the largest and heaviest thing in it: 16px
-          // semibold, over the number in regular weight and the date in the
-          // quiet colour (it read the other way round: the date was bigger).
-          className="truncate text-[0.875rem] font-medium text-ink max-md:text-[1rem] max-md:font-semibold"
+          // The name is what somebody is looking for, so where the row is a
+          // card (a phone or a tablet) it is the largest and heaviest thing in
+          // it: 16px semibold, over the number in regular weight. It may take
+          // two lines there rather than lose the end of a long name.
+          className="truncate text-[0.875rem] font-medium text-ink max-lg:line-clamp-2 max-lg:text-[1rem] max-lg:font-semibold max-lg:whitespace-normal"
           title={row.original.supplier_name ?? undefined}
         >
           <SupplierName
@@ -329,8 +461,11 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
             name={row.original.supplier_name}
           />
         </span>
-        <span className="font-mono text-[0.875rem] font-normal text-mute">
-          {row.original.po_number}
+        {/* How many lines the order is made of stands beside its number: it
+            says something about the order, not about the pieces. */}
+        <span className="truncate text-[0.875rem] font-normal text-mute">
+          <span className="font-mono">{row.original.po_number}</span>
+          {` · ${count(row.original.line_count)} ${row.original.line_count === 1 ? "item" : "items"}`}
         </span>
       </span>
     ),
@@ -351,8 +486,9 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     header: "Delivery Date",
     size: 132,
     // Red when it has passed and pieces are still owed — and those rows stand
-    // at the top of the list.
-    meta: { card: "meta" },
+    // at the top of the list. On a card it stands under the status instead
+    // (the status cell draws it there), so the card has two straight edges.
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span
         className={
@@ -366,101 +502,151 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
       </span>
     ),
   },
-  // Two heading rows (owner, 2026-10-02): what was ordered and what has
-  // arrived, each as a quantity and a value under one heading.
+  // What was ordered and what has arrived, one column each (the owner,
+  // 2026-10-05): the pieces on top, what they are worth under them in the
+  // quiet colour. The heading's menu sorts by either figure.
   {
     id: "ordered",
+    accessorFn: (row) => row.expected_stock_units,
     header: "Ordered",
-    columns: [
-      {
-        // The pieces ordered, over however many lines.
-        id: "qty_ordered",
-        accessorFn: (row) => row.expected_stock_units,
-        header: "Quantity",
-        size: 176,
-        meta: { align: "right", card: "hide", priority: 2 },
-        cell: ({ row }) => (
-          // Pieces, whatever unit the order was typed in; how many lines it
-          // is made of stands under it.
-          <span className="flex flex-col items-end leading-6 tabular-nums">
-            <span className="whitespace-nowrap">
-              {pcs(row.original.expected_stock_units)}
-            </span>
-            <span className="whitespace-nowrap text-mute">
-              {`${count(row.original.line_count)} ${row.original.line_count === 1 ? "item" : "items"}`}
-            </span>
-          </span>
-        ),
-      },
-      {
-        // Net of the order's discount, PPN included — what is paid.
-        accessorKey: "net_minor",
-        header: "Value",
-        size: 152,
-        meta: { align: "right", card: "metric", priority: 2 },
-        cell: ({ row }) => (
-          <span className="font-medium whitespace-nowrap text-ink tabular-nums">
-            {money(row.original.net_minor)}
-          </span>
-        ),
-      },
-    ],
+    enableSorting: false,
+    // "Rp 11.976.240.000" at 15px and the cell's padding, and no more: at
+    // 1024px the five columns fit with room for a Windows scrollbar.
+    size: 172,
+    meta: {
+      align: "right",
+      // A card says it in its lead figure and foot instead.
+      card: "hide",
+      priority: 2,
+      sortBy: [
+        { id: "qty_ordered", label: "Quantity" },
+        { id: "net_minor", label: "Value" },
+      ],
+    },
+    cell: ({ row }) => (
+      // Pieces, whatever unit the order was typed in, over the value net of
+      // the order's discount, PPN included — what is paid.
+      <span className="flex flex-col items-end leading-6 tabular-nums">
+        <span className="font-medium whitespace-nowrap text-ink">
+          {pcs(row.original.expected_stock_units)}
+        </span>
+        <span className="whitespace-nowrap text-mute">
+          {money(row.original.net_minor)}
+        </span>
+      </span>
+    ),
   },
   {
     id: "received",
+    accessorFn: (row) => receivedOf(row as ListRow).matched,
     header: "Received",
-    columns: [
-      {
-        // The pieces that have arrived, as a share of the pieces ordered.
-        id: "received_qty",
-        accessorFn: (row) => row.received_stock_units,
-        header: "Quantity",
-        size: 176,
-        meta: { align: "right", card: "hide" },
-        cell: ({ row }) => {
-          const gap = receivedGap(
-            row.original.expected_stock_units,
-            row.original.received_stock_units
-          )
-          return (
-            <span className="flex flex-col items-end leading-6 tabular-nums">
-              <span
-                className={cn(
-                  "whitespace-nowrap",
-                  gap && "text-bad-fg",
-                  row.original.received_stock_units === 0 && "text-mute"
-                )}
-              >
-                {pcs(row.original.received_stock_units)}
-              </span>
-              {gap && (
-                <span className="whitespace-nowrap text-bad-fg">
-                  {gap.text}
-                </span>
-              )}
-            </span>
-          )
-        },
-      },
-      {
-        // What has arrived by value, as a share of the order's value (the owner:
-        // "receiving hitung dari net value").
-        accessorKey: "received_value_minor",
-        header: "Value",
-        size: 152,
-        meta: { align: "right", card: "hide", priority: 2 },
-        cell: ({ row }) => (
-          <span
-            className={cn(
-              "whitespace-nowrap tabular-nums",
-              row.original.received_value_minor === 0 && "text-mute"
-            )}
-          >
-            {money(row.original.received_value_minor)}
+    enableSorting: false,
+    size: 172,
+    meta: {
+      align: "right",
+      // A card says it in its foot instead.
+      card: "hide",
+      sortBy: [
+        { id: "received_qty", label: "Quantity" },
+        { id: "received_value_minor", label: "Value" },
+      ],
+    },
+    cell: ({ row }) => {
+      const ordered = row.original.expected_stock_units
+      const { matched, beyond, value } = receivedOf(row.original as ListRow)
+      if (matched === 0 && beyond === 0)
+        return (
+          <span className="whitespace-nowrap text-mute tabular-nums">
+            {pcs(0)}
           </span>
-        ),
-      },
-    ],
+        )
+      // The pieces that match the order, red while they are not all of it,
+      // and in brackets whatever came beyond it — over the order or not the
+      // article it names — always red: "580 pcs (+20)" on an order of 600 is
+      // 580 right, 20 to go back, 20 still owed (the owner, 2026-10-05).
+      // Under them, what the matching pieces are worth: what is paid
+      // ("receiving hitung dari net value").
+      return (
+        <span className="flex flex-col items-end leading-6 tabular-nums">
+          {/* The bracket drops under the pieces when the two do not fit on
+              one line ("120.000 pcs (+12.000)"), never cut off. */}
+          <span>
+            <span
+              className={cn(
+                "font-medium whitespace-nowrap text-ink",
+                matched !== ordered && "text-bad-fg"
+              )}
+            >
+              {pcs(matched)}
+            </span>
+            {beyond > 0 && (
+              <>
+                {" "}
+                <span className="whitespace-nowrap text-bad-fg">{`(+${count(beyond)})`}</span>
+              </>
+            )}
+          </span>
+          <span className="whitespace-nowrap text-mute">{money(value)}</span>
+        </span>
+      )
+    },
+  },
+  // Three columns that exist only on a card (under 1024px; `cardLead`): the
+  // promised day under the number, the figure the card leads with, and the
+  // foot's left side — what has come in. The table says the same in its own
+  // columns (the owner, 2026-10-06).
+  {
+    id: "delivery",
+    accessorFn: (row) => row.expected_arrival,
+    header: "Delivery",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "meta" },
+    cell: ({ row }) => (
+      <span>
+        {"Delivery "}
+        <span
+          className={
+            row.original.overdue
+              ? "font-medium text-bad-fg tabular-nums"
+              : "text-ink tabular-nums"
+          }
+        >
+          {day(row.original.expected_arrival)}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.expected_stock_units,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => (
+      // What was ordered, big, over what it is worth.
+      <span className="flex flex-col items-end tabular-nums">
+        <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
+          {count(row.original.expected_stock_units)}
+          <span className="text-[0.875rem] font-normal tracking-normal text-mute">
+            {row.original.expected_stock_units === 1 ? " pc" : " pcs"}
+          </span>
+        </span>
+        <span className="mt-0.5 text-[0.875rem] text-mute">
+          {money(row.original.net_minor)}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => receivedOf(row as ListRow).matched,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => <CardFoot row={row.original as ListRow} />,
   },
   {
     id: "invoicing",
@@ -478,44 +664,132 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
   {
     accessorKey: "lifecycle",
     header: "Status",
-    // "Partially received" at 15px is 137px: the column needs that, the
-    // cell's padding either side, and some air before the card's edge.
-    size: 176,
+    // "Partially received" at 15px is 137px, and the stamp "FULLY RECEIVED"
+    // in bold capitals with its double rule is 152: the column needs the
+    // wider, the cell's padding either side, and some air.
+    size: 200,
     meta: { card: "status", swap: true },
     cell: ({ row }) => {
       const status = poStatus(row.original.lifecycle)
       const pendingExcess = row.original.excess_pending_stock_units
-      // A word, no dot and no box (the owner, 2026-09-29): the colour says
-      // whether it still wants somebody, and a finished order recedes.
+      // On the desk a word, no dot and no box (the owner, 2026-09-29): the
+      // colour says whether it still wants somebody, and a finished order
+      // recedes. On a card an open order keeps its status at the top right,
+      // and a finished one has it pressed on like a rubber stamp, floating
+      // over the card's right side (the owner, 2026-10-05).
+      const finished = noCountToReview(row.original.lifecycle)
       return (
-        <span className="flex flex-col leading-5 max-md:items-end">
-          <StatusWord
-            po={row.original.po_number}
-            className={cn("whitespace-nowrap", STATUS_TEXT[status.tone])}
-            label={status.label}
-            cancelled={noCountToReview(row.original.lifecycle)}
-          />
+        <span className="flex flex-col leading-5 max-lg:items-end">
+          {!finished && (
+            <span className="max-lg:hidden">
+              <StatusWord
+                po={row.original.po_number}
+                className={cn("whitespace-nowrap", STATUS_TEXT[status.tone])}
+                label={status.label}
+                cancelled={false}
+              />
+            </span>
+          )}
+          {finished ? (
+            <span
+              className={cn(
+                STAMP,
+                row.original.lifecycle === "FULLY_RECEIVED"
+                  ? "text-ok-fg"
+                  : row.original.lifecycle === "SHORT_RECEIVED"
+                    ? "text-bad-fg"
+                    : "text-mute"
+              )}
+            >
+              {status.label}
+              {/* The day it was finished, inside the stamp as on a date
+                  stamp, without the year (the owner, 2026-10-05). */}
+              {row.original.fulfilled_at !== null && (
+                <span className="block tabular-nums">
+                  {dayMonth(row.original.fulfilled_at)}
+                </span>
+              )}
+            </span>
+          ) : (
+            // On a card the pill (or the Review Count button) stands in the
+            // foot, on the right, where the stamp stands for a finished order
+            // (the owner, 2026-10-06).
+            <span className="flex lg:hidden">
+              <StatusWord
+                po={row.original.po_number}
+                className=""
+                label={status.label}
+                cancelled={false}
+                stamp={status.tone}
+              />
+            </span>
+          )}
           {/* Excess sits beside the status rather than in its own column: it
               is not where the order stands, it is a fact about it — and the
-              owner does not want a chip for it (2026-09-29). */}
+              owner does not want a chip for it (2026-09-29). Not on a card,
+              where the red bracket on its figures already says it. */}
           {pendingExcess > 0 && (
-            <span className="text-[0.875rem] whitespace-nowrap text-warn-fg">
+            <span className="text-[0.875rem] whitespace-nowrap text-warn-fg max-lg:hidden">
               {`+${pcs(pendingExcess)} over`}
             </span>
           )}
-          {/* Only where the table is a list of cards (a phone): the quantity
-              has no column there, so it stands under the status, on the right —
-              the pieces ordered, or how many of them have arrived. */}
-          <span className="mt-1 text-[0.875rem] whitespace-nowrap text-body tabular-nums md:hidden">
-            {row.original.received_stock_units > 0
-              ? `${count(row.original.received_stock_units)} / ${pcs(row.original.expected_stock_units)}`
-              : pcs(row.original.expected_stock_units)}
-          </span>
         </span>
       )
     },
   },
 ]
+
+/// A card's foot, on the left: what has come in. "Received 6 pcs" over what
+/// the pieces are worth, the figure heavier than its word, red while the pieces
+/// are not the whole order and whatever came beyond it in red brackets — the
+/// table's rules, and `cardTone` washes the foot for the same reason. An order
+/// made offline has nothing to receive: it says when it was made (the owner,
+/// 2026-10-06).
+function CardFoot({ row }: { readonly row: ListRow }) {
+  if (isHeld(row)) return <span>{`Made ${moment(row.issued_at)}`}</span>
+  const ordered = row.expected_stock_units
+  const { matched, beyond, value } = receivedOf(row)
+  if (matched === 0 && beyond === 0)
+    return (
+      <span className="tabular-nums">
+        {"Received "}
+        <span>{pcs(0)}</span>
+      </span>
+    )
+  return (
+    <span className="flex flex-col leading-6 tabular-nums">
+      <span>
+        {"Received "}
+        <span
+          className={cn(
+            "text-cell font-semibold whitespace-nowrap text-ink",
+            matched !== ordered && "text-bad-fg"
+          )}
+        >
+          {pcs(matched)}
+        </span>
+        {beyond > 0 && (
+          <>
+            {" "}
+            <span className="text-cell font-semibold whitespace-nowrap text-bad-fg">{`(+${count(beyond)})`}</span>
+          </>
+        )}
+      </span>
+      <span>{money(value)}</span>
+    </span>
+  )
+}
+
+/// Whether a card wants a look: the pieces in hand are not the order, or came
+/// beyond it. An order made offline has nothing to look at yet.
+function cardToneOf(row: PurchaseOrderRow): "alert" | undefined {
+  if (isHeld(row)) return undefined
+  const { matched, beyond } = receivedOf(row as ListRow)
+  const started = matched > 0 || beyond > 0
+  return started && (matched !== row.expected_stock_units || beyond > 0)
+    ? "alert"
+    : undefined
+}
 
 /// The three questions a buyer narrows the book by, always on show: who, when
 /// it was issued, when it is promised. Each is one or two clauses in the URL
@@ -591,20 +865,34 @@ function StatusWord({
   label,
   className,
   cancelled,
+  stamp,
 }: {
   po: string
   label: string
   className: string
   cancelled: boolean
+  /// On a card the status is a stamp — the order's state pressed onto it, as
+  /// on paper — rather than a coloured word (the owner, 2026-10-05).
+  stamp?: ReturnType<typeof poStatus>["tone"]
 }) {
   const waiting = useCountsAwaiting().get(po)
   const recounting = useRecountingPos().has(po)
-  if (cancelled) return <span className={className}>{label}</span>
+  const word = (text: string, tone: ReturnType<typeof poStatus>["tone"]) =>
+    stamp === undefined ? (
+      <span className={className}>{text}</span>
+    ) : (
+      <Pill tone={tone}>{text}</Pill>
+    )
+  if (cancelled) return word(label, stamp ?? "neutral")
   if (waiting !== undefined && waiting.length > 0)
     return <ReviewCountButton po={po} inline />
   if (recounting)
-    return <span className="whitespace-nowrap text-info-fg">Recounting</span>
-  return <span className={className}>{label}</span>
+    return stamp === undefined ? (
+      <span className="whitespace-nowrap text-info-fg">Recounting</span>
+    ) : (
+      <Pill tone="info">Recounting</Pill>
+    )
+  return word(label, stamp ?? "neutral")
 }
 /// An order that is cancelled or already complete takes no more goods, so a
 /// count left waiting on it is stale: there is nothing to review.
@@ -647,10 +935,20 @@ export function PurchaseOrders() {
   const [groupBySupplier, setGroupBySupplier] = useState(false)
   const fit = useFittedVisibility(columns, {
     overdue: false,
+    delivery: false,
+    lead: false,
+    foot: false,
+    qty_ordered: false,
+    net_minor: false,
+    received_qty: false,
+    received_value_minor: false,
     created: false,
     invoicing: false,
   })
   const visibility = fit.visibility
+  /// Whether the rows are cards: a phone, or a tablet (`cardsOnTablet`).
+  const layout = useLayout()
+  const cards = layout === "phone" || layout === "tablet"
   /// The order raised a moment ago, while its line is still glowing. Cleared
   /// well after the glow ends, because the line only exists once the list has
   /// been read again.
@@ -663,6 +961,23 @@ export function PurchaseOrders() {
   /// The suppliers whose group is folded shut, while the list is grouped.
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
   const [tab, setTab] = useState<OrderTab>("active")
+  /// Orders made with no connection and not yet sent, and the one being read
+  /// or taken back to the form (`held-orders.tsx`).
+  const actor = useActor()
+  const online = useOnline()
+  const held = useOutbox()
+  const outbox = useMemo(
+    () => held.filter((job) => job.owner === actor),
+    [held, actor]
+  )
+  const [heldOpen, setHeldOpen] = useState<string | null>(null)
+  const [resume, setResume] = useState<OutboxJob | null>(null)
+  // Keep the device's copy of the masters a purchase order is written
+  // against current while there is a connection, so there is one to write
+  // it from when there is not.
+  useEffect(() => {
+    void refreshReference()
+  }, [])
 
   /// The suppliers, for the filter's own picker. Small, cached by every other
   /// procurement screen, and the reason the chip can offer a NAME where the
@@ -691,6 +1006,7 @@ export function PurchaseOrders() {
         spec: {
           kind: "option",
           single: true,
+          searchable: true,
           operators: ["isAnyOf"],
           // `supplier_code`, NOT `supplier_id`. A supplier row's
           // `supplier_id` is a uuid; the column a purchase order carries
@@ -788,12 +1104,27 @@ export function PurchaseOrders() {
   /// Carried on each row so the hidden first sort key can put them on top.
   const awaiting = useCountsAwaiting()
   const viewRows = useMemo(
-    () =>
-      rows.map((row) => ({
+    () => [
+      // Orders not yet sent stand first, among the open ones. The search
+      // narrows them by supplier; the other filters are the server's and do
+      // not reach what the server has not seen.
+      ...(tab === "active"
+        ? outbox
+            .filter(
+              (job) =>
+                needle === "" ||
+                job.supplier_name.toLowerCase().includes(needle.toLowerCase())
+            )
+            .map(heldRow)
+        : []
+      ).map((row) => ({ ...row, review: false, counted: undefined })),
+      ...rows.map((row) => ({
         ...row,
         review: (awaiting.get(row.po_number)?.length ?? 0) > 0,
+        counted: countedOf(awaiting.get(row.po_number), row),
       })),
-    [rows, awaiting]
+    ],
+    [rows, awaiting, outbox, tab, needle]
   )
 
   /// How many orders each supplier has in the list, and what they add up to —
@@ -869,12 +1200,18 @@ export function PurchaseOrders() {
         // groups are by supplier name and nothing else leads.
         state: {
           sorting: groupBySupplier ? sorting : [OVERDUE_FIRST, ...sorting],
-          // A cancelled order took nothing in: its Receiving column is a
-          // row of zeros, so that tab leaves it out.
-          columnVisibility:
-            tab === "cancelled"
-              ? { ...fit.shown, received_qty: false }
-              : fit.shown,
+          // Cards (under 1024px) are laid out down the page, so nothing is
+          // given up for width there: a card shows Ordered and Received
+          // whatever the fitted table would have dropped. A cancelled order
+          // took nothing in: its Received column is a row of zeros, so that
+          // tab leaves it out.
+          columnVisibility: {
+            ...(cards ? fit.visibility : fit.shown),
+            delivery: cards,
+            lead: cards,
+            foot: cards,
+            ...(tab === "cancelled" ? { received: false } : {}),
+          },
         },
         onColumnVisibilityChange: fit.change,
         onSortingChange: (
@@ -890,7 +1227,15 @@ export function PurchaseOrders() {
           )
         },
       }),
-      [groupBySupplier, sorting, tableColumns, fit.hidden, viewRows, visibility]
+      [
+        groupBySupplier,
+        sorting,
+        tableColumns,
+        fit.hidden,
+        viewRows,
+        visibility,
+        cards,
+      ]
     )
   )
 
@@ -900,13 +1245,6 @@ export function PurchaseOrders() {
     (orders.data?.facets.order_status ?? [])
       .filter((facet) => statuses.includes(facet.value))
       .reduce((sum, facet) => sum + facet.count, 0)
-  /// The phone's drawer opens the filter or the sort sheet by name.
-  const [optionsAt, setOptionsAt] = useState<"filter" | "sort" | null>(null)
-  const sortedBy = table
-    .getAllLeafColumns()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .find((column: any) => column.id === sorting[0]?.id)
-  const sortName = sortedBy === undefined ? "Default" : columnName(sortedBy)
   const chooseSort = (id: string, desc: boolean) => {
     setGroupBySupplier(false)
     setCollapsed(new Set())
@@ -921,22 +1259,8 @@ export function PurchaseOrders() {
 
   return (
     <PageContent>
-      {/* The four figures of the tab showing, as cards over the list. */}
       <PageHeader title="Purchase Orders" small />
-      <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
-        {(
-          bookKpis(orders.data) ??
-          ["Orders", "Still open", "Overdue", "On order"].map((label) => ({
-            label,
-            value: "—",
-            note: undefined,
-          }))
-        ).map((kpi) => (
-          <div key={kpi.label} title={kpi.note}>
-            <Kpi label={kpi.label} value={kpi.value} />
-          </div>
-        ))}
-      </KpiStrip>
+      <SummaryBand page={orders.data} review={awaiting} tab={tab} />
 
       <SubTabs
         // Hidden on a phone: the status is the button in the drawer over the
@@ -966,11 +1290,24 @@ export function PurchaseOrders() {
         onClose={importing.close}
       />
 
+      <HeldOrderSheet
+        job={outbox.find((job) => job.id === heldOpen) ?? null}
+        onClose={() => setHeldOpen(null)}
+        onEdit={setResume}
+      />
+
       <OrderComposer
-        open={composer.value === true}
-        onClose={composer.close}
+        open={composer.value === true || resume !== null}
+        resume={resume ?? undefined}
+        onClose={() => {
+          composer.close()
+          setResume(null)
+        }}
         onReopen={() => composer.open(true)}
         onRaised={(saved) => {
+          // A held order taken back to the form and sent from it is on the
+          // server now: the form closes, whatever opened it.
+          setResume(null)
           // The new line glows in the list for a few seconds (the owner,
           // 2026-10-04) — it is the one thing on screen that moved.
           setFresh(saved.purchase_order_id)
@@ -1102,14 +1439,16 @@ export function PurchaseOrders() {
           onChange: (next) => (next ? search.open(next) : search.close()),
           label: "Search Orders",
         }}
+        // Filter and sort are pages of the drawer, as status is: one family.
         filter={{
           count: filters.filters.length,
-          onOpen: () => setOptionsAt("filter"),
+          panel: {
+            model: filters,
+            filterModel: { ...filters, fields: counted },
+            table,
+          },
         }}
-        sort={{
-          label: sortName,
-          onOpen: () => setOptionsAt("sort"),
-        }}
+        sort={dockSortOf(table)}
         status={{
           value: tab,
           options: TABS.map((one) => ({
@@ -1123,97 +1462,144 @@ export function PurchaseOrders() {
           },
         }}
       />
-      <ListOptionsSheet
-        hideTrigger
-        openAt={optionsAt}
-        onOpenAtChange={setOptionsAt}
-        model={filters}
-        filterModel={{ ...filters, fields: counted }}
-        table={table}
-        sorting={sorting}
-        onSort={chooseSort}
-      />
       {/* `overflow-clip`, not `overflow-hidden`: hidden makes the card a
           scroll box, and the table's heading would stick to the card instead
           of the window. */}
       <div ref={fit.ref}>
-        <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-          {queryState(orders, {
-            loading: "Loading the orders…",
-            render: () =>
-              viewRows.length === 0 ? (
-                narrowed ? (
-                  <EmptyState>No order matches these filters.</EmptyState>
+        <Card className="overflow-clip max-lg:overflow-visible max-lg:border-0 max-lg:bg-transparent max-lg:shadow-none">
+          {queryState(
+            // With no connection and nothing read yet, the list is the orders
+            // on this device: they are what there is to show, and "loading"
+            // would be a wait for something that is not coming.
+            orders.data === undefined && !online && outbox.length > 0
+              ? {
+                  isPending: false,
+                  isError: false,
+                  error: null,
+                  data: { rows: [] } as unknown as PurchaseOrderPage,
+                  refetch: () => void orders.refetch(),
+                }
+              : orders,
+            {
+              loading: "Loading the orders…",
+              render: () =>
+                viewRows.length === 0 ? (
+                  narrowed ? (
+                    <EmptyState>No order matches these filters.</EmptyState>
+                  ) : (
+                    <EmptyState>Nothing here yet.</EmptyState>
+                  )
                 ) : (
-                  <EmptyState>Nothing here yet.</EmptyState>
-                )
-              ) : (
-                <DataTable<PurchaseOrderRow>
-                  table={table}
-                  roomy
-                  cardSort={false}
-                  cardsApart
-                  onRowClick={(row) => order.open(row.purchase_order_id)}
-                  isSelected={(row) => row.purchase_order_id === order.value}
-                  isFresh={(row) => row.purchase_order_id === fresh}
-                  // The owner's floating totals: how many orders, and what
-                  // they add up to, under the columns they sum.
-                  summary={{
-                    order: (
-                      <span>
-                        {count(viewRows.length)}{" "}
-                        <span className="font-normal text-body">
-                          {viewRows.length === 1 ? "order" : "orders"}
-                        </span>
-                      </span>
-                    ),
-                    qty_ordered: pcs(
-                      sumOf(viewRows, (row) => row.expected_stock_units)
-                    ),
-                    net_minor: money(sumOf(viewRows, (row) => row.net_minor)),
-                    received_qty: pcs(
-                      sumOf(viewRows, (row) => row.received_stock_units)
-                    ),
-                    received_value_minor: money(
-                      sumOf(viewRows, (row) => row.received_value_minor)
-                    ),
-                  }}
-                  // A heading before the first order of each supplier, while
-                  // the list is grouped.
-                  renderBefore={
-                    groupBySupplier
-                      ? (row, index, all) =>
-                          index > 0 &&
-                          supplierOf(all[index - 1]) ===
-                            supplierOf(row) ? null : (
-                            <GroupHeading
-                              name={supplierNameOf(
-                                row.supplier_id,
-                                row.supplier_name
-                              )}
-                              group={groups.get(supplierOf(row))}
-                              open={!collapsed.has(supplierOf(row))}
-                              onToggle={() =>
-                                setCollapsed((was) => {
-                                  const next = new Set(was)
-                                  if (!next.delete(supplierOf(row)))
-                                    next.add(supplierOf(row))
-                                  return next
-                                })
-                              }
-                            />
+                  <DataTable<PurchaseOrderRow>
+                    table={table}
+                    roomy
+                    cardSort={false}
+                    cardsApart
+                    // Under 1024px the five columns do not fit (a 768px tablet
+                    // has 702px of card): every row is a card there, and a card
+                    // has room for Ordered and Received side by side.
+                    cardsOnTablet
+                    cardLead
+                    cardTone={cardToneOf}
+                    cardsTwoUp
+                    onRowClick={(row) =>
+                      isHeld(row)
+                        ? setHeldOpen(
+                            row.purchase_order_id.slice(HELD_PREFIX.length)
                           )
-                      : undefined
-                  }
-                  isHidden={
-                    groupBySupplier
-                      ? (row) => collapsed.has(supplierOf(row))
-                      : undefined
-                  }
-                  pageScroll
-                />
-              ),
-          })}
+                        : order.open(row.purchase_order_id)
+                    }
+                    isSelected={(row) => row.purchase_order_id === order.value}
+                    isFresh={(row) => row.purchase_order_id === fresh}
+                    // The owner's floating totals: how many orders, and what
+                    // they add up to, under the columns they sum.
+                    summary={{
+                      order: (
+                        <span>
+                          {count(viewRows.length)}{" "}
+                          <span className="font-normal text-body">
+                            {viewRows.length === 1 ? "order" : "orders"}
+                          </span>
+                        </span>
+                      ),
+                      // Each sum as its column shows it: the pieces over the
+                      // value, and what came beyond the orders in brackets.
+                      ordered: (
+                        <span className="flex flex-col items-end py-2 leading-5">
+                          <span>
+                            {pcs(
+                              sumOf(viewRows, (row) => row.expected_stock_units)
+                            )}
+                          </span>
+                          <span className="font-normal text-body">
+                            {money(sumOf(viewRows, (row) => row.net_minor))}
+                          </span>
+                        </span>
+                      ),
+                      received: (() => {
+                        const beyond = sumOf(
+                          viewRows,
+                          (row) => receivedOf(row).beyond
+                        )
+                        return (
+                          <span className="flex flex-col items-end py-2 leading-5">
+                            <span>
+                              {pcs(
+                                sumOf(
+                                  viewRows,
+                                  (row) => receivedOf(row).matched
+                                )
+                              )}
+                              {beyond > 0 && (
+                                <span className="text-bad-fg">{` (+${count(beyond)})`}</span>
+                              )}
+                            </span>
+                            <span className="font-normal text-body">
+                              {money(
+                                sumOf(viewRows, (row) => receivedOf(row).value)
+                              )}
+                            </span>
+                          </span>
+                        )
+                      })(),
+                    }}
+                    // A heading before the first order of each supplier, while
+                    // the list is grouped.
+                    renderBefore={
+                      groupBySupplier
+                        ? (row, index, all) =>
+                            index > 0 &&
+                            supplierOf(all[index - 1]) ===
+                              supplierOf(row) ? null : (
+                              <GroupHeading
+                                name={supplierNameOf(
+                                  row.supplier_id,
+                                  row.supplier_name
+                                )}
+                                group={groups.get(supplierOf(row))}
+                                open={!collapsed.has(supplierOf(row))}
+                                onToggle={() =>
+                                  setCollapsed((was) => {
+                                    const next = new Set(was)
+                                    if (!next.delete(supplierOf(row)))
+                                      next.add(supplierOf(row))
+                                    return next
+                                  })
+                                }
+                              />
+                            )
+                        : undefined
+                    }
+                    isHidden={
+                      groupBySupplier
+                        ? (row) => collapsed.has(supplierOf(row))
+                        : undefined
+                    }
+                    pageScroll
+                  />
+                ),
+            }
+          )}
         </Card>
       </div>
 
@@ -1366,15 +1752,16 @@ async function printOrders(
 /// says `of {n} shown` under the figure — the number is still useful, and the
 /// reader is told what it covers.
 /// `49.923.900.000` → `Rp 49,9 billion`. Words, not the Indonesian jt/rb.
-function brief(minor: number): string {
+/// `compact` shortens the word — `Rp 49,9 bn` — for a cell with no room.
+function brief(minor: number, compact = false): string {
   const abs = Math.abs(minor)
   const [scale, suffix] =
     abs >= 1_000_000_000
-      ? [1_000_000_000, " billion"]
+      ? [1_000_000_000, compact ? " bn" : " billion"]
       : abs >= 1_000_000
-        ? [1_000_000, " million"]
+        ? [1_000_000, compact ? " mn" : " million"]
         : abs >= 1_000
-          ? [1_000, " thousand"]
+          ? [1_000, compact ? " k" : " thousand"]
           : [1, ""]
   const scaled = minor / scale
   const shown =
@@ -1382,55 +1769,184 @@ function brief(minor: number): string {
   return `Rp ${shown.replace(".", ",")}${suffix}`
 }
 
-function bookKpis(page: PurchaseOrderPage | undefined) {
-  if (page === undefined) return undefined
+/// What the tab comes to, said as a sentence under the title (owner,
+/// 2026-10-06: the header band). One fact is bold — the one to act on — and
+/// the rest is plain; a fact that is none is not said at all.
+///
+///  - Active: "Hi Rina, **4 orders in review**. 8 orders are active, Rp 4,0
+///    billion in total." Anything late takes the bold, in red, and the review
+///    count follows plain.
+///  - Completed: "**2 orders were closed short**." (red, only when there are
+///    any) then "12 orders are complete, with Rp 49 million received."
+///  - Cancelled: "**1 order** for Rp 320 thousand was cancelled."
+///
+/// The sums are over the rows in hand; a list that runs past one page says so
+/// on the title.
+interface Said {
+  readonly lead?: { readonly text: string; readonly late: boolean }
+  readonly after: string
+  readonly note?: string
+}
+
+/// A figure, its words and a sum of money never part across lines.
+const nb = (text: string) => text.replace(/ /g, "\u00a0")
+
+function summaryOf(
+  page: PurchaseOrderPage,
+  review: ReadonlyMap<string, unknown>,
+  tab: OrderTab
+): Said {
   const rows = page.rows
-  const whole = page.next_cursor === null
-  const note = whole
-    ? undefined
-    : `Over the ${count(rows.length)} orders loaded, of ${count(page.total)}`
-  const open = rows.filter(
-    (row) =>
-      row.lifecycle === "ACTIVE" || row.lifecycle === "PARTIALLY_RECEIVED"
+  const n = page.total
+  const note =
+    page.next_cursor === null
+      ? undefined
+      : `Over the ${count(rows.length)} orders loaded, of ${count(n)}`
+  const orders = (k: number, one: string, many: string) =>
+    nb(`${count(k)} ${k === 1 ? one : many}`)
+
+  if (tab === "active") {
+    if (n === 0) return { after: "No active orders." }
+    const open = rows.filter(
+      (row) =>
+        row.lifecycle === "ACTIVE" || row.lifecycle === "PARTIALLY_RECEIVED"
+    )
+    const late = rows.filter((row) => row.overdue).length
+    // Only orders still on this list: the queue can hold a count for an order
+    // that has since been completed, and that is not one the buyer can act on.
+    const toReview = open.filter((row) => review.has(row.po_number)).length
+    const value = nb(brief(open.reduce((sum, row) => sum + row.net_minor, 0)))
+    const active = `${orders(n, "order is", "orders are")} active, ${value} in total.`
+    if (late > 0)
+      return {
+        lead: {
+          text: orders(late, "order is late", "orders are late"),
+          late: true,
+        },
+        after: `. ${toReview > 0 ? `${nb(`${count(toReview)} in review`)}. ` : ""}${active}`,
+        note,
+      }
+    if (toReview > 0)
+      return {
+        lead: {
+          text: orders(toReview, "order in review", "orders in review"),
+          late: false,
+        },
+        after: `. ${active}`,
+        note,
+      }
+    return { after: active.replace(/^./, (c) => c.toUpperCase()), note }
+  }
+
+  if (tab === "completed") {
+    if (n === 0) return { after: "No completed orders." }
+    // The server's own tally over the whole search, so it is true however
+    // much of the list has loaded.
+    const short = page.facets.order_status
+      .filter((facet) => facet.value === "SHORT_RECEIVED")
+      .reduce((sum, facet) => sum + facet.count, 0)
+    const got = nb(
+      brief(rows.reduce((sum, row) => sum + row.received_value_minor, 0))
+    )
+    const complete = `${orders(n, "order is", "orders are")} complete, with ${got} received.`
+    return short > 0
+      ? {
+          lead: {
+            text: orders(
+              short,
+              "order was closed short",
+              "orders were closed short"
+            ),
+            late: true,
+          },
+          after: `. ${complete}`,
+          note,
+        }
+      : { after: complete, note }
+  }
+
+  if (n === 0) return { after: "Nothing has been cancelled." }
+  const gone = nb(brief(rows.reduce((sum, row) => sum + row.net_minor, 0)))
+  return {
+    lead: { text: orders(n, "order", "orders"), late: false },
+    after: ` for ${gone} ${n === 1 ? "was" : "were"} cancelled.`,
+    note,
+  }
+}
+
+/// The sentence, in the header band on a phone — the white of the bar
+/// carried down under the title, the bar's own rule dropped so the two read
+/// as one — and under the title on a desk. It scrolls with the list: the
+/// title stays, the sentence does not hold two lines of the screen.
+function SummaryBand({
+  page,
+  review,
+  tab,
+}: {
+  page: PurchaseOrderPage | undefined
+  review: ReadonlyMap<string, unknown>
+  tab: OrderTab
+}) {
+  const identity = useIdentity()
+  const first = (
+    identity.data?.display_name ??
+    identity.data?.username ??
+    ""
+  ).split(" ")[0]
+  // The bar's hairline goes while the band is in view (`top-bar.tsx`), so
+  // title and sentence read as one surface; once the band has scrolled up
+  // under the title the rule comes back, the edge where the list meets it.
+  const band = useRef<HTMLParagraphElement>(null)
+  useEffect(() => {
+    const root = document.documentElement
+    const node = band.current
+    if (node === null) return
+    const watch = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) root.dataset.headerBand = ""
+      else delete root.dataset.headerBand
+    })
+    watch.observe(node)
+    return () => {
+      watch.disconnect()
+      delete root.dataset.headerBand
+    }
+  }, [])
+  const said = page === undefined ? null : summaryOf(page, review, tab)
+  // After "Hi Rina," the sentence carries on: "nothing", not "Nothing".
+  const carry = (text: string) =>
+    first === ""
+      ? text
+      : text.replace(/^(No|Nothing)\b/, (w) => w.toLowerCase())
+  return (
+    <p
+      ref={band}
+      title={said?.note}
+      className="mb-5 min-h-6 text-[0.9375rem] leading-normal text-pretty text-body max-md:-mx-4 max-md:-mt-4 max-md:mb-4 max-md:border-b max-md:border-hairline max-md:bg-canvas max-md:px-4 max-md:pt-0.5 max-md:pb-3.5"
+    >
+      {said !== null && (
+        // Arrives with the data: a short fade, no movement.
+        <span className="transition-opacity duration-200 ease-(--ease-out) starting:opacity-0">
+          {first !== "" && `Hi ${first}, `}
+          {said.lead !== undefined && (
+            <b
+              className={cn(
+                "font-semibold tabular-nums",
+                said.lead.late ? "text-bad-fg" : "text-ink"
+              )}
+            >
+              {said.lead.text}
+            </b>
+          )}
+          {said.lead === undefined ? carry(said.after) : said.after}
+        </span>
+      )}
+    </p>
   )
-  const value = open.reduce((sum, row) => sum + row.net_minor, 0)
-  const late = rows.filter((row) => row.overdue).length
-  // An order with no promised date cannot be late, and saying "0 overdue"
-  // while most carry no date at all is a true number that reads as an
-  // all-clear. The tile says how many it could not judge.
-  const undated = rows.filter(
-    (row) => row.expected_arrival === null && row.outstanding_stock_units > 0
-  ).length
-  return [
-    { label: "Orders", value: count(page.total) },
-    { label: "Still open", value: count(open.length), note },
-    {
-      label: "Overdue",
-      value: count(late),
-      note:
-        undated === 0
-          ? note
-          : `${count(undated)} open orders carry no promised date, so they cannot be judged late${note === undefined ? "" : ` · ${note}`}`,
-    },
-    // Short, because a tile two columns wide cannot hold "Rp 49.923.900.000"
-    // and a truncated figure is worse than a rounded one. The exact number is
-    // on the title, where a hover finds it.
-    {
-      label: "On order",
-      value: brief(value),
-      note: `${money(value)}${note === undefined ? "" : ` · ${note}`}`,
-    },
-  ]
 }
 
 /// The record detail. It fetches its own read rather than being handed the row:
 /// the list carries a summary, and the lines are only wanted once somebody
 /// asks for one order.
-/// The items table of an order, calm: horizontal rules only, one padding.
-const HEAD_T =
-  "border-b border-hairline bg-soft-2 px-4 py-3 text-left text-[0.875rem] font-medium whitespace-nowrap text-body"
-const CELL_T = "border-t border-hairline px-4 py-4 align-middle"
-
 export function OrderSheet({
   id,
   onClose,
@@ -1511,6 +2027,102 @@ export function OrderSheet({
   /// read — over the order sheet, which stays open on the cancelled record.
   /// This component outlives the sheet's openings.
   const [cancelledOrder, setCancelledOrder] = useState<string | null>(null)
+  const verify = useSheet("verify")
+  const counts = useCountsAwaiting()
+  /// What can be done to the order: along the foot of its sheet on every
+  /// screen, the same buttons in the same places on a desk and on a phone, and
+  /// where a thumb is (the owner, 2026-10-05: "jangan dibedakan"). Print is
+  /// the icon at the left; the rest stand at the right with the main action
+  /// last — the count's review when one is waiting, with Edit beside it, plain;
+  /// else Edit.
+  const actionsOf = (order: PurchaseOrderDetail) => {
+    const reviewing = (counts.get(order.po_number)?.length ?? 0) > 0
+    const edit = order.editable && (
+      <Button
+        key="edit"
+        variant={reviewing ? "ghost" : "primary"}
+        size="sm"
+        title="Edit the items on this order"
+        onClick={() => onEdit(order.purchase_order_id)}
+      >
+        Edit
+      </Button>
+    )
+    // Partly received and the rest is not coming: give it up here. It cannot
+    // be undone, so it asks.
+    const closeShortButton = order.lifecycle === "PARTIALLY_RECEIVED" &&
+      owedPieces > 0 && (
+        <ConfirmButton
+          key="short"
+          label="Close Short"
+          title="Close This Short?"
+          description={`${pcs(owedPieces)} will be removed from the order, and the PO completes as received. This can't be undone.`}
+          confirmLabel="Close Short"
+          tone="danger"
+          variant="ghost"
+          size="sm"
+          pending={closeShort.isPending}
+          reason={{ label: "Reason for Closing" }}
+          onConfirm={(reason) => closeShort.mutateAsync(reason)}
+        />
+      )
+    // Only while nothing has been received, billed or advanced; after that an
+    // order is closed short instead.
+    const cancelButton =
+      order.cancellable &&
+      (countOpen ? (
+        <Button
+          key="cancel"
+          variant="ghost"
+          size="sm"
+          disabled
+          title="A count is waiting. Review it first."
+        >
+          Cancel
+        </Button>
+      ) : (
+        <ConfirmButton
+          key="cancel"
+          label="Cancel"
+          title={`Cancel ${order.po_number}?`}
+          description="The warehouse will stop receiving against this order. It stays on record as cancelled."
+          cancelLabel="Keep Order"
+          confirmLabel="Cancel Order"
+          tone="danger"
+          variant="ghost"
+          size="sm"
+          pending={cancel.isPending}
+          reason={{ label: "Reason for Cancelling", optional: true }}
+          onConfirm={(reason) =>
+            cancel.mutateAsync({ orderId: order.purchase_order_id, reason })
+          }
+        />
+      ))
+    return (
+      <div className="flex items-center gap-2 [&_button]:h-9 [&_button]:px-4">
+        <PrintMenu
+          key="print"
+          iconOnly
+          onChoose={(choice) => void print(order, choice)}
+        />
+        <span className="ml-auto flex items-center gap-2">
+          {closeShortButton}
+          {cancelButton}
+          {edit}
+          {reviewing && (
+            <Button
+              key="review"
+              variant="primary"
+              size="sm"
+              onClick={() => verify.open(order.po_number)}
+            >
+              Review Count
+            </Button>
+          )}
+        </span>
+      </div>
+    )
+  }
 
   return (
     <>
@@ -1538,82 +2150,7 @@ export function OrderSheet({
             </Pill>
           )
         }
-        actions={
-          detail.data ? (
-            <>
-              {/* Edit opens the order's lines — quantities, prices, adding and
-                taking off — and is offered only while the server would take
-                the save: once the order is received in full, closed or
-                cancelled it is evidence, and the button is not there. */}
-              {detail.data.editable && (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  title="Edit the items on this order"
-                  onClick={() => onEdit(detail.data.purchase_order_id)}
-                >
-                  <Pencil />
-                  Edit
-                </Button>
-              )}
-              <PrintMenu
-                onChoose={(choice) => void print(detail.data, choice)}
-              />
-              {/* Partly received and the rest is not coming: give it up here.
-                It cannot be undone, so it asks. */}
-              {detail.data.lifecycle === "PARTIALLY_RECEIVED" &&
-                owedPieces > 0 && (
-                  <ConfirmButton
-                    label="Close Short"
-                    title="Close This Short?"
-                    description={`${pcs(owedPieces)} will be removed from the order, and the PO completes as received. This can't be undone.`}
-                    confirmLabel="Close Short"
-                    tone="danger"
-                    variant="ghost"
-                    size="sm"
-                    pending={closeShort.isPending}
-                    reason={{ label: "Reason for Closing" }}
-                    onConfirm={(reason) => closeShort.mutateAsync(reason)}
-                  />
-                )}
-              {/* Only while nothing has been received, billed or advanced;
-                after that an order is closed short instead. */}
-              {detail.data.cancellable && countOpen && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled
-                  title="A count is waiting. Review it first."
-                >
-                  Cancel order
-                </Button>
-              )}
-              {detail.data.cancellable && !countOpen && (
-                <ConfirmButton
-                  label="Cancel Order"
-                  title={`Cancel ${detail.data.po_number}?`}
-                  description="The warehouse will stop receiving against this order. It stays on record as cancelled."
-                  cancelLabel="Keep Order"
-                  confirmLabel="Cancel Order"
-                  tone="danger"
-                  variant="ghost"
-                  size="sm"
-                  pending={cancel.isPending}
-                  reason={{
-                    label: "Reason for Cancelling",
-                    optional: true,
-                  }}
-                  onConfirm={(reason) =>
-                    cancel.mutateAsync({
-                      orderId: detail.data.purchase_order_id,
-                      reason,
-                    })
-                  }
-                />
-              )}
-            </>
-          ) : undefined
-        }
+        footer={detail.data ? actionsOf(detail.data) : undefined}
         // Wider than a rail, because an order is a DOCUMENT rather than a
         // record: six columns of lines — what, when it is due, at what price,
         // how many ordered, how many arrived, what that came to — do not fit in
@@ -1731,7 +2268,8 @@ function CountBanner({ po, cancelled }: { po: string; cancelled: boolean }) {
             {nameOfLogin(first.counted_by)}, {moment(first.counted_at)}
           </span>
         </span>
-        <ReviewCountButton po={po} />
+        {/* No button here: the sheet's foot carries Review Count, as its main
+            action, on every screen. */}
       </div>
     )
   }
@@ -1749,67 +2287,36 @@ function CountBanner({ po, cancelled }: { po: string; cancelled: boolean }) {
   return null
 }
 
-/// The colour of a received figure (see `receivedTone`): green once the line
-/// is whole, red while part of it is still owed, muted while nothing has come
-/// in at all — not short, just not here.
-function toneText(tone: "ok" | "bad" | null): string {
-  return tone === "bad"
-    ? "text-bad-fg"
-    : tone === "ok"
-      ? "text-ok-fg"
-      : "text-mute"
-}
-
-/// One line's identity: the thumbnail, the article, and what it is. Shared by
-/// the table row and the phone's card; how much has arrived stands beside it
-/// in the Received column (see `OrderDocument`).
-function LineItem({ line }: { line: PurchaseOrderDetail["lines"][number] }) {
+/// Every receiving against one line, under its name in the items table (see
+/// `ItemsTable`, which draws the name, the picture and what it is filed under).
+function LineReceipts({
+  line,
+}: {
+  line: PurchaseOrderDetail["lines"][number]
+}) {
+  const receipts = receiptLines(line)
+  if (receipts.length === 0) return null
   return (
-    <div className="flex items-center gap-2.5">
-      <Thumbnail
-        url={line.image_url}
-        name={line.article_name}
-        division={line.division_code}
-        fallback="—"
-        className="size-9 shrink-0 rounded-inner"
-      />
-      <div className="min-w-0">
-        <div className="truncate text-ink">{line.article_name}</div>
-        <div className="truncate text-[0.875rem] text-body">
-          {[
-            line.division_code === null
-              ? "Unclassified"
-              : label(line.division_code),
-            ...line.tags.map((tag) => label(tag)),
-          ].join(" \u00b7 ")}
-        </div>
-        {/* Every receiving against the line, numbered when
-          there was more than one; the total and its colour
-          stand in the Received column. */}
-        {receiptLines(line).length > 0 && (
-          <div className="text-[0.875rem] text-body tabular-nums">
-            <div>Received</div>
-            <ul>
-              {receiptLines(line).map((one) => (
-                <li key={one.head + one.body} className="flex gap-2">
-                  {/* A bullet only when there is more than one receiving to
-                    tell apart. */}
-                  {receiptLines(line).length > 1 && (
-                    <span aria-hidden className="text-mute">
-                      {"\u2022"}
-                    </span>
-                  )}
-                  <span className="truncate">
-                    {one.head === ""
-                      ? one.body
-                      : `${one.head} \u00b7 ${one.body}`}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
+    // Every receiving against the line, numbered when there was more than
+    // one; the total and its colour stand in the Received column.
+    <div className="text-[0.875rem] text-body tabular-nums">
+      <div>Received</div>
+      <ul>
+        {receipts.map((one) => (
+          <li key={one.head + one.body} className="flex gap-2">
+            {/* A bullet only when there is more than one receiving to tell
+                apart. */}
+            {receipts.length > 1 && (
+              <span aria-hidden className="text-mute">
+                {"\u2022"}
+              </span>
+            )}
+            <span className="truncate">
+              {one.head === "" ? one.body : `${one.head} \u00b7 ${one.body}`}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
@@ -1947,232 +2454,54 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
       </Facts>
 
       <Section title={`Items (${order.lines.length})`} rule={false} quiet>
-        <div className="flex flex-col md:hidden">
-          <ul className="flex flex-col overflow-hidden rounded-inner border border-hairline">
-            {order.lines.map((line, index) => {
-              const tone = receivedTone(
-                line.ordered_quantity,
-                line.received_quantity
-              )
-              return (
-                <li
-                  key={line.po_line_id}
-                  className="flex flex-col gap-3 border-t border-hairline p-4 first:border-t-0"
-                >
-                  <LineItem line={line} />
-                  <dl className="grid grid-cols-2 gap-3 text-[0.9375rem]">
-                    <div className="flex flex-col gap-0.5">
-                      <dt className="text-mute">Order Qty</dt>
-                      <dd className="text-ink tabular-nums">
-                        {pcs(line.ordered_quantity)}
-                        {line.order_unit_code && line.order_unit_quantity && (
-                          <span className="block text-mute">
-                            {`${line.order_unit_quantity.replace(".", ",")} ${line.order_unit_code.toLowerCase()}`}
-                          </span>
-                        )}
-                      </dd>
-                    </div>
-                    <div className="flex flex-col gap-0.5">
-                      <dt className="text-mute">Received</dt>
-                      <dd className={`${toneText(tone)} tabular-nums`}>
-                        {line.received_quantity === 0
-                          ? "—"
-                          : pcs(line.received_quantity)}
-                      </dd>
-                    </div>
-                    <div className="flex flex-col gap-0.5">
-                      <dt className="text-mute">Unit Price</dt>
-                      <dd className="text-ink tabular-nums">
-                        {unitPriceText(line)}
-                      </dd>
-                    </div>
-                    <div className="flex flex-col gap-0.5">
-                      <dt className="text-mute">Amount</dt>
-                      <dd className="font-medium text-ink tabular-nums">
-                        {money(amounts[index])}
-                      </dd>
-                    </div>
-                  </dl>
-                </li>
-              )
-            })}
-            <li className="flex flex-col gap-2 border-t border-hairline bg-soft p-4 text-[0.9375rem]">
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="font-medium text-body">Total</span>
-                <span className="font-medium text-ink tabular-nums">
-                  {`${pcs(pieces)} \u00b7 ${money(gross)}`}
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="text-body">Received</span>
-                <span className={`${toneText(totalTone)} tabular-nums`}>
-                  {`${received === 0 ? "\u2014" : pcs(received)}`}
-                </span>
-              </div>
-              {order.discount_minor !== 0 && (
-                <div className="flex items-baseline justify-between gap-3 text-body">
-                  <span>
-                    {`Discount \u00b7 ${percentText(order.discount_bps ?? percentFromDiscount(order.discount_minor, gross))} %`}
-                    {pieces > 0 && (
-                      <span className="block text-mute">
-                        {`${money(Math.round(order.discount_minor / pieces))} / pc`}
-                      </span>
-                    )}
-                  </span>
-                  <span className="text-ink tabular-nums">
-                    {`\u2212 ${money(order.discount_minor)}`}
-                  </span>
-                </div>
-              )}
-
-              {closedShortPieces > 0 && (
-                <div className="flex items-baseline justify-between gap-3 text-body">
-                  <span>{`Closed Short \u00b7 ${pcs(closedShortPieces)}`}</span>
-                  <span className="text-ink tabular-nums">
-                    {`\u2212 ${money(closedShortValue)}`}
-                  </span>
-                </div>
-              )}
-              <div className="flex items-baseline justify-between gap-3 border-t border-hairline pt-2">
-                <span className="font-medium text-body">Grand Total</span>
-                <span className="font-medium text-ink tabular-nums">
-                  {money(grandTotal)}
-                </span>
-              </div>
-            </li>
-          </ul>
-        </div>
-        <div className="hidden overflow-hidden rounded-inner border border-hairline md:block">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[46rem] table-fixed border-collapse text-[0.875rem]">
-              <colgroup>
-                <col />
-                <col className="w-[9.5rem]" />
-                <col className="w-[10rem]" />
-                <col className="w-[9rem]" />
-                <col className="w-[10rem]" />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th className={HEAD_T}>Item</th>
-                  <th className={`${HEAD_T} text-right`}>Ordered Quantity</th>
-                  <th className={`${HEAD_T} text-right`}>Received Quantity</th>
-                  <th className={`${HEAD_T} text-right`}>Unit Price</th>
-                  <th className={`${HEAD_T} text-right`}>Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {order.lines.map((line, index) => {
-                  const tone = receivedTone(
-                    line.ordered_quantity,
-                    line.received_quantity
-                  )
-                  return (
-                    <tr key={line.po_line_id}>
-                      <td className={`${CELL_T}`}>
-                        <LineItem line={line} />
-                      </td>
-                      <td
-                        className={`${CELL_T} text-right whitespace-nowrap tabular-nums`}
-                      >
-                        {/* Pieces first; what was said in dozens or kodi under it. */}
-                        {line.order_unit_code && line.order_unit_quantity ? (
-                          <span className="flex flex-col items-end gap-0.5">
-                            {pcs(line.ordered_quantity)}
-                            <span className="text-mute">
-                              {`${line.order_unit_quantity.replace(".", ",")} ${line.order_unit_code.toLowerCase()}`}
-                            </span>
-                          </span>
-                        ) : (
-                          pcs(line.ordered_quantity)
-                        )}
-                      </td>
-                      <td
-                        className={`${CELL_T} text-right whitespace-nowrap tabular-nums`}
-                      >
-                        {/* What has arrived, in the colour of how it stands
-                          against the order: red short, green whole, muted
-                          while nothing has come in. */}
-                        <span className="flex flex-col items-end gap-0.5">
-                          <span className={toneText(tone)}>
-                            {line.received_quantity === 0
-                              ? "—"
-                              : pcs(line.received_quantity)}
-                          </span>
-                        </span>
-                      </td>
-                      <td
-                        className={`${CELL_T} text-right whitespace-nowrap tabular-nums`}
-                      >
-                        {unitPriceText(line)}
-                      </td>
-                      <td
-                        className={`${CELL_T} text-right font-medium whitespace-nowrap text-ink tabular-nums`}
-                      >
-                        <span className="flex flex-col items-end gap-0.5">
-                          {money(amounts[index])}
-                        </span>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-              <tfoot>
-                <tr className="border-t border-hairline bg-soft">
-                  <td className="px-4 py-3 font-medium text-body">Total</td>
-                  <td className="px-4 py-3 text-right font-medium whitespace-nowrap text-ink tabular-nums">
-                    {pcs(pieces)}
-                  </td>
-                  <td className="px-4 py-3 text-right font-medium whitespace-nowrap tabular-nums">
-                    <span className="flex flex-col items-end gap-0.5">
-                      <span className={toneText(totalTone)}>
-                        {received === 0 ? "—" : pcs(received)}
-                      </span>
-                    </span>
-                  </td>
-                  <td />
-                  <td className="px-4 py-3 text-right font-medium text-ink tabular-nums">
-                    {money(gross)}
-                  </td>
-                </tr>
-                {order.discount_minor !== 0 && (
-                  <tr className="border-t border-hairline">
-                    <td colSpan={4} className="px-4 py-3 text-body">
-                      {`Discount \u00b7 ${percentText(order.discount_bps ?? percentFromDiscount(order.discount_minor, gross))} %`}
-                      {pieces > 0 && (
-                        <span className="block text-mute">
-                          {`${money(Math.round(order.discount_minor / pieces))} / pc`}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right text-ink tabular-nums">
-                      {`\u2212 ${money(order.discount_minor)}`}
-                    </td>
-                  </tr>
-                )}
-
-                {closedShortPieces > 0 && (
-                  <tr className="border-t border-hairline">
-                    <td colSpan={4} className="px-4 py-3 text-body">
-                      {`Closed Short \u00b7 ${pcs(closedShortPieces)}`}
-                    </td>
-                    <td className="px-4 py-3 text-right text-ink tabular-nums">
-                      {`\u2212 ${money(closedShortValue)}`}
-                    </td>
-                  </tr>
-                )}
-                <tr className="border-t border-hairline bg-soft">
-                  <td colSpan={4} className="px-4 py-3 font-medium text-body">
-                    Grand Total
-                  </td>
-                  <td className="px-4 py-3 text-right font-medium text-ink tabular-nums">
-                    {money(grandTotal)}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
+        <ItemsTable
+          rows={order.lines.map((line, index) => ({
+            key: line.po_line_id,
+            image: line.image_url,
+            name: line.article_name,
+            division: line.division_code,
+            colour: line.variants?.[0]?.colour_code ?? null,
+            filed: [
+              line.division_code === null
+                ? "Unclassified"
+                : label(line.division_code),
+              ...line.tags.map((tag) => label(tag)),
+            ].join(" \u00b7 "),
+            said:
+              line.order_unit_code && line.order_unit_quantity
+                ? `${line.order_unit_quantity.replace(".", ",")} ${line.order_unit_code.toLowerCase()}`
+                : null,
+            pieces: line.ordered_quantity,
+            price: unitPriceText(line),
+            amount: amounts[index],
+            received: {
+              pieces: line.received_quantity,
+              tone: receivedTone(line.ordered_quantity, line.received_quantity),
+            },
+            more: <LineReceipts line={line} />,
+          }))}
+          totals={{
+            pieces,
+            received: { pieces: received, tone: totalTone },
+            gross,
+            discount:
+              order.discount_minor === 0
+                ? undefined
+                : {
+                    minor: order.discount_minor,
+                    label: `Discount \u00b7 ${percentText(order.discount_bps ?? percentFromDiscount(order.discount_minor, gross))} %`,
+                    perPiece:
+                      pieces > 0
+                        ? Math.round(order.discount_minor / pieces)
+                        : null,
+                  },
+            closedShort:
+              closedShortPieces > 0
+                ? { pieces: closedShortPieces, value: closedShortValue }
+                : undefined,
+            grand: grandTotal,
+          }}
+        />
       </Section>
 
       <BeyondTheOrder order={order} />

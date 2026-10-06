@@ -7,21 +7,15 @@ import {
 import { useNavigate } from "@tanstack/react-router"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import {
-  ChevronRight,
-  Pencil,
-  Plus,
-  Printer,
-  Search,
-  Trash2,
-} from "lucide-react"
+import { ChevronRight, Plus, Printer, Search, Trash2 } from "lucide-react"
 import { createContext, use, useEffect, useMemo, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Dialog, SavedDialog } from "@/components/ui/dialog"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Fab } from "@/components/ui/fab"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { Switch, Toggle } from "@/components/ui/form"
@@ -36,6 +30,7 @@ import { SubTabs } from "@/components/ui/sub-tabs"
 import { Banner, EmptyState } from "@/components/ui/states"
 import type { CsvColumn } from "@/lib/csv"
 import { recordKeys } from "@/lib/queries/records"
+import { useLayout } from "@/lib/layout"
 import { count, day, dayMonth, money, realItemCode } from "@/lib/format"
 import {
   allSupplierContacts,
@@ -67,6 +62,7 @@ import { ItemFormSheet } from "@/screens/procurement/item-form"
 import { OrderSheet } from "@/screens/procurement/purchase-orders"
 import { escapeHtml } from "@/screens/procurement/print"
 import {
+  pcs,
   useFittedVisibility,
   useIdempotencyKey,
 } from "@/screens/procurement/shared"
@@ -158,7 +154,7 @@ const columns: ColumnDef<TableSetup, SupplierRow>[] = [
     // fact about the supplier, said where its name is.
     cell: ({ row }) => (
       <span className="flex flex-col">
-        <span className="line-clamp-2 font-medium break-words whitespace-normal text-ink">
+        <span className="line-clamp-2 font-medium break-words whitespace-normal text-ink max-md:font-semibold">
           {supplierDisplayName(row.original)}
         </span>
         <span className="font-mono text-[0.875rem] text-mute">
@@ -182,7 +178,7 @@ const columns: ColumnDef<TableSetup, SupplierRow>[] = [
     accessorKey: "active",
     header: "Active Order",
     size: 140,
-    meta: { align: "right", card: "metric" },
+    meta: { align: "right", card: "hide" },
     cell: ({ row }) => <Tally n={row.original.active} />,
   },
   {
@@ -204,14 +200,49 @@ const columns: ColumnDef<TableSetup, SupplierRow>[] = [
     header: "Last Purchased",
     size: 164,
     meta: { align: "right", card: "hide", priority: 2 },
+    cell: ({ row }) => <LastPurchased at={row.original.lastOrdered} />,
+  },
+  // Two columns that exist only on a card (`cardLead`): the figure it leads
+  // with, the open orders, and the foot's left side — the rest of the tally
+  // and the day of the last purchase (the owner, 2026-10-06).
+  {
+    id: "lead",
+    accessorFn: (row) => row.active,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
     cell: ({ row }) => (
-      <span
-        className={cn(
-          "tabular-nums",
-          row.original.lastOrdered === null && "text-mute"
+      <span className="flex flex-col items-end tabular-nums">
+        <span
+          className={cn(
+            "text-[1.5rem] leading-tight font-semibold tracking-tight",
+            row.original.active === 0 ? "text-mute" : "text-ink"
+          )}
+        >
+          {count(row.original.active)}
+        </span>
+        <span className="text-[0.875rem] text-mute">active</span>
+      </span>
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.completed,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <span className="flex flex-col leading-6 tabular-nums">
+        <span>
+          <Counted n={row.original.completed} word="completed" />
+          {" · "}
+          <Counted n={row.original.cancelled} word="cancelled" />
+        </span>
+        {row.original.lastOrdered !== null && (
+          <span>{`Last purchased ${day(row.original.lastOrdered)}`}</span>
         )}
-      >
-        {dayMonth(row.original.lastOrdered)}
       </span>
     ),
   },
@@ -221,7 +252,7 @@ const columns: ColumnDef<TableSetup, SupplierRow>[] = [
     header: "Company Address",
     size: 260,
     enableSorting: false,
-    meta: { card: "hide" },
+    meta: { card: "meta" },
     cell: ({ row }) => (
       <span className="line-clamp-2 text-text">
         {row.original.address ?? "—"}
@@ -233,7 +264,7 @@ const columns: ColumnDef<TableSetup, SupplierRow>[] = [
     header: "Company Email",
     size: 220,
     enableSorting: false,
-    meta: { card: "hide" },
+    meta: { card: "meta" },
     cell: ({ row }) => (
       <span className="text-text">{row.original.email ?? "—"}</span>
     ),
@@ -243,7 +274,7 @@ const columns: ColumnDef<TableSetup, SupplierRow>[] = [
     header: "Company Phone",
     size: 170,
     enableSorting: false,
-    meta: { card: "hide" },
+    meta: { card: "meta" },
     cell: ({ row }) => (
       <span className="tabular-nums">
         {row.original.phone ? formatPhones(row.original.phone) : "—"}
@@ -255,7 +286,7 @@ const columns: ColumnDef<TableSetup, SupplierRow>[] = [
     header: "NPWP",
     size: 200,
     enableSorting: false,
-    meta: { card: "hide" },
+    meta: { card: "meta" },
     cell: ({ row }) => (
       <span className="tabular-nums">
         {row.original.npwp ? formatNpwp(row.original.npwp) : "—"}
@@ -267,10 +298,19 @@ const columns: ColumnDef<TableSetup, SupplierRow>[] = [
     header: "PKP",
     size: 90,
     enableSorting: false,
-    meta: { card: "hide" },
+    meta: { card: "meta" },
     cell: ({ row }) => (row.original.is_pkp ? "Yes" : "No"),
   },
 ]
+
+/// The day of the last order.
+function LastPurchased({ at }: { at: string | null }) {
+  return (
+    <span className={cn("tabular-nums", at === null && "text-mute")}>
+      {dayMonth(at)}
+    </span>
+  )
+}
 
 /// An order count in the list. A nought is set quiet so the suppliers with
 /// something open stand out down the column — 300 rows of "0" in the same
@@ -283,8 +323,23 @@ function Tally({ n }: { n: number }) {
   )
 }
 
+/// A count with its word, on a card's foot: "8 completed". The figure takes
+/// the ink and the word stays quiet; a nought is quiet altogether.
+function Counted({ n, word }: { n: number; word: string }) {
+  return n === 0 ? (
+    <span>{`0 ${word}`}</span>
+  ) : (
+    <span>
+      <span className="font-medium text-ink">{count(n)}</span>
+      {` ${word}`}
+    </span>
+  )
+}
+
 /// The optional columns, off until they are asked for.
 const HIDDEN_BY_DEFAULT: VisibilityState = {
+  lead: false,
+  foot: false,
   address: false,
   email: false,
   phone: false,
@@ -361,6 +416,10 @@ export function Suppliers() {
   const [sorting, setSorting] = useState<SortingState>([])
   const fit = useFittedVisibility(columns, HIDDEN_BY_DEFAULT)
   const visibility = fit.visibility
+  // A phone draws cards, which stack and so need no width: the columns the
+  // list gave up for lack of room on a desk are all here, as facts on the card
+  // (the reader's own Columns switches still apply).
+  const phone = useLayout() === "phone"
   /// The book is narrowed by two things and only two (the owner,
   /// 2026-09-28): its status, as tabs, and whether a supplier has an order
   /// still open, as a switch. The filter panel, views and chips are gone.
@@ -461,7 +520,9 @@ export function Suppliers() {
         getRowId: (row: SupplierRow) => row.supplier_id,
         state: {
           sorting,
-          columnVisibility: fit.shown,
+          columnVisibility: phone
+            ? { ...visibility, lead: true, foot: true }
+            : fit.shown,
         },
         // The rows arrive in the order the request asked for. Sorting them
         // again here would sort what has loaded, not the book.
@@ -469,7 +530,7 @@ export function Suppliers() {
         onSortingChange: setSorting,
         onColumnVisibilityChange: fit.change,
       }),
-      [rows, sorting, fit.hidden, visibility]
+      [rows, sorting, fit.hidden, visibility, phone]
     )
   )
 
@@ -518,8 +579,8 @@ export function Suppliers() {
           </div>
         )) ??
           [
-            "Active suppliers",
-            "Non-active suppliers",
+            "Active",
+            "Non-active",
             "Active PO",
             "Active PO qty",
             "Active PO value",
@@ -527,6 +588,9 @@ export function Suppliers() {
       </KpiStrip>
 
       <SubTabs
+        // Hidden on a phone: the status is the button in the drawer over the
+        // bottom bar (`DockTools`), as on the order list (owner, 2026-10-05).
+        className="max-md:hidden"
         tabs={[
           {
             value: "ACTIVE",
@@ -554,7 +618,7 @@ export function Suppliers() {
           button drops to a line of its own. */}
       <div className="mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 md:flex-nowrap">
         <>
-          <span className="relative min-w-[11rem] flex-1 lg:max-w-64">
+          <span className="relative min-w-[11rem] flex-1 max-md:hidden lg:max-w-64">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
             <input
               value={search.value ?? ""}
@@ -579,26 +643,61 @@ export function Suppliers() {
             Active order
           </label>
           <span className="flex-1 max-lg:hidden" />
-          <div className="hidden md:contents">
-            <ColumnsMenu table={table} />
-            <ExportCsv
-              title="Suppliers"
-              columns={EXPORT_COLUMNS}
-              rows={exportRows}
-            />
-            <Button variant="primary" onClick={() => supplier.open("new")}>
-              New supplier
-            </Button>
-          </div>
+          {/* The same controls on a phone and on a desk. Only New supplier
+              changes its dress: a button here, the round "+" in the dock there. */}
+          <ColumnsMenu table={table} />
+          <ExportCsv
+            title="Suppliers"
+            columns={EXPORT_COLUMNS}
+            rows={exportRows}
+          />
+          <Button
+            variant="primary"
+            className="max-md:hidden"
+            onClick={() => supplier.open("new")}
+          >
+            New supplier
+          </Button>
         </>
       </div>
       <Fab label="New Supplier" onClick={() => supplier.open("new")} />
+      {/* On a phone the status and the search live in the drawer over the
+          bottom bar, not at the top of the list (owner, 2026-10-05). */}
+      <DockTools
+        search={{
+          value: search.value ?? "",
+          onChange: (next) => (next ? search.open(next) : search.close()),
+          label: "Search Suppliers",
+        }}
+        sort={dockSortOf(table)}
+        status={{
+          value: tab,
+          options: [
+            {
+              value: "ACTIVE",
+              label: "Active",
+              count: statusCount("ACTIVE"),
+            },
+            {
+              value: "INACTIVE",
+              label: "Non-active",
+              count: statusCount("INACTIVE"),
+            },
+            {
+              value: "ALL",
+              label: "All",
+              count: statusCount("ACTIVE") + statusCount("INACTIVE"),
+            },
+          ],
+          onChange: (next) => setTab(next as StatusTab),
+        }}
+      />
 
       {/* `overflow-clip`, not `overflow-hidden`: hidden makes the card a
           scroll box, and the table's heading would stick to the card instead
           of the window. */}
       <div ref={fit.ref}>
-        <Card className="overflow-clip">
+        <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
           {queryState(book, {
             loading: "Reading the supplier list…",
             render: () =>
@@ -613,6 +712,8 @@ export function Suppliers() {
                   <DataTable<SupplierRow>
                     table={table}
                     cardSort={false}
+                    cardsApart
+                    cardLead
                     onRowClick={(row) => supplier.open(row.supplier_id)}
                     isSelected={(row) => row.supplier_id === supplier.value}
                     isExpanded={(row) => expanded.has(row.supplier_id)}
@@ -815,12 +916,12 @@ function bookKpis(page: SupplierPage | undefined) {
     page.facets.statuses.find((facet) => facet.value === value)?.count ?? 0
   return [
     {
-      label: "Active suppliers",
+      label: "Active",
       value: count(of("ACTIVE")),
       note: "Suppliers a purchase order can be issued to.",
     },
     {
-      label: "Non-active suppliers",
+      label: "Non-active",
       value: count(of("INACTIVE")),
       note: "Suppliers no purchase order can be issued to.",
     },
@@ -1117,6 +1218,7 @@ function CompanyFields({
           problem={touched.npwp || tried ? npwp : null}
         >
           <Input
+            keyboard
             inputMode="numeric"
             value={draft.npwp}
             disabled={locked("npwp")}
@@ -1751,53 +1853,8 @@ function SupplierSheet({
           )
         }
         width="wide"
-        actions={
-          supplier &&
-          !editing && (
-            <>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() =>
-                  printSuppliers([
-                    {
-                      supplier,
-                      contacts: (people.data ?? []).map(contactDraftOf),
-                    },
-                  ])
-                }
-              >
-                <Printer />
-                Print
-              </Button>
-              <Button
-                size="sm"
-                variant="primary"
-                onClick={() => {
-                  save.reset()
-                  setTab("details")
-                  setEdit({
-                    id: id!,
-                    name: supplier.name,
-                    legalForm: supplier.legal_form ?? "",
-                    address: supplier.address ?? "",
-                    email: supplier.email ?? "",
-                    phone: shownPhone(supplier.phone) ?? "",
-                    npwp: formatNpwp(supplier.npwp ?? ""),
-                    isPkp: supplier.is_pkp ?? false,
-                    notes: supplier.notes ?? "",
-                    contacts: [...(people.data ?? []).map(contactDraftOf)],
-                  })
-                }}
-              >
-                <Pencil />
-                Edit
-              </Button>
-            </>
-          )
-        }
         footer={
-          editing && (
+          editing ? (
             <div className="flex items-center justify-end gap-2">
               <Button variant="ghost" onClick={() => setEdit(null)}>
                 Cancel
@@ -1813,6 +1870,54 @@ function SupplierSheet({
                 {save.isPending ? "Submitting…" : "Submit"}
               </Button>
             </div>
+          ) : (
+            supplier && (
+              // Along the foot on every screen, the same on a desk and a
+              // phone (owner, 2026-10-05): Print the icon at the left, Edit the
+              // main action at the right.
+              <div className="flex items-center gap-2 [&_button]:h-9">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  aria-label="Print"
+                  title="Print"
+                  className="w-9 px-0!"
+                  onClick={() =>
+                    printSuppliers([
+                      {
+                        supplier,
+                        contacts: (people.data ?? []).map(contactDraftOf),
+                      },
+                    ])
+                  }
+                >
+                  <Printer />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  className="ml-auto px-4"
+                  onClick={() => {
+                    save.reset()
+                    setTab("details")
+                    setEdit({
+                      id: id!,
+                      name: supplier.name,
+                      legalForm: supplier.legal_form ?? "",
+                      address: supplier.address ?? "",
+                      email: supplier.email ?? "",
+                      phone: shownPhone(supplier.phone) ?? "",
+                      npwp: formatNpwp(supplier.npwp ?? ""),
+                      isPkp: supplier.is_pkp ?? false,
+                      notes: supplier.notes ?? "",
+                      contacts: [...(people.data ?? []).map(contactDraftOf)],
+                    })
+                  }}
+                >
+                  Edit
+                </Button>
+              </div>
+            )
           )
         }
       >
@@ -1988,23 +2093,23 @@ const GROUPS: readonly {
 }[] = [
   {
     key: "active",
-    title: "Active order",
+    title: "Active Order",
     statuses: ["ACTIVE", "PARTIALLY_RECEIVED"],
-    dateLabel: "Delivery date",
+    dateLabel: "Delivery Date",
     date: (order) => order.expected_arrival,
   },
   {
     key: "completed",
-    title: "Completed order",
+    title: "Completed Order",
     statuses: ["FULLY_RECEIVED", "SHORT_RECEIVED"],
-    dateLabel: "Date fulfilled",
+    dateLabel: "Date Fulfilled",
     date: (order) => order.fulfilled_at,
   },
   {
     key: "cancelled",
-    title: "Cancelled order",
+    title: "Cancelled Order",
     statuses: ["CANCELLED"],
-    dateLabel: "Date cancelled",
+    dateLabel: "Date Cancelled",
     date: (order) => order.fulfilled_at,
   },
 ]
@@ -2125,41 +2230,75 @@ function OrdersTable({
   onOpen: (id: string) => void
 }) {
   return (
-    <MiniTable
-      head={[
-        "Order",
-        { label: "Date Issued", align: "left" },
-        { label: group.dateLabel, align: "left" },
-        "Quantity",
-        "Value",
-      ]}
-    >
-      {rows.map((order) => (
-        <MiniRow key={order.purchase_order_id}>
-          <MiniCell className="py-2.5">
-            <button
-              type="button"
-              onClick={() => onOpen(order.purchase_order_id)}
-              className="font-mono text-[0.875rem] text-accent hover:underline"
-            >
-              {order.po_number}
-            </button>
-          </MiniCell>
-          <MiniCell className="py-2.5 tabular-nums">
-            {day(order.issued_at)}
-          </MiniCell>
-          <MiniCell className="py-2.5 tabular-nums">
-            {day(group.date(order))}
-          </MiniCell>
-          <MiniCell align="right" className="py-2.5">
-            {count(order.expected_stock_units)}
-          </MiniCell>
-          <MiniCell align="right" className="py-2.5 font-medium text-ink">
-            {money(order.net_minor)}
-          </MiniCell>
-        </MiniRow>
-      ))}
-    </MiniTable>
+    <>
+      {/* A phone: one card per order — the number and its value on a line, the
+          dates and the pieces under them — instead of the table's cells
+          stacked under their labels. The same facts as the table. */}
+      <ul className="flex flex-col md:hidden">
+        {rows.map((order) => (
+          <li
+            key={order.purchase_order_id}
+            className="flex flex-col gap-0.5 border-t border-hairline py-3.5 first:border-t-0"
+          >
+            <div className="flex items-baseline justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => onOpen(order.purchase_order_id)}
+                className="font-mono text-[0.9375rem] text-accent"
+              >
+                {order.po_number}
+              </button>
+              <span className="font-medium whitespace-nowrap text-ink tabular-nums">
+                {money(order.net_minor)}
+              </span>
+            </div>
+            <span className="text-[0.875rem] text-mute tabular-nums">
+              {`Date Issued ${day(order.issued_at)}`}
+            </span>
+            <span className="text-[0.875rem] text-mute tabular-nums">
+              {`${group.dateLabel} ${day(group.date(order))} · ${pcs(order.expected_stock_units)}`}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <div className="max-md:hidden">
+        <MiniTable
+          head={[
+            "Order",
+            { label: "Date Issued", align: "left" },
+            { label: group.dateLabel, align: "left" },
+            "Quantity",
+            "Value",
+          ]}
+        >
+          {rows.map((order) => (
+            <MiniRow key={order.purchase_order_id}>
+              <MiniCell className="py-2.5">
+                <button
+                  type="button"
+                  onClick={() => onOpen(order.purchase_order_id)}
+                  className="font-mono text-[0.875rem] text-accent hover:underline"
+                >
+                  {order.po_number}
+                </button>
+              </MiniCell>
+              <MiniCell className="py-2.5 tabular-nums">
+                {day(order.issued_at)}
+              </MiniCell>
+              <MiniCell className="py-2.5 tabular-nums">
+                {day(group.date(order))}
+              </MiniCell>
+              <MiniCell align="right" className="py-2.5">
+                {pcs(order.expected_stock_units)}
+              </MiniCell>
+              <MiniCell align="right" className="py-2.5 font-medium text-ink">
+                {money(order.net_minor)}
+              </MiniCell>
+            </MiniRow>
+          ))}
+        </MiniTable>
+      </div>
+    </>
   )
 }
 
@@ -2259,45 +2398,91 @@ function CatalogueTable({
   onOpen: (item: SupplierItem) => void
 }) {
   return (
-    <MiniTable
-      head={[
-        { label: "Code", align: "left" },
-        { label: "Item", align: "left" },
-        { label: "Division", align: "left" },
-        { label: "Tags", align: "left" },
-        { label: "Price", align: "right" },
-        { label: "Status", align: "right" },
-      ]}
-    >
-      {items.map((item) => (
-        <tr
-          key={item.supplier_item_id}
-          onClick={() => onOpen(item)}
-          className="cursor-pointer border-t border-hairline transition-colors hover:bg-soft-2"
+    <>
+      {/* A phone: one card per item — the name and its price on a line, what it
+          is filed under and its code under them, the status beside the code —
+          the same facts as the table, not its cells stacked under labels. */}
+      <ul className="flex flex-col md:hidden">
+        {items.map((item) => (
+          <li
+            key={item.supplier_item_id}
+            className="border-t border-hairline first:border-t-0"
+          >
+            <button
+              type="button"
+              onClick={() => onOpen(item)}
+              className="flex w-full items-start justify-between gap-3 py-3.5 text-left"
+            >
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="truncate text-[0.9375rem] text-accent">
+                  {item.name}
+                </span>
+                <span className="truncate text-[0.875rem] text-body">
+                  {[
+                    humanCode(item.division_code),
+                    item.tags.map(humanCode).join(", "),
+                  ]
+                    .filter((part) => part !== "" && part !== "—")
+                    .join(" · ")}
+                </span>
+                <span className="font-mono text-[0.875rem] text-mute">
+                  {realItemCode(item.supplier_item_code)}
+                </span>
+              </span>
+              <span className="flex shrink-0 flex-col items-end gap-1.5">
+                <span className="font-semibold whitespace-nowrap text-ink tabular-nums">
+                  {money(item.unit_price_minor)}
+                </span>
+                <Pill tone={item.status === "ACTIVE" ? "ok" : "neutral"}>
+                  {item.status === "ACTIVE" ? "Active" : "Cancelled"}
+                </Pill>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className="max-md:hidden">
+        <MiniTable
+          head={[
+            { label: "Code", align: "left" },
+            { label: "Item", align: "left" },
+            { label: "Division", align: "left" },
+            { label: "Tags", align: "left" },
+            { label: "Price", align: "right" },
+            { label: "Status", align: "right" },
+          ]}
         >
-          <td className="py-4 pl-3 font-mono text-[0.875rem] text-mute first:pl-0">
-            {realItemCode(item.supplier_item_code)}
-          </td>
-          <td className="py-4 pl-3 first:pl-0">
-            <span className="text-[0.875rem] text-accent">{item.name}</span>
-          </td>
-          <td className="py-4 pl-3 text-[0.875rem] text-body first:pl-0">
-            {humanCode(item.division_code)}
-          </td>
-          <td className="py-4 pl-3 text-[0.875rem] text-mute first:pl-0">
-            {item.tags.map(humanCode).join(", ") || "—"}
-          </td>
-          <td className="py-4 pl-3 text-right text-[0.9375rem] font-semibold text-ink tabular-nums">
-            {money(item.unit_price_minor)}
-          </td>
-          <td className="py-4 pl-3 text-right">
-            <Pill tone={item.status === "ACTIVE" ? "ok" : "neutral"}>
-              {item.status === "ACTIVE" ? "Active" : "Cancelled"}
-            </Pill>
-          </td>
-        </tr>
-      ))}
-    </MiniTable>
+          {items.map((item) => (
+            <tr
+              key={item.supplier_item_id}
+              onClick={() => onOpen(item)}
+              className="cursor-pointer border-t border-hairline transition-colors hover:bg-soft-2"
+            >
+              <td className="py-4 pl-3 font-mono text-[0.875rem] text-mute first:pl-0">
+                {realItemCode(item.supplier_item_code)}
+              </td>
+              <td className="py-4 pl-3 first:pl-0">
+                <span className="text-[0.875rem] text-accent">{item.name}</span>
+              </td>
+              <td className="py-4 pl-3 text-[0.875rem] text-body first:pl-0">
+                {humanCode(item.division_code)}
+              </td>
+              <td className="py-4 pl-3 text-[0.875rem] text-mute first:pl-0">
+                {item.tags.map(humanCode).join(", ") || "—"}
+              </td>
+              <td className="py-4 pl-3 text-right text-[0.9375rem] font-semibold text-ink tabular-nums">
+                {money(item.unit_price_minor)}
+              </td>
+              <td className="py-4 pl-3 text-right">
+                <Pill tone={item.status === "ACTIVE" ? "ok" : "neutral"}>
+                  {item.status === "ACTIVE" ? "Active" : "Cancelled"}
+                </Pill>
+              </td>
+            </tr>
+          ))}
+        </MiniTable>
+      </div>
+    </>
   )
 }
 

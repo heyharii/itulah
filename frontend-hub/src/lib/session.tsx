@@ -1,10 +1,60 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query"
 
 import { auth, cacheKey, edge, edgeAuth, node, setEdgeToken } from "@/lib/api"
 import { forgetPushOnSignOut } from "@/lib/push"
 import type { SectionCode } from "@/lib/queries/invitations"
 import { isTenancySignOut, tenancyQueryKey } from "@/lib/tenancy"
 import { ApiError, type Identity } from "@itulah/contract/client"
+
+/// Who was signed in when this device last heard from the server.
+///
+/// Only so that a device with no connection can still open the app: the shell
+/// is on the device already (the service worker), and `/auth/me` is the one
+/// question it cannot answer by itself. It holds who they are, not how they
+/// got in — no password, no token, nothing the server would accept — and it is
+/// removed the moment the server says nobody is signed in, or they sign out.
+const IDENTITY_KEY = "itulah.identity.v1"
+
+function rememberedIdentity(): Identity | null {
+  try {
+    const raw = localStorage.getItem(IDENTITY_KEY)
+    return raw === null ? null : (JSON.parse(raw) as Identity)
+  } catch {
+    return null
+  }
+}
+
+/// Set when the identity on screen is the remembered one: the server has not
+/// been asked yet, so the next connection must ask.
+let fromMemory = false
+
+/// Keep the remembered identity in step with the one the app holds, and ask
+/// the server again as soon as there is a connection if the app is standing on
+/// the remembered one. Called once, from `main.tsx`.
+export function watchIdentity(client: QueryClient): void {
+  client.getQueryCache().subscribe((event) => {
+    if (event.type !== "updated" || event.query.queryKey[0] !== "auth") return
+    if (event.query.queryKey[1] !== "me") return
+    const me = event.query.state.data as Identity | null | undefined
+    if (me === undefined) return
+    try {
+      if (me === null) localStorage.removeItem(IDENTITY_KEY)
+      else localStorage.setItem(IDENTITY_KEY, JSON.stringify(me))
+    } catch {
+      // Private window or a full device: the app works, it just cannot open
+      // offline next time.
+    }
+  })
+  window.addEventListener("online", () => {
+    if (!fromMemory) return
+    void client.invalidateQueries({ queryKey: cacheKey.me() })
+  })
+}
 
 /// Who is signed in, asked of the server rather than tracked by hand.
 ///
@@ -20,9 +70,26 @@ export function useIdentity() {
     queryKey: cacheKey.me(),
     queryFn: async ({ signal }): Promise<Identity | null> => {
       try {
-        return await auth.me(signal)
+        const me = await auth.me(signal)
+        fromMemory = false
+        return me
       } catch (error) {
         if (error instanceof ApiError && error.needsSignIn) return null
+        // The server could not be reached (`reach()` says so as a 503) and
+        // this device knows who was signed in: open the app as them. Their
+        // work is held on the device until there is a line, and the first
+        // connection asks properly (`watchIdentity`).
+        if (
+          error instanceof ApiError &&
+          error.status === 503 &&
+          (!navigator.onLine || /reach the server/i.test(error.message))
+        ) {
+          const last = rememberedIdentity()
+          if (last !== null) {
+            fromMemory = true
+            return last
+          }
+        }
         // Sandbox tenancy: nobody has chosen a business yet, or the one this
         // browser was pointed at is gone. Either reads as "sign in again" —
         // `App` shows the door or the chooser, never an error screen — and

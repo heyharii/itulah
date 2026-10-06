@@ -214,6 +214,7 @@ export function BottomSheet({
   onBack,
   icon,
   tone = "light",
+  live = false,
   children,
 }: {
   open: boolean
@@ -231,25 +232,37 @@ export function BottomSheet({
   /// (2026-09-28), so moving between screens looks the same on every glass.
   /// Pickers keep the default — a choice is part of the page it is made on.
   tone?: "light" | "dark"
+  /// A sheet over a page that goes on working: no veil, nothing behind it
+  /// made inert, and a tap on the page lets the sheet go. For a search, whose
+  /// list narrows as it is typed and is the thing to be looking at.
+  live?: boolean
   children: React.ReactNode
 }) {
   const dark = tone === "dark"
   return (
-    <Drawer.Root open={open} onOpenChange={onOpenChange}>
+    <Drawer.Root open={open} onOpenChange={onOpenChange} modal={!live}>
       <Drawer.VirtualKeyboardProvider>
         <Drawer.Portal>
           {/* `forceRender`: Base UI draws no backdrop for a dialog opened
               inside another, and every picker here is opened inside a sheet
               — without it the form stayed fully lit and live-looking behind
               the list, and a tap on it read as a tap on the form. */}
+          {!live && (
           <Drawer.Backdrop
             forceRender
             className="fixed inset-0 z-50 bg-[var(--scrim)] opacity-[calc(1-var(--drawer-swipe-progress,0))] transition-opacity duration-(--t-drawer) ease-(--ease-out) data-[ending-style]:opacity-0 data-[ending-style]:duration-(--t-exit) data-[starting-style]:opacity-0 data-[swiping]:transition-none"
           />
-          <Drawer.Viewport className="fixed inset-0 z-50 flex items-end pb-[var(--drawer-keyboard-inset,0px)]">
+          )}
+          <Drawer.Viewport
+            className={cn(
+              "fixed inset-0 z-50 flex items-end pb-[var(--drawer-keyboard-inset,0px)]",
+              live && "pointer-events-none"
+            )}
+          >
             <Drawer.Popup
               className={cn(
                 "flex max-h-[min(85dvh,calc(100dvh-var(--drawer-keyboard-inset,0px)-0.75rem))] w-full flex-col rounded-t-sheet border-t border-hairline bg-canvas pb-[env(safe-area-inset-bottom)] shadow-float outline-none",
+                live && "pointer-events-auto",
                 dark && "border-rail-hair bg-rail text-rail-text",
                 // Up from the bottom edge on the iOS sheet curve, back down
                 // it faster. The finger's drag is `--drawer-swipe-movement-y`

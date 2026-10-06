@@ -1,21 +1,45 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { Bell, ChevronRight } from "lucide-react"
-import { useState } from "react"
 
 import { AppIcon } from "@/components/shell/app-icon"
-import { AppSheet } from "@/components/shell/app-sheet"
 import { PageContent } from "@/components/shell/app-shell"
-import { appsFor, onlyScreen, type AppTile } from "@/lib/apps"
+import { appsFor, landingOf, type AppTile } from "@/lib/apps"
 import { listNotifications, systemKeys } from "@/lib/queries/system"
 import { useIdentity } from "@/lib/session"
+import { cn } from "@/lib/utils"
+
+const noCount = () => null
+
+/// What is waiting in a department, at the end of its row: the same total the
+/// desk rail's mark carries. Nothing is drawn for none, and "99+" for a pile —
+/// the figure is a nudge, the department has the numbers.
+function Waiting({ tile }: { tile: AppTile }) {
+  // A hook that is the same one on every render of this row (a tile's count
+  // never changes), so calling it here is safe.
+  const waiting = (tile.useCount ?? noCount)()
+  if (typeof waiting !== "number" || waiting <= 0) return null
+  return (
+    <span
+      className={cn(
+        "min-w-7 shrink-0 rounded-full px-2 text-center text-[0.875rem] leading-6 font-semibold tabular-nums",
+        tile.badge === "bad"
+          ? "bg-bad-bg text-bad-fg"
+          : "bg-warn-bg text-warn-fg"
+      )}
+    >
+      {waiting > 99 ? "99+" : waiting}
+    </span>
+  )
+}
 
 /// The phone's first tab: today, then every app this account may open.
 ///
 /// A super-app's launcher (Gojek's services grid), for the owner's reason: on
 /// a phone the rail and the sidebar are one drawer behind a hamburger, and a
-/// department nobody can see is a department nobody finds. Each tile opens its
-/// screens in a sheet (`AppSheet`), or goes straight in when there is only one.
+/// department nobody can see is a department nobody finds. Each row goes
+/// straight into its department, on the screen the desk rail opens on; the
+/// department's other screens are the bar at the bottom.
 ///
 /// "Today" leads because it is what a phone is opened for between two other
 /// things: who is asking, and what is waiting. Clock-in and leave join it when
@@ -24,8 +48,6 @@ import { useIdentity } from "@/lib/session"
 export function Apps() {
   const identity = useIdentity()
   const tiles = appsFor(identity.data?.role)
-  const [tile, setTile] = useState<AppTile | null>(null)
-  const [sheetOpen, setSheetOpen] = useState(false)
 
   // The bell's own query and key, so the count here and the badge on the
   // Notifications tab are one cache entry, not two requests.
@@ -101,57 +123,37 @@ export function Apps() {
           profile are in the bar below.
         </p>
       ) : (
-        // The grid stands on one white panel, the way a super-app gathers
-        // its services — so the tiles read as one set, not fifteen things
-        // floating on the page's grey.
-        // Four across on a 375px phone leaves a tile about 83px, and
-        // "Merchandise" at 14px needs 89 — so no gap between the columns, a
-        // hair tighter tracking, and each name allowed 4px past its tile on
-        // either side, rather than a label cut to "Merchan…" (2026-09-28).
-        <ul className="grid grid-cols-4 gap-y-5 rounded-3xl border border-hairline bg-canvas px-1 py-5 shadow-soft sm:grid-cols-6 lg:grid-cols-8">
+        // One white panel of rows, the way a phone's own Settings lists its
+        // sections (owner, 2026-10-06: "homenya row saja"). Four icons across
+        // a 375px phone left each name 83px, and "Procurement" and
+        // "Merchandise" touched; a row gives any name the width of the line
+        // and has room, at its right, for what is waiting in the department.
+        <ul className="overflow-hidden rounded-3xl border border-hairline bg-canvas shadow-soft [&>li+li]:border-t [&>li+li]:border-hairline">
           {tiles.map((one) => {
-            const only = onlyScreen(one)
-            const face = (
-              <>
-                <AppIcon
-                  id={one.id}
-                  icon={one.icon}
-                  className="transition-[scale] duration-(--t-press) ease-(--ease-out) group-active:scale-[0.92]"
-                />
-                <span className="-mx-1 w-[calc(100%+0.5rem)] truncate text-center text-[0.875rem] font-medium tracking-[-0.015em] text-text">
-                  {one.label}
-                </span>
-              </>
-            )
+            const to = landingOf(one)
             return (
               <li key={one.id}>
-                {only !== undefined ? (
-                  <Link
-                    to={only}
-                    className="group flex flex-col items-center gap-2"
-                  >
-                    {face}
-                  </Link>
-                ) : (
-                  <button
-                    type="button"
-                    aria-haspopup="dialog"
-                    onClick={() => {
-                      setTile(one)
-                      setSheetOpen(true)
-                    }}
-                    className="group flex w-full flex-col items-center gap-2"
-                  >
-                    {face}
-                  </button>
-                )}
+                <Link
+                  to={(to ?? "/apps") as string}
+                  className="group flex h-14 w-full items-center gap-3 px-3.5 text-left transition-colors duration-(--t-press) active:bg-soft"
+                >
+                  <AppIcon
+                    id={one.id}
+                    icon={one.icon}
+                    size="md"
+                    className="transition-[scale] duration-(--t-press) ease-(--ease-out) group-active:scale-[0.92]"
+                  />
+                  <span className="min-w-0 flex-1 truncate text-[1rem] font-medium text-ink">
+                    {one.label}
+                  </span>
+                  <Waiting tile={one} />
+                  <ChevronRight className="size-4 shrink-0 text-line-ico" />
+                </Link>
               </li>
             )
           })}
         </ul>
       )}
-
-      <AppSheet tile={tile} open={sheetOpen} onOpenChange={setSheetOpen} />
     </PageContent>
   )
 }

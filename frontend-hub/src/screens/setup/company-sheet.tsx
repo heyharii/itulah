@@ -50,7 +50,11 @@ export function CompanySheet({
         {/* Mounted only while open, so the form starts from the saved answer
             each time rather than from what was typed and abandoned last time. */}
         {company && open && (
-          <CompanyForm company={company} onDone={onClose} onSaved={() => setSaved(true)} />
+          <CompanyForm
+            company={company}
+            onDone={onClose}
+            onSaved={() => setSaved(true)}
+          />
         )}
       </Sheet>
       <SavedDialog
@@ -140,6 +144,7 @@ function CompanyForm({
         problem={taxProblem}
       >
         <Input
+          keyboard
           inputMode="numeric"
           value={taxId}
           onChange={(event) => setTaxId(event.target.value)}

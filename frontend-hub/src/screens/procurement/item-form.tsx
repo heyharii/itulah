@@ -28,6 +28,7 @@ import {
   type VariantDraft,
 } from "@/screens/procurement/line-pricing-model"
 import { colourKeys, listColours } from "@/lib/queries/colours"
+import { useColourwayFill } from "@/lib/colourway-fill"
 import {
   catalogueVocabulary,
   createSupplierItem,
@@ -333,6 +334,8 @@ export function ItemFormSheet({
   )
   const hexOf = (code: string) =>
     colourTerms.find((one) => one.code === code)?.hex_code ?? null
+  // The placeholder wears the first colour picked, and repaints as it changes.
+  const fill = useColourwayFill()
 
   /// The photograph waiting to be uploaded, if somebody chose one.
   ///
@@ -862,6 +865,7 @@ export function ItemFormSheet({
                           url={null}
                           name={draft.name}
                           division={draft.division}
+                          colours={fill(draft.colours[0])}
                           className="size-full"
                         />
                         <span className="absolute inset-x-0 bottom-2 text-center text-[0.875rem] text-mute">

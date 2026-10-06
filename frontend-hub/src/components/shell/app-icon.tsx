@@ -15,7 +15,7 @@ export function AppIcon({
 }: {
   id: string
   icon: LucideIcon
-  size?: "lg" | "sm"
+  size?: "lg" | "md" | "sm"
   className?: string
 }) {
   return (
@@ -29,14 +29,20 @@ export function AppIcon({
         "app-icon grid shrink-0 place-items-center text-white",
         size === "lg"
           ? "size-14 rounded-[1.0625rem]"
-          : "size-8 rounded-[0.625rem]",
+          : size === "md"
+            ? "size-9 rounded-[0.6875rem]"
+            : "size-8 rounded-[0.625rem]",
         className
       )}
     >
       <Icon
         className={cn(
           "stroke-[1.9]",
-          size === "lg" ? "size-[1.625rem]" : "size-[1.0625rem]"
+          size === "lg"
+            ? "size-[1.625rem]"
+            : size === "md"
+              ? "size-[1.125rem]"
+              : "size-[1.0625rem]"
         )}
       />
     </span>

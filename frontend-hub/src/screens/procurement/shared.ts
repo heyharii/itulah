@@ -200,6 +200,10 @@ export const PO_STATUS: Readonly<
   SHORT_RECEIVED: { label: "Closed short", tone: "done" },
   FULLY_RECEIVED: { label: "Fully received", tone: "done" },
   CANCELLED: { label: "Cancelled", tone: "neutral" },
+  // Orders made with no connection, still on the device (`held-orders.tsx`):
+  // not orders the server knows, so not part of the book's own lifecycle.
+  WAITING_TO_SEND: { label: "Offline", tone: "warn" },
+  NOT_SENT: { label: "Not sent", tone: "warn" },
 }
 
 export function poStatus(lifecycle: string) {

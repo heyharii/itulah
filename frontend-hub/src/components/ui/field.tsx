@@ -12,6 +12,7 @@ import {
   useFieldAria,
   useInForm,
 } from "@/components/ui/field-state"
+import { NumberPad } from "@/components/ui/number-pad"
 import { PickerSheet } from "@/components/ui/picker-sheet"
 import { usePickerSheet } from "@/lib/layout"
 import { ITEM, PANEL } from "@/lib/filter-chrome"
@@ -122,11 +123,20 @@ export function Input({
   className,
   invalid,
   required,
+  keyboard = false,
+  padLabel,
+  ref,
   ...props
 }: React.ComponentPropsWithRef<"input"> & {
   /// Refused, outside a `<Field>` — a cell in a table. Inside one, the
   /// field's `problem` says it and this is left alone.
   invalid?: boolean
+  /// A number that is not a quantity — an account number, a tax id — and so
+  /// is typed, pasted or autofilled on a phone like any other text.
+  keyboard?: boolean
+  /// What the number sheet says it is for: the article and unit being counted.
+  /// Without it, the field's own label or placeholder.
+  padLabel?: string
 }) {
   const aria = useFieldAria({
     invalid: invalid ?? ariaFlag(props["aria-invalid"]),
@@ -135,48 +145,116 @@ export function Input({
   })
   const form = useInForm()
   const number = numberFieldOf(props)
+  // On a phone a number is picked, not typed: the box opens `NumberPad` and
+  // the system keyboard never rises. A box that is read, or off, stays as is.
+  const touch = usePickerSheet()
+  const pad =
+    number.numeric && touch && !keyboard && !props.readOnly && !props.disabled
+  const [padding, setPadding] = React.useState(false)
+  const own = React.useRef<HTMLInputElement | null>(null)
+  const hold = (node: HTMLInputElement | null) => {
+    own.current = node
+    if (typeof ref === "function") ref(node)
+    else if (ref) ref.current = node
+  }
+  const nameOf = () => {
+    const input = own.current
+    return (
+      padLabel ??
+      props["aria-label"] ??
+      input?.labels?.[0]?.textContent?.replace(/\*/g, "").trim() ??
+      props.placeholder ??
+      "Enter a number"
+    )
+  }
+  // Written the way a keystroke would be: the field's own `onChange` runs on
+  // it, so a caller cannot tell a pick from a typed figure.
+  const write = (next: string) => {
+    const input = own.current
+    if (input === null) return
+    const set = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value"
+    )?.set
+    set?.call(input, next)
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+  }
   return (
-    <input
-      {...props}
-      {...aria}
-      onKeyDown={
-        number.numeric
-          ? (event) => {
-              numberKeyDown(number.decimal, event)
-              props.onKeyDown?.(event)
-            }
-          : props.onKeyDown
-      }
-      onChange={
-        number.numeric
-          ? (event) => {
-              // Held back before the caller sees it: what arrives is the
-              // figure, never the wreckage a paste or an autofill carried in.
-              const clean = numberText(event.target.value, number.decimal)
-              if (clean !== event.target.value) event.target.value = clean
-              props.onChange?.(event)
-            }
-          : props.onChange
-      }
-      className={cn(
-        "h-10 w-full rounded-inner border border-hairline-2 bg-canvas px-3 text-[0.9375rem] text-ink transition-[border-color,box-shadow] outline-none",
-        "placeholder:text-mute hover:border-hairline-strong focus:border-accent",
-        // On a form, the form's box — see `FORM_BOX`.
-        form && [FORM_BOX, FORM_HALO],
-        "disabled:opacity-50",
-        // Read, not typed — a record open for reading shows its answers in
-        // the same boxes, without the hover that invites a click.
-        "read-only:hover:border-hairline-2",
-        INVALID,
-        // No spinner on a number box. The little stepper is the operating
-        // system's drawing, in the operating system's grey, and it lands on
-        // top of the figure in a right-aligned cell — a quantity of 2 read as
-        // "2" with a grey box shoved against it. Nobody clicks it: a quantity
-        // is typed.
-        "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
-        className
+    <>
+      <input
+        {...props}
+        {...aria}
+        ref={hold}
+        readOnly={pad ? true : props.readOnly}
+        inputMode={pad ? "none" : props.inputMode}
+        aria-haspopup={pad ? "dialog" : undefined}
+        onClick={
+          pad
+            ? (event) => {
+                props.onClick?.(event)
+                setPadding(true)
+              }
+            : props.onClick
+        }
+        onKeyDown={
+          number.numeric
+            ? (event) => {
+                numberKeyDown(number.decimal, event)
+                props.onKeyDown?.(event)
+              }
+            : props.onKeyDown
+        }
+        onChange={
+          number.numeric
+            ? (event) => {
+                // Held back before the caller sees it: what arrives is the
+                // figure, never the wreckage a paste or an autofill carried in.
+                const clean = numberText(event.target.value, number.decimal)
+                if (clean !== event.target.value) event.target.value = clean
+                props.onChange?.(event)
+              }
+            : props.onChange
+        }
+        className={cn(
+          "h-10 w-full rounded-inner border border-hairline-2 bg-canvas px-3 text-[0.9375rem] text-ink transition-[border-color,box-shadow] outline-none",
+          "placeholder:text-mute hover:border-hairline-strong focus:border-accent",
+          // On a form, the form's box — see `FORM_BOX`.
+          form && [FORM_BOX, FORM_HALO],
+          "disabled:opacity-50",
+          // Read, not typed — a record open for reading shows its answers in
+          // the same boxes, without the hover that invites a click.
+          "read-only:hover:border-hairline-2",
+          // A box that opens the number sheet is lit while it is open: the
+          // sheet covers the row, and this is the row it answers.
+          pad && "cursor-pointer",
+          pad && padding && "border-accent",
+          INVALID,
+          // No spinner on a number box. The little stepper is the operating
+          // system's drawing, in the operating system's grey, and it lands on
+          // top of the figure in a right-aligned cell — a quantity of 2 read as
+          // "2" with a grey box shoved against it. Nobody clicks it: a quantity
+          // is typed.
+          "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
+          className
+        )}
+      />
+      {pad && (
+        <NumberPad
+          open={padding}
+          onOpenChange={(next) => {
+            setPadding(next)
+            // The tap that opened the sheet focused the box; leaving it lit
+            // after the sheet has gone reads as a field still being typed in.
+            if (!next) own.current?.blur()
+          }}
+          title={nameOf()}
+          value={String(props.value ?? props.defaultValue ?? "")}
+          decimal={number.decimal}
+          maxLength={props.maxLength}
+          onChange={write}
+        />
       )}
-    />
+    </>
   )
 }
 
@@ -438,6 +516,8 @@ export function Money({
         ref={box}
         value={groupedOf(value)}
         inputMode="numeric"
+        // A figure that may be a minus has no key for it on the number sheet.
+        keyboard={signed === true}
         aria-label={label}
         disabled={disabled}
         autoFocus={autoFocus}

@@ -405,7 +405,7 @@ function OptionPicker({
     <div className="flex max-w-[min(22rem,calc(100vw-2.5rem))] min-w-[15rem] flex-col gap-1">
       {/* Eight, not four: twenty suppliers is a list you search, five statuses
           is a list you read, and a search box over five rows is furniture. */}
-      {options.length > 8 && (
+      {(options.length > 8 || field.spec.searchable === true) && (
         <Input
           autoFocus
           value={query}

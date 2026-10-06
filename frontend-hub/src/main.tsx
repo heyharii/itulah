@@ -11,8 +11,10 @@ import {
 import "./styles/index.css"
 import { App } from "@/App"
 import { cacheKey, edge, setEdgeToken } from "@/lib/api"
-import { markSignedOutElsewhere } from "@/lib/session"
+import { markSignedOutElsewhere, watchIdentity } from "@/lib/session"
 import { registerServiceWorker } from "@/lib/pwa"
+import { hydrateReference } from "@/lib/offline/reference"
+import { startOutbox } from "@/lib/offline/po-outbox"
 import {
   isTenancySignOut,
   tenancyQueryKey,
@@ -73,6 +75,14 @@ const queryClient = new QueryClient({
     mutations: { retry: false },
   },
 })
+
+/// What the device holds of the masters a purchase order is written against —
+/// suppliers, divisions, units — goes into the query cache first, so the New
+/// PO form works with no connection; and orders made that way are sent as soon
+/// as there is one (`lib/offline/po-outbox.ts`).
+watchIdentity(queryClient)
+hydrateReference(queryClient)
+startOutbox(queryClient)
 
 /// A warehouse session lapses on the node — thirty idle minutes, a restart —
 /// while the screens reading it still hold its token. The first 401 for that

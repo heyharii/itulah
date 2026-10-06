@@ -30,6 +30,7 @@ import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { Timeline, type TimelineEvent } from "@/components/ui/timeline"
+import { useColourwayFill } from "@/lib/colourway-fill"
 import { useFilters } from "@/lib/filters"
 import { count, day, label, moment } from "@/lib/format"
 import { useAppNavigate } from "@/lib/navigate"
@@ -378,6 +379,7 @@ function articleColumns(
           <Thumbnail
             url={row.original.image_url}
             name={row.original.article_name}
+            division={row.original.division_code}
             className="size-8 shrink-0 rounded-inner"
           />
           <span className="min-w-0">
@@ -1461,6 +1463,7 @@ function LinesTable({
   display: DisplayUnit
 }) {
   const qty = (n: number) => qtyOf(display, n)
+  const fill = useColourwayFill()
 
   const stores = [
     ...new Map(
@@ -1556,6 +1559,7 @@ function LinesTable({
                     <Thumbnail
                       url={article.image}
                       name={article.name}
+                      colours={fill(article.skus[0]?.colour)}
                       className="size-11 shrink-0 rounded-inner"
                     />
                     <span className="min-w-0">

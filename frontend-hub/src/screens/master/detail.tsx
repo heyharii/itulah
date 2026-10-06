@@ -9,6 +9,8 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
+import { Thumbnail } from "@/components/ui/thumbnail"
+import { colourwayFill } from "@/lib/colourway-fill"
 import { count, day, money, realItemCode } from "@/lib/format"
 import {
   articleDetail,
@@ -277,6 +279,8 @@ function Overview({
               <Colourway
                 key={way.colour_digit}
                 articleCode={article.article_code}
+                articleName={article.name}
+                division={article.division_code}
                 digit={way.colour_digit}
                 label={way.label}
                 code={way.colour_code}
@@ -314,6 +318,8 @@ function Overview({
 /// to upload the same key is a second place for the two to disagree.
 function Colourway({
   articleCode,
+  articleName,
+  division,
   digit,
   label,
   code,
@@ -321,6 +327,8 @@ function Colourway({
   skus,
 }: {
   articleCode: string
+  articleName: string
+  division: string | null
   digit: string
   label: string
   code: string
@@ -345,11 +353,24 @@ function Colourway({
           className="size-12 shrink-0 rounded-inner border border-hairline object-cover"
         />
       ) : (
-        <span className="grid size-12 shrink-0 place-items-center rounded-inner bg-soft-2 font-mono text-id text-mute">
-          {digit}
-        </span>
+        // No photograph yet: the article drawn in this colourway.
+        <Thumbnail
+          url={null}
+          name={articleName}
+          division={division}
+          colours={colourwayFill(label, hex)}
+          fallback={digit}
+          className="size-12 shrink-0 rounded-inner"
+        />
       )}
-      <ColourSwatch className="flex-1" hex={hex} label={label} code={code} />
+      {/* The SKU digit rides with the code: the box that held it is a
+          picture now. */}
+      <ColourSwatch
+        className="flex-1"
+        hex={hex}
+        label={label}
+        code={`${digit} · ${code}`}
+      />
       <span className="shrink-0 text-right text-[0.875rem] text-mute tabular-nums">
         {skus === 0 ? "no SKUs" : `${count(skus)} SKUs`}
       </span>

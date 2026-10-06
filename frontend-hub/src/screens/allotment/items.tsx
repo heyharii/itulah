@@ -3,6 +3,7 @@ import { ChevronRight } from "lucide-react"
 import { use } from "react"
 
 import { Thumbnail } from "@/components/ui/thumbnail"
+import { useColourwayFill } from "@/lib/colourway-fill"
 import { count } from "@/lib/format"
 import {
   allotmentDetail,
@@ -50,6 +51,8 @@ interface ArticleGroup {
   readonly name: string
   readonly code: string
   readonly image: string | null
+  /// The first colourway the article is allotted in; the placeholder wears it.
+  readonly colour: string | null
   readonly pieces: number
   readonly skus: readonly {
     readonly id: string
@@ -78,6 +81,7 @@ function groupsOf(lines: readonly AllotmentLine[]): readonly ArticleGroup[] {
         name: line.article_name,
         code: line.article_code,
         image: line.image_url,
+        colour: line.colour,
         pieces: 0,
         skus: [],
       }
@@ -100,6 +104,7 @@ function groupsOf(lines: readonly AllotmentLine[]): readonly ArticleGroup[] {
 
 /// The block under an opened allotment row.
 export function AllotmentItems({ id }: { id: string }) {
+  const colourFill = useColourwayFill()
   const detail = useQuery({
     queryKey: inventoryKeys.allotment(id),
     queryFn: ({ signal }) => allotmentDetail(id, signal),
@@ -119,6 +124,7 @@ export function AllotmentItems({ id }: { id: string }) {
                   <Thumbnail
                     url={article.image}
                     name={article.name}
+                    colours={colourFill(article.colour)}
                     className="size-10 shrink-0 rounded-inner"
                   />
                   <span className="min-w-0 flex-1">

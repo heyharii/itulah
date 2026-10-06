@@ -41,7 +41,7 @@ import { domainForPath, modulesOfDomain } from "@/lib/navigation"
 /// off and back on; counts change together and net to the same number.
 
 export type DockSlot = "search" | "tabs" | "action"
-export type DockView = "rest" | "menu" | "search" | "status"
+export type DockView = "rest" | "menu" | "search" | "status" | "sort"
 
 interface DockValue {
   /// This is a phone, whether or not the slots have attached yet. A screen
@@ -55,7 +55,8 @@ interface DockValue {
   readonly action: HTMLElement | null
   /// What the drawer is showing. `rest` is the row of tabs and the action;
   /// `menu` is the list that asks whether to search, filter or sort; `search`
-  /// is the field; `status` is the list of the screen's statuses. Anything but `rest` takes the whole drawer: the tabs and the
+  /// is the field; `status` is the list of the screen's statuses; `sort` is the list of
+  /// what it can be sorted by. Anything but `rest` takes the whole drawer: the tabs and the
   /// action step aside and it grows to hold the view.
   readonly view: DockView
   readonly setView: (view: DockView) => void

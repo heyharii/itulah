@@ -9,6 +9,7 @@ import { Sheet } from "@/components/ui/sheet"
 import { EmptyState, LoadMore } from "@/components/ui/states"
 import { Swatches } from "@/components/ui/swatch"
 import { Thumbnail } from "@/components/ui/thumbnail"
+import { colourwayFill } from "@/lib/colourway-fill"
 import { count, money } from "@/lib/format"
 import {
   catalogueVocabulary,
@@ -287,6 +288,7 @@ function PickCard({
 }) {
   const { item } = row
   const chosen = picked
+  const first = item.colours[0]
 
   return (
     <button
@@ -304,6 +306,7 @@ function PickCard({
         url={item.image_url}
         name={item.name}
         division={item.division_code}
+        colours={colourwayFill(first?.label, first?.hex_code)}
         fallback="No Photo"
         className="h-[7.5rem] w-full"
       >

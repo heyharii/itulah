@@ -79,6 +79,46 @@ registerRoute(
   })
 )
 
+// ── The screens visited ─────────────────────────────────────────────────────
+
+/// Every screen is its own chunk under `/assets/`, fetched the first time it is
+/// opened (`routes.tsx`) and not precached — a phone opening Profile should not
+/// download Finance. But a chunk that was fetched once is kept here, so the
+/// screens a person has used open again with no connection: the New PO form on
+/// a buyer's laptop in a warehouse with no signal is the reason.
+///
+/// Cache first, and safe: a built file's name carries a hash of its contents,
+/// so the same name is always the same bytes. The oldest are dropped past
+/// `SCREEN_LIMIT` so builds of months ago do not pile up on a device.
+const SCREENS = "screens-v1"
+const SCREEN_LIMIT = 400
+
+async function keepOnly(cache: Cache, limit: number): Promise<void> {
+  const keys = await cache.keys()
+  // Oldest first: a cache lists its entries in the order they were put.
+  for (const key of keys.slice(0, Math.max(0, keys.length - limit))) {
+    await cache.delete(key)
+  }
+}
+
+registerRoute(
+  ({ url, request }) =>
+    request.method === "GET" &&
+    url.origin === self.location.origin &&
+    url.pathname.startsWith("/assets/"),
+  async ({ request }) => {
+    const cache = await caches.open(SCREENS)
+    const kept = await cache.match(request)
+    if (kept !== undefined) return kept
+    const response = await fetch(request)
+    if (response.ok) {
+      await cache.put(request, response.clone())
+      void keepOnly(cache, SCREEN_LIMIT)
+    }
+    return response
+  }
+)
+
 // The page's "load the new version" button (`lib/pwa.ts`) sends this.
 self.addEventListener("message", (event) => {
   if ((event.data as { type?: string } | null)?.type === "SKIP_WAITING") {

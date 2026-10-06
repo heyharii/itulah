@@ -18,7 +18,7 @@ export function KpiStrip({
         "group/kpis mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6",
         // On a phone the figures are one row to swipe, not three rows that push
         // the list below the fold: show the common path first.
-        "max-md:-mx-4 max-md:flex max-md:snap-x max-md:snap-mandatory max-md:scroll-px-4 max-md:overflow-x-auto max-md:px-4 max-md:[scrollbar-width:none] max-md:[&>*]:w-40 max-md:[&>*]:shrink-0 max-md:[&>*]:snap-start",
+        "max-md:-mx-4 max-md:flex max-md:snap-x max-md:snap-mandatory max-md:scroll-px-4 max-md:[scrollbar-width:none] max-md:overflow-x-auto max-md:px-4 max-md:[&>*]:w-40 max-md:[&>*]:shrink-0 max-md:[&>*]:snap-start",
         className
       )}
       {...props}
@@ -73,6 +73,74 @@ export function Kpi({
           &nbsp;
         </div>
       )}
+    </div>
+  )
+}
+
+/// The strip on a phone: every figure in one card, in one short row — figure
+/// over its name — instead of cards the width of a thumb to swipe through
+/// (owner, 2026-10-06). From 48rem up it is not drawn: `KpiStrip` is.
+///
+/// Four fit across 320px; a fifth wraps the row to three and two. A money
+/// figure takes a wider cell, `short` is the name where the full one does not
+/// fit its cell (14px, so seven characters at 320px), and `compact` the
+/// figure where it does not either ("Rp 4,0 bn").
+export interface KpiRowItem {
+  readonly label: string
+  readonly short?: string
+  readonly value: string
+  readonly compact?: string
+  readonly note?: string
+  /// Drawn red while it is more than nothing — a figure that is a problem.
+  readonly late?: boolean
+  readonly wide?: boolean
+}
+
+export function KpiRow({
+  items,
+  className,
+}: {
+  items: readonly KpiRowItem[]
+  className?: string
+}) {
+  const wrap = items.length > 4
+  return (
+    <div
+      className={cn(
+        "mb-4 flex flex-wrap overflow-hidden rounded-card border border-hairline bg-canvas shadow-soft md:hidden",
+        className
+      )}
+    >
+      {items.map((item, index) => {
+        const nothing = item.value === "0" || item.value === "—"
+        return (
+          <div
+            key={item.label}
+            title={item.note}
+            // Equal cells; a wrapped second row starts with a rule over it.
+            style={wrap ? { flex: "1 1 33%" } : { flex: item.wide ? 1.6 : 1 }}
+            className={cn(
+              "min-w-0 px-0.5 pt-[0.6875rem] pb-2.5 text-center",
+              index > 0 && "border-l border-hairline",
+              wrap && index >= 3 && "border-t",
+              wrap && index === 3 && "border-l-0"
+            )}
+          >
+            <div
+              className={cn(
+                "truncate text-[1rem] leading-none font-semibold tracking-[-0.02em] tabular-nums",
+                nothing ? "font-medium text-mute" : "text-ink",
+                item.late === true && !nothing && "text-bad-fg"
+              )}
+            >
+              {item.compact ?? item.value}
+            </div>
+            <div className="mt-1 truncate text-[0.875rem] font-medium text-body">
+              {item.short ?? item.label}
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }

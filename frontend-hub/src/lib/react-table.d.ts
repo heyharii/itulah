@@ -41,7 +41,15 @@ declare module "@tanstack/react-table" {
     /// Omitted, a sensible role is inferred — see `roleOf` in `data-table.tsx`
     /// — so a list nobody has thought about on a phone is still readable on
     /// one.
-    readonly card?: "id" | "title" | "status" | "metric" | "meta" | "hide"
+    readonly card?:
+      | "id"
+      | "title"
+      | "status"
+      | "metric"
+      | "meta"
+      | "lead"
+      | "foot"
+      | "hide"
     /// What to drop first when the table fits the screen but its columns do
     /// not. `1` (the default) never drops; `3` goes first.
     ///
@@ -51,6 +59,11 @@ declare module "@tanstack/react-table" {
     /// somebody has to have is a 1, a column that helps is a 2, a column that
     /// is context is a 3.
     readonly priority?: 1 | 2 | 3
+    /// A heading over more than one figure — "Ordered", the pieces over what
+    /// they are worth. A click opens a menu asking which figure to sort by,
+    /// highest or lowest first. Each names a column that carries that sort,
+    /// usually a hidden one (`enableHiding: false`) that is never drawn.
+    readonly sortBy?: readonly { readonly id: string; readonly label: string }[]
     /// The one column that takes whatever width the others leave, in a
     /// `<DataTable pageScroll>`, never narrower than this many pixels: every
     /// other column is held at its `size`, so loading the next page never

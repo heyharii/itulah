@@ -1,19 +1,30 @@
+import { Menu } from "@base-ui/react/menu"
 import { flexRender, type useTable } from "@tanstack/react-table"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import {
   ArrowDown,
   ArrowUp,
+  Check,
   ChevronDown,
   ChevronUp,
   ChevronsUpDown,
 } from "lucide-react"
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 
 import { Select } from "@/components/ui/field"
 import { LoadMore, type Pageable } from "@/components/ui/states"
+import { POP_MOTION } from "@/lib/filter-chrome"
 import { useCoarsePointer, useLayout } from "@/lib/layout"
 import { columnName } from "@/components/ui/column-name"
 import { cn } from "@/lib/utils"
+import type { DockSortChoices } from "@/components/shell/dock-tools"
 import type { TableSetup } from "@/lib/table"
 
 /// The full-width list table — the shape most of this app is.
@@ -120,6 +131,29 @@ export interface DataTableProps<TRow> {
   /// edge of a 768px screen: Apple's rule — show the common path first — beats
   /// showing every column.
   readonly cardsOnTablet?: boolean
+  /// A card's figures (`meta.card: "metric"`) as lines of their own under the
+  /// rest, the card's whole width and without a label, rather than labelled
+  /// in the column beside the status; and the status at the top, level with
+  /// the name. For a figure that reads without its label and is too wide to
+  /// share a phone card with the status — beside "Partially received" a
+  /// figure had about 75px, and "Rp 3.999.980.000" needs 125. The figure's
+  /// cell draws the whole line ("860 / 1.200 pcs … Rp 54.600.000").
+  readonly cardFiguresBelow?: boolean
+  /// Two cards to a row where a card list is wide enough for two (a tablet),
+  /// each about as wide as a phone's, rather than one card stretched across
+  /// 700px with its figures far from their labels.
+  readonly cardsTwoUp?: boolean
+  /// Lay each card out with a lead figure and a foot: the name and its lines
+  /// (`title`, `meta`, one to a line) on the left of the head with the
+  /// column's `lead` figure at its right, then a hairline and a foot — the
+  /// `foot` cells on the left, the `status` on the right, where a thumb rests.
+  /// For a list whose card is one thing to scan (what it is worth) and one
+  /// thing to act on (where it stands). `metric` columns are not drawn.
+  readonly cardLead?: boolean
+  /// Which cards want a look. Under `cardLead`, the foot of an `"alert"` card
+  /// takes a light red wash, so a row that needs somebody shows from across
+  /// the page without a word on it.
+  readonly cardTone?: (row: TRow) => "alert" | undefined
   /// Called when the last rows scroll into view — infinite scroll. The list
   /// fetches its next page here; the table only says when it is due. Watched
   /// with an IntersectionObserver on a marker after the last row, against the
@@ -194,6 +228,10 @@ export function DataTable<TRow>({
   cardSort = true,
   cardsApart,
   cardsOnTablet,
+  cardFiguresBelow,
+  cardsTwoUp,
+  cardLead,
+  cardTone,
   onEndReached,
   more,
   summary,
@@ -425,11 +463,22 @@ export function DataTable<TRow>({
             {empty ?? "Nothing to show."}
           </div>
         ) : (
-          <ul className={cn("flex flex-col", cardsApart && "gap-2.5")}>
+          <ul
+            className={cn(
+              "flex flex-col",
+              cardsApart && (cardFiguresBelow ? "gap-3" : "gap-2.5"),
+              // A group heading (`renderBefore`) still spans the row.
+              cardsTwoUp &&
+                "md:grid md:grid-cols-2 md:gap-4 md:[&>[data-sub]]:col-span-full"
+            )}
+          >
             {rows.map((row, index) => (
               <RowCard
                 key={row.id}
                 apart={cardsApart}
+                figuresBelow={cardFiguresBelow}
+                lead={cardLead}
+                tone={cardTone?.(row.original as TRow)}
                 row={row}
                 before={beforeOf(index)}
                 hidden={isHidden?.(row.original as TRow)}
@@ -580,7 +629,31 @@ export function DataTable<TRow>({
                           ? "last"
                           : null
                 const sortable = !isGroup && header.column.getCanSort()
-                const sorted = header.column.getIsSorted()
+                // A heading over two figures sorts by whichever its menu picks,
+                // so "sorted" is whichever of its columns leads the sort.
+                const sortBy = isGroup
+                  ? undefined
+                  : header.column.columnDef.meta?.sortBy
+                const menuSorted =
+                  sortBy === undefined
+                    ? undefined
+                    : (
+                        ((table as AnyTable).store.state.sorting ??
+                          []) as readonly {
+                          id: string
+                          desc: boolean
+                        }[]
+                      ).find((one) =>
+                        sortBy.some((option) => option.id === one.id)
+                      )
+                const sorted =
+                  sortBy === undefined
+                    ? header.column.getIsSorted()
+                    : menuSorted === undefined
+                      ? false
+                      : menuSorted.desc
+                        ? "desc"
+                        : "asc"
                 const align = isGroup
                   ? "center"
                   : header.column.columnDef.meta?.align
@@ -590,7 +663,7 @@ export function DataTable<TRow>({
                     colSpan={header.colSpan > 1 ? header.colSpan : undefined}
                     rowSpan={spansRows ? headers.length : undefined}
                     aria-sort={
-                      !sortable
+                      !sortable && sortBy === undefined
                         ? undefined
                         : sorted === "asc"
                           ? "ascending"
@@ -643,7 +716,21 @@ export function DataTable<TRow>({
                       align === "center" && "text-center"
                     )}
                   >
-                    {header.isPlaceholder && !spansRows ? null : sortable ? (
+                    {header.isPlaceholder && !spansRows ? null : sortBy !==
+                      undefined ? (
+                      <HeadingSortMenu
+                        table={table as AnyTable}
+                        options={sortBy}
+                        current={menuSorted}
+                        right={align === "right"}
+                        tight={pageScroll}
+                      >
+                        {flexRender(
+                          header.column.columnDef.header,
+                          header.getContext()
+                        )}
+                      </HeadingSortMenu>
+                    ) : sortable ? (
                       <button
                         type="button"
                         onClick={() => header.column.toggleSorting()}
@@ -913,6 +1000,91 @@ function Row({
   )
 }
 
+/// The heading of a column that holds more than one figure (`meta.sortBy`).
+/// It looks like any sortable heading, but a click asks which figure to sort
+/// by, highest or lowest first: one click could only ever sort one of them,
+/// and the other would be unsortable. The arrow says which way; the ticked
+/// line says by what. Choosing the ticked line again clears the sort.
+function HeadingSortMenu({
+  table,
+  options,
+  current,
+  right,
+  tight,
+  children,
+}: {
+  readonly table: AnyTable
+  readonly options: readonly { readonly id: string; readonly label: string }[]
+  readonly current: { readonly id: string; readonly desc: boolean } | undefined
+  readonly right: boolean
+  readonly tight?: boolean
+  readonly children: React.ReactNode
+}) {
+  return (
+    <Menu.Root>
+      <Menu.Trigger
+        className={cn(
+          "inline-flex items-center transition-colors hover:text-ink data-[popup-open]:text-ink",
+          tight ? "gap-0.5" : "gap-1",
+          right && "flex-row-reverse"
+        )}
+      >
+        {children}
+        {current === undefined ? (
+          <ChevronsUpDown className="size-3 text-faint" />
+        ) : current.desc ? (
+          <ChevronDown className="size-3 text-ink" />
+        ) : (
+          <ChevronUp className="size-3 text-ink" />
+        )}
+      </Menu.Trigger>
+      <Menu.Portal>
+        <Menu.Positioner
+          side="bottom"
+          align={right ? "end" : "start"}
+          sideOffset={4}
+          className="z-50"
+        >
+          <Menu.Popup
+            className={cn(
+              "min-w-[13rem] rounded-card border border-hairline bg-canvas p-1.5 shadow-pop",
+              POP_MOTION
+            )}
+          >
+            {options.map((option, index) => (
+              <Fragment key={option.id}>
+                {index > 0 && (
+                  <div className="-mx-1.5 my-1.5 border-t border-hairline" />
+                )}
+                {[true, false].map((desc) => {
+                  const on = current?.id === option.id && current.desc === desc
+                  return (
+                    <Menu.Item
+                      key={String(desc)}
+                      onClick={() =>
+                        table.setSorting(on ? [] : [{ id: option.id, desc }])
+                      }
+                      className={cn(
+                        "flex min-h-8 cursor-default items-center gap-2 rounded-inner px-2 text-[0.875rem] outline-none select-none data-[highlighted]:bg-soft-2",
+                        on ? "text-ink" : "text-text"
+                      )}
+                    >
+                      <span className="grid w-3.5 shrink-0 place-items-center text-accent">
+                        {on && <Check className="size-3.5" />}
+                      </span>
+                      {`${option.label}, ${desc ? "high to low" : "low to high"}`}
+                    </Menu.Item>
+                  )
+                })}
+              </Fragment>
+            ))}
+          </Menu.Popup>
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.Root>
+  )
+}
+
 /// The sort control a card list needs, because the header row it used to live
 /// in is gone.
 ///
@@ -932,29 +1104,39 @@ function CardSort({
   table: any
 }) {
   const instance = table as AnyTable
+  // A column with no heading of its own (a hidden sort key) is nothing to offer.
   const sortable = instance
     .getAllLeafColumns()
-    .filter((column) => column.getCanSort())
+    .filter((column) => column.getCanSort() && headerText(column) !== "")
   const sorting = instance.store.state.sorting ?? []
-  const current = sorting[0]
+  // Only a sort this control can name: another (a hidden key that leads the
+  // order, say) reads as the list's own.
+  const current = sortable.some((column) => column.id === sorting[0]?.id)
+    ? sorting[0]
+    : undefined
   if (sortable.length === 0 || instance.getRowModel().rows.length === 0) {
     return null
   }
 
   return (
     <div className="flex items-center gap-2 border-b border-hairline bg-soft px-3 py-2">
-      <span className="shrink-0 text-eyebrow font-semibold text-mute uppercase">
-        Sort
+      <span className="shrink-0 text-[0.875rem] font-medium text-body">
+        Sort by
       </span>
       <div className="min-w-0 flex-1">
         <Select
           value={current?.id ?? ""}
           aria-label="Sort by"
           className="h-8"
+          // Nothing chosen is the list's own order, and says so: an empty box
+          // read as a control that had not loaded.
           onChange={(next) =>
-            instance.setSorting([{ id: next, desc: current?.desc ?? true }])
+            instance.setSorting(
+              next === "" ? [] : [{ id: next, desc: current?.desc ?? true }]
+            )
           }
         >
+          <option value="">Default order</option>
           {sortable.map((column) => (
             <option key={column.id} value={column.id}>
               {headerText(column)}
@@ -1001,10 +1183,16 @@ function RowCard<TRow>({
   before,
   hidden,
   apart,
+  figuresBelow,
+  lead,
+  tone,
 }: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   row: any
   apart?: boolean
+  figuresBelow?: boolean
+  lead?: boolean
+  tone?: "alert"
   onRowClick?: (original: TRow) => void
   selected: boolean
   fresh?: boolean
@@ -1024,16 +1212,137 @@ function RowCard<TRow>({
     status: [],
     metric: [],
     meta: [],
+    lead: [],
+    foot: [],
     hide: [],
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   row.getVisibleCells().forEach((cell: any, index: number) => {
     const role = roleOf(cell.column, index)
     // A line of meta that says "—" is a line that says nothing: on a desk the
-    // dash holds a column's place, on a card it only adds a row to scroll.
-    if (role === "meta" && blank(cell.getValue())) return
+    // dash holds a column's place, on a card it only adds a row to scroll —
+    // and a figure with nothing to say is a label over a dash.
+    //
+    // Only a column that has a value. One made of its row alone (a card's own
+    // figures, drawn from several fields) has none, and reads as blank here.
+    if (
+      (role === "meta" || role === "metric") &&
+      cell.column.accessorFn !== undefined &&
+      blank(cell.getValue())
+    )
+      return
     parts[role].push(cell)
   })
+
+  // Two columns of label-over-value, so the figures line up down the card
+  // and from one card to the next — they were a wrapping row of shouting
+  // micro-caps, and a card with four metrics broke onto three ragged lines.
+  // Sentence case, one grey lighter than the value: the label names the
+  // number, it does not compete with it.
+  //
+  // `figuresBelow` sets them as lines of their own under the rest instead,
+  // the card's whole width and no label: the figure's cell draws its line.
+  const figures =
+    parts.metric.length > 0 ? (
+      figuresBelow ? (
+        <div className="flex basis-full flex-col gap-2 text-cell tabular-nums">
+          {parts.metric.map((cell) => (
+            <div key={cell.id} className="min-w-0">
+              {render(cell)}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <dl className="mt-1 grid grid-cols-2 gap-x-4 gap-y-2.5">
+          {parts.metric.map((cell) => (
+            <div key={cell.id} className="min-w-0">
+              <dt className="text-[0.875rem] leading-4 text-mute">
+                {headerText(cell.column)}
+              </dt>
+              <dd className="mt-0.5 min-w-0 text-cell text-ink tabular-nums [&>*]:max-w-full [&>*]:items-start [&>*]:justify-start [&>*]:text-left">
+                {render(cell)}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )
+    ) : null
+
+  if (lead) {
+    return (
+      <>
+        {before !== null && before !== undefined && <li data-sub>{before}</li>}
+        <li
+          onClick={
+            onRowClick ? () => onRowClick(row.original as TRow) : undefined
+          }
+          {...(onRowClick
+            ? openable(() => onRowClick(row.original as TRow))
+            : {})}
+          data-selected={selected || undefined}
+          data-fresh={fresh || undefined}
+          aria-current={selected || undefined}
+          className={cn(
+            "relative flex flex-col rounded-card border border-hairline bg-canvas shadow-soft",
+            fresh && "row-fresh",
+            onRowClick && "cursor-pointer",
+            onRowClick && FOCUSED,
+            selected ? "bg-accent-bg" : "active:bg-soft"
+          )}
+        >
+          <div className="flex items-start gap-3 p-4">
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              {parts.id.map((cell) => (
+                <div key={cell.id} className="truncate">
+                  {render(cell)}
+                </div>
+              ))}
+              {parts.title.map((cell) => (
+                <div
+                  key={cell.id}
+                  className="text-card-title font-semibold text-ink"
+                >
+                  {render(cell)}
+                </div>
+              ))}
+              {parts.meta.map((cell) => (
+                <div key={cell.id} className="text-[0.875rem] text-mute">
+                  {render(cell)}
+                </div>
+              ))}
+            </div>
+            <div className="min-w-0 shrink-0">
+              {parts.lead.map((cell) => (
+                <div key={cell.id}>{render(cell)}</div>
+              ))}
+            </div>
+          </div>
+          <div
+            className={cn(
+              "flex items-center justify-between gap-3 rounded-b-card border-t px-4 py-3",
+              tone === "alert" ? "border-bad/10 bg-bad-bg/50" : "border-hairline"
+            )}
+          >
+            <div className="min-w-0 text-[0.875rem] text-mute">
+              {parts.foot.map((cell) => (
+                <div key={cell.id}>{render(cell)}</div>
+              ))}
+            </div>
+            <div className="flex shrink-0 items-center">
+              {parts.status.map((cell) => (
+                <span key={cell.id}>{render(cell)}</span>
+              ))}
+            </div>
+          </div>
+        </li>
+        {sub !== null && sub !== undefined && (
+          <li data-sub className="border-b border-hairline">
+            {sub}
+          </li>
+        )}
+      </>
+    )
+  }
 
   return (
     <>
@@ -1049,7 +1358,15 @@ function RowCard<TRow>({
         data-fresh={fresh || undefined}
         aria-current={selected || undefined}
         className={cn(
-          "flex items-center gap-3 px-3.5 py-3",
+          "flex gap-3",
+          // With the figures as rows under it, the status stands at the top,
+          // level with the name: centred against two lines it floated. And
+          // more air — four lines of figures and words at 12px apart read as
+          // a crowded card (the owner, 2026-10-05).
+          figuresBelow
+            ? // `relative`: a cell may press a stamp onto the card.
+              "relative flex-wrap items-start gap-y-4 p-4"
+            : "items-center px-3.5 py-3",
           apart
             ? "rounded-card border border-hairline bg-canvas shadow-soft"
             : "border-b border-hairline last:border-b-0",
@@ -1096,31 +1413,14 @@ function RowCard<TRow>({
             </div>
           )}
 
-          {parts.metric.length > 0 && (
-            // Two columns of label-over-value, so the figures line up down the
-            // card and from one card to the next — they were a wrapping row of
-            // shouting micro-caps, and a card with four metrics broke onto three
-            // ragged lines. Sentence case, one grey lighter than the value: the
-            // label names the number, it does not compete with it.
-            <dl className="mt-1 grid grid-cols-2 gap-x-4 gap-y-2.5">
-              {parts.metric.map((cell) => (
-                <div key={cell.id} className="min-w-0">
-                  <dt className="text-[0.875rem] leading-4 text-mute">
-                    {headerText(cell.column)}
-                  </dt>
-                  <dd className="mt-0.5 min-w-0 text-cell text-ink tabular-nums [&>*]:max-w-full [&>*]:items-start [&>*]:justify-start [&>*]:text-left">
-                    {render(cell)}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          )}
+          {!figuresBelow && figures}
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           {parts.status.map((cell) => (
             <span key={cell.id}>{render(cell)}</span>
           ))}
         </div>
+        {figuresBelow && figures}
       </li>
       {sub !== null && sub !== undefined && (
         <li data-sub className="border-b border-hairline">
@@ -1134,7 +1434,15 @@ function RowCard<TRow>({
 /// The roles a column can take in a card. Kept in step with `meta.card` in
 /// `lib/react-table.d.ts` by hand — a `ColumnMeta` lookup type would have to
 /// name the table's feature set, and this list is read here.
-type CardRole = "id" | "title" | "status" | "metric" | "meta" | "hide"
+type CardRole =
+  | "id"
+  | "title"
+  | "status"
+  | "metric"
+  | "meta"
+  | "lead"
+  | "foot"
+  | "hide"
 
 /// Where a column goes in a card.
 ///
@@ -1162,6 +1470,41 @@ function roleOf(
 /// but a micro-cap `<dt>` is not a place to run a header renderer that may
 /// return a sort button. The column id is the fallback, which is at least a
 /// name somebody chose.
+/// The same sort for a screen that has a dock: what the cards could be ordered
+/// by, as the drawer over the bottom bar lists it — pass it to `DockTools` as
+/// `sort`, and turn `cardSort` off on the table so nothing is left at the top
+/// of the page (owner, 2026-10-06: every action under the thumb).
+///
+/// Read off the table, so it follows whatever the screen holds as sorting;
+/// a sort the list's own order leads with (a hidden key) is not one it offers
+/// or shows.
+export function dockSortOf(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  table: any
+): { label: string; choices: DockSortChoices } | undefined {
+  const instance = table as AnyTable
+  const options = instance
+    .getAllLeafColumns()
+    .filter((column) => column.getCanSort() && headerText(column) !== "")
+    .map((column) => ({ value: column.id, label: headerText(column) }))
+  if (options.length === 0) return undefined
+  const sorting = instance.store.state.sorting ?? []
+  const first = sorting.find((one) =>
+    options.some((option) => option.value === one.id)
+  )
+  const named = options.find((option) => option.value === first?.id)
+  return {
+    label: named?.label ?? "Default order",
+    choices: {
+      options,
+      value: named?.value ?? "",
+      desc: first?.desc ?? true,
+      onChange: (value, desc) =>
+        instance.setSorting(value === "" ? [] : [{ id: value, desc }]),
+    },
+  }
+}
+
 function headerText(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   column: any

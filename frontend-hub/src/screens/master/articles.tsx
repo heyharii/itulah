@@ -25,6 +25,7 @@ import {
   type FilterState,
 } from "@/lib/filters"
 import { count, money } from "@/lib/format"
+import { colourwayFill } from "@/lib/colourway-fill"
 import { cn } from "@/lib/utils"
 import {
   articleKeys,
@@ -75,6 +76,12 @@ import { sizeLabel, sizeSpan, termLabel } from "@/screens/procurement/shared"
 /// reads "Rp 89.000 – Rp 89.000" is noise pretending to be information. Null
 /// stays an em dash rather than becoming zero: nothing priced is not a price
 /// of nothing, and a catalogue that draws Rp 0 invites somebody to sell at it.
+/// The paint of an article's first colourway, for its placeholder in a row.
+function firstColourway(article: ArticleRow): readonly string[] | undefined {
+  const way = article.colours[0]
+  return way && colourwayFill(way.label, way.hex_code)
+}
+
 function priceSpan(row: ArticleRow): string {
   const { base_price_min_minor: low, base_price_max_minor: high } = row
   if (low === null && high === null) return "—"
@@ -119,6 +126,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
           url={row.original.article.image_url}
           name={row.original.article.name}
           division={row.original.article.division_code}
+          colours={firstColourway(row.original.article)}
           className="size-8 shrink-0 rounded-inner border border-hairline"
         />
         <span className="flex min-w-0 flex-col">
@@ -715,6 +723,10 @@ function ArticleCard({
   onOpen: () => void
 }) {
   const { article } = row
+  // The colourway a pointer rests on over the dots, so the placeholder can be
+  // seen in each colour without opening the article.
+  const [shown, setShown] = useState(0)
+  const way = article.colours[shown] ?? article.colours[0]
 
   return (
     <button
@@ -727,6 +739,7 @@ function ArticleCard({
         url={article.image_url}
         name={article.name}
         division={article.division_code}
+        colours={way && colourwayFill(way.label, way.hex_code)}
         fallback="No Photo"
         className="h-[9.875rem] w-full"
       >
@@ -761,7 +774,11 @@ function ArticleCard({
             "what this comes in", and splitting them over two rows makes a card
             taller for no more meaning. */}
         <div className="mt-2.5 flex items-center gap-2">
-          <Swatches colours={article.colours} cap={5} />
+          <Swatches
+            colours={article.colours}
+            cap={5}
+            onShow={(at) => setShown(at ?? 0)}
+          />
           <span className="min-w-0 flex-1 truncate text-right text-[0.875rem] text-body">
             {row.sizes}
           </span>

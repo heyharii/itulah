@@ -205,6 +205,7 @@ export function AddEmployeeSheet({
             }
           >
             <Input
+              keyboard
               inputMode="numeric"
               value={draft.nik}
               onChange={(e) => set("nik", e.target.value)}

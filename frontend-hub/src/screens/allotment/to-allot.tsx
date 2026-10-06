@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/states"
 import { Thumbnail } from "@/components/ui/thumbnail"
+import { colourwayFill } from "@/lib/colourway-fill"
 import { count, day, dayMonth } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import {
@@ -439,6 +440,10 @@ function ArticleChoice({
           url={article.image}
           name={article.name}
           division={article.division}
+          colours={
+            article.colours[0] &&
+            colourwayFill(article.colours[0].name, article.colours[0].hex)
+          }
           className="size-11 shrink-0 rounded-inner"
         />
         <span className="min-w-0 flex-1">

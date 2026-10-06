@@ -1,10 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router"
-import {
-  ChevronLeft,
-  Menu,
-  PanelLeft,
-  Sparkles,
-} from "lucide-react"
+import { ChevronLeft, Menu, PanelLeft, Sparkles } from "lucide-react"
 
 import {
   allNavItems,
@@ -58,7 +53,7 @@ export function TopBar({
     // On the page's own grey rather than white (2026-09-28, airy charcoal):
     // the bar is part of the page it names, separated by a hairline, not a
     // second strip of chrome across the top of it.
-    <header className="flex h-13 shrink-0 items-center gap-3 border-b border-hairline bg-soft-3 px-5 max-md:bg-canvas max-md:px-3">
+    <header className="flex h-13 shrink-0 items-center gap-3 border-b border-hairline bg-soft-3 px-5 max-md:bg-canvas max-md:px-3 max-md:[[data-header-band]_&]:border-b-transparent">
       {onToggleNav && (
         <button
           type="button"
@@ -118,7 +113,11 @@ export function TopBar({
       </nav>
 
       <div className="flex shrink-0 items-center gap-2">
-        <TimeTravel place="bar" />
+        {/* On a phone the bar holds the title and the profile, nothing else
+            (owner, 2026-10-06): no clock, no Ask. */}
+        <span className="contents max-md:hidden">
+          <TimeTravel place="bar" />
+        </span>
         {topBarAsides.map((aside) => (
           <AsideLink
             key={aside.id}
@@ -138,7 +137,7 @@ export function TopBar({
           onClick={() => assistant.setOpen(!assistant.open)}
           aria-pressed={assistant.open}
           title="Ask  ⌘J"
-          className="inline-flex h-8 items-center gap-1.5 rounded-inner px-2.5 text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink aria-pressed:bg-soft-2 aria-pressed:text-ink"
+          className="inline-flex h-8 items-center gap-1.5 rounded-inner px-2.5 text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink aria-pressed:bg-soft-2 aria-pressed:text-ink max-md:hidden"
         >
           <Sparkles className="size-[0.9375rem] stroke-[1.7] text-accent" />
           <span className="max-md:hidden">Ask</span>
@@ -327,7 +326,8 @@ function ProfileLink() {
       to={"/me" as string}
       aria-label="Profile"
       title="Profile"
-      className="grid size-8 shrink-0 place-items-center rounded-full bg-accent-bg text-[0.875rem] font-semibold text-accent transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.92] md:hidden"
+      // 32px to see, 44px to press: the ring of extra reach is invisible.
+      className="relative grid size-8 shrink-0 place-items-center rounded-full bg-accent-bg text-[0.875rem] font-semibold text-accent transition-[scale] duration-(--t-press) ease-(--ease-out) select-none after:absolute after:-inset-1.5 after:content-[''] active:scale-[0.92] md:hidden"
     >
       {initialOf(name)}
     </Link>

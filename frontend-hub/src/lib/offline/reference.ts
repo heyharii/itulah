@@ -1,3 +1,4 @@
+import type { QueryClient } from "@tanstack/react-query"
 import { useSyncExternalStore } from "react"
 
 import type {
@@ -7,10 +8,16 @@ import type {
   Supplier,
 } from "@itulah/contract"
 
-import { listUnits, type UnitsBook } from "@/lib/queries/units"
+import {
+  colourKeys,
+  listColours,
+  type ColourVocabulary,
+} from "@/lib/queries/colours"
+import { listUnits, unitKeys, type UnitsBook } from "@/lib/queries/units"
 import {
   catalogueVocabulary,
   paymentTermsBook,
+  procurementKeys,
   purchaseDestinations,
   supplierPage,
 } from "@/lib/queries/procurement"
@@ -59,6 +66,9 @@ export interface ReferenceCache {
   readonly destinations_at: string | null
   readonly payment_terms: PaymentTermsBook | null
   readonly payment_terms_at: string | null
+  /// The colour master, for the New item form's colour picker.
+  readonly colours: ColourVocabulary | null
+  readonly colours_at: string | null
 }
 
 const EMPTY: ReferenceCache = {
@@ -74,20 +84,19 @@ const EMPTY: ReferenceCache = {
   destinations_at: null,
   payment_terms: null,
   payment_terms_at: null,
+  colours: null,
+  colours_at: null,
 }
 
 interface ReferenceState {
   readonly cache: ReferenceCache
   /// A write to localStorage failed — quota, private mode, disabled storage.
-  /// Loud, never silent: money typed into a capture that the device may forget
-  /// is a thing a buyer must see, not a console warning.
+  /// Loud, never silent: reference data typed against a device that will not
+  /// keep it is a thing a buyer must see, not a console warning.
   readonly trouble: string | null
 }
 
-let state: ReferenceState = { cache: load(), trouble: null }
-const listeners = new Set<() => void>()
-
-function load(): ReferenceCache {
+function loadCache(): ReferenceCache {
   try {
     const raw = localStorage.getItem(KEY)
     if (raw === null) return EMPTY
@@ -101,6 +110,9 @@ function load(): ReferenceCache {
   }
 }
 
+let state: ReferenceState = { cache: loadCache(), trouble: null }
+const listeners = new Set<() => void>()
+
 function announce(): void {
   for (const listener of listeners) listener()
 }
@@ -108,8 +120,8 @@ function announce(): void {
 /// Merge into what is on disk before writing, so a tab that has been idle
 /// cannot write its older snapshot over a fresher one saved beside it — the
 /// same discipline the till's outbox learned the hard way.
-function save(patch: Partial<ReferenceCache>): void {
-  const disk = load()
+function saveCache(patch: Partial<ReferenceCache>): void {
+  const disk = loadCache()
   const next: ReferenceCache = { ...disk, ...patch }
   try {
     localStorage.setItem(KEY, JSON.stringify(next))
@@ -120,7 +132,7 @@ function save(patch: Partial<ReferenceCache>): void {
       cache: next,
       trouble:
         error instanceof Error
-          ? `Penyimpanan perangkat penuh atau ditolak — data referensi tidak akan bertahan setelah halaman ditutup.`
+          ? "Penyimpanan perangkat penuh atau ditolak — data referensi tidak akan bertahan setelah halaman ditutup."
           : "Penyimpanan perangkat tidak tersedia.",
     }
   }
@@ -137,8 +149,8 @@ function subscribe(listener: () => void): () => void {
 }
 
 function onOtherTab(): void {
-  const disk = load()
-  if (JSON.stringify(disk) !== JSON.stringify(state.cache)) {
+  const disk = loadCache()
+  if (disk !== state.cache) {
     state = { cache: disk, trouble: state.trouble }
     announce()
   }
@@ -153,9 +165,8 @@ export function useReference(): ReferenceState {
   return useSyncExternalStore(subscribe, snapshot, snapshot)
 }
 
-function staleAt(at: string | null): boolean {
-  if (at === null) return true
-  return Date.now() - Date.parse(at) > STALE_AFTER_MS
+function fresh(at: string | null): boolean {
+  return at !== null && Date.now() - Date.parse(at) <= STALE_AFTER_MS
 }
 
 /// The connection's own opinion, when it offers one. A courtesy for the buyer
@@ -171,8 +182,11 @@ function connectionDefersBulk(): boolean {
   return conn.effectiveType === "slow-2g" || conn.effectiveType === "2g"
 }
 
+/// The supplier book, paged to the cap. The menu is the merchandise book —
+/// the same scope Suppliers online reads — and the rows are sorted by name so
+/// the cap cuts at a stable place rather than at wherever the server's
+/// ordering stopped.
 async function refreshSuppliers(signal?: AbortSignal): Promise<void> {
-  // The menu is the merchandise book — the same scope Suppliers online reads.
   const rows: Supplier[] = []
   let total = 0
   let cursor: string | undefined
@@ -193,40 +207,42 @@ async function refreshSuppliers(signal?: AbortSignal): Promise<void> {
     cursor = body.next_cursor
   }
   rows.sort((a, b) => a.name.localeCompare(b.name))
-  save({
+  saveCache({
     suppliers: rows.slice(0, SUPPLIER_CAP),
     suppliers_total: total,
     suppliers_at: new Date().toISOString(),
   })
 }
 
+/// The four small masters in one pass; each settles on its own, so one
+/// refusal never keeps the others from landing.
 async function refreshMasters(signal?: AbortSignal): Promise<void> {
-  const patch: Partial<ReferenceCache> = {}
   const now = new Date().toISOString()
-  const settled = await Promise.allSettled([
-    catalogueVocabulary(signal),
-    listUnits(signal),
-    purchaseDestinations(signal),
-    paymentTermsBook(signal),
-  ])
-  const [vocabulary, units, destinations, terms] = settled
-  if (vocabulary.status === "fulfilled") {
-    patch.vocabulary = vocabulary.value
-    patch.vocabulary_at = now
-  }
-  if (units.status === "fulfilled") {
-    patch.units = units.value
-    patch.units_at = now
-  }
-  if (destinations.status === "fulfilled") {
-    patch.destinations = destinations.value
-    patch.destinations_at = now
-  }
-  if (terms.status === "fulfilled") {
-    patch.payment_terms = terms.value
-    patch.payment_terms_at = now
-  }
-  if (Object.keys(patch).length > 0) save(patch)
+  const [vocabulary, units, destinations, terms, colours] =
+    await Promise.allSettled([
+      catalogueVocabulary(signal),
+      listUnits(signal),
+      purchaseDestinations(signal),
+      paymentTermsBook(signal),
+      listColours(signal),
+    ])
+  saveCache({
+    ...(vocabulary.status === "fulfilled"
+      ? { vocabulary: vocabulary.value, vocabulary_at: now }
+      : {}),
+    ...(units.status === "fulfilled"
+      ? { units: units.value, units_at: now }
+      : {}),
+    ...(destinations.status === "fulfilled"
+      ? { destinations: destinations.value, destinations_at: now }
+      : {}),
+    ...(terms.status === "fulfilled"
+      ? { payment_terms: terms.value, payment_terms_at: now }
+      : {}),
+    ...(colours.status === "fulfilled"
+      ? { colours: colours.value, colours_at: now }
+      : {}),
+  })
 }
 
 let refreshing: Promise<void> | null = null
@@ -243,16 +259,22 @@ export function refreshReference(): Promise<void> {
   refreshing = (async () => {
     try {
       const jobs: Promise<void>[] = []
+      // An EMPTY set counts as stale even when its stamp is fresh — a first
+      // refresh that ran before the data existed (a DC registered later, an
+      // empty book) must not lock the cache empty for a day.
+      const suppliersWorthKeeping = state.cache.suppliers.length > 0
       if (
-        staleAt(state.cache.suppliers_at) &&
+        (!fresh(state.cache.suppliers_at) || !suppliersWorthKeeping) &&
         !connectionDefersBulk()
       )
         jobs.push(refreshSuppliers())
       if (
-        staleAt(state.cache.vocabulary_at) ||
-        staleAt(state.cache.units_at) ||
-        staleAt(state.cache.destinations_at) ||
-        staleAt(state.cache.payment_terms_at)
+        !fresh(state.cache.vocabulary_at) ||
+        !fresh(state.cache.units_at) ||
+        state.cache.destinations.length === 0 ||
+        !fresh(state.cache.destinations_at) ||
+        !fresh(state.cache.payment_terms_at) ||
+        !fresh(state.cache.colours_at)
       )
         jobs.push(refreshMasters())
       await Promise.allSettled(jobs)
@@ -261,6 +283,43 @@ export function refreshReference(): Promise<void> {
     }
   })()
   return refreshing
+}
+
+/// Puts what the device holds into the query cache, once, as the app starts.
+///
+/// This is what lets the New PO form open and work with no line: the form
+/// reads its suppliers, divisions, units and the rest through the same
+/// queries it always did, and with nothing to fetch them from those queries
+/// answer from here. Stamped with the day they were taken, so they are stale
+/// and read again the moment there is a connection; a query that already has
+/// an answer is left alone.
+export function hydrateReference(client: QueryClient): void {
+  const { cache } = state
+  const seed = (
+    key: readonly unknown[],
+    data: unknown,
+    at: string | null
+  ): void => {
+    if (data === null || data === undefined || at === null) return
+    if (client.getQueryData(key) !== undefined) return
+    client.setQueryData(key, data, { updatedAt: Date.parse(at) })
+  }
+  if (cache.suppliers.length > 0)
+    seed(procurementKeys.suppliers(), cache.suppliers, cache.suppliers_at)
+  seed(procurementKeys.vocabulary(), cache.vocabulary, cache.vocabulary_at)
+  seed(unitKeys.book(), cache.units, cache.units_at)
+  if (cache.destinations.length > 0)
+    seed(
+      procurementKeys.destinations(),
+      cache.destinations,
+      cache.destinations_at
+    )
+  seed(
+    procurementKeys.paymentTerms(),
+    cache.payment_terms,
+    cache.payment_terms_at
+  )
+  seed(colourKeys.list(), cache.colours, cache.colours_at)
 }
 
 /// Whether the cache has never been filled — the offline surface's way of

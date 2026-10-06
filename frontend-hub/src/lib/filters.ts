@@ -438,6 +438,11 @@ export interface FilterSpec {
   /// on one date column AND correctly, which is the case `columnFilters`
   /// below exists to group.
   readonly single?: boolean
+  /// Always offer a search box over the options, however few there are. The
+  /// picker leaves it out of a short list (eight or fewer) where scanning is
+  /// quicker; a supplier is looked for by name, and a book that has three
+  /// today has three hundred in a year.
+  readonly searchable?: boolean
 }
 
 /// Which operators a field offers — its own list, or everything its kind has.

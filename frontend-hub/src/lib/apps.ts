@@ -19,6 +19,12 @@ export interface AppTile {
   readonly label: string
   readonly icon: LucideIcon
   readonly modules: readonly AppModule[]
+  /// What is waiting inside it, as the department's mark on the desk rail
+  /// adds it up (`withRailCount`). A hook, read only by the row that draws
+  /// this tile — never in a loop over tiles.
+  readonly useCount?: () => number | null | undefined
+  /// The tint that count wears: amber by default, red where it is late.
+  readonly badge?: "bad" | "warn"
 }
 
 /// The screens behind a tile, when there is exactly one of them — a tile that
@@ -27,6 +33,18 @@ export interface AppTile {
 export function onlyScreen(tile: AppTile): string | undefined {
   const items = tile.modules.flatMap((module) => visibleItems(module))
   return items.length === 1 ? items[0].path : undefined
+}
+
+/// Where a tile's row leads: the department's own first screen — the one its
+/// desk rail opens on — not a list to choose from first (owner, 2026-10-06).
+/// The other screens are the department's bar at the bottom of the phone.
+export function landingOf(tile: AppTile): string | undefined {
+  const only = onlyScreen(tile)
+  if (only !== undefined) return only
+  const module = tile.modules.find(
+    (one) => !one.hidden && visibleItems(one).length > 0
+  )
+  return module?.home ?? tile.modules[0]?.home
 }
 
 /// The apps a role is offered on the phone's launcher.
@@ -61,12 +79,16 @@ export function appsFor(role: Role | undefined): readonly AppTile[] {
       label: domain.label,
       icon: domain.icon,
       modules: modulesOfDomain(domain),
+      useCount: domain.useCount,
+      badge: domain.badge,
     })),
     ...[libraryNav, reportsNav].map((module) => ({
       id: module.id,
       label: module.label,
       icon: module.icon,
       modules: [module],
+      useCount: module.useCount,
+      badge: module.badge,
     })),
   ]
   if (systemFor(role)) {
@@ -75,6 +97,8 @@ export function appsFor(role: Role | undefined): readonly AppTile[] {
       label: systemNav.label,
       icon: systemNav.icon,
       modules: [systemNav],
+      useCount: systemNav.useCount,
+      badge: systemNav.badge,
     })
   }
   return departments.filter((tile) =>

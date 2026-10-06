@@ -33,6 +33,7 @@ import {
   suggestNames,
 } from "@/lib/queries/name-suggestions"
 import { colourKeys, listColours } from "@/lib/queries/colours"
+import { useColourwayFill } from "@/lib/colourway-fill"
 import { ColourSwatch } from "@/screens/master/colour-picker"
 import {
   articleImage,
@@ -1465,6 +1466,7 @@ function ColourwayPhoto({
   url: string | null
 }) {
   const client = useQueryClient()
+  const fill = useColourwayFill()
 
   const upload = useMutation({
     // Converted on the way in, not refused at the picker: the store is JPEG
@@ -1502,6 +1504,7 @@ function ColourwayPhoto({
             url={null}
             name={articleName}
             division={division}
+            colours={fill(colourLabel)}
             fallback="—"
             className="size-full"
           />

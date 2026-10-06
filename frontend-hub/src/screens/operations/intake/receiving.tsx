@@ -10,7 +10,10 @@ import { Card } from "@/components/ui/card"
 import { SavedDialog } from "@/components/ui/dialog"
 import { DataTable } from "@/components/ui/data-table"
 import { Input, Select } from "@/components/ui/field"
-import { IntakeHeader } from "@/screens/operations/intake/header"
+import {
+  IntakeHeader,
+  useIntakeSearch,
+} from "@/screens/operations/intake/header"
 import { ROOMY } from "@/screens/operations/roomy"
 import { TwoLines } from "@/screens/operations/two-lines"
 import {
@@ -118,6 +121,8 @@ const TO_COUNT_FIRST = { id: "to-count", desc: false } as const
 
 export function Receiving() {
   const counting = useSheet("delivery")
+  const search = useIntakeSearch()
+  const nameOf = useSupplierName()
   const [sorting, setSorting] = useState<SortingState>([
     { id: "po_number", desc: false },
   ])
@@ -150,7 +155,7 @@ export function Receiving() {
   // work list is the spine — an order leaves it when nothing is owed on it any
   // more — but a count awaiting a verifier is joined on rather than looked up,
   // so the button on the row can say which of the two jobs is waiting.
-  const rows = useMemo<OrderRow[]>(() => {
+  const all = useMemo<OrderRow[]>(() => {
     const byOrder = new Map<string, OrderRow>()
     for (const line of work.data ?? []) {
       const found = byOrder.get(line.po_number)
@@ -181,6 +186,20 @@ export function Receiving() {
     }
     return [...byOrder.values()]
   }, [work.data, queue.data])
+  // What the search asks for: an order by its number or its supplier's name.
+  const rows = useMemo(
+    () =>
+      search.needle === ""
+        ? all
+        : all.filter(
+            (row) =>
+              row.po_number.toLowerCase().includes(search.needle) ||
+              nameOf(row.supplier_id, row.supplier_name)
+                .toLowerCase()
+                .includes(search.needle)
+          ),
+    [all, search.needle, nameOf]
+  )
 
   const columns = useMemo<ColumnDef<TableSetup, OrderRow>[]>(
     () => [
@@ -245,6 +264,9 @@ export function Receiving() {
           return (
             <Button
               variant="primary"
+              // Soft blue capsule on a phone, as Review Count is on the order
+              // list: the card's status, not a second solid button.
+              className="max-md:h-7 max-md:rounded-full max-md:bg-accent-bg max-md:px-3 max-md:text-[0.875rem] max-md:text-accent max-md:hover:bg-accent-bg/70 max-md:pointer-coarse:h-7 max-md:pointer-coarse:px-3"
               onClick={(event) => {
                 event.stopPropagation()
                 openers.current.count(order.po_number)
@@ -296,14 +318,21 @@ export function Receiving() {
 
   return (
     <PageContent>
-      <IntakeHeader tab="orders" />
+      <IntakeHeader
+        tab="orders"
+        search={search}
+        searchLabel="Search Orders"
+        table={table}
+      />
 
       <Card className="overflow-hidden">
         {queryState(work, {
           loading: "Reading the orders…",
           render: () =>
             rows.length === 0 ? (
-              <EmptyState>Nothing to count.</EmptyState>
+              <EmptyState>
+                {all.length === 0 ? "Nothing to count." : "No orders match."}
+              </EmptyState>
             ) : (
               <DataTable<OrderRow>
                 table={table}
@@ -313,6 +342,7 @@ export function Receiving() {
                 }}
                 isSelected={(row) => row.po_number === counting.value}
                 pageScroll
+                cardSort={false}
                 className={ROOMY}
               />
             ),
@@ -735,6 +765,7 @@ export function CountSheet({
                                 inputMode="decimal"
                                 autoComplete="off"
                                 aria-label={`Counted ${part.unit} of ${line.article_code}`}
+                                padLabel={`${line.article_name} · ${part.unit}`}
                                 value={part.quantity}
                                 onChange={(event) =>
                                   writeParts(
@@ -879,6 +910,7 @@ export function CountSheet({
                         inputMode="decimal"
                         autoComplete="off"
                         placeholder="0"
+                        padLabel="Not as ordered · Damaged or wrong items"
                         aria-invalid={wrongPieces === null}
                         value={wrongText}
                         onChange={(event) => setWrongText(event.target.value)}

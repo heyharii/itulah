@@ -13,6 +13,7 @@ export function Thumbnail({
   url,
   name,
   division,
+  colours,
   fallback,
   className,
   children,
@@ -24,6 +25,10 @@ export function Thumbnail({
   name?: string
   /// The article's division, for when the name says no kind of garment.
   division?: string | null
+  /// The colourway the silhouette is painted in — `colourwayFill()` or
+  /// `useColourwayFill()` from `lib/colourway-fill`. Without it the name is
+  /// read for a colour, as before.
+  colours?: readonly string[]
   /// What stands in for the photograph when there is not one. A sentence on a
   /// card, nothing at all in a 32px table cell — a grey box in a row reads as
   /// "no photograph" on its own, and the words would not fit anyway.
@@ -48,7 +53,7 @@ export function Thumbnail({
       ) : name !== undefined &&
         (name.trim() !== "" || (division ?? "") !== "") ? (
         <span className="block size-full" title="No photograph yet">
-          <Garment name={name.trim()} division={division} />
+          <Garment name={name.trim()} division={division} colours={colours} />
         </span>
       ) : (
         <span className="grid size-full place-items-center px-1 text-center text-[0.875rem] text-mute">

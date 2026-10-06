@@ -124,7 +124,7 @@ const columns: ColumnDef<TableSetup, Dated>[] = [
   },
   {
     id: "value",
-    accessorFn: (row) => row.valueMinor,
+    accessorFn: (row) => (row.valueMinor > 0 ? row.valueMinor : null),
     header: "Value",
     size: 140,
     meta: { align: "right", card: "metric" },
@@ -240,6 +240,10 @@ function SupplierCard({
       <DataTable<Dated>
         table={table}
         touch
+        // One sort control a screen would be one too many a card: the order is
+        // the list's own — open ones first, then the newest order — and a
+        // "Sort by" under every supplier's name is noise.
+        cardSort={false}
         pageScroll
         onRowClick={(row) => onOpen(row.id)}
         isSelected={(row) => row.id === selected}

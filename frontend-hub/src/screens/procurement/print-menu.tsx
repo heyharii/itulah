@@ -36,10 +36,14 @@ export function PrintMenu({
   onChoose,
   pending,
   label = "Print",
+  iconOnly = false,
 }: {
   onChoose: (choice: PrintChoice) => void
   pending?: boolean
   label?: string
+  /// The printer alone, square, with the word for a screen reader: where the
+  /// room is wanted for the actions beside it.
+  iconOnly?: boolean
 }) {
   const [paper, setPaper] = useState<Paper>(remembered)
   const choose = (pdf: boolean) => onChoose({ paper, pdf })
@@ -47,11 +51,15 @@ export function PrintMenu({
     <Menu.Root>
       <Menu.Trigger
         disabled={pending}
-        className={cn(button({ variant: "ghost", size: "sm" }))}
+        title={label}
+        className={cn(
+          button({ variant: "ghost", size: "sm" }),
+          iconOnly && "w-9 px-0!"
+        )}
       >
         <Printer />
-        {label}
-        <ChevronDown className="size-3.5" />
+        {iconOnly ? <span className="sr-only">{label}</span> : label}
+        {!iconOnly && <ChevronDown className="size-3.5" />}
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Positioner

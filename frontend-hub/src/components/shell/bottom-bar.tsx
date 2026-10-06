@@ -119,9 +119,14 @@ export function BottomBar() {
       // is left of the glass, over the field being typed into — except while
       // the drawer is itself the search field, when it stays and is lifted
       // clear of the keyboard.
-      hidden={typing && !searching}
+      inert={typing && !searching ? true : undefined}
       style={searching && lift > 0 ? { bottom: lift } : undefined}
-      className="fixed inset-x-0 bottom-0 z-30 md:hidden"
+      className={cn(
+        "fixed inset-x-0 bottom-0 z-30 transition-opacity duration-150 ease-(--ease-out) motion-reduce:transition-none md:hidden",
+        // A fade, not a vanish: the sheet that is rising over it takes 450ms,
+        // and a dock that pops out of existence under it reads as a glitch.
+        typing && !searching && "pointer-events-none opacity-0"
+      )}
     >
       <DockDrawer
         row={row}

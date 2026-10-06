@@ -19,9 +19,11 @@ import { useEffect, useId, useRef, useState } from "react"
 
 import { ClearFilters, FilterControls } from "@/components/ui/filter-bar"
 import { BottomSheet, MorphHeight } from "@/components/ui/picker-sheet"
+import { DayRangePage } from "@/components/ui/day-range-sheet"
 import { Sheet } from "@/components/ui/sheet"
 import { csvName, downloadCsv, toCsv, type CsvColumn } from "@/lib/csv"
 import { useOptions, POP_MOTION } from "@/lib/filter-chrome"
+import { dayRangeOf, isDayRange, sayDays } from "@/lib/day-window"
 import { count } from "@/lib/format"
 import { usePanelDock } from "@/lib/layout"
 import { useSheet } from "@/lib/sheets"
@@ -433,7 +435,7 @@ function FieldRow({
               POP_MOTION
             )}
           >
-            {options.length > 8 && (
+            {(options.length > 8 || field.spec.searchable === true) && (
               <div className="mb-1 flex items-center gap-2 border-b border-hairline px-2 pb-1.5">
                 <Search className="size-3.5 shrink-0 text-line-ico" />
                 <input
@@ -735,9 +737,11 @@ export function ColumnsMenu({
   readonly extra?: React.ReactNode
 }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // A column that cannot be hidden is no switch: it is either always there or
+  // a hidden one that only carries a sort (`meta.sortBy`).
   const columns = table.getAllLeafColumns().filter((column: any) => {
     const header = column.columnDef.header
-    return typeof header === "string" && header !== ""
+    return typeof header === "string" && header !== "" && column.getCanHide()
   })
 
   return (
@@ -1223,17 +1227,18 @@ export function QuickFilters({
 /*  The phone's one button for all three                                       */
 /* -------------------------------------------------------------------------- */
 
-/// Filter, sort and views, as ONE control on a phone — a dynamic sheet.
+/// Filter and sort, as ONE control on a phone — a dynamic sheet.
 ///
-/// On the desk they are three controls on the toolbar's line, and that is
-/// right there. On a 375px screen the three, plus search and New order, broke
-/// the toolbar onto two and three lines and pushed the list down the glass.
-/// So below 48rem a list shows one button beside its search, and it opens one
-/// sheet whose first page names the three with what each is set to; tapping
-/// one changes the sheet's page in place (`MorphHeight`) rather than stacking
-/// a second sheet on the first, and ← goes back. Nothing here is new
-/// behaviour: the filter page is `FilterControls`, the sort page is the same
-/// columns `SortMenu` offers, the views page is `ViewPicker`'s list.
+/// On the desk they are controls on the toolbar's line, and that is right
+/// there. On a 375px screen they, plus search and New order, broke the
+/// toolbar onto two and three lines and pushed the list down the glass. So
+/// below 48rem a list shows one button beside its search, and it opens one
+/// sheet whose first page names the two with what each is set to; tapping one
+/// changes the sheet's page in place (`MorphHeight`) rather than stacking a
+/// second sheet on the first, and ← goes back. The filter page is each field
+/// and what it is set to: a window of days opens a calendar, a list of values
+/// opens the list (searchable where the field says so), anything else the
+/// clause editor. There are no saved views here (owner, 2026-10-06).
 export function ListOptionsSheet({
   model,
   filterModel,
@@ -1241,14 +1246,13 @@ export function ListOptionsSheet({
   sorting = [],
   onSort,
   orders,
-  id = "orders",
-  all = "All orders",
+  sortChoices,
   className,
   openAt,
   onOpenAtChange,
   hideTrigger = false,
 }: {
-  /// What the views are compared against and applied to.
+  /// What the filter is applied to.
   readonly model: FilterState
   /// What the filter page edits — the same state, usually with the server's
   /// facet counts folded into its fields.
@@ -1268,14 +1272,15 @@ export function ListOptionsSheet({
     readonly value: string | null
     readonly onChange: (value: string | null) => void
   }
-  readonly id?: string
-  readonly all?: string
+  /// The sort as the phone's dock hands it over (`dockSortOf`): named columns,
+  /// the one in force and its direction, and the list's own order as "".
+  readonly sortChoices?: SortChoices
   readonly className?: string
   /// Opened from outside, at a page, by whatever else offers it (the phone's
-  /// drawer, which asks Filter or Sort before it opens this). `null` is shut.
-  /// Leave it out and the sheet is opened by its own button, as it always was.
-  readonly openAt?: "filter" | "sort" | null
-  readonly onOpenAtChange?: (page: "filter" | "sort" | null) => void
+  /// dock, whose ⚙ opens the menu of the two). `null` is shut. Leave it out
+  /// and the sheet is opened by its own button, as it always was.
+  readonly openAt?: "menu" | "filter" | "sort" | null
+  readonly onOpenAtChange?: (page: "menu" | "filter" | "sort" | null) => void
   /// No button of its own: it is opened from elsewhere.
   readonly hideTrigger?: boolean
 }) {
@@ -1289,12 +1294,18 @@ export function ListOptionsSheet({
   }
   const [page, setPage] = useState<string>("menu")
   const [back, setBack] = useState(false)
+  /// The page the sheet was opened at from outside, if it was. That page is
+  /// the sheet's first, so ← from it shuts the sheet: the menu was never on
+  /// the way there, and landing on it from Filter showed a page nobody had
+  /// asked for (the owner, 2026-10-06).
+  const [landed, setLanded] = useState<"menu" | "filter" | "sort" | null>(null)
   // Arriving from outside lands on the page that was asked for.
   useEffect(() => {
     if (openAt) {
       setPage(openAt)
       setBack(false)
-    }
+      setLanded(openAt)
+    } else setLanded(null)
   }, [openAt])
   const go = (next: string, backwards = next === "menu") => {
     setBack(backwards)
@@ -1304,52 +1315,76 @@ export function ListOptionsSheet({
   const fieldPage = page.startsWith("field:")
     ? fm.fields.find((one) => one.column === page.slice(6))
     : undefined
-
-  const [saved, setSaved] = useState<SavedView[]>([])
-  useEffect(() => {
-    const refresh = () => setSaved(readViews(id))
-    refresh()
-    listeners.add(refresh)
-    return () => void listeners.delete(refresh)
-  }, [id])
-  const same = (a: readonly Filter[], b: readonly Filter[]) =>
-    JSON.stringify(a) === JSON.stringify(b)
-  const here = saved.find((one) => same(one.filters, model.filters))
-  const viewLabel = model.filters.length === 0 ? all : (here?.name ?? "Custom")
+  const dayPage = page.startsWith("cal:")
+    ? fm.fields.find((one) => one.column === page.slice(4))
+    : undefined
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const columns = (table?.getAllLeafColumns() ?? []).filter(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (column: any) =>
-      column.getCanSort() && typeof column.columnDef.header === "string"
+      column.getCanSort() &&
+      typeof column.columnDef.header === "string" &&
+      columnName(column) !== ""
   )
   const current = sorting[0]
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const by = columns.find((column: any) => column.id === current?.id)
+  const hasFilter = fm.fields.length > 0
+  const hasSort =
+    orders !== undefined || sortChoices !== undefined || columns.length > 0
   const sortLabel =
     orders !== undefined
       ? (orders.options.find((one) => one.value === orders.value)?.label ??
         "Default")
-      : by === undefined
-        ? "Default"
-        : columnName(by)
+      : sortChoices !== undefined
+        ? (sortChoices.options.find((one) => one.value === sortChoices.value)
+            ?.label ?? "Default")
+        : by === undefined
+          ? "Default"
+          : columnName(by)
+  // What the sort page lists when it is not a named order: the dock's own
+  // choices, or the table's columns.
+  const choices: SortChoices | undefined =
+    sortChoices ??
+    (columns.length > 0
+      ? {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          options: columns.map((column: any) => ({
+            value: column.id as string,
+            label: columnName(column),
+          })),
+          value: current?.id ?? "",
+          desc: current?.desc ?? false,
+          onChange: (value, desc) => onSort?.(value, desc),
+        }
+      : undefined)
 
   const narrowing = model.filters.length
+  const clearColumn = (column: string) =>
+    fm.set(fm.filters.filter((one) => one.column !== column))
   const title =
-    fieldPage !== undefined
-      ? fieldPage.label
-      : page === "clauses"
-        ? "Edit filters"
-        : page === "filter"
-          ? "Filter"
-          : page === "sort"
-            ? "Sort by"
-            : page === "views"
-              ? "Views"
+    dayPage !== undefined
+      ? dayPage.label
+      : fieldPage !== undefined
+        ? fieldPage.label
+        : page === "clauses"
+          ? "Edit filters"
+          : page === "filter"
+            ? "Filter"
+            : page === "sort"
+              ? "Sort by"
               : "Show"
+  const clearable =
+    page === "filter"
+      ? narrowing > 0
+      : dayPage !== undefined
+        ? fm.filters.some((one) => one.column === dayPage.column)
+        : fieldPage !== undefined &&
+          fm.filters.some((one) => one.column === fieldPage.column)
+  const root = landed ?? "menu"
 
-  const ROW =
-    "flex min-h-12 w-full items-center gap-3 rounded-inner px-3 text-left text-[0.9375rem] text-ink active:bg-soft-2"
+  const ROW = SHEET_ROW
 
   return (
     <>
@@ -1358,8 +1393,8 @@ export function ListOptionsSheet({
           type="button"
           aria-label={
             narrowing > 0
-              ? `Filter, sort and views, ${narrowing} filters`
-              : "Filter, sort and views"
+              ? `Filter and sort, ${narrowing} filters`
+              : "Filter and sort"
           }
           aria-haspopup="dialog"
           onClick={() => {
@@ -1385,16 +1420,27 @@ export function ListOptionsSheet({
         onOpenChange={setOpen}
         title={title}
         onBack={
-          page === "menu"
-            ? undefined
+          page === root
+            ? root === "menu"
+              ? undefined
+              : () => setOpen(false)
             : () =>
-                go(fieldPage || page === "clauses" ? "filter" : "menu", true)
+                go(
+                  fieldPage || dayPage || page === "clauses"
+                    ? "filter"
+                    : "menu",
+                  true
+                )
         }
         action={
-          page === "filter" && narrowing > 0 ? (
+          clearable ? (
             <button
               type="button"
-              onClick={() => model.clear()}
+              onClick={() => {
+                if (page === "filter") model.clear()
+                else if (dayPage !== undefined) clearColumn(dayPage.column)
+                else if (fieldPage !== undefined) clearColumn(fieldPage.column)
+              }}
               className="h-tap shrink-0 rounded-inner px-3 text-[0.9375rem] font-medium text-accent"
             >
               Clear
@@ -1406,69 +1452,48 @@ export function ListOptionsSheet({
           <div className="px-2 pb-3">
             {page === "menu" && (
               <>
-                {[
-                  {
-                    to: "filter" as const,
-                    icon: ListFilter,
-                    label: "Filter",
-                    value: narrowing === 0 ? "None" : count(narrowing),
-                  },
-                  {
-                    to: "sort" as const,
-                    icon: current?.desc ? ArrowDown : ArrowUp,
-                    label: "Sort by",
-                    value: sortLabel,
-                  },
-                  {
-                    to: "views" as const,
-                    icon: Bookmark,
-                    label: "View",
-                    value: viewLabel,
-                  },
-                ].map((one) => (
+                {hasFilter && (
                   <button
-                    key={one.to}
                     type="button"
-                    onClick={() => go(one.to)}
+                    onClick={() => go("filter")}
                     className={ROW}
                   >
-                    <one.icon className="size-4 shrink-0 text-line-ico" />
-                    <span className="flex-1">{one.label}</span>
+                    <ListFilter className="size-4 shrink-0 text-line-ico" />
+                    <span className="flex-1">Filter</span>
                     <span className="max-w-[45%] truncate text-body">
-                      {one.value}
+                      {narrowing === 0 ? "None" : count(narrowing)}
                     </span>
                     <ChevronRight className="size-4 shrink-0 text-line-ico" />
                   </button>
-                ))}
+                )}
+                {hasSort && (
+                  <button
+                    type="button"
+                    onClick={() => go("sort")}
+                    className={ROW}
+                  >
+                    {current?.desc || sortChoices?.desc ? (
+                      <ArrowDown className="size-4 shrink-0 text-line-ico" />
+                    ) : (
+                      <ArrowUp className="size-4 shrink-0 text-line-ico" />
+                    )}
+                    <span className="flex-1">Sort by</span>
+                    <span className="max-w-[45%] truncate text-body">
+                      {sortLabel}
+                    </span>
+                    <ChevronRight className="size-4 shrink-0 text-line-ico" />
+                  </button>
+                )}
               </>
             )}
 
             {page === "filter" && (
-              <>
-                {fm.fields.map((field) => (
-                  <SheetFieldRow
-                    key={field.column}
-                    field={field}
-                    model={fm}
-                    table={table}
-                    className={ROW}
-                    onOpen={(oneTap) =>
-                      go(oneTap ? `field:${field.column}` : "clauses")
-                    }
-                  />
-                ))}
-                {/* The questions a one-tap list cannot ask — a date range,
-                    a price band, "is not" — in the full clause editor. */}
-                <button
-                  type="button"
-                  onClick={() => go("clauses")}
-                  className={cn(ROW, "text-body")}
-                >
-                  <SlidersHorizontal className="size-4 shrink-0 text-line-ico" />
-                  <span className="flex-1">Edit filters</span>
-                  <ChevronRight className="size-4 shrink-0 text-line-ico" />
-                </button>
-              </>
+              <SheetFilterPage
+                model={fm}
+                table={table}
+                go={go}
+                rowClass={ROW}
+              />
             )}
 
             {fieldPage !== undefined && (
@@ -1477,6 +1502,14 @@ export function ListOptionsSheet({
                 model={fm}
                 table={table}
                 rowClass={ROW}
+              />
+            )}
+
+            {dayPage !== undefined && (
+              <DayRangePage
+                field={dayPage}
+                model={fm}
+                onComplete={() => go("filter", true)}
               />
             )}
 
@@ -1513,98 +1546,163 @@ export function ListOptionsSheet({
                 )
               })}
 
-            {page === "sort" &&
-              orders === undefined &&
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              columns.map((column: any) => {
-                const on = column.id === current?.id
-                return (
-                  <button
-                    key={column.id}
-                    type="button"
-                    aria-pressed={on}
-                    // A second tap on the column that is already the order
-                    // turns it round, the way a header does.
-                    onClick={() =>
-                      onSort?.(column.id, on ? !current.desc : false)
-                    }
-                    className={cn(ROW, on && "font-medium")}
-                  >
-                    <span className="flex-1">{columnName(column)}</span>
-                    {on &&
-                      (current.desc ? (
-                        <ArrowDown className="size-4 text-accent" />
-                      ) : (
-                        <ArrowUp className="size-4 text-accent" />
-                      ))}
-                  </button>
-                )
-              })}
-
-            {page === "views" && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    model.clear()
-                    setOpen(false)
-                  }}
-                  className={ROW}
-                >
-                  <span className="flex-1">{all}</span>
-                  {narrowing === 0 && <Check className="size-4 text-accent" />}
-                </button>
-                {saved.map((one) => (
-                  <button
-                    key={one.name}
-                    type="button"
-                    onClick={() => {
-                      model.clear()
-                      one.filters.forEach((clause) => model.commit(clause))
-                      setOpen(false)
-                    }}
-                    className={ROW}
-                  >
-                    <span className="flex-1 truncate">{one.name}</span>
-                    <span className="text-meta text-mute tabular-nums">
-                      {count(one.filters.length)}
-                    </span>
-                    {here?.name === one.name && (
-                      <Check className="size-4 text-accent" />
-                    )}
-                  </button>
-                ))}
-                {narrowing > 0 && here === undefined && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const name = window.prompt("Name this view")?.trim()
-                      if (!name) return
-                      const next = [
-                        ...readViews(id).filter((one) => one.name !== name),
-                        { name, filters: model.filters },
-                      ]
-                      try {
-                        localStorage.setItem(
-                          storageKey(id),
-                          JSON.stringify(next)
-                        )
-                      } catch {
-                        /* applied; it just will not be here tomorrow */
-                      }
-                      announce()
-                    }}
-                    className={cn(ROW, "text-accent")}
-                  >
-                    <Save className="size-4" />
-                    <span className="flex-1">Save this as a view</span>
-                  </button>
-                )}
-              </>
+            {page === "sort" && orders === undefined && choices !== undefined && (
+              <SheetSortRows
+                choices={choices}
+                withDefault={sortChoices !== undefined}
+                rowClass={ROW}
+                onDone={() => setOpen(false)}
+              />
             )}
           </div>
         </MorphHeight>
       </BottomSheet>
+    </>
+  )
+}
+
+/// The sort a list offers, as a list of named orders: the one in force and
+/// its direction, and `""` for the list's own order.
+export interface SortChoices {
+  readonly options: readonly { readonly value: string; readonly label: string }[]
+  readonly value: string
+  readonly desc: boolean
+  readonly onChange: (value: string, desc: boolean) => void
+}
+
+/// A row of a sheet: 48px, plain, a press tints it. Every list of choices in
+/// every sheet is made of these (owner, 2026-10-06).
+export const SHEET_ROW =
+  "flex min-h-12 w-full items-center gap-3 rounded-inner px-3 text-left text-[0.9375rem] text-ink transition-[background-color,scale] duration-100 ease-(--ease-out) active:scale-[0.985] active:bg-soft-2"
+
+/// The ways a list can be ordered, as rows. The column already in force turns
+/// over on a second tap and the sheet stays to show it; choosing another one
+/// shuts it.
+export function SheetSortRows({
+  choices,
+  withDefault = false,
+  rowClass = SHEET_ROW,
+  onDone,
+}: {
+  choices: SortChoices
+  /// Offer the list's own order as the first row.
+  withDefault?: boolean
+  rowClass?: string
+  onDone: () => void
+}) {
+  const options = withDefault
+    ? [{ value: "", label: "Default order" }, ...choices.options]
+    : choices.options
+  return (
+    <>
+      {options.map((one) => {
+        const on = one.value === choices.value
+        const ordered = on && one.value !== ""
+        return (
+          <button
+            key={one.value}
+            type="button"
+            aria-pressed={on}
+            aria-label={
+              ordered
+                ? `${one.label}, ${choices.desc ? "descending" : "ascending"}`
+                : one.label
+            }
+            onClick={() => {
+              if (ordered) {
+                choices.onChange(one.value, !choices.desc)
+                return
+              }
+              choices.onChange(one.value, choices.desc)
+              onDone()
+            }}
+            className={cn(rowClass, on && "font-medium text-accent")}
+          >
+            <span className="flex-1">{one.label}</span>
+            {ordered ? (
+              choices.desc ? (
+                <ArrowDown className="size-4 shrink-0" />
+              ) : (
+                <ArrowUp className="size-4 shrink-0" />
+              )
+            ) : on ? (
+              <Check className="size-4 shrink-0" />
+            ) : null}
+          </button>
+        )
+      })}
+    </>
+  )
+}
+
+/// The filter page of a sheet: each field and what it is set to — a window of
+/// days opens its calendar, a list of values opens the list, anything else the
+/// clause editor — and, only when some field needs it, the editor itself.
+export function SheetFilterPage({
+  model,
+  table,
+  go,
+  rowClass = SHEET_ROW,
+}: {
+  model: FilterState
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  table?: any
+  go: (page: string) => void
+  rowClass?: string
+}) {
+  const needsEditor = model.fields.some(
+    (field) => field.spec.kind !== "option" && !isDayRange(field)
+  )
+  return (
+    <>
+      {model.fields.map((field) =>
+        isDayRange(field) ? (
+          <button
+            key={field.column}
+            type="button"
+            onClick={() => go(`cal:${field.column}`)}
+            className={rowClass}
+          >
+            <span className="flex-1 truncate">{field.label}</span>
+            {(() => {
+              const said = sayDays(dayRangeOf(model, field.column))
+              return (
+                <span
+                  className={cn(
+                    "max-w-[50%] truncate",
+                    said === "" ? "text-body" : "font-medium text-accent"
+                  )}
+                >
+                  {said === "" ? "Any" : said}
+                </span>
+              )
+            })()}
+            <ChevronRight className="size-4 shrink-0 text-line-ico" />
+          </button>
+        ) : (
+          <SheetFieldRow
+            key={field.column}
+            field={field}
+            model={model}
+            table={table}
+            className={rowClass}
+            onOpen={(oneTap) =>
+              go(oneTap ? `field:${field.column}` : "clauses")
+            }
+          />
+        )
+      )}
+      {needsEditor && (
+        <button
+          type="button"
+          onClick={() => go("clauses")}
+          className={cn(rowClass, "text-body")}
+        >
+          <SlidersHorizontal className="size-4 shrink-0 text-line-ico" />
+          <span className="flex-1">Edit filters</span>
+          <ChevronRight className="size-4 shrink-0 text-line-ico" />
+        </button>
+      )}
     </>
   )
 }
@@ -1625,7 +1723,7 @@ function isOneTap(field: FilterField, options: readonly unknown[]): boolean {
 /// One field on the sheet's filter page: its name, what it is set to, and a
 /// step into its values. A component rather than a map body because the
 /// values come from a hook (`useOptions`).
-function SheetFieldRow({
+export function SheetFieldRow({
   field,
   model,
   table,
@@ -1674,17 +1772,20 @@ function SheetFieldRow({
 
 /// A field's values as a page of the sheet: tap one to narrow the list to it,
 /// tap it again to let go — the docked panel's one-tap rows, a thumb's size.
-function SheetFieldOptions({
+export function SheetFieldOptions({
   field,
   model,
   table,
   rowClass,
+  pill = false,
 }: {
   field: FilterField
   model: FilterState
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   table?: any
   rowClass: string
+  /// The search box as the drawer draws its own field: a round, quiet capsule.
+  pill?: boolean
 }) {
   const options = useOptions(field, table)
   const [needle, setNeedle] = useState("")
@@ -1712,8 +1813,15 @@ function SheetFieldOptions({
   }
   return (
     <>
-      {options.length > 8 && (
-        <label className="mx-2 mb-2 flex h-11 items-center gap-2 rounded-inner border border-hairline-2 bg-soft px-3 focus-within:border-accent">
+      {(options.length > 8 || field.spec.searchable === true) && (
+        <label
+          className={cn(
+            "flex items-center gap-2 px-3",
+            pill
+              ? "h-10 rounded-full bg-soft-2"
+              : "mx-2 mb-2 h-11 rounded-inner border border-hairline-2 bg-soft focus-within:border-accent"
+          )}
+        >
           <Search className="size-4 shrink-0 text-line-ico" />
           <input
             value={needle}

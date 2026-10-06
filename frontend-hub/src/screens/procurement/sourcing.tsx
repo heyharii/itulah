@@ -43,6 +43,7 @@ import { ItemDetail } from "@/screens/procurement/item-detail"
 import { ItemFormSheet } from "@/screens/procurement/item-form"
 import { Swatches } from "@/components/ui/swatch"
 import { Thumbnail } from "@/components/ui/thumbnail"
+import { colourwayFill } from "@/lib/colourway-fill"
 import { sizeSpan, termLabel } from "@/screens/procurement/shared"
 import { supplierDisplayName } from "@/screens/procurement/supplier-format"
 import type {
@@ -267,6 +268,7 @@ export function Sourcing() {
           kind: "option",
           format: supplierLabel,
           single: true,
+          searchable: true,
           operators: ["isAnyOf", "isNoneOf"],
         },
       })
@@ -466,8 +468,6 @@ export function Sourcing() {
                 onChange: (next) =>
                   next === null ? sort.close() : sort.open(next),
               }}
-              id="sourcing"
-              all="Everything"
             />
           </div>
           <FilterOmnibox
@@ -651,6 +651,7 @@ function ProductCard({
   onAdd: () => void
 }) {
   const { item, supplier } = row
+  const first = item.colours[0]
 
   return (
     <div className="overflow-hidden rounded-card border border-hairline bg-canvas shadow-soft transition duration-150 hover:-translate-y-0.5 hover:shadow-pop">
@@ -669,6 +670,7 @@ function ProductCard({
           url={item.image_url}
           name={item.name}
           division={item.division_code}
+          colours={colourwayFill(first?.label, first?.hex_code)}
           fallback="No Photo"
           className="h-[9.875rem] w-full"
         >
