@@ -1144,8 +1144,12 @@ pub async fn unidentified_receipts(pool: &PgPool) -> Result<Vec<Value>, AppError
                           WHERE t.po_line_id = l.po_line_id), '{}')::text[] AS tags,
                 -- What one piece cost: the price agreed when THIS delivery was
                 -- accepted, or the order's own for a receipt from before that
-                -- was kept (0178). Per piece either way (0656).
-                COALESCE(r.agreed_unit_price_minor, l.unit_price_minor) AS purchase_price_minor,
+                -- was kept (0178). Per piece either way (0656). Net of the
+                -- order discount: this receipt's share of it (0178), spread
+                -- over its matched pieces, comes off each one.
+                GREATEST(0, COALESCE(r.agreed_unit_price_minor, l.unit_price_minor)
+                    - ROUND(r.allocated_discount_minor::numeric
+                            / NULLIF(r.matched_quantity, 0))::bigint) AS purchase_price_minor,
                 l.base_price_minor, l.markup_bps,
                 COALESCE((SELECT jsonb_agg(jsonb_build_object(
                                      'colour_code', v.colour_code,
