@@ -1439,15 +1439,17 @@ function AllotmentSheet({
               {(record.type === "TO_STORE" || record.type === "TO_SITE") &&
                 record.fulfillment_status === "ACTIVE" && (
                   <ConfirmButton
-                    label="Cancel and re-allot"
+                    label="Edit"
                     variant="ghost"
-                    title="Cancel and re-allot?"
-                    description={`${qty(record.to_pack_qty)} still to pack is released and opens in New allotment.`}
-                    confirmLabel="Cancel and re-allot"
-                    reason={{ label: "Reason" }}
+                    title="Edit this allotment?"
+                    description={`${qty(record.to_pack_qty)} still to pack opens in New allotment, filled in, to change and save. This allotment is replaced.`}
+                    confirmLabel="Edit"
+                    reason={{ label: "Reason", optional: true }}
                     pending={cancel.isPending}
                     disabled={cancelDisabled}
-                    onConfirm={reallot}
+                    onConfirm={(reason) =>
+                      reallot(reason.trim() === "" ? "Edited" : reason)
+                    }
                   />
                 )}
               {record.fulfillment_status === "ACTIVE" && nothingPicked && (
@@ -1465,28 +1467,6 @@ function AllotmentSheet({
                   pending={cancel.isPending}
                   disabled={cancelDisabled}
                   onConfirm={(reason) => cancel.mutateAsync(reason)}
-                />
-              )}
-              {record.fulfillment_status === "ACTIVE" && !nothingPicked && (
-                <ConfirmButton
-                  label="Close short"
-                  variant="quiet"
-                  tone="danger"
-                  title="Close short what is still to pack?"
-                  description={`${qty(record.to_pack_qty)} across ${count(packable.length)} ${packable.length === 1 ? "line" : "lines"} haven't been packed yet. Closing short releases them; anything already packed keeps travelling to the store.`}
-                  confirmLabel={`Close short ${qty(record.to_pack_qty)}`}
-                  reason={{
-                    label: "Reason",
-                    hint: "Kept on the closed allotment.",
-                    optional: true,
-                  }}
-                  pending={cancel.isPending}
-                  disabled={cancelDisabled}
-                  onConfirm={(reason) =>
-                    cancel.mutateAsync(
-                      reason.trim() === "" ? "Closed short" : reason
-                    )
-                  }
                 />
               )}
             </>
