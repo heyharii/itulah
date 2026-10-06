@@ -9,9 +9,10 @@ import { useTable } from "@tanstack/react-table"
 import { Fragment, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { ConfirmButton, SavedDialog } from "@/components/ui/dialog"
 import { Select } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
@@ -33,6 +34,7 @@ import { Timeline, type TimelineEvent } from "@/components/ui/timeline"
 import { useColourwayFill } from "@/lib/colourway-fill"
 import { useFilters } from "@/lib/filters"
 import { count, day, label, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { useAppNavigate } from "@/lib/navigate"
 import { useCatalogueIdentity } from "@/lib/operations/catalogue"
 import {
@@ -213,19 +215,34 @@ function columns(): ColumnDef<TableSetup, AllotmentRow>[] {
     {
       accessorKey: "allotment_number",
       header: "Allotment",
-      meta: { grow: 160 },
+      meta: { grow: 160, card: "id" },
       cell: ({ row }) => <AllotmentCell row={row.original} />,
     },
     {
       id: "stores",
       accessorFn: (row) => (row.destination_names ?? []).join(", "),
       header: "Store",
-      meta: { grow: 220 },
-      cell: ({ row }) => (
-        <span className="block truncate text-ink">
-          {(row.original.destination_names ?? []).join(", ") || "—"}
-        </span>
-      ),
+      meta: { grow: 220, card: "title" },
+      cell: ({ row }) => {
+        const names = row.original.destination_names ?? []
+        const full = names.join(", ") || "—"
+        // A card has one line: the first three, and how many more.
+        const short =
+          names.length > 3
+            ? `${names.slice(0, 3).join(", ")} +${names.length - 3}`
+            : full
+        return (
+          <>
+            <span
+              className="block truncate text-ink max-md:hidden"
+              title={names.join(", ") || undefined}
+            >
+              {full}
+            </span>
+            <span className="block text-ink md:hidden">{short}</span>
+          </>
+        )
+      },
     },
     {
       // Sorts by the pieces; the items ride underneath, the way the order
@@ -234,7 +251,7 @@ function columns(): ColumnDef<TableSetup, AllotmentRow>[] {
       accessorFn: (row) => row.total_quantity,
       header: "Quantity",
       size: 130,
-      meta: { align: "right" },
+      meta: { align: "right", card: "hide" },
       cell: ({ row }) => (
         <span className="block text-right tabular-nums">
           <span className="block whitespace-nowrap text-ink">
@@ -252,14 +269,14 @@ function columns(): ColumnDef<TableSetup, AllotmentRow>[] {
       header: "Created",
       sortFn: "datetime",
       size: 130,
-      meta: { filter: { kind: "date" } },
+      meta: { filter: { kind: "date" }, card: "hide" },
       cell: ({ row }) => day(row.original.created_at),
     },
     {
       id: "supplier",
       accessorFn: (row) => row.supplier_names ?? "",
       header: "Supplier",
-      meta: { grow: 160 },
+      meta: { grow: 160, card: "hide" },
       cell: ({ row }) => (
         <span className="block truncate">
           {row.original.supplier_names ?? "No supplier"}
@@ -270,6 +287,7 @@ function columns(): ColumnDef<TableSetup, AllotmentRow>[] {
       accessorKey: "fulfillment_status",
       header: "Status",
       size: 140,
+      meta: { card: "status" },
       cell: ({ row }) => (
         <StatusWord
           status={row.original.fulfillment_status}
@@ -286,7 +304,7 @@ function columns(): ColumnDef<TableSetup, AllotmentRow>[] {
       accessorFn: (row) => workedOf(row),
       header: "Picked",
       size: 100,
-      meta: { align: "right" },
+      meta: { align: "right", card: "hide" },
       cell: ({ row }) => (
         <span className="tabular-nums">{count(workedOf(row.original))}</span>
       ),
@@ -296,7 +314,7 @@ function columns(): ColumnDef<TableSetup, AllotmentRow>[] {
       accessorFn: (row) => packedOf(row),
       header: "Packed",
       size: 100,
-      meta: { align: "right" },
+      meta: { align: "right", card: "hide" },
       cell: ({ row }) => (
         <span className="tabular-nums">{count(packedOf(row.original))}</span>
       ),
@@ -306,12 +324,61 @@ function columns(): ColumnDef<TableSetup, AllotmentRow>[] {
       accessorFn: (row) => departedOf(row),
       header: "Dispatch",
       size: 100,
-      meta: { align: "right" },
+      meta: { align: "right", card: "hide" },
       cell: ({ row }) => (
         <span className="tabular-nums">{count(departedOf(row.original))}</span>
       ),
     },
+    // Two columns that exist only on a card (a phone; `cardLead`): the figure
+    // the card leads with, and the foot's left side — how much has arrived.
+    {
+      id: "lead",
+      accessorFn: (row) => row.total_quantity,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "lead" },
+      cell: ({ row }) => (
+        <span className="flex flex-col items-end tabular-nums">
+          <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
+            {count(row.original.total_quantity)}
+            <span className="text-[0.875rem] font-normal tracking-normal text-mute">
+              {row.original.total_quantity === 1 ? " pc" : " pcs"}
+            </span>
+          </span>
+          <span className="mt-0.5 text-[0.875rem] text-mute">
+            {count(row.original.article_count)}{" "}
+            {row.original.article_count === 1 ? "item" : "items"}
+          </span>
+        </span>
+      ),
+    },
+    {
+      id: "foot",
+      accessorFn: (row) => row.received_qty,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      cell: ({ row }) => (
+        <span className="tabular-nums">
+          {"Received "}
+          <span className="text-cell font-semibold text-ink">
+            {count(row.original.received_qty)}
+          </span>
+          {` of ${count(row.original.total_quantity)} pcs`}
+        </span>
+      ),
+    },
   ]
+}
+
+/// A card that wants a look: a DC that refused it, or pieces a store did not
+/// find.
+function cardToneOf(row: AllotmentRow): "alert" | undefined {
+  return row.edge_application_status === "REJECTED" || row.receiving_gap_qty > 0
+    ? "alert"
+    : undefined
 }
 
 /// Packed at the Gudang or further on — the same cumulative reading the
@@ -501,7 +568,11 @@ export function Allotments({
     picked: false,
     packed: false,
     dispatch: false,
+    lead: false,
+    foot: false,
   })
+  /// Whether the rows are cards: a phone.
+  const cards = useLayout() === "phone"
   // Oldest first (the owner, 29 Sep 2026).
   const [sorting, setSorting] = useState<SortingState>([
     { id: "created_at", desc: false },
@@ -605,13 +676,26 @@ export function Allotments({
           columnFilters: filters.columnFilters,
           globalFilter: query,
           sorting,
-          columnVisibility: visibility,
+          columnVisibility: {
+            ...visibility,
+            lead: cards,
+            foot: cards,
+            ...(cards ? { fulfillment_status: true } : {}),
+          },
         },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
         onColumnVisibilityChange: setVisibility,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting, visibility]
+      [
+        rows,
+        filters.columns,
+        filters.columnFilters,
+        query,
+        sorting,
+        visibility,
+        cards,
+      ]
     )
   )
 
@@ -640,6 +724,36 @@ export function Allotments({
 
   const narrowed = query !== "" || filters.filters.length > 0
 
+  /// The three tabs as the dock's status button, on a phone.
+  const pageTabs = {
+    value: view,
+    options: [
+      { value: "unallotted", label: "Unallotted", count: toAllot.articles },
+      {
+        value: "allotted",
+        label: "Allotted",
+        count: activeQuery.data?.items.length,
+      },
+      {
+        value: "overdue",
+        label: "Overdue",
+        count: activeQuery.data ? overdue.length : undefined,
+      },
+    ],
+    onChange: (next: string) => setView(next as View),
+  }
+  /// The strip's figures, said in a line under the title on a phone.
+  const notShipped = activeQuery.data
+    ? sumOf(
+        activeQuery.data.items,
+        (r) =>
+          r.to_pack_qty + r.at_packed_qty + r.at_shipment_qty + r.at_loaded_qty
+      )
+    : undefined
+  const inTransit = activeQuery.data
+    ? sumOf(activeQuery.data.items, (r) => r.at_in_transit_qty)
+    : undefined
+
   return (
     <PageContent>
       <PageHeader
@@ -651,7 +765,18 @@ export function Allotments({
         actions={view === "unallotted" ? undefined : actions}
       />
 
-      <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
+      {activeQuery.data && (
+        <p className="mb-4 text-[0.9375rem] leading-normal text-pretty text-body md:hidden">
+          <b className="font-semibold text-ink tabular-nums">
+            {count(activeQuery.data.items.length)}{" "}
+            {activeQuery.data.items.length === 1 ? "allotment" : "allotments"}
+          </b>{" "}
+          {activeQuery.data.items.length === 1 ? "is" : "are"} active.{" "}
+          {qty(notShipped ?? 0)} pcs not shipped yet, {qty(inTransit ?? 0)} in
+          transit.
+        </p>
+      )}
+      <KpiStrip className="grid-cols-2 max-md:hidden md:grid-cols-4 xl:grid-cols-4">
         <Kpi
           label="Active"
           value={activeQuery.data ? count(activeQuery.data.items.length) : "—"}
@@ -695,6 +820,7 @@ export function Allotments({
 
       {storeBook && (
         <SubTabs
+          className="max-md:hidden"
           value={view}
           onChange={(next) => setView(next as View)}
           tabs={(
@@ -722,13 +848,18 @@ export function Allotments({
       )}
 
       {view === "unallotted" ? (
-        <ToAllot suppliers={toAllot.suppliers} status={toAllot.status} />
+        <ToAllot
+          suppliers={toAllot.suppliers}
+          status={toAllot.status}
+          dockStatus={storeBook ? pageTabs : undefined}
+        />
       ) : view === "overdue" ? (
         <OverdueTable
           rows={overdue}
           loading={activeQuery.isPending}
           selected={allotment.value}
           onOpen={allotment.open}
+          dockStatus={storeBook ? pageTabs : undefined}
         />
       ) : (
         <>
@@ -776,11 +907,13 @@ export function Allotments({
                   <option value="store">By store</option>
                   <option value="article">By article</option>
                 </Select>
-                <ExpandingSearch
-                  value={query}
-                  onChange={setQuery}
-                  label="Search allotments"
-                />
+                <span className="contents max-md:hidden">
+                  <ExpandingSearch
+                    value={query}
+                    onChange={setQuery}
+                    label="Search allotments"
+                  />
+                </span>
                 <BarSpacer />
                 {(reading === "store" || reading === "article") && (
                   <Choice
@@ -791,12 +924,14 @@ export function Allotments({
                   />
                 )}
                 {reading !== "article" && (
-                  <ListOptionsSheet
-                    model={filters}
-                    table={table}
-                    sorting={sorting}
-                    onSort={chooseSort}
-                  />
+                  <span className="contents max-md:hidden">
+                    <ListOptionsSheet
+                      model={filters}
+                      table={table}
+                      sorting={sorting}
+                      onSort={chooseSort}
+                    />
+                  </span>
                 )}
                 <div className="hidden md:contents">
                   <span className="flex-1" />
@@ -816,10 +951,29 @@ export function Allotments({
 
               {type === "TO_STORE" && (
                 <Fab
-                  label="New allotment"
+                  label="New Allotment"
                   onClick={() => setView("unallotted")}
                 />
               )}
+              {/* On a phone the status, search, filter and sort are the dock's
+                  (owner, 2026-10-06), as on the order book. */}
+              <DockTools
+                search={{
+                  value: query,
+                  onChange: setQuery,
+                  label: "Search Allotments",
+                }}
+                filter={
+                  reading === "article"
+                    ? undefined
+                    : {
+                        count: filters.filters.length,
+                        panel: { model: filters, table },
+                      }
+                }
+                sort={reading === "article" ? undefined : dockSortOf(table)}
+                status={storeBook ? pageTabs : undefined}
+              />
 
               {reading !== "article" && shortages.length > 0 && (
                 <div className="mb-[1.125rem] flex flex-col gap-2">
@@ -964,13 +1118,16 @@ export function Allotments({
                             <EmptyState>Nothing here yet.</EmptyState>
                           )
                         ) : (
-                          <Card className="overflow-clip">
+                          <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
                             <ExpandContext value={expanding}>
                               <DataTable<AllotmentRow>
                                 table={table}
                                 roomy
                                 pageScroll
                                 cardSort={false}
+                                cardsApart
+                                cardLead
+                                cardTone={cardToneOf}
                                 onRowClick={(row) => allotment.open(row.id)}
                                 isSelected={(row) => row.id === allotment.value}
                                 isExpanded={(row) => expanding.isOpen(row.id)}

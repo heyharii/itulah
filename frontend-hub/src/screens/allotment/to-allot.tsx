@@ -1,6 +1,8 @@
 import { ChevronRight, Search, Tag as TagIcon } from "lucide-react"
 import { useMemo, useState } from "react"
 
+import { DockSelection } from "@/components/shell/dock-selection"
+import { DockTools, type DockStatus } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/states"
 import { Thumbnail } from "@/components/ui/thumbnail"
@@ -86,10 +88,13 @@ function matches(words: readonly string[], ...texts: string[]): boolean {
 export function ToAllot({
   suppliers,
   status,
+  dockStatus,
 }: {
   suppliers: readonly PickSupplier[]
   /// Drawn in place of the list while the stock is read, or when it failed.
   status: React.ReactNode | null
+  /// The page's tabs as the dock's status button, on a phone.
+  dockStatus?: DockStatus
 }) {
   const { selection, select: onSelection } = useAllotSelection()
   const makeAllotment = useMakeAllotment()
@@ -141,6 +146,7 @@ export function ToAllot({
     0
   )
   const onMake = () => makeAllotment(asPicks(picked))
+  const selecting = articleCount > 0
 
   /// Writes one supplier's ticks back, every other supplier's kept, in the
   /// list's order.
@@ -188,7 +194,25 @@ export function ToAllot({
 
   return (
     <div className="flex min-w-0 flex-col">
-      <div className="mb-4 flex items-center">
+      {/* On a phone the search is the dock's, and while articles are ticked the
+          dock is the selection (`DockSelection`). */}
+      {selecting ? (
+        <DockSelection
+          summary={`${count(articleCount)} selected`}
+          onClear={() => onSelection([])}
+          action={{ label: "Make Allotment", onClick: onMake }}
+        />
+      ) : (
+        <DockTools
+          search={{
+            value: query,
+            onChange: setQuery,
+            label: "Search Articles",
+          }}
+          status={dockStatus}
+        />
+      )}
+      <div className="mb-4 flex items-center max-md:hidden">
         <span className="relative w-full md:max-w-md">
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-line-ico" />
           <input
@@ -200,7 +224,15 @@ export function ToAllot({
         </span>
       </div>
 
-      <div className="overflow-hidden rounded-card border border-hairline bg-canvas shadow-soft">
+      {/* A desk reads one card of suppliers; a phone reads a card each, with a
+          gap between (owner, 2026-10-06). */}
+      <div
+        className={cn(
+          status === null && shown.length > 0
+            ? "max-md:flex max-md:flex-col max-md:gap-3 md:overflow-hidden md:rounded-card md:border md:border-hairline md:bg-canvas md:shadow-soft"
+            : "overflow-hidden rounded-card border border-hairline bg-canvas shadow-soft"
+        )}
+      >
         {status ?? (
           <>
             {shown.length === 0 ? (
@@ -227,7 +259,7 @@ export function ToAllot({
       </div>
 
       {articleCount > 0 && (
-        <div className="sticky bottom-5 z-20 mx-auto mt-5 flex w-full max-w-3xl flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-card border border-hairline-strong bg-canvas px-5 py-3 shadow-[0_10px_32px_-8px_rgb(0_0_0/0.22)] transition-[opacity,translate] duration-200 ease-(--ease-out) starting:translate-y-3 starting:opacity-0 motion-reduce:starting:translate-none">
+        <div className="sticky bottom-5 z-20 mx-auto mt-5 flex w-full max-w-3xl flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-card border border-hairline-strong bg-canvas px-5 py-3 shadow-[0_10px_32px_-8px_rgb(0_0_0/0.22)] transition-[opacity,translate] duration-200 ease-(--ease-out) max-md:hidden starting:translate-y-3 starting:opacity-0 motion-reduce:starting:translate-none">
           <span className="text-[0.9375rem] text-ink tabular-nums">
             <span className="font-semibold">{count(articleCount)}</span>{" "}
             {articleCount === 1 ? "article" : "articles"} ·{" "}
@@ -272,7 +304,7 @@ function SupplierFold({
   const all = mine && ticked === supplier.articles.length
 
   return (
-    <section className="border-b border-hairline">
+    <section className="border-b border-hairline max-md:overflow-hidden max-md:rounded-card max-md:border max-md:bg-canvas max-md:shadow-soft">
       <div
         className={cn(
           "flex min-h-14 items-center gap-3 px-5",
@@ -407,10 +439,8 @@ function ArticleChoice({
   const colours = article.colours.map((one) => one.name).join(", ")
   const sizes = article.sizes.join(", ")
   const summary = [
-    `${count(article.free)} pcs`,
     colourText(article.colours),
     sizeText(article).replace(" – ", "–"),
-    article.setupAt ? dayMonth(article.setupAt) : "",
   ]
     .filter(Boolean)
     .join(" · ")
@@ -428,7 +458,7 @@ function ArticleChoice({
         aria-label={`Select ${article.name}`}
         checked={checked}
         onChange={onToggle}
-        className="size-4 shrink-0 cursor-pointer accent-ink"
+        className="size-5 shrink-0 cursor-pointer accent-ink md:size-4"
       />
       <span
         className="flex min-w-0 flex-1 items-center gap-3"
@@ -453,10 +483,23 @@ function ArticleChoice({
           <span className="block truncate font-mono text-[0.875rem] text-mute">
             {article.code}
           </span>
-          <span className="mt-0.5 line-clamp-2 text-[0.875rem] text-body tabular-nums @min-[40rem]:hidden">
+          <span className="mt-0.5 line-clamp-2 text-[0.875rem] text-body @min-[40rem]:hidden">
             {summary}
           </span>
         </span>
+      </span>
+      {/* Narrow: the figure stands at the right, the day under it — the same
+          lead as a purchase order's card. */}
+      <span className="flex shrink-0 flex-col items-end tabular-nums @min-[40rem]:hidden">
+        <span className="text-[1.125rem] leading-tight font-semibold text-ink">
+          {count(article.free)}
+          <span className="text-[0.875rem] font-normal text-mute"> pcs</span>
+        </span>
+        {article.setupAt && (
+          <span className="mt-0.5 text-[0.875rem] text-mute">
+            {dayMonth(article.setupAt)}
+          </span>
+        )}
       </span>
       <span className="hidden text-right text-[0.9375rem] text-ink tabular-nums @min-[40rem]:block">
         {count(article.free)}
