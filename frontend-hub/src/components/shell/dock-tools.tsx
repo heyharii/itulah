@@ -101,7 +101,6 @@ export function DockTools({
   /// the focus over when the sheet's field takes it.
   const proxy = useRef<HTMLInputElement>(null)
   const several = filter !== undefined || sort !== undefined
-  const active = search.value !== "" || (filter?.count ?? 0) > 0
   const current = status?.options.find((one) => one.value === status.value)
 
   const toSearch = () => {
@@ -140,85 +139,64 @@ export function DockTools({
       )}
 
       <DockPortal slot="search">
-        {status !== undefined ? (
-          // The field: it says what is searched, or what was.
-          // Tinted while a search is narrowing the list: the list is not the
-          // whole one, and the row says so where the thumb is.
-          <div
-            className={cn(
-              "dock-field flex h-9 min-w-0 items-center rounded-full pr-1 pl-3 transition-colors duration-150",
-              search.value === "" ? "bg-soft-2" : "bg-accent-bg"
-            )}
-          >
-            <button
-              type="button"
-              onClick={toSearch}
-              aria-label={search.label}
-              className="flex h-full min-w-0 flex-1 items-center gap-2 text-left text-[0.875rem]"
-            >
-              <Search
-                className={cn(
-                  "size-4 shrink-0",
-                  search.value === "" ? "text-mute" : "text-accent"
-                )}
-              />
-              <span
-                className={cn(
-                  "truncate",
-                  search.value === "" ? "text-mute" : "font-medium text-ink"
-                )}
-              >
-                {search.value === "" ? search.label : search.value}
-              </span>
-            </button>
-            {search.value !== "" && (
-              // One tap to widen the list again: it took a tap into the field,
-              // then another on its ✕, to undo a search.
-              <button
-                type="button"
-                aria-label="Clear search"
-                onClick={() => search.onChange("")}
-                className="grid size-7 shrink-0 place-items-center rounded-full text-body transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.92]"
-              >
-                <X className="size-4" />
-              </button>
-            )}
-            {several && (
-              <button
-                type="button"
-                aria-label="Filter and sort"
-                onClick={toTools}
-                className={cn(
-                  "relative grid size-7 shrink-0 place-items-center rounded-full transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.92]",
-                  (filter?.count ?? 0) > 0
-                    ? "bg-accent-bg text-accent"
-                    : "text-body"
-                )}
-              >
-                <ListFilter className="size-4" />
-              </button>
-            )}
-          </div>
-        ) : (
+        {/* The field: it says what is searched, or what was. */}
+        {/* Tinted while a search is narrowing the list: the list is not the
+        whole one, and the row says so where the thumb is. */}
+        <div
+          className={cn(
+            "dock-field flex h-9 min-w-0 items-center rounded-full pr-1 pl-3 transition-colors duration-150",
+            search.value === "" ? "bg-soft-2" : "bg-accent-bg"
+          )}
+        >
           <button
             type="button"
             onClick={toSearch}
             aria-label={search.label}
-            title={search.label}
-            className={cn(
-              "relative grid size-9 place-items-center rounded-full transition-[scale,background-color] duration-(--t-press) ease-(--ease-out) active:scale-[0.94]",
-              active ? "bg-accent-bg text-accent" : "bg-soft-2 text-body"
-            )}
+            className="flex h-full min-w-0 flex-1 items-center gap-2 text-left text-[0.875rem]"
           >
-            <Search className="size-4" />
-            {active && (
-              <span
-                aria-hidden
-                className="absolute top-0.5 right-0.5 size-2 rounded-full bg-accent ring-2 ring-canvas"
-              />
-            )}
+            <Search
+              className={cn(
+                "size-4 shrink-0",
+                search.value === "" ? "text-mute" : "text-accent"
+              )}
+            />
+            <span
+              className={cn(
+                "truncate",
+                search.value === "" ? "text-mute" : "font-medium text-ink"
+              )}
+            >
+              {search.value === "" ? search.label : search.value}
+            </span>
           </button>
-        )}
+          {search.value !== "" && (
+            // One tap to widen the list again: it took a tap into the field,
+            // then another on its ✕, to undo a search.
+            <button
+              type="button"
+              aria-label="Clear search"
+              onClick={() => search.onChange("")}
+              className="grid size-7 shrink-0 place-items-center rounded-full text-body transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.92]"
+            >
+              <X className="size-4" />
+            </button>
+          )}
+          {several && (
+            <button
+              type="button"
+              aria-label="Filter and sort"
+              onClick={toTools}
+              className={cn(
+                "relative grid size-7 shrink-0 place-items-center rounded-full transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.92]",
+                (filter?.count ?? 0) > 0
+                  ? "bg-accent-bg text-accent"
+                  : "text-body"
+              )}
+            >
+              <ListFilter className="size-4" />
+            </button>
+          )}
+        </div>
       </DockPortal>
 
       {dock?.available === true && (

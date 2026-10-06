@@ -2,8 +2,8 @@ import { useQuery } from "@tanstack/react-query"
 import { Link, useRouter, useRouterState } from "@tanstack/react-router"
 import {
   Bell,
-  ChevronLeft,
   Ellipsis,
+  House,
   LayoutGrid,
   MessageSquare,
   type LucideIcon,
@@ -172,7 +172,7 @@ export function BottomBar() {
               )
             })}
             <li>
-              <BackButton />
+              <HomeButton />
             </li>
           </ul>
         )}
@@ -295,10 +295,10 @@ function TabFace({
   )
 }
 
-/// Inside a department the bar is the department's (owner, 2026-10-05): Back,
-/// then its screens, the one on show lit. Four screens fit beside Back; a
+/// Inside a department the bar is the department's (owner, 2026-10-05): Home,
+/// then its screens, the one on show lit. Four screens fit beside Home; a
 /// department with more keeps three and a More that opens the full list. Home,
-/// Chat and Activity are the launcher's; Back leads to them.
+/// Chat and Activity are the launcher's; Home leads to them.
 function DepartmentTabs({
   tile,
   pathname,
@@ -338,7 +338,7 @@ function DepartmentTabs({
         style={{ gridTemplateColumns: `repeat(${slots}, minmax(0, 1fr))` }}
       >
         <li>
-          <BackButton fallback="/apps" />
+          <HomeButton fallback="/apps" />
         </li>
         {shown.map((item) => (
           <li key={item.path}>
@@ -431,35 +431,29 @@ function useKeyboardLift(active: boolean): number {
   return lift
 }
 
-/// Back, in the thumb's row (owner, 2026-10-05). Moving between a
-/// department's screens was a menu in the header, the part of a phone's
-/// screen a thumb reaches last; it is Back now — and Home to start again —
-/// which is how a phone's own apps do it, and which a home-screen app (no
-/// browser bar, no back arrow) otherwise has no button for at all.
-function BackButton({ fallback = "/apps" }: { fallback?: string }) {
+/// Home, in the thumb's row (owner, 2026-10-05; Home not Back, 2026-10-06).
+/// Moving between a department's screens was a menu in the header, the part
+/// of a phone's screen a thumb reaches last; the way out of a department is
+/// a button in the bar, and it leads to the launcher every time — which a
+/// home-screen app (no browser bar, no back arrow) otherwise has no button
+/// for at all.
+function HomeButton({ fallback = "/apps" }: { fallback?: string }) {
   const router = useRouter()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
-  // Read again after every navigation: whether there is anywhere to go back
-  // to changes with each one.
-  useRouterState({ select: (state) => state.location.href })
-  const can = router.history.canGoBack()
   return (
     <button
       type="button"
-      // With nothing behind it Back leads to Home, so it is never a dead
-      // button; only on Home itself, with nowhere to go, is it greyed.
-      disabled={!can && within(pathname, fallback)}
-      onClick={() =>
-        can
-          ? router.history.back()
-          : void router.navigate({ to: fallback as never })
-      }
+      // Always Home (owner, 2026-10-06): a button that says Back and goes to
+      // wherever the last tap came from is a different place every time. It
+      // is greyed only on Home itself, where there is nowhere to go.
+      disabled={within(pathname, fallback)}
+      onClick={() => void router.navigate({ to: fallback as never })}
       className="group relative flex h-full w-full flex-col items-center justify-center gap-1 text-[0.75rem] font-medium tracking-[0.005em] text-mute transition-opacity disabled:opacity-40"
     >
       <span className="transition-[scale] duration-(--t-press) ease-(--ease-out) group-active:scale-[0.9]">
-        <ChevronLeft className="size-[1.375rem] stroke-[1.7]" />
+        <House className="size-[1.375rem] stroke-[1.7]" />
       </span>
-      Back
+      Home
     </button>
   )
 }

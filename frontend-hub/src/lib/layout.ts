@@ -148,13 +148,12 @@ export function useCoarsePointer(): boolean {
 }
 
 /// Whether a picker opens as a sheet from the bottom edge rather than as a
-/// panel hanging off its field: a phone-width page AND a finger. Either alone
-/// is not enough — a narrow desktop window still has a mouse, and an iPad has
-/// the room for the desk's panel. See `components/ui/picker-sheet.tsx`.
+/// panel hanging off its field: a phone-width page. The width of the page
+/// alone (owner, 2026-10-06) — a phone-sized window on a desk is a phone as far
+/// as the page can tell, and a thumb on a phone always satisfies it. An iPad
+/// has the room for the desk's panel. See `components/ui/picker-sheet.tsx`.
 export function usePickerSheet(): boolean {
-  const layout = useLayout()
-  const touch = useCoarsePointer()
-  return layout === "phone" && touch
+  return useLayout() === "phone"
 }
 
 /// One `MediaQueryList` per query, for the life of the tab.

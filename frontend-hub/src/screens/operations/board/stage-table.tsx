@@ -1,6 +1,6 @@
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { Columns3, Rows3 } from "lucide-react"
+import { ChevronDown, Columns3, Rows3 } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { Card } from "@/components/ui/card"
@@ -11,6 +11,7 @@ import { Segmented } from "@/components/ui/segmented"
 import { count as figure } from "@/lib/format"
 import { ago } from "@/lib/format"
 import { useAppNavigate } from "@/lib/navigate"
+import { useLayout } from "@/lib/layout"
 import type { SheetKey } from "@/lib/sheets"
 import { useOpenHere } from "@/screens/operations/board/open-here"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -133,10 +134,7 @@ function columnsFor(
       header: "No.",
       size: 70,
       enableSorting: false,
-      // On a phone's card it keeps the place it had as the first column.
-      meta: pickable
-        ? { align: "right", priority: 2, card: "title" }
-        : { align: "right", priority: 2 },
+      meta: { align: "right", priority: 2, card: "hide" },
       cell: ({ row }) => <span className="text-mute">{row.index + 1}</span>,
     },
     {
@@ -157,7 +155,7 @@ function columnsFor(
       id: "stage",
       header: "Stage",
       size: 170,
-      meta: { swap: true },
+      meta: { swap: true, card: "hide" },
       accessorFn: (row) => row.stage.order,
       cell: ({ row }) => (
         <span className="inline-flex items-center gap-2">
@@ -174,7 +172,7 @@ function columnsFor(
       id: "group",
       header: group,
       size: 200,
-      meta: { priority: 2 },
+      meta: { priority: 2, card: "hide" },
       accessorFn: (row) => row.group ?? "",
     })
   }
@@ -183,7 +181,7 @@ function columnsFor(
       id: "pieces",
       header: "Pieces",
       size: 130,
-      meta: { align: "right" },
+      meta: { align: "right", card: "hide" },
       accessorFn: (row) => row.pieces,
       cell: ({ row }) => {
         const one = row.original
@@ -201,7 +199,7 @@ function columnsFor(
       id: "detail",
       header: "Detail",
       size: 180,
-      meta: { priority: 2 },
+      meta: { priority: 2, card: "hide" },
       enableSorting: false,
       cell: ({ row }) => (
         <span className="flex flex-col">
@@ -216,7 +214,7 @@ function columnsFor(
       id: "age",
       header: "Time",
       size: 130,
-      meta: { priority: 3 },
+      meta: { priority: 3, card: "hide" },
       accessorFn: (row) => row.at ?? "",
       cell: ({ row }) => (
         <span className={cn(row.original.late && "text-warn-fg")}>
@@ -225,7 +223,137 @@ function columnsFor(
       ),
     }
   )
+  // Three columns that exist only on a card (`cardLead`; a phone): the figure
+  // it leads with — the pieces — the foot's left side — the lane it sits in,
+  // and what it is made of and how long it has waited — and, at the foot's
+  // right, the verb the card's press does (owner, 2026-10-06).
+  out.push(
+    {
+      id: "lead",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      accessorFn: (row) => row.pieces,
+      meta: { card: "lead" },
+      cell: ({ row }) => {
+        const one = row.original
+        return (
+          <span className="flex flex-col items-end tabular-nums">
+            <span
+              className={cn(
+                "text-[1.5rem] leading-tight font-semibold tracking-tight text-ink",
+                one.flag !== undefined && "text-bad-fg"
+              )}
+            >
+              {figure(one.pieces)}
+            </span>
+            <span className="text-[0.875rem] text-mute">
+              {one.of !== undefined ? `of ${figure(one.of)} pcs` : "pcs"}
+            </span>
+          </span>
+        )
+      },
+    },
+    {
+      id: "foot",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      accessorFn: (row) => row.stage.order,
+      meta: { card: "foot" },
+      cell: ({ row }) => {
+        const one = row.original
+        return (
+          <span className="flex flex-col leading-6">
+            {stages && (
+              <span className="inline-flex items-center gap-2 text-ink">
+                <span className={cn("size-2 rounded-full", one.stage.tone)} />
+                {one.stage.label}
+              </span>
+            )}
+            {(one.detail !== undefined || one.at) && (
+              <span className="flex flex-wrap gap-x-1.5">
+                {one.detail}
+                {one.at && (
+                  <span className={cn(one.late && "text-warn-fg")}>
+                    {ago(one.at)}
+                  </span>
+                )}
+              </span>
+            )}
+            {one.flag !== undefined && (
+              <span className="text-bad-fg">{one.flag}</span>
+            )}
+          </span>
+        )
+      },
+    },
+    {
+      id: "act",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      accessorFn: (row) => row.act ?? "",
+      meta: { card: "status" },
+      cell: ({ row }) =>
+        row.original.act === undefined ? null : (
+          <span className={cn(button({ variant: "primary", size: "sm" }))}>
+            {row.original.act}
+          </span>
+        ),
+    }
+  )
   return stages ? out : out.filter((column) => column.id !== "stage")
+}
+
+/// The lanes in the order the goods move, then — inside one — the rows with a
+/// button to press first, oldest first.
+function byLane(rows: readonly StageRow[]): StageRow[] {
+  return [...rows].sort(
+    (left, right) =>
+      left.stage.order - right.stage.order ||
+      Number(right.act !== undefined) - Number(left.act !== undefined) ||
+      (left.at ?? "").localeCompare(right.at ?? "")
+  )
+}
+
+/// A lane as the heading of its section, on a phone: its colour, its name, how
+/// many cards and how many pieces are in it. A tap folds it away.
+function LaneHeading({
+  stage,
+  count,
+  pieces,
+  open,
+  onToggle,
+}: {
+  stage: StageRow["stage"]
+  count: number
+  pieces: number
+  open: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      className="flex w-full items-center gap-2 px-1 py-2 text-left transition-opacity active:opacity-60"
+    >
+      <span className={cn("size-2 shrink-0 rounded-full", stage.tone)} />
+      <span className="text-[1rem] font-semibold text-ink">{stage.label}</span>
+      <span className="text-[0.9375rem] text-mute tabular-nums">{figure(count)}</span>
+      <span className="flex-1" />
+      <span className="text-[0.875rem] text-mute tabular-nums">
+        {`${figure(pieces)} pcs`}
+      </span>
+      <ChevronDown
+        className={cn(
+          "size-4 shrink-0 text-line-ico transition-[rotate] duration-200 ease-(--ease-out) motion-reduce:transition-none",
+          !open && "-rotate-90"
+        )}
+      />
+    </button>
+  )
 }
 
 /// The table version of a board: one row per card, in lane order.
@@ -252,6 +380,7 @@ export function StageTable({
   const openHere = useOpenHere()
   const [sorting, setSorting] = useState<SortingState>([])
   const pickable = rows.some((row) => row.pick !== undefined)
+  const phone = useLayout() === "phone"
   const columns = useMemo(
     () => [
       ...columnsFor(first, group, pickable, stages),
@@ -266,7 +395,26 @@ export function StageTable({
     ],
     [first, group, pickable, stages]
   )
-  const ordered = useMemo(() => byStage(rows), [rows])
+  /// Lanes that are folded away, on a phone, by id.
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set())
+  // A phone reads the lanes as sections, in the order the goods move; the desk
+  // keeps the rows with a button to press ahead of everything.
+  const grouped = phone && stages
+  const ordered = useMemo(
+    () => (grouped ? byLane(rows) : byStage(rows)),
+    [rows, grouped]
+  )
+  const lanes = useMemo(() => {
+    const out = new Map<string, { count: number; pieces: number }>()
+    for (const row of ordered) {
+      const lane = out.get(row.stage.id) ?? { count: 0, pieces: 0 }
+      out.set(row.stage.id, {
+        count: lane.count + 1,
+        pieces: lane.pieces + row.pieces,
+      })
+    }
+    return out
+  }, [ordered])
 
   const table = useTable(
     useMemo(
@@ -276,8 +424,13 @@ export function StageTable({
         columns,
         getRowId: (row: StageRow) => row.key,
         state: {
-          sorting: [ACT_FIRST, ...sorting],
-          columnVisibility: { [ACT_FIRST.id]: false },
+          sorting: grouped ? [] : [ACT_FIRST, ...sorting],
+          columnVisibility: {
+            [ACT_FIRST.id]: false,
+            lead: phone,
+            foot: phone,
+            act: phone,
+          },
         },
         onSortingChange: (
           next: SortingState | ((prev: SortingState) => SortingState)
@@ -289,18 +442,47 @@ export function StageTable({
             ).filter((one) => one.id !== ACT_FIRST.id)
           ),
       }),
-      [ordered, columns, sorting]
+      [ordered, columns, sorting, phone, grouped]
     )
   )
 
   if (ordered.length === 0) return <EmptyState>{empty}</EmptyState>
 
   return (
-    <Card className="overflow-clip">
+    <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
       <DataTable<StageRow>
         table={table}
         touch
         pageScroll
+        cardsApart
+        cardLead
+        cardSort={!grouped}
+        stickyBefore
+        isHidden={
+          grouped ? (row) => folded.has(row.stage.id) : undefined
+        }
+        renderBefore={
+          grouped
+            ? (row, index, all) =>
+                index === 0 || all[index - 1].stage.id !== row.stage.id ? (
+                  <LaneHeading
+                    stage={row.stage}
+                    count={lanes.get(row.stage.id)?.count ?? 0}
+                    pieces={lanes.get(row.stage.id)?.pieces ?? 0}
+                    open={!folded.has(row.stage.id)}
+                    onToggle={() =>
+                      setFolded((was) => {
+                        const next = new Set(was)
+                        if (next.has(row.stage.id)) next.delete(row.stage.id)
+                        else next.add(row.stage.id)
+                        return next
+                      })
+                    }
+                  />
+                ) : null
+            : undefined
+        }
+        cardTone={(row) => (row.flag !== undefined ? "alert" : undefined)}
         className={ROOMY}
         onRowClick={(row) => {
           const here = openHere(row.open?.sheet)

@@ -28,10 +28,9 @@ export type ReturnsStatus = "IN_TRANSIT" | "RECEIVED"
 
 /// Receiving's title and its two tabs — each with what is waiting in it.
 ///
-/// On a phone the tabs are not drawn at the top of the page: the same choice
-/// is the status button over the bottom bar, beside the search, where the
-/// thumb is (`DockTools`). With store returns open that button also carries
-/// the list's own In transit / Received, so nothing is left up at the top.
+/// On a phone the tabs are not drawn at the top of the page, and there is no
+/// status button for the orders (see `status` below); with store returns open
+/// the button over the bottom bar carries the list's own In transit / Received.
 export function IntakeHeader({
   tab,
   search,
@@ -68,27 +67,24 @@ export function IntakeHeader({
       path: "/operations/intake/returns",
     },
   ] as const
+  // Purchase orders have no status — an order is owed a count or it is not on
+  // the list — so there is no chip over the bottom bar for them (owner,
+  // 2026-10-06). Store returns have two real ones: on the way, and counted.
   const status =
-    tab === "orders"
+    tab === "returns" && returns !== undefined
       ? {
-          value: "orders",
+          value: returns.value,
           options: [
-            { value: "orders", label: "Purchase Orders", count: owed },
-            { value: "returns", label: "Store Returns", count: onTheWay },
-          ],
-        }
-      : {
-          value: returns?.value ?? "IN_TRANSIT",
-          options: [
-            { value: "orders", label: "Purchase Orders", count: owed },
             {
               value: "IN_TRANSIT",
-              label: "Store Returns · In Transit",
+              label: "In Transit",
               count: onTheWay,
             },
-            { value: "RECEIVED", label: "Store Returns · Received" },
+            { value: "RECEIVED", label: "Received" },
           ],
+          onChange: (next: string) => returns.onChange(next as ReturnsStatus),
         }
+      : undefined
   return (
     <>
       <PageHeader title="Receiving" />
@@ -104,15 +100,7 @@ export function IntakeHeader({
       <DockTools
         search={{ ...search, label: searchLabel }}
         sort={dockSortOf(table)}
-        status={{
-          ...status,
-          onChange: (next) => {
-            if (next === "orders") void navigate("/operations/intake")
-            else if (next === "returns")
-              void navigate("/operations/intake/returns")
-            else returns?.onChange(next as ReturnsStatus)
-          },
-        }}
+        status={status}
       />
     </>
   )

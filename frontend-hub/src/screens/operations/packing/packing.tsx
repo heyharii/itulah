@@ -810,6 +810,14 @@ function PackSheet({
                       <tbody>
                         {lines.map((line) => {
                           const identity = catalogue.get(line.sku_code)
+                          const name =
+                            [
+                              identity?.article_name,
+                              identity?.colour,
+                              identity?.size,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ") || line.sku_code
                           return (
                             <tr
                               key={line.sku_code}
@@ -818,13 +826,7 @@ function PackSheet({
                               <td className="px-3 py-2">
                                 <div className="min-w-0">
                                   <div className="truncate text-[0.875rem] text-ink">
-                                    {[
-                                      identity?.article_name,
-                                      identity?.colour,
-                                      identity?.size,
-                                    ]
-                                      .filter(Boolean)
-                                      .join(" · ") || line.sku_code}
+                                    {name}
                                   </div>
                                   <div className="mt-0.5 truncate font-mono text-[0.875rem] text-faint">
                                     {line.sku_code}
@@ -842,6 +844,7 @@ function PackSheet({
                                   )}
                                   max={line.waiting}
                                   label={`Pack ${line.sku_code}`}
+                                  padTitle={name}
                                   onChange={(qty) =>
                                     setDrawn((current) => {
                                       if (qty <= 0) {

@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/field-state"
 import { NumberPad } from "@/components/ui/number-pad"
 import { PickerSheet } from "@/components/ui/picker-sheet"
-import { usePickerSheet } from "@/lib/layout"
+import { useLayout, usePickerSheet } from "@/lib/layout"
 import { ITEM, PANEL } from "@/lib/filter-chrome"
 import { numberFieldOf, numberKeyDown, numberText } from "@/lib/number-input"
 import { cn } from "@/lib/utils"
@@ -147,9 +147,11 @@ export function Input({
   const number = numberFieldOf(props)
   // On a phone a number is picked, not typed: the box opens `NumberPad` and
   // the system keyboard never rises. A box that is read, or off, stays as is.
-  const touch = usePickerSheet()
+  // Decided by the width of the page alone (owner, 2026-10-06): it is the same
+  // in a phone-sized window as on a phone, and a thumb always satisfies it.
+  const phone = useLayout() === "phone"
   const pad =
-    number.numeric && touch && !keyboard && !props.readOnly && !props.disabled
+    number.numeric && phone && !keyboard && !props.readOnly && !props.disabled
   const [padding, setPadding] = React.useState(false)
   const own = React.useRef<HTMLInputElement | null>(null)
   const hold = (node: HTMLInputElement | null) => {

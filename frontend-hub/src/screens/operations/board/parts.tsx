@@ -10,6 +10,7 @@ import { useOpenHere } from "@/screens/operations/board/open-here"
 import { cn } from "@/lib/utils"
 import type { BoardView } from "@/screens/operations/board/board-view"
 import { ViewSwitch } from "@/screens/operations/board/stage-table"
+import { useLayout } from "@/lib/layout"
 
 /// The page header. The two boards are different datasets and different
 /// menus (Allotment, Return to supplier), so there is nothing to switch here.
@@ -29,13 +30,15 @@ export function BoardHeader({
   /// Search and the store filter, on the board that has them.
   actions?: React.ReactNode
 }) {
+  // A phone is always the table (`useBoardView`), so there is no switch.
+  const phone = useLayout() === "phone"
   return (
     <PageHeader
       title={title ?? (board === "suppliers" ? "Return PO" : "Allotment")}
       actions={
         <>
           {actions}
-          {view && <ViewSwitch value={view[0]} onChange={view[1]} />}
+          {view && !phone && <ViewSwitch value={view[0]} onChange={view[1]} />}
         </>
       }
     />

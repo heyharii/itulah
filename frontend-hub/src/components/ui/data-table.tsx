@@ -150,6 +150,11 @@ export interface DataTableProps<TRow> {
   /// For a list whose card is one thing to scan (what it is worth) and one
   /// thing to act on (where it stands). `metric` columns are not drawn.
   readonly cardLead?: boolean
+  /// What `renderBefore` returns (a section's heading) stays at the top of the
+  /// page while its section scrolls under it, as the section headings of a
+  /// phone's own grouped lists do. Cards only; the heading brings its own
+  /// background, since the cards pass behind it.
+  readonly stickyBefore?: boolean
   /// Which cards want a look. Under `cardLead`, the foot of an `"alert"` card
   /// takes a light red wash, so a row that needs somebody shows from across
   /// the page without a word on it.
@@ -232,6 +237,7 @@ export function DataTable<TRow>({
   cardsTwoUp,
   cardLead,
   cardTone,
+  stickyBefore,
   onEndReached,
   more,
   summary,
@@ -479,6 +485,7 @@ export function DataTable<TRow>({
                 figuresBelow={cardFiguresBelow}
                 lead={cardLead}
                 tone={cardTone?.(row.original as TRow)}
+                stickyBefore={stickyBefore}
                 row={row}
                 before={beforeOf(index)}
                 hidden={isHidden?.(row.original as TRow)}
@@ -1186,6 +1193,7 @@ function RowCard<TRow>({
   figuresBelow,
   lead,
   tone,
+  stickyBefore,
 }: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   row: any
@@ -1193,6 +1201,7 @@ function RowCard<TRow>({
   figuresBelow?: boolean
   lead?: boolean
   tone?: "alert"
+  stickyBefore?: boolean
   onRowClick?: (original: TRow) => void
   selected: boolean
   fresh?: boolean
@@ -1200,11 +1209,26 @@ function RowCard<TRow>({
   before?: React.ReactNode
   hidden?: boolean
 }) {
-  if (hidden) {
-    return before !== null && before !== undefined ? (
-      <li data-sub>{before}</li>
+  // A section heading, stuck to the top of the page while its section passes
+  // under it: the `li` itself is what sticks, because a child of it could
+  // never leave the box of the one line it is in.
+  const beforeLi =
+    before !== null && before !== undefined ? (
+      <li
+        data-sub
+        className={
+          stickyBefore
+            ? // The air above a section is the heading's margin, not its
+              // padding, so a heading stuck to the top takes no more room than
+              // its own line.
+              "sticky top-0 z-10 -mx-1 bg-soft-3 px-1 not-first:mt-3"
+            : undefined
+        }
+      >
+        {before}
+      </li>
     ) : null
-  }
+  if (hidden) return beforeLi
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const parts: Record<CardRole, any[]> = {
     id: [],
@@ -1271,7 +1295,7 @@ function RowCard<TRow>({
   if (lead) {
     return (
       <>
-        {before !== null && before !== undefined && <li data-sub>{before}</li>}
+        {beforeLi}
         <li
           onClick={
             onRowClick ? () => onRowClick(row.original as TRow) : undefined
@@ -1346,7 +1370,7 @@ function RowCard<TRow>({
 
   return (
     <>
-      {before !== null && before !== undefined && <li data-sub>{before}</li>}
+      {beforeLi}
       <li
         onClick={
           onRowClick ? () => onRowClick(row.original as TRow) : undefined

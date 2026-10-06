@@ -13,6 +13,7 @@ import { SavedDialog } from "@/components/ui/dialog"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Select } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { NumberPad } from "@/components/ui/number-pad"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
@@ -27,6 +28,7 @@ import {
 } from "@/components/ui/states"
 import { dc, poolsAnswer } from "@/lib/api"
 import { ago, clock, count } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { keys } from "@/lib/operations/keys"
 import { useCatalogueIdentity } from "@/lib/operations/catalogue"
 import {
@@ -41,6 +43,7 @@ import { useEdgeActor } from "@/lib/edge-session"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { toast } from "@/lib/toast"
+import { cn } from "@/lib/utils"
 import { useActor } from "@/screens/inventory/shared"
 import { idempotencyKey } from "@itulah/contract/client"
 import type {
@@ -710,6 +713,8 @@ function AcceptSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pick === null ? null : acceptKey(pick)])
 
+  const phone = useLayout() === "phone"
+
   return (
     <Sheet
       open={pick !== null}
@@ -767,7 +772,33 @@ function AcceptSheet({
             <Fact term="Pieces">{count(pick.pieces)}</Fact>
           </Facts>
 
-          <MiniTable head={["Article", "Request Quantity", "Picked"]}>
+          {phone ? (
+            <ul className="divide-y divide-hairline border-y border-hairline">
+              {pick.lines.map((line) => {
+                const identity = catalogue.get(line.sku_code)
+                const variant = [identity?.colour, identity?.size]
+                  .filter(
+                    (part) =>
+                      part !== null && part !== undefined && part !== ""
+                  )
+                  .join(" · ")
+                return (
+                  <PickLineRow
+                    key={line.sku_code}
+                    title={identity?.article_name ?? line.sku_code}
+                    variant={variant}
+                    sku={line.sku_code}
+                    outstanding={line.outstanding}
+                    value={pickedOf(line)}
+                    onChange={(next) =>
+                      setFound((now) => ({ ...now, [line.sku_code]: next }))
+                    }
+                  />
+                )
+              })}
+            </ul>
+          ) : (
+            <MiniTable head={["Article", "Request Quantity", "Picked"]}>
             {pick.lines.map((line) => {
               const identity = catalogue.get(line.sku_code)
               const variant = [identity?.colour, identity?.size]
@@ -801,7 +832,8 @@ function AcceptSheet({
                 </MiniRow>
               )
             })}
-          </MiniTable>
+            </MiniTable>
+          )}
 
           <Problem error={accept.error} />
         </div>
@@ -814,6 +846,83 @@ function AcceptSheet({
         title="Picklist accepted"
       />
     </Sheet>
+  )
+}
+
+/// One line of a picklist on a phone: the article and what it is on the left,
+/// what the picker found on the right and, under it, what was asked for. The
+/// whole line is the button: a tap opens the number pad on it, so there is no
+/// keyboard rising over the very row being counted and no pair of minus and
+/// plus to hit by mistake (owner, 2026-10-06). Most lines are picked in full
+/// and are never touched; one that came back short is one tap and the figure.
+/// Never above what was wanted; red once it is under.
+function PickLineRow({
+  title,
+  variant,
+  sku,
+  outstanding,
+  value,
+  onChange,
+}: {
+  title: string
+  variant: string
+  sku: string
+  outstanding: number
+  value: number
+  onChange: (next: number) => void
+}) {
+  const [pad, setPad] = useState(false)
+  return (
+    <li>
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        aria-label={`${title}, picked ${value} of ${outstanding}`}
+        onClick={() => setPad(true)}
+        className="flex w-full items-center gap-3 py-3.5 text-left transition-[background-color] duration-(--t-press) ease-(--ease-out) active:bg-soft-2"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block text-[0.9375rem] leading-5 font-medium text-ink">
+            {title}
+          </span>
+          {variant !== "" && (
+            <span className="block text-[0.875rem] leading-5 text-body">
+              {variant}
+            </span>
+          )}
+          <span className="block font-mono text-[0.875rem] leading-5 text-mute">
+            {sku}
+          </span>
+        </span>
+        <span className="flex shrink-0 flex-col items-end gap-1">
+          <span
+            className={cn(
+              "grid h-10 min-w-14 place-items-center rounded-inner border bg-canvas px-3 text-[0.9375rem] font-medium tabular-nums transition-[border-color] duration-(--t-press) ease-(--ease-out)",
+              pad ? "border-accent" : "border-hairline-2",
+              value < outstanding ? "text-bad-fg" : "text-ink"
+            )}
+          >
+            {count(value)}
+          </span>
+          <span className="text-[0.875rem] text-mute tabular-nums">
+            {`of ${count(outstanding)}`}
+          </span>
+        </span>
+      </button>
+      <NumberPad
+        open={pad}
+        onOpenChange={setPad}
+        title={variant === "" ? title : `${title} · ${variant}`}
+        value={String(value)}
+        decimal={false}
+        maxLength={String(outstanding).length}
+        onChange={(text) =>
+          onChange(
+            Math.max(0, Math.min(outstanding, Number(text === "" ? "0" : text)))
+          )
+        }
+      />
+    </li>
   )
 }
 

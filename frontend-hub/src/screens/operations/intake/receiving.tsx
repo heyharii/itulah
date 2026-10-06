@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Pill } from "@/components/ui/pill"
 import { SavedDialog } from "@/components/ui/dialog"
 import { DataTable } from "@/components/ui/data-table"
 import { Input, Select } from "@/components/ui/field"
@@ -25,6 +26,7 @@ import { EmptyState, Problem } from "@/components/ui/states"
 import { dc } from "@/lib/api"
 import { wholeProduct } from "@/lib/decimal"
 import { count, label, recentMoment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   procurementKeys,
   purchaseOrderDetail,
@@ -111,6 +113,30 @@ function CountedCell({
           {" · "}
           {recentMoment(latest.counted_at)}
         </span>
+      </span>
+    </span>
+  )
+}
+
+/// A card's foot, on the left, for an order that has been counted: the pieces,
+/// and under them who counted and when.
+function CardCounted({
+  awaiting,
+}: {
+  awaiting: readonly PurchaseCountAwaitingVerification[]
+}) {
+  const nameOfLogin = useNameOfLogin()
+  const latest = latestOf(awaiting)
+  return (
+    <span className="flex flex-col leading-6 tabular-nums">
+      <span>
+        {"Counted "}
+        <span className="text-cell font-semibold text-ink">
+          {`${count(awaiting.reduce((sum, one) => sum + one.counted_quantity, 0))} pcs`}
+        </span>
+      </span>
+      <span className="truncate">
+        {`${titled(nameOfLogin(latest.counted_by))} · ${recentMoment(latest.counted_at)}`}
       </span>
     </span>
   )
@@ -218,7 +244,7 @@ export function Receiving() {
           )?.recount_reason
           return (
             <span className="flex min-w-0 flex-col gap-0.5 py-1 leading-5">
-              <span className="block truncate font-medium text-ink">
+              <span className="block truncate font-medium text-ink max-md:font-semibold">
                 <SupplierName
                   code={row.original.supplier_id}
                   name={row.original.supplier_name}
@@ -244,8 +270,44 @@ export function Receiving() {
         accessorFn: (row: OrderRow) => row.lines.length,
         header: "Items",
         size: 100,
-        meta: { align: "right", card: "metric" },
+        meta: { align: "right", card: "hide" },
         cell: ({ row }) => count(row.original.lines.length),
+      },
+      // Two columns that exist only on a card (`cardLead`; a phone): the
+      // figure it leads with — how many articles are owed, never how many
+      // pieces — and the foot's left side: what the count found, once it is
+      // counted (owner, 2026-10-06).
+      {
+        id: "lead",
+        accessorFn: (row: OrderRow) => row.lines.length,
+        header: "",
+        enableHiding: false,
+        enableSorting: false,
+        meta: { card: "lead" },
+        cell: ({ row }) => (
+          <span className="flex flex-col items-end tabular-nums">
+            <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
+              {count(row.original.lines.length)}
+            </span>
+            <span className="text-[0.875rem] text-mute">
+              {row.original.lines.length === 1 ? "item" : "items"}
+            </span>
+          </span>
+        ),
+      },
+      {
+        id: "foot",
+        accessorFn: (row: OrderRow) => row.awaiting.length,
+        header: "",
+        enableHiding: false,
+        enableSorting: false,
+        meta: { card: "foot" },
+        cell: ({ row }) =>
+          row.original.awaiting.length > 0 ? (
+            <CardCounted awaiting={row.original.awaiting} />
+          ) : (
+            <span>Not counted</span>
+          ),
       },
       {
         // One column for the count: what was counted, who and when, once it is
@@ -256,17 +318,19 @@ export function Receiving() {
         header: "Count",
         size: 300,
         meta: { align: "right", card: "status" },
-        cell: ({ row }) => {
+        cell: function Status({ row }) {
           const order = row.original
+          const card = useLayout() === "phone"
           if (order.awaiting.length > 0)
-            return <CountedCell awaiting={order.awaiting} />
+            return card ? (
+              <Pill tone="info">Counted</Pill>
+            ) : (
+              <CountedCell awaiting={order.awaiting} />
+            )
           const again = order.lines.some((line) => line.recount_reason !== null)
           return (
             <Button
               variant="primary"
-              // Soft blue capsule on a phone, as Review Count is on the order
-              // list: the card's status, not a second solid button.
-              className="max-md:h-7 max-md:rounded-full max-md:bg-accent-bg max-md:px-3 max-md:text-[0.875rem] max-md:text-accent max-md:hover:bg-accent-bg/70 max-md:pointer-coarse:h-7 max-md:pointer-coarse:px-3"
               onClick={(event) => {
                 event.stopPropagation()
                 openers.current.count(order.po_number)
@@ -289,6 +353,7 @@ export function Receiving() {
     []
   )
 
+  const phone = useLayout() === "phone"
   const table = useTable(
     useMemo(
       () => ({
@@ -300,7 +365,11 @@ export function Receiving() {
         // anything the table hands back.
         state: {
           sorting: [TO_COUNT_FIRST, ...sorting],
-          columnVisibility: { [TO_COUNT_FIRST.id]: false },
+          columnVisibility: {
+            [TO_COUNT_FIRST.id]: false,
+            lead: phone,
+            foot: phone,
+          },
         },
         onSortingChange: (
           next: SortingState | ((prev: SortingState) => SortingState)
@@ -312,7 +381,7 @@ export function Receiving() {
             ).filter((one) => one.id !== TO_COUNT_FIRST.id)
           ),
       }),
-      [rows, columns, sorting]
+      [rows, columns, sorting, phone]
     )
   )
 
@@ -325,7 +394,7 @@ export function Receiving() {
         table={table}
       />
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(work, {
           loading: "Reading the orders…",
           render: () =>
@@ -343,6 +412,8 @@ export function Receiving() {
                 isSelected={(row) => row.po_number === counting.value}
                 pageScroll
                 cardSort={false}
+                cardsApart
+                cardLead
                 className={ROOMY}
               />
             ),

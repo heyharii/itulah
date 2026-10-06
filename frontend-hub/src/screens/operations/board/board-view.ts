@@ -1,5 +1,7 @@
 import { useCallback, useState } from "react"
 
+import { useLayout } from "@/lib/layout"
+
 import type { StageRow } from "@/screens/operations/board/stage-table"
 
 export type BoardView = "board" | "table"
@@ -10,6 +12,7 @@ const VIEW_KEY = "hub.outbound.view"
 /// passed by name remembers its own answer; the shared default keeps the
 /// outbound key the first board wrote, so nobody's toggle resets.
 /// Storage can be blocked or hold nonsense — either way it is the board.
+/// On a phone it is always the table.
 export function useBoardView(
   board?: string
 ): [BoardView, (next: BoardView) => void] {
@@ -32,7 +35,11 @@ export function useBoardView(
     },
     [key]
   )
-  return [view, set]
+  // A phone has no room to lay lanes side by side, and a board scrolled
+  // sideways one lane at a time is not a board: it reads as the list it is
+  // (owner, 2026-10-06). The remembered answer is for the glass that made it.
+  const phone = useLayout() === "phone"
+  return [phone ? "table" : view, set]
 }
 
 /// Stage order, then oldest first — the order the cards are read in.
