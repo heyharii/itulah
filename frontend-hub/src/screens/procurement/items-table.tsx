@@ -1,3 +1,4 @@
+import { ZoomPhoto } from "@/components/ui/photo-viewer"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { useColourwayFill } from "@/lib/colourway-fill"
 import { money } from "@/lib/format"
@@ -83,14 +84,17 @@ function Identity({ row }: { row: ItemsRow }) {
   const fill = useColourwayFill()
   return (
     <div className="flex min-w-0 items-start gap-3">
-      <Thumbnail
-        url={row.image}
-        name={row.name}
-        division={row.division}
-        colours={fill(row.colour)}
-        fallback="—"
-        className="size-10 shrink-0 rounded-inner"
-      />
+      {/* A tap shows the photograph full size. */}
+      <ZoomPhoto url={row.image} name={row.name} className="size-10">
+        <Thumbnail
+          url={row.image}
+          name={row.name}
+          division={row.division}
+          colours={fill(row.colour)}
+          fallback="—"
+          className="size-10 shrink-0 rounded-inner"
+        />
+      </ZoomPhoto>
       <div className="flex min-w-0 flex-col gap-0.5">
         <span className="line-clamp-2 text-ink">{row.name}</span>
         <span className="truncate text-[0.875rem] text-body">{row.filed}</span>

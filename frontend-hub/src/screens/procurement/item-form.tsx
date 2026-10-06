@@ -1,9 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Camera, Images, ImagePlus, Trash2 } from "lucide-react"
+import {
+  Camera,
+  ChevronDown,
+  Crop,
+  Images,
+  ImagePlus,
+  Maximize2,
+  Trash2,
+} from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
+import { SHEET_ROW } from "@/components/ui/list-chrome"
+import { PhotoCrop } from "@/components/ui/photo-crop"
+import { ZoomPhoto } from "@/components/ui/photo-viewer"
+import { BottomSheet } from "@/components/ui/picker-sheet"
 import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
 import { PickMany, PickOne, type Choice } from "@/components/ui/pick"
 import { Section } from "@/components/ui/rows"
@@ -367,12 +379,15 @@ export function ItemFormSheet({
     const picked = event.target.files?.[0] ?? null
     if (picked !== null) {
       setPhotoRefused(null)
-      void asJpeg(picked).then(setPhoto, (error: Error) =>
+      // Cut before it is kept: the crop shows first, Use Photo keeps it.
+      void asJpeg(picked).then(setCropping, (error: Error) =>
         setPhotoRefused(error.message)
       )
     }
     event.target.value = ""
   }
+  /// A picture just chosen, waiting in the crop.
+  const [cropping, setCropping] = useState<Blob | null>(null)
   const chooser = useRef<HTMLInputElement>(null)
   /// The photo library, on a phone, where the picture box itself opens the
   /// camera (owner, 2026-10-05): somebody adding an item from an order is
@@ -388,16 +403,16 @@ export function ItemFormSheet({
     setTried(false)
     setPriceTyped(false)
   }
-  /// The picture can be chosen, replaced or taken off: not on a catalogue
-  /// item's line, whose picture is the supplier's record.
-  const photoFixed = line !== undefined && !line.draftItem
+  /// A catalogue item's name, colours and the rest are the supplier's record
+  /// and stay shut on its line. Its picture does not: a buyer holding the
+  /// garment can take it, replace it or take it off from the order itself
+  /// (owner, 2026-10-06) — saved to the item when the order is.
+  const identityFixed = line !== undefined && !line.draftItem
+  /// The photo's menu on a phone.
+  const [photoMenu, setPhotoMenu] = useState(false)
   /// What the empty picture box says: the camera opens on a phone, so it says
   /// so (owner, 2026-10-05).
-  const photoLabel = photoFixed
-    ? "No Picture"
-    : touch
-      ? "Take a Photo"
-      : "Choose a Picture"
+  const photoLabel = touch ? "Take a Photo" : "Choose a Picture"
   const chosen = useMemo(
     () => (photo === null ? null : URL.createObjectURL(photo)),
     [photo]
@@ -814,77 +829,99 @@ export function ItemFormSheet({
           <div className="grid gap-4 md:grid-cols-[13rem_1fr]">
             <Field label="Photo" problem={photoRefused ?? undefined}>
               <div className="flex flex-col gap-2">
-                {touch && !photoFixed ? (
-                  // On a phone one row, not a square the width of the screen:
-                  // the camera, the gallery, and a small proof of what was taken.
-                  <div className="flex items-center gap-2">
-                    {showing !== null && (
-                      <span className="size-12 shrink-0 overflow-hidden rounded-inner border border-hairline">
+                {touch ? (
+                  // On a phone: the picture and ONE button, which opens the
+                  // menu — take a photo, choose from the gallery, remove. Two
+                  // buttons and a link ran past the edge of the form.
+                  <div className="flex items-center gap-3">
+                    {showing === null ? (
+                      <button
+                        type="button"
+                        aria-haspopup="dialog"
+                        aria-label="Add a photo"
+                        onClick={() => setPhotoMenu(true)}
+                        className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-card border border-hairline bg-soft-2 text-mute transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.96]"
+                      >
+                        <ImagePlus className="size-6" />
+                      </button>
+                    ) : (
+                      // A tap on the picture shows it full size.
+                      <ZoomPhoto
+                        url={showing}
+                        name={draft.name}
+                        className="size-16 overflow-hidden rounded-card border border-hairline"
+                      >
+                        <Thumbnail
+                          url={showing}
+                          fallback="Cannot be read"
+                          className="size-16"
+                        />
+                      </ZoomPhoto>
+                    )}
+                    <Button
+                      variant="ghost"
+                      onClick={() => setPhotoMenu(true)}
+                      aria-haspopup="dialog"
+                    >
+                      {showing === null ? "Add Photo" : "Edit Photo"}
+                      <ChevronDown />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => chooser.current?.click()}
+                      className="group relative block aspect-square w-full overflow-hidden rounded-card border border-hairline bg-soft-2 transition-colors enabled:hover:border-hairline-strong"
+                      aria-label={
+                        showing === null
+                          ? touch
+                            ? "Take a photo"
+                            : "Choose a photo"
+                          : "Replace the photo"
+                      }
+                    >
+                      {showing === null &&
+                      (draft.name.trim() !== "" || draft.division !== null) ? (
+                        <>
+                          <Thumbnail
+                            url={null}
+                            name={draft.name}
+                            division={draft.division}
+                            colours={fill(draft.colours[0])}
+                            className="size-full"
+                          />
+                          <span className="absolute inset-x-0 bottom-2 text-center text-[0.875rem] text-mute">
+                            {photoLabel}
+                          </span>
+                        </>
+                      ) : showing === null ? (
+                        <span className="flex size-full flex-col items-center justify-center gap-1.5 text-mute">
+                          <ImagePlus className="size-5" />
+                          <span className="text-[0.875rem]">{photoLabel}</span>
+                        </span>
+                      ) : (
                         <Thumbnail
                           url={showing}
                           fallback="Cannot be read"
                           className="size-full"
                         />
-                      </span>
-                    )}
-                    <Button
-                      variant="ghost"
-                      className="flex-1 justify-center"
-                      onClick={() => chooser.current?.click()}
-                    >
-                      <Camera />
-                      Take a Photo
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      className="flex-1 justify-center"
-                      onClick={() => gallery.current?.click()}
-                    >
-                      <Images />
-                      From Gallery
-                    </Button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={photoFixed}
-                    onClick={() => chooser.current?.click()}
-                    className="group relative block aspect-square w-full overflow-hidden rounded-card border border-hairline bg-soft-2 transition-colors enabled:hover:border-hairline-strong"
-                    aria-label={
-                      showing === null
-                        ? touch
-                          ? "Take a photo"
-                          : "Choose a photo"
-                        : "Replace the photo"
-                    }
-                  >
-                    {showing === null &&
-                    (draft.name.trim() !== "" || draft.division !== null) ? (
-                      <>
-                        <Thumbnail
-                          url={null}
-                          name={draft.name}
-                          division={draft.division}
-                          colours={fill(draft.colours[0])}
-                          className="size-full"
-                        />
-                        <span className="absolute inset-x-0 bottom-2 text-center text-[0.875rem] text-mute">
-                          {photoLabel}
-                        </span>
-                      </>
-                    ) : showing === null ? (
-                      <span className="flex size-full flex-col items-center justify-center gap-1.5 text-mute">
-                        <ImagePlus className="size-5" />
-                        <span className="text-[0.875rem]">{photoLabel}</span>
-                      </span>
-                    ) : (
-                      <Thumbnail
+                      )}
+                    </button>
+                    {showing !== null && (
+                      // Beside the box, not inside it: a click on the box
+                      // replaces the photo, a click here shows it.
+                      <ZoomPhoto
                         url={showing}
-                        fallback="Cannot be read"
-                        className="size-full"
-                      />
+                        name={draft.name}
+                        className="absolute top-2 right-2 rounded-full"
+                      >
+                        <span className="grid size-8 place-items-center rounded-full bg-black/55 text-white backdrop-blur">
+                          <Maximize2 className="size-4" />
+                        </span>
+                      </ZoomPhoto>
                     )}
-                  </button>
+                  </div>
                 )}
                 {/* The file input itself is never seen. A bare one renders as
                   the browser's own grey "No file chosen" strip, which is the
@@ -903,7 +940,7 @@ export function ItemFormSheet({
                   capture={touch ? "environment" : undefined}
                   onChange={pickPicture}
                 />
-                {touch && !photoFixed && (
+                {touch && (
                   <input
                     ref={gallery}
                     type="file"
@@ -912,7 +949,18 @@ export function ItemFormSheet({
                     onChange={pickPicture}
                   />
                 )}
-                {showing !== null && !photoFixed && (
+                {photo !== null && !touch && (
+                  <Button
+                    variant="quiet"
+                    size="sm"
+                    className="self-start"
+                    onClick={() => setCropping(photo)}
+                  >
+                    <Crop />
+                    Crop
+                  </Button>
+                )}
+                {showing !== null && !touch && (
                   <Button
                     variant="quiet"
                     size="sm"
@@ -929,6 +977,79 @@ export function ItemFormSheet({
                 )}
               </div>
             </Field>
+            {touch && (
+              <BottomSheet
+                open={photoMenu}
+                onOpenChange={setPhotoMenu}
+                title="Photo"
+              >
+                <div className="min-h-0 overflow-y-auto overscroll-contain px-2 pb-3">
+                  {/* The file pickers are opened inside this press, not after
+                    the sheet has closed: iOS only lets a gesture open one. */}
+                  <button
+                    type="button"
+                    className={SHEET_ROW}
+                    onClick={() => {
+                      chooser.current?.click()
+                      setPhotoMenu(false)
+                    }}
+                  >
+                    <Camera className="size-5 shrink-0 text-line-ico" />
+                    <span className="flex-1">Take a Photo</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={SHEET_ROW}
+                    onClick={() => {
+                      gallery.current?.click()
+                      setPhotoMenu(false)
+                    }}
+                  >
+                    <Images className="size-5 shrink-0 text-line-ico" />
+                    <span className="flex-1">From Gallery</span>
+                  </button>
+                  {photo !== null && (
+                    <button
+                      type="button"
+                      className={SHEET_ROW}
+                      onClick={() => {
+                        setCropping(photo)
+                        setPhotoMenu(false)
+                      }}
+                    >
+                      <Crop className="size-5 shrink-0 text-line-ico" />
+                      <span className="flex-1">Crop Photo</span>
+                    </button>
+                  )}
+                  {showing !== null && (
+                    <button
+                      type="button"
+                      className={cn(SHEET_ROW, "text-bad-fg")}
+                      onClick={() => {
+                        setPhoto(null)
+                        setPhotoRefused(null)
+                        set({ image: "" })
+                        setPhotoMenu(false)
+                      }}
+                    >
+                      <Trash2 className="size-5 shrink-0" />
+                      <span className="flex-1">Remove Photo</span>
+                    </button>
+                  )}
+                </div>
+              </BottomSheet>
+            )}
+
+            {cropping !== null && (
+              <PhotoCrop
+                file={cropping}
+                onDone={(cut) => {
+                  setPhoto(cut)
+                  setCropping(null)
+                }}
+                onCancel={() => setCropping(null)}
+              />
+            )}
 
             <div className="flex flex-col gap-4">
               {/* One column when the supplier is already known, two when it has
@@ -987,7 +1108,7 @@ export function ItemFormSheet({
                 <Textarea
                   rows={3}
                   value={draft.description}
-                  readOnly={photoFixed}
+                  readOnly={identityFixed}
                   onChange={(event) =>
                     titled(
                       event,
@@ -1042,7 +1163,7 @@ export function ItemFormSheet({
                     colourMaster.isPending ? "Loading colours…" : undefined
                   }
                   values={draft.colours}
-                  disabled={photoFixed}
+                  disabled={identityFixed}
                   onChange={(colours) => set({ colours })}
                   leading={(code) => <ColourSwatch hex={hexOf(code)} />}
                 />
@@ -1053,7 +1174,7 @@ export function ItemFormSheet({
                   choices={sizeChoices}
                   loading={vocabulary.isPending ? "Loading sizes…" : undefined}
                   values={draft.sizes}
-                  disabled={photoFixed}
+                  disabled={identityFixed}
                   onChange={(sizes) => set({ sizes })}
                 />
               </Field>

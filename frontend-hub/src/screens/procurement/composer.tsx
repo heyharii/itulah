@@ -46,6 +46,9 @@ import {
   purchaseDestinations,
   reviseCatalogPurchaseOrder,
   supplierDetail,
+  supplierItemDetail,
+  updateSupplierItem,
+  uploadSupplierItemImage,
   type CatalogPurchaseOrderReceipt,
   type PurchaseOrderDetail,
 } from "@/lib/queries/procurement"
@@ -173,6 +176,16 @@ interface DraftLine {
   /// The pending item's photograph, as a local URL for the thumbnail — the
   /// real one does not exist until the item does.
   readonly preview?: string
+  /// A catalogue item's photograph changed from this order (owner,
+  /// 2026-10-06): `photo` is the new picture, or null to take the item's off;
+  /// `was` is the item's own link before. Nothing is written to the item until
+  /// the order is raised; then the picture is uploaded, the item updated, and
+  /// the line takes the link. While it stands `image` is null and `preview`
+  /// is what the thumbnail shows.
+  readonly photoEdit?: {
+    readonly photo: Blob | null
+    readonly was: string | null
+  }
   /// The factor an EXISTING order line was placed at, frozen — so re-opening
   /// an order to edit it does not quietly re-price a carton because the
   /// units master moved since it was raised. Only meaningful while `unit`
@@ -198,6 +211,13 @@ interface DraftLine {
   /// or the line closed — or absent when it can. The server also refuses a
   /// line billed or re-priced since; its message lands in the banner.
   readonly locked?: string
+}
+
+/// The link a line goes out with. While its item's photograph is being
+/// changed (`photoEdit`) the line has none of its own yet; a held order sends
+/// the item's old one, and a raised order has already swapped in the new.
+function imageOf(line: DraftLine): string | null {
+  return line.photoEdit !== undefined ? line.photoEdit.was : line.image
 }
 
 /// Why an order line is no longer the buyer's to change, read off what the
@@ -1323,7 +1343,9 @@ export function OrderComposer({
         lines: form.draft.lines.map((line) =>
           line.pending?.photo
             ? { ...line, preview: URL.createObjectURL(line.pending.photo) }
-            : line
+            : line.photoEdit?.photo
+              ? { ...line, preview: URL.createObjectURL(line.photoEdit.photo) }
+              : line
         ),
       })
     }
@@ -1415,7 +1437,7 @@ export function OrderComposer({
         order_unit_price_minor:
           unchanged || orderUnit === null ? null : orderUnit,
         article_name: name === "" || name === line.catalogue.name ? null : name,
-        image_url: line.image,
+        image_url: imageOf(line),
         division_code:
           line.division === line.catalogue.division ? null : line.division,
         tags: sameTags(line.tags, line.catalogue.tags) ? null : [...line.tags],
@@ -1543,6 +1565,69 @@ export function OrderComposer({
           queryKey: procurementKeys.supplierCatalogue(supplierId!),
         })
       }
+      // A catalogue item's photograph changed from this order: uploaded to the
+      // bucket, the item updated, and the line takes the new link. Like a new
+      // item's, it may fail without failing the order — the line keeps what the
+      // item had, and the buyer is told.
+      const reshot = sent.filter((line) => line.photoEdit !== undefined)
+      if (reshot.length > 0) {
+        const supplierCode = reshot.some((line) => line.photoEdit!.photo)
+          ? (
+              await client.fetchQuery({
+                queryKey: procurementKeys.supplier(supplierId!),
+                queryFn: ({ signal }) => supplierDetail(supplierId!, signal),
+              })
+            ).supplier_code
+          : undefined
+        const done = new Map<string, DraftLine>()
+        for (const line of reshot) {
+          const edit = line.photoEdit!
+          try {
+            const item = await supplierItemDetail(line.supplierItemId)
+            let url: string | null = null
+            if (edit.photo !== null) {
+              if (supplierCode === undefined) {
+                throw new Error(
+                  "the supplier's code has not loaded, so there was nowhere to file it"
+                )
+              }
+              url = await uploadSupplierItemImage(
+                supplierCode,
+                item.supplier_item_code,
+                edit.photo
+              )
+            }
+            await updateSupplierItem(
+              item.supplier_item_id,
+              { image_url: url },
+              item.version,
+              crypto.randomUUID()
+            )
+            done.set(line.supplierItemId, {
+              ...line,
+              image: url,
+              preview: undefined,
+              photoEdit: undefined,
+            })
+          } catch {
+            photoTroubles.current.push(line.name)
+            done.set(line.supplierItemId, {
+              ...line,
+              image: edit.was,
+              preview: undefined,
+              photoEdit: undefined,
+            })
+          }
+        }
+        sent = sent.map((line) => done.get(line.supplierItemId) ?? line)
+        setLines(sent)
+        void client.invalidateQueries({
+          queryKey: procurementKeys.supplierItems(),
+        })
+        void client.invalidateQueries({
+          queryKey: procurementKeys.supplierCatalogue(supplierId!),
+        })
+      }
       if (editing !== undefined) {
         // Every value is sent, not only the differences. An edit's baseline is
         // the order, not the catalogue, and "absent" on the wire means "the
@@ -1578,7 +1663,7 @@ export function OrderComposer({
                 unit_price_minor: perPiece,
                 order_unit_price_minor: orderUnit,
                 article_name: name === "" ? line.catalogue.name : name,
-                image_url: line.image,
+                image_url: imageOf(line),
                 division_code: line.division,
                 tags: [...line.tags],
               }
@@ -1759,7 +1844,7 @@ export function OrderComposer({
       variants: line.variants,
       image: line.image,
       draftItem: line.pending !== undefined,
-      photo: line.pending?.photo ?? null,
+      photo: line.photoEdit?.photo ?? line.pending?.photo ?? null,
       units: unitsFor(line),
       stockUnit: line.stockUnitCode,
       factorOf: (unit) => factorOf(line, unit),
@@ -1788,7 +1873,28 @@ export function OrderComposer({
           ? line.said
           : undefined,
     }
-    if (line.pending === undefined) return next
+    if (line.pending === undefined) {
+      // A catalogue item: its picture may be changed, nothing else on it.
+      const unchanged =
+        got.photo === (line.photoEdit?.photo ?? null) &&
+        (got.image ?? null) === line.image
+      if (unchanged) return next
+      const was = line.photoEdit?.was ?? line.image
+      if (got.photo !== null)
+        return {
+          ...next,
+          image: null,
+          preview: URL.createObjectURL(got.photo),
+          photoEdit: { photo: got.photo, was },
+        }
+      // Taken off: nothing to write when the item had none to begin with.
+      return {
+        ...next,
+        image: null,
+        preview: undefined,
+        photoEdit: was === null ? undefined : { photo: null, was },
+      }
+    }
     const label = (code: string) =>
       line.offered.colours.find((one) => one.code === code)?.label ?? code
     const photoChanged = got.photo !== line.pending.photo
