@@ -129,6 +129,7 @@ pub mod terminal;
 pub mod unit_register;
 pub mod units;
 pub mod name_suggestions;
+pub mod quantity_checks;
 pub mod vocabulary;
 pub mod vouchers;
 
@@ -438,6 +439,17 @@ pub fn router(state: AppState) -> Router {
     .route(
         "/api/v1/name-suggestions/{id}",
         patch(name_suggestions::update).delete(name_suggestions::delete),
+    )
+    // A count of a delivery line by colour and size, asked of the warehouse and
+    // kept as a reference (0919): asked from New articles, answered in
+    // Operations, compared with nothing.
+    .route(
+        "/api/v1/quantity-checks",
+        get(quantity_checks::list).post(quantity_checks::ask),
+    )
+    .route(
+        "/api/v1/quantity-checks/{id}/count",
+        post(quantity_checks::count),
     )
     .route(
         "/api/v1/vocabulary/{kind}",

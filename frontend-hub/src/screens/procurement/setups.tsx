@@ -23,6 +23,7 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { ZoomPhoto } from "@/components/ui/photo-viewer"
 import { Thumbnail } from "@/components/ui/thumbnail"
+import { QuantityCheckPanel } from "@/screens/procurement/setup-quantity-check"
 import { ago, count, money } from "@/lib/format"
 import { asJpeg, PICTURE_TYPES } from "@/lib/image"
 import {
@@ -2746,6 +2747,8 @@ function SessionComposer({
           </Fact>
         </Facts>
       </div>
+
+      <QuantityCheckPanel receiptLineId={receipt.receipt_line_id} name={name} />
 
       {/* What the article IS, in four fields two to a row.
 

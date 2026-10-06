@@ -14,6 +14,7 @@ import { screens as packing } from "@/screens/operations/packing"
 import { screens as picking } from "@/screens/operations/picking"
 import { screens as stock } from "@/screens/operations/stock"
 import { screens as tagging } from "@/screens/operations/tagging"
+import { screens as quantityChecks } from "@/screens/operations/quantity-checks"
 import { screens as workload } from "@/screens/operations/workload"
 
 /// The module's screens, gathered from its six stations.
@@ -53,6 +54,9 @@ export const screens: ScreenMap = {
   // screen nobody needs a warehouse sign-in to open.
   ...stock,
   ...articles,
+  // Quantity checks read and write the cloud, like Stock — no warehouse
+  // sign-in is needed to answer one.
+  ...quantityChecks,
   ...gated({
     ...activity,
     ...intake,

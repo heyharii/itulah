@@ -1,0 +1,248 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Plus, X } from "lucide-react"
+import { useState } from "react"
+
+import { PageContent } from "@/components/shell/app-shell"
+import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { Input, Select } from "@/components/ui/field"
+import { PageHeader } from "@/components/ui/page-header"
+import { Sheet } from "@/components/ui/sheet"
+import { EmptyState, Problem } from "@/components/ui/states"
+import { Thumbnail } from "@/components/ui/thumbnail"
+import { ago, count } from "@/lib/format"
+import { colourKeys, listColours } from "@/lib/queries/colours"
+import { catalogueVocabulary, procurementKeys } from "@/lib/queries/procurement"
+import {
+  countQuantityCheck,
+  listOpenQuantityChecks,
+  quantityCheckKeys,
+  type QuantityCheck,
+} from "@/lib/queries/quantity-checks"
+import { queryState } from "@/lib/query-state"
+
+/// **Quantity Checks** — counts head office asked the warehouse for.
+///
+/// From New articles, while a delivery is being named: how many of each colour
+/// and size actually came. The answer is a flat list — a colour, a size, a
+/// quantity — and the name is not the warehouse's to change. It is a reference
+/// for whoever is naming the article; nothing waits for it and nothing is
+/// compared with the delivery's own count.
+export function QuantityChecks() {
+  const [opened, setOpened] = useState<string | null>(null)
+  const open = useQuery({
+    queryKey: quantityCheckKeys.open(),
+    queryFn: ({ signal }) => listOpenQuantityChecks(signal),
+    refetchInterval: 15_000,
+  })
+  const rows = open.data ?? []
+  const chosen = rows.find((one) => one.check_id === opened) ?? null
+
+  return (
+    <PageContent>
+      <PageHeader crumb="Operations" title="Quantity Checks" />
+      {queryState(open, {
+        loading: "Loading the counts asked for…",
+        render: () =>
+          rows.length === 0 ? (
+            <EmptyState>No counts are asked for.</EmptyState>
+          ) : (
+            <Card className="overflow-hidden">
+              {rows.map((one) => (
+                <button
+                  key={one.check_id}
+                  type="button"
+                  onClick={() => setOpened(one.check_id)}
+                  className="flex min-h-16 w-full items-center gap-3 px-4 py-2.5 text-left transition-colors not-first:border-t not-first:border-hairline hover:bg-soft active:bg-soft-2"
+                >
+                  <Thumbnail
+                    url={one.image_url}
+                    name={one.article_name}
+                    className="size-11 shrink-0 rounded-inner border border-hairline"
+                  />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-[0.9375rem] font-medium text-ink">
+                      {one.article_name}
+                    </span>
+                    <span className="truncate text-[0.875rem] text-mute">
+                      {one.po_number} · {count(one.receipt_quantity)} pcs
+                      received
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-[0.875rem] text-mute">
+                    {ago(one.requested_at)}
+                  </span>
+                </button>
+              ))}
+            </Card>
+          ),
+      })}
+      <CountSheet check={chosen} onClose={() => setOpened(null)} />
+    </PageContent>
+  )
+}
+
+interface Entry {
+  readonly id: number
+  readonly colour: string
+  readonly size: string
+  readonly quantity: string
+}
+
+let entryId = 0
+const blank = (): Entry => ({
+  id: (entryId += 1),
+  colour: "",
+  size: "",
+  quantity: "",
+})
+
+/// One check, answered as a flat list of colour, size and quantity rows.
+function CountSheet({
+  check,
+  onClose,
+}: {
+  check: QuantityCheck | null
+  onClose: () => void
+}) {
+  const client = useQueryClient()
+  const colours = useQuery({
+    queryKey: colourKeys.list(),
+    queryFn: ({ signal }) => listColours(signal),
+    staleTime: 30 * 60 * 1000,
+  })
+  const vocabulary = useQuery({
+    queryKey: procurementKeys.vocabulary(),
+    queryFn: ({ signal }) => catalogueVocabulary(signal),
+    staleTime: 30 * 60 * 1000,
+  })
+  const [entries, setEntries] = useState<readonly Entry[]>(() => [blank()])
+  // The sheet stays mounted between checks: rows typed for one are tagged with
+  // it, so the next opens clean without an effect to clear them.
+  const [forId, setForId] = useState<string | null>(null)
+  const rows = forId === check?.check_id ? entries : [blank()]
+  const change = (next: readonly Entry[]) => {
+    setForId(check?.check_id ?? null)
+    setEntries(next)
+  }
+  const patch = (id: number, part: Partial<Entry>) =>
+    change(rows.map((one) => (one.id === id ? { ...one, ...part } : one)))
+
+  const filled = rows.filter(
+    (one) => one.colour !== "" && one.size !== "" && Number(one.quantity) > 0
+  )
+  const submit = useMutation({
+    mutationFn: () =>
+      countQuantityCheck(
+        check!.check_id,
+        filled.map((one) => ({
+          colour: one.colour,
+          size: one.size,
+          quantity: Number(one.quantity),
+        }))
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: quantityCheckKeys.all })
+      setForId(null)
+      onClose()
+    },
+  })
+
+  return (
+    <Sheet
+      open={check !== null}
+      onOpenChange={(next) => !next && onClose()}
+      title={check?.article_name ?? "Quantity Check"}
+      caption={
+        check
+          ? `${check.po_number} · ${count(check.receipt_quantity)} pcs received`
+          : undefined
+      }
+      footer={
+        check === null ? undefined : (
+          <div className="flex flex-col gap-3">
+            <Problem error={submit.error} />
+            <Button
+              variant="primary"
+              className="w-full"
+              disabled={filled.length === 0}
+              pending={submit.isPending}
+              onClick={() => submit.mutate()}
+            >
+              {submit.isPending ? "Submitting…" : "Submit"}
+            </Button>
+          </div>
+        )
+      }
+    >
+      {check && (
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5.5rem_2.25rem] gap-2 text-[0.875rem] text-body">
+            <span>Color</span>
+            <span>Size</span>
+            <span>Quantity</span>
+            <span />
+          </div>
+          {rows.map((one) => (
+            <div
+              key={one.id}
+              className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5.5rem_2.25rem] items-center gap-2"
+            >
+              <Select
+                aria-label="Color"
+                value={one.colour}
+                onChange={(next) => patch(one.id, { colour: next })}
+              >
+                <option value="">—</option>
+                {(colours.data?.colours ?? []).map((term) => (
+                  <option key={term.code} value={term.label}>
+                    {term.label}
+                  </option>
+                ))}
+              </Select>
+              <Select
+                aria-label="Size"
+                value={one.size}
+                onChange={(next) => patch(one.id, { size: next })}
+              >
+                <option value="">—</option>
+                {(vocabulary.data?.sizes ?? []).map((term) => (
+                  <option key={term.code} value={term.label}>
+                    {term.label}
+                  </option>
+                ))}
+              </Select>
+              <Input
+                inputMode="numeric"
+                aria-label="Quantity"
+                value={one.quantity}
+                onChange={(event) =>
+                  patch(one.id, {
+                    quantity: event.target.value.replace(/\D/g, ""),
+                  })
+                }
+              />
+              <button
+                type="button"
+                aria-label="Remove row"
+                disabled={rows.length === 1}
+                onClick={() => change(rows.filter((row) => row.id !== one.id))}
+                className="grid size-9 place-items-center rounded-full text-mute transition-colors hover:bg-soft-2 hover:text-ink disabled:opacity-40"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+          ))}
+          <Button
+            variant="ghost"
+            className="self-start"
+            onClick={() => change([...rows, blank()])}
+          >
+            <Plus />
+            Add Row
+          </Button>
+        </div>
+      )}
+    </Sheet>
+  )
+}

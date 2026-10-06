@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query"
 import {
   BookOpen,
   Boxes,
@@ -17,6 +18,10 @@ import {
 
 import type { AppModule } from "@/lib/navigation"
 import { useWaiting } from "@/lib/operations/waiting"
+import {
+  listOpenQuantityChecks,
+  quantityCheckKeys,
+} from "@/lib/queries/quantity-checks"
 import { useFlowCounts } from "@/screens/operations/workload/use-flow-counts"
 
 /// **Operations** — the warehouse console, folded into the hub.
@@ -70,6 +75,13 @@ import { useFlowCounts } from "@/screens/operations/workload/use-flow-counts"
 /// not counted here.
 const useReceiving = () => useWaiting().owed
 const useTagging = () => useWaiting().tagging
+/// Counts head office asked for by colour and size, still unanswered.
+const useQuantityChecks = () =>
+  useQuery({
+    queryKey: quantityCheckKeys.open(),
+    queryFn: ({ signal }) => listOpenQuantityChecks(signal),
+    refetchInterval: 30_000,
+  }).data?.length ?? null
 /// Picklists still to pick — one per allotment × shop, nobody composes one
 /// (owner, 29 Sep 2026): it exists as soon as the allotment is here.
 const useToPick = () => useWaiting().toPick
@@ -235,6 +247,15 @@ export const operationsNav: AppModule = {
           label: "Printing",
           icon: Printer,
           useCount: useTagging,
+          badge: "warn",
+          more: true,
+        },
+        /// Asked from New articles; answered here with colour, size and quantity.
+        {
+          path: "/operations/quantity-checks",
+          label: "Quantity Checks",
+          icon: ClipboardCheck,
+          useCount: useQuantityChecks,
           badge: "warn",
           more: true,
         },

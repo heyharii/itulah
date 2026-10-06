@@ -423,6 +423,11 @@ pub fn required_role(method: &str, path: &str) -> Role {
     if path.starts_with("/api/v1/commercial/vouchers") && path.ends_with("/redeem") {
         return Role::Cashier;
     }
+    // A quantity check (0919): asked by a buyer, answered by the warehouse —
+    // two different people, and neither is a Supervisor act.
+    if path.starts_with("/api/v1/quantity-checks") {
+        return Role::Cashier;
+    }
     if path.starts_with("/api/v1/sales") {
         let supervisor_actions = ["/void", "/returns"];
         if supervisor_actions.iter().any(|s| path.ends_with(s)) {

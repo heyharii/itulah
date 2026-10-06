@@ -1,0 +1,70 @@
+import { node } from "@/lib/api"
+
+/// A count of a delivery line by colour and size, asked of the warehouse and
+/// kept as a reference (0919). New articles asks; Operations answers with a flat
+/// list of colour, size and quantity. Nothing waits for it and nothing is
+/// checked against it.
+export interface QuantityCheckRow {
+  readonly colour: string
+  readonly size: string
+  readonly quantity: number
+}
+
+export interface QuantityCheck {
+  readonly check_id: string
+  readonly receipt_line_id: string
+  readonly status: "REQUESTED" | "COUNTED"
+  /// The name as head office had it when it asked. The warehouse cannot change
+  /// it.
+  readonly article_name: string
+  readonly requested_by: string
+  readonly requested_at: string
+  readonly counted_by: string | null
+  readonly counted_at: string | null
+  readonly lines: readonly QuantityCheckRow[]
+  readonly po_number: string
+  /// What the delivery was counted at: context for the counter, never a total
+  /// to match.
+  readonly receipt_quantity: number
+  readonly image_url: string | null
+}
+
+export const quantityCheckKeys = {
+  all: ["quantity-checks"] as const,
+  open: () => ["quantity-checks", "open"] as const,
+  line: (receiptLineId: string) =>
+    ["quantity-checks", "line", receiptLineId] as const,
+}
+
+export function listOpenQuantityChecks(signal?: AbortSignal) {
+  return node.get<QuantityCheck[]>("/api/v1/quantity-checks?status=REQUESTED", {
+    signal,
+  })
+}
+
+/// Every check of one delivery line, newest first.
+export function listLineQuantityChecks(
+  receiptLineId: string,
+  signal?: AbortSignal
+) {
+  return node.get<QuantityCheck[]>(
+    `/api/v1/quantity-checks?receipt_line_id=${encodeURIComponent(receiptLineId)}`,
+    { signal }
+  )
+}
+
+export function askQuantityCheck(body: {
+  receipt_line_id: string
+  article_name: string
+}) {
+  return node.post<QuantityCheck>("/api/v1/quantity-checks", body)
+}
+
+export function countQuantityCheck(
+  id: string,
+  lines: readonly QuantityCheckRow[]
+) {
+  return node.post<QuantityCheck>(`/api/v1/quantity-checks/${id}/count`, {
+    lines,
+  })
+}
