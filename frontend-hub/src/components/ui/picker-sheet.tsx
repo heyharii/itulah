@@ -103,7 +103,11 @@ export function PickerSheet({
       title={title}
       action={
         multiple ? (
-          <Drawer.Close className="h-tap shrink-0 rounded-inner px-3 text-[0.9375rem] font-semibold text-accent">
+          <Drawer.Close
+            // The search field keeps the keyboard until the sheet is gone.
+            onMouseDown={(event) => event.preventDefault()}
+            className="h-tap shrink-0 rounded-inner px-3 text-[0.9375rem] font-semibold text-accent"
+          >
             Done
           </Drawer.Close>
         ) : undefined

@@ -25,6 +25,8 @@ export function Button({
   size,
   pending,
   disabled,
+  onMouseDown,
+  onClick,
   ...props
 }: ButtonProps) {
   return (
@@ -33,7 +35,44 @@ export function Button({
       disabled={pending === true || disabled}
       aria-busy={pending === true ? true : undefined}
       className={cn(button({ variant, size }), className)}
+      // On a phone a press on a button while a field has the keyboard used to
+      // take the focus first: the keyboard went down, a sheet's footer moved
+      // down with it, and the tap landed on nothing — the button had to be
+      // pressed twice (owner, 2026-10-06: Done, Save, a choice in a sheet).
+      // The press now leaves the focus where it is, so nothing moves under the
+      // finger, and the field is let go of in the click, just before the action
+      // runs, so whatever a field commits on blur is committed first.
+      onMouseDown={(event) => {
+        onMouseDown?.(event)
+        if (!event.defaultPrevented && typingOnATouchScreen())
+          event.preventDefault()
+      }}
+      onClick={(event) => {
+        if (typingOnATouchScreen())
+          (document.activeElement as HTMLElement).blur()
+        onClick?.(event)
+      }}
       {...props}
     />
+  )
+}
+
+/// A touch screen with the keyboard up: a text field has the focus.
+function typingOnATouchScreen(): boolean {
+  if (typeof window === "undefined") return false
+  if (!window.matchMedia("(pointer: coarse)").matches) return false
+  const field = document.activeElement
+  return (
+    field instanceof HTMLTextAreaElement ||
+    (field instanceof HTMLInputElement &&
+      ![
+        "checkbox",
+        "radio",
+        "button",
+        "submit",
+        "range",
+        "file",
+        "color",
+      ].includes(field.type))
   )
 }

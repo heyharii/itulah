@@ -260,6 +260,11 @@ export function DockTools({
             action={
               <button
                 type="button"
+                // Pressed without taking the focus off the field: a press that
+                // did closed the keyboard first, the sheet came down with it,
+                // and the tap was lost — Done closed only the keyboard and
+                // had to be pressed again (owner, 2026-10-06).
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={() => setSheet(null)}
                 className="h-tap shrink-0 rounded-inner px-3 text-[0.9375rem] font-semibold text-accent active:opacity-60"
               >
