@@ -70,6 +70,11 @@ INVENTORY_ENABLE_TEST_CONTROLS=true
 $(if [ -n "${GCS_HMAC_ACCESS_ID:-}" ]; then cat <<E3
 STORAGE_ENDPOINT=https://storage.googleapis.com
 R2_BUCKET=itulah-media-21f41328
+# Where a browser reads a photograph from: the bucket is public (allUsers
+# objectViewer). Without it every link handed out is presigned and expiring,
+# which the hub refuses to store against an item (6 Oct 2026: product photos
+# uploaded but never saved).
+R2_PUBLIC_BASE_URL=https://storage.googleapis.com/itulah-media-21f41328
 R2_ATTACHMENT_BUCKET=itulah-attachments-21f41328
 R2_ACCESS_KEY_ID=$GCS_HMAC_ACCESS_ID
 R2_SECRET_ACCESS_KEY=$GCS_HMAC_SECRET
