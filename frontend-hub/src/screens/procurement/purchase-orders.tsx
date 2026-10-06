@@ -31,6 +31,7 @@ import { DockTools } from "@/components/shell/dock-tools"
 import { Fab } from "@/components/ui/fab"
 import { Switch } from "@/components/ui/form"
 import { DayRange, type DayWindow } from "@/components/ui/day-range"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import {
   BarSpacer,
@@ -1260,7 +1261,28 @@ export function PurchaseOrders() {
   return (
     <PageContent>
       <PageHeader title="Purchase Orders" small />
-      <SummaryBand page={orders.data} review={awaiting} tab={tab} />
+      {/* Cards on a desk and a tablet (owner, 2026-10-06: the desk keeps its
+          four figures); the sentence is the phone's. */}
+      <KpiStrip className="grid-cols-2 max-md:hidden md:grid-cols-4 xl:grid-cols-4">
+        {(
+          bookKpis(orders.data) ??
+          ["Orders", "Still open", "Overdue", "On order"].map((label) => ({
+            label,
+            value: "—",
+            note: undefined,
+          }))
+        ).map((kpi) => (
+          <div key={kpi.label} title={kpi.note}>
+            <Kpi label={kpi.label} value={kpi.value} />
+          </div>
+        ))}
+      </KpiStrip>
+      <SummaryBand
+        page={orders.data}
+        review={awaiting}
+        tab={tab}
+        className="md:hidden"
+      />
 
       <SubTabs
         // Hidden on a phone: the status is the button in the drawer over the
@@ -1769,6 +1791,49 @@ function brief(minor: number, compact = false): string {
   return `Rp ${shown.replace(".", ",")}${suffix}`
 }
 
+/// The four figures of the tab showing, as cards over the list — on a desk and
+/// a tablet. A phone has the sentence under the title instead (`SummaryBand`).
+function bookKpis(page: PurchaseOrderPage | undefined) {
+  if (page === undefined) return undefined
+  const rows = page.rows
+  const whole = page.next_cursor === null
+  const note = whole
+    ? undefined
+    : `Over the ${count(rows.length)} orders loaded, of ${count(page.total)}`
+  const open = rows.filter(
+    (row) =>
+      row.lifecycle === "ACTIVE" || row.lifecycle === "PARTIALLY_RECEIVED"
+  )
+  const value = open.reduce((sum, row) => sum + row.net_minor, 0)
+  const late = rows.filter((row) => row.overdue).length
+  // An order with no promised date cannot be late, and saying "0 overdue"
+  // while most carry no date at all is a true number that reads as an
+  // all-clear. The tile says how many it could not judge.
+  const undated = rows.filter(
+    (row) => row.expected_arrival === null && row.outstanding_stock_units > 0
+  ).length
+  return [
+    { label: "Orders", value: count(page.total) },
+    { label: "Still open", value: count(open.length), note },
+    {
+      label: "Overdue",
+      value: count(late),
+      note:
+        undated === 0
+          ? note
+          : `${count(undated)} open orders carry no promised date, so they cannot be judged late${note === undefined ? "" : ` · ${note}`}`,
+    },
+    // Short, because a tile two columns wide cannot hold "Rp 49.923.900.000"
+    // and a truncated figure is worse than a rounded one. The exact number is
+    // on the title, where a hover finds it.
+    {
+      label: "On order",
+      value: brief(value),
+      note: `${money(value)}${note === undefined ? "" : ` · ${note}`}`,
+    },
+  ]
+}
+
 /// What the tab comes to, said as a sentence under the title (owner,
 /// 2026-10-06: the header band). One fact is bold — the one to act on — and
 /// the rest is plain; a fact that is none is not said at all.
@@ -1882,10 +1947,12 @@ function SummaryBand({
   page,
   review,
   tab,
+  className,
 }: {
   page: PurchaseOrderPage | undefined
   review: ReadonlyMap<string, unknown>
   tab: OrderTab
+  className?: string
 }) {
   const identity = useIdentity()
   const first = (
@@ -1921,7 +1988,10 @@ function SummaryBand({
     <p
       ref={band}
       title={said?.note}
-      className="mb-5 min-h-6 text-[0.9375rem] leading-normal text-pretty text-body max-md:-mx-4 max-md:-mt-4 max-md:mb-4 max-md:border-b max-md:border-hairline max-md:bg-canvas max-md:px-4 max-md:pt-0.5 max-md:pb-3.5"
+      className={cn(
+        "mb-5 min-h-6 text-[0.9375rem] leading-normal text-pretty text-body max-md:-mx-4 max-md:-mt-4 max-md:mb-4 max-md:border-b max-md:border-hairline max-md:bg-canvas max-md:px-4 max-md:pt-0.5 max-md:pb-3.5",
+        className
+      )}
     >
       {said !== null && (
         // Arrives with the data: a short fade, no movement.
