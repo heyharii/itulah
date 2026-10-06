@@ -22,6 +22,10 @@ const apiTarget =
 // the building it belongs to. Default to a node on this machine.
 const edgeTarget = process.env.VITE_EDGE_TARGET ?? "http://127.0.0.1:8081"
 
+/// The picture service that takes a background off a garment photo. A local
+/// `rembg s` on this machine by default.
+const rembgTarget = process.env.VITE_REMBG_TARGET ?? "http://127.0.0.1:7100"
+
 /// The two backends, behind one origin.
 ///
 /// Shared by `server` and `preview` rather than written twice. A built bundle
@@ -45,6 +49,15 @@ const backends = {
     changeOrigin: true,
     secure: false,
     rewrite: (path: string) => path.replace(/^\/edge/, ""),
+  },
+  // The background-removal service (`rembg`), for the item photo's menu. A
+  // sibling of the two nodes, not part of either: it only ever sees a picture
+  // and hands one back.
+  "/rembg": {
+    target: rembgTarget,
+    changeOrigin: true,
+    secure: false,
+    rewrite: (path: string) => path.replace(/^\/rembg/, ""),
   },
 }
 

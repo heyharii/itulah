@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Photo Clean Options</title>
+<style>
+:root{
+  --ink:#20242c;--text:#394150;--body:#565f6d;--mute:#666f7d;--faint:#b9c0c9;--line-ico:#89919d;
+  --canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--page:#f6f6f7;--hairline:#e6e6e9;--hairline-2:#dadade;
+  --accent:#2563eb;--accent-bg:#eff5ff;--ok-fg:#137a37;--bad-fg:#b4232a;--warn-fg:#8a5a00;
+  --shadow-soft:0 1px 2px rgb(24 39 60 / 6%),0 1px 1px rgb(24 39 60 / 4%);
+  --ease-out:cubic-bezier(.23,1,.32,1);--ease-drawer:cubic-bezier(.32,.72,0,1);--t-press:120ms;--w:414px;
+}
+*{box-sizing:border-box;margin:0}
+body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:#e4e4e8;color:var(--ink);-webkit-font-smoothing:antialiased;font-size:15px}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;text-align:inherit;touch-action:manipulation}
+svg{display:block;flex:none}
+.ico{width:1em;height:1em;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.9}
+.bar{position:sticky;top:0;z-index:50;display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;padding:12px 20px;background:rgb(255 255 255 / .92);backdrop-filter:blur(10px);border-bottom:1px solid #d8d8de}
+.bar h1{font-size:15px;font-weight:600;margin-right:6px}
+.seg{display:inline-flex;gap:2px;padding:2px;border-radius:9px;background:#d9d9de}
+.seg button{padding:5px 11px;border-radius:7px;font-size:14px;font-weight:500;color:#444;transition:background .15s var(--ease-out)}
+.seg button[aria-pressed=true]{background:#fff;color:#111;box-shadow:0 1px 2px rgb(0 0 0 / .15)}
+.lab{font-size:14px;color:#555;margin-right:8px}
+.stage{display:flex;gap:28px;padding:24px 20px 60px;overflow-x:auto;align-items:flex-start}
+.opt{flex:none;width:var(--w)}
+.opt h2{font-size:15px;font-weight:600;margin:0 4px 2px}
+.opt p{font-size:14px;color:#555;margin:0 4px 10px;min-height:84px}
+.phone{position:relative;width:var(--w);height:812px;background:var(--page);border-radius:30px;border:1px solid #cfcfd6;box-shadow:0 18px 40px rgb(0 0 0 / .14);overflow:hidden;display:flex;flex-direction:column}
+.top{height:56px;flex:none;background:#fff;border-bottom:1px solid var(--hairline);display:flex;align-items:center;padding:0 8px 0 16px}
+.top b{flex:1;font-weight:600;font-size:17px;letter-spacing:-.01em}
+.top .x{width:44px;height:44px;display:grid;place-items:center;font-size:20px;color:var(--line-ico)}
+.scroll{flex:1;overflow:hidden;padding:16px;background:#fff}
+.field{margin-bottom:16px}
+.field>span{display:block;font-size:14px;font-weight:500;color:var(--text);margin-bottom:6px}
+.input{height:44px;border:1px solid var(--hairline-2);border-radius:8px;background:#fff;box-shadow:var(--shadow-soft);display:flex;align-items:center;padding:0 12px;color:var(--faint);font-size:15px}
+.input.tall{height:84px;align-items:flex-start;padding-top:12px}
+/* the photo field */
+.photo{display:flex;align-items:center;gap:12px}
+.thumb{position:relative;width:64px;height:64px;flex:none;border-radius:10px;border:1px solid var(--hairline);background:var(--soft-2);overflow:hidden;display:grid;place-items:center;color:var(--mute);font-size:24px;transition:scale var(--t-press) var(--ease-out)}
+.thumb:active{scale:.96}
+.thumb svg.art{width:100%;height:100%}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:36px;padding:0 14px;border:1px solid var(--hairline-2);border-radius:8px;background:#fff;box-shadow:var(--shadow-soft);font-size:14px;font-weight:500;color:var(--text);transition:scale var(--t-press) var(--ease-out)}
+.btn:active{scale:.97}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.big{height:48px;font-size:15px;width:100%;border-radius:10px}
+.btn.quiet{border-color:transparent;box-shadow:none;background:none;color:var(--body)}
+.note{margin-top:8px;font-size:14px;color:var(--mute);display:flex;align-items:center;gap:8px;min-height:20px}
+.note b{font-weight:500;color:var(--ink)}
+.note .lnk{color:var(--accent);font-weight:500}
+.note.bad{color:var(--bad-fg)}
+/* sheets */
+.veil{position:absolute;inset:0;background:rgb(10 12 16 / .38);opacity:0;pointer-events:none;transition:opacity .25s var(--ease-out)}
+.veil.on{opacity:1;pointer-events:auto}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:20px 20px 0 0;box-shadow:0 -10px 40px rgb(0 0 0 / .18);transform:translateY(102%);transition:transform .32s var(--ease-drawer);padding:8px 16px 24px}
+.sheet.on{transform:none}
+.sheet .grab{width:36px;height:5px;border-radius:3px;background:#d4d6db;margin:0 auto 12px}
+.sheet h3{font-size:17px;font-weight:600;margin-bottom:8px;letter-spacing:-.01em}
+.row{display:flex;align-items:center;gap:12px;height:52px;border-radius:10px;padding:0 8px;font-size:16px;color:var(--ink);transition:background .12s}
+.row:active{background:var(--soft-2)}
+.row .ico{font-size:20px;color:var(--line-ico)}
+.full{position:absolute;inset:0;background:#fff;display:flex;flex-direction:column;transform:translateY(102%);transition:transform .32s var(--ease-drawer)}
+.full.on{transform:none}
+.full .head{height:56px;display:flex;align-items:center;padding:0 8px 0 16px}
+.full .head b{flex:1;font-size:17px;font-weight:600}
+.full .body{flex:1;display:flex;flex-direction:column;padding:8px 16px 24px;gap:14px;min-height:0}
+.stagebox{position:relative;flex:1;min-height:0;border-radius:14px;background:var(--soft-2);overflow:hidden;display:grid;place-items:center}
+.stagebox .sq{position:relative;width:100%;aspect-ratio:1;max-height:100%;background:#fff}
+.sq svg.art{position:absolute;inset:0;width:100%;height:100%;transition:opacity .35s var(--ease-out),filter .35s var(--ease-out)}
+.sq .a-clean{opacity:0}
+.sq.clean .a-clean{opacity:1}.sq.clean .a-orig{opacity:0}
+.busy .a-orig{filter:blur(1.5px) saturate(.8)}
+.shim{position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,rgb(255 255 255 / .55) 50%,transparent 70%);background-size:200% 100%;animation:shim 1.3s linear infinite;opacity:0;pointer-events:none}
+.busy .shim{opacity:1}
+@keyframes shim{from{background-position:200% 0}to{background-position:-100% 0}}
+.status{display:flex;align-items:center;gap:8px;height:20px;font-size:14px;color:var(--body)}
+.spin{width:16px;height:16px;border-radius:50%;border:2px solid var(--hairline-2);border-top-color:var(--accent);animation:sp .8s linear infinite}
+@keyframes sp{to{rotate:360deg}}
+.cam{position:absolute;inset:0;background:#111;display:grid;place-items:center;color:#fff;font-size:14px;opacity:0;pointer-events:none;transition:opacity .15s}
+.cam.on{opacity:1}
+.verdict{font-size:14px;color:var(--mute);text-align:center;min-height:20px}
+.mark{position:absolute;left:10px;bottom:10px;padding:4px 10px;border-radius:999px;background:rgb(255 255 255 / .92);font-size:14px;font-weight:500;color:var(--text);box-shadow:var(--shadow-soft)}
+.segm{display:flex;gap:2px;padding:2px;border-radius:10px;background:var(--soft-2)}
+.segm button{flex:1;height:40px;border-radius:8px;font-size:15px;font-weight:500;color:var(--body);text-align:center;transition:background .15s var(--ease-out),color .15s}
+.segm button[aria-pressed=true]{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0 / .14)}
+.segm button[disabled]{opacity:.45;cursor:default}
+@media (prefers-reduced-motion:reduce){.sheet,.full,.sq svg.art{transition:none}.shim,.spin{animation:none}}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <h1>Photo Clean Options</h1>
+  <span><span class="lab">Cleaning service</span>
+    <span class="seg" id="svc">
+      <button aria-pressed="true" data-v="fast">Working</button>
+      <button aria-pressed="false" data-v="slow">Slow</button>
+      <button aria-pressed="false" data-v="down">Down</button>
+    </span></span>
+  <span class="lab">Tap a phone's Photo to try it. Nobody is asked to pick a model, a size or a slider.</span>
+</div>
+
+<div class="stage">
+  <section class="opt" data-o="A">
+    <h2>A · Ask once after the photo</h2>
+    <p>The photo is taken, then one screen: the cleaned photo, big. <b>Use Clean Photo</b> or <b>Use Original</b>. Two buttons, no sliders. Crop is the quiet link under them.</p>
+    <div class="phone" data-o="A"></div>
+  </section>
+  <section class="opt" data-o="B">
+    <h2>B · Preview with a switch</h2>
+    <p>The same screen, but the answer is a two-part switch, Original | Clean, that flips instantly. Clean is selected. One button: <b>Use Photo</b>.</p>
+    <div class="phone" data-o="B"></div>
+  </section>
+  <section class="opt" data-o="C">
+    <h2>C · Cleaned for you, undo if it is wrong</h2>
+    <p>No screen in between. The photo lands in the form, tidies itself in a few seconds, and says so. One quiet <b>Show original</b> if it got the garment wrong.</p>
+    <div class="phone" data-o="C"></div>
+  </section>
+</div>
+
+<script>
+const I={
+  x:'<svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  cam:'<svg class="ico" viewBox="0 0 24 24"><path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+  img:'<svg class="ico" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M4 18l5-5 4 4 3-3 4 4"/></svg>',
+  plus:'<svg class="ico" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 9v6M9 12h6"/></svg>',
+  crop:'<svg class="ico" viewBox="0 0 24 24"><path d="M7 3v14h14M3 7h14v14"/></svg>',
+  chev:'<svg class="ico" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M6 9l6 6 6-6"/></svg>'
+};
+/* a garment, drawn twice: as it comes off a phone, and as it is kept */
+const shirt=(fill)=>`<path d="M-86 -92 L-40 -110 Q0 -88 40 -110 L86 -92 L128 -34 L96 -8 L74 -34 L74 112 L-74 112 L-74 -34 L-96 -8 L-128 -34 Z" fill="${fill}"/><path d="M-40 -110 Q0 -88 40 -110" fill="none" stroke="rgb(0 0 0 / .18)" stroke-width="5"/><path d="M-30 20 Q0 40 30 20" fill="none" stroke="rgb(255 255 255 / .18)" stroke-width="4"/>`;
+const original=`<svg class="art a-orig" viewBox="0 0 300 300" preserveAspectRatio="xMidYMid slice"><defs><linearGradient id="fl" x1="0" x2="1"><stop offset="0" stop-color="#b9916a"/><stop offset="1" stop-color="#a47d58"/></linearGradient></defs><rect width="300" height="300" fill="url(#fl)"/>${[0,1,2,3,4,5,6,7].map(i=>`<rect x="${i*40-4}" y="0" width="2" height="300" fill="rgb(0 0 0 / .13)"/>`).join('')}<ellipse cx="156" cy="268" rx="104" ry="14" fill="rgb(0 0 0 / .22)"/><g transform="translate(150 150) rotate(-7) scale(.95)">${shirt('#2d56a3')}</g><g transform="translate(268 262) rotate(18)"><rect x="-26" y="-9" width="52" height="18" rx="9" fill="#2a2a2e"/></g><path d="M0 0h60v38L0 24z" fill="rgb(255 255 255 / .55)"/></svg>`;
+const cleanArt=`<svg class="art a-clean" viewBox="0 0 300 300" preserveAspectRatio="xMidYMid slice"><rect width="300" height="300" fill="#fff"/><g transform="translate(150 152) scale(.92)">${shirt('#2d56a3')}</g></svg>`;
+const art=(mini)=>`<span class="sq" style="position:absolute;inset:0;width:100%;aspect-ratio:auto">${mini}</span>`;
+
+const state={svc:'fast'};
+const T={fast:1600,slow:7000};
+document.querySelectorAll('#svc button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#svc button').forEach(x=>x.setAttribute('aria-pressed',x===b));
+  state.svc=b.dataset.v;
+});
+
+function skeleton(){return `
+  <div class="field"><span>Photo</span><div class="photo"><button class="thumb" data-act="menu" aria-label="Add a photo">${I.plus}</button><button class="btn" data-act="menu">Add Photo ${I.chev}</button></div><div class="note" data-slot="note"></div></div>
+  <div class="field"><span>Name</span><div class="input">Kemeja Oxford</div></div>
+  <div class="field"><span>Description</span><div class="input tall">Optional</div></div>
+  <div class="field"><span>Division</span><div class="input">Choose a division</div></div>`}
+
+function build(host){
+  const o=host.dataset.o;
+  host.innerHTML=`
+  <div class="top"><b>Add item</b><span class="x">${I.x}</span></div>
+  <div class="scroll" data-slot="form">${skeleton()}</div>
+  <div class="veil" data-slot="veil"></div>
+  <div class="sheet" data-slot="menu"><div class="grab"></div><h3>Photo</h3>
+    <button class="row" data-act="take">${I.cam}Take a Photo</button>
+    <button class="row" data-act="take">${I.img}From Gallery</button></div>
+  <div class="full" data-slot="review"></div>
+  <div class="cam" data-slot="cam">${I.cam}&nbsp; Taking the photo…</div>`;
+  const q=s=>host.querySelector(`[data-slot=${s}]`);
+  const S={o,host,q,kept:null,run:0};
+  host.addEventListener('click',e=>{
+    const a=e.target.closest('[data-act]'); if(!a) return;
+    ({menu:()=>openMenu(S),take:()=>take(S),close:()=>closeAll(S),useclean:()=>keep(S,'clean'),useorig:()=>keep(S,'orig'),
+      usephoto:()=>keep(S,S.pick||'clean'),again:()=>process(S),pickorig:()=>pick(S,'orig'),pickclean:()=>pick(S,'clean'),
+      toggle:()=>toggleKept(S),retry:()=>process(S)})[a.dataset.act]?.();
+  });
+  q('veil').onclick=()=>closeAll(S);
+}
+function openMenu(S){S.q('veil').classList.add('on');S.q('menu').classList.add('on')}
+function closeAll(S){S.q('veil').classList.remove('on');S.q('menu').classList.remove('on');S.q('review').classList.remove('on')}
+function take(S){
+  closeAll(S);
+  const cam=S.q('cam');cam.classList.add('on');
+  setTimeout(()=>{cam.classList.remove('on');S.q('veil').classList.remove('on');S.kept=null;S.run++;
+    if(S.o==='C') keepInForm(S); else openReview(S);},550);
+}
+/* the cleaning itself: resolves 'clean' or 'down' */
+function cleaning(S){
+  const run=S.run;
+  return new Promise(r=>setTimeout(()=>r(run===S.run?(state.svc==='down'?'down':'clean'):'stale'),T[state.svc]||1600));
+}
+
+/* A and B share the review screen */
+function openReview(S){
+  const A=S.o==='A';
+  S.pick='clean';
+  S.q('review').innerHTML=`
+    <div class="head"><b>${A?'Your photo':'Check the photo'}</b><button class="x" data-act="close" style="width:44px;height:44px;display:grid;place-items:center;font-size:20px;color:var(--line-ico)">${I.x}</button></div>
+    <div class="body">
+      ${A?'':`<div class="segm" data-slot="segm"><button data-act="pickorig" aria-pressed="false">Original</button><button data-act="pickclean" aria-pressed="true" disabled>Clean</button></div>`}
+      <div class="stagebox"><div class="sq busy" data-slot="sq">${original}${cleanArt}<div class="shim"></div></div></div>
+      <div class="status" data-slot="status"><span class="spin"></span>Cleaning up the photo…</div>
+      <div data-slot="buttons"></div>
+    </div>`;
+  S.q('review').classList.add('on');
+  process(S);
+}
+function process(S){
+  const sq=S.q('sq')||null; if(S.o==='C'&&!sq) return processC(S);
+  S.run++; sq.classList.add('busy');sq.classList.remove('clean');
+  setStatus(S,'<span class="spin"></span>Cleaning up the photo…');
+  const A=S.o==='A';
+  setButtons(S,A?`<button class="btn big" data-act="useorig">Use Original</button>`:`<button class="btn big pri" data-act="usephoto" disabled style="opacity:.5">Use Photo</button>`);
+  const seg=S.q('segm'); if(seg){seg.children[1].disabled=true;seg.children[0].setAttribute('aria-pressed','false');seg.children[1].setAttribute('aria-pressed','true')}
+  cleaning(S).then(res=>{ if(res==='stale') return;
+    sq.classList.remove('busy');
+    if(res==='clean'){
+      sq.classList.add('clean'); S.pick='clean';
+      setStatus(S,'<span style="color:var(--ok-fg)">Background removed, photo squared.</span>');
+      setButtons(S,A?`<button class="btn big pri" data-act="useclean">Use Clean Photo</button><button class="btn big" data-act="useorig" style="margin-top:8px">Use Original</button><button class="btn quiet" data-act="close" style="margin:4px auto 0;height:40px">${I.crop}Crop Instead</button>`
+                      :`<button class="btn big pri" data-act="usephoto">Use Photo</button>`);
+      if(seg){seg.children[1].disabled=false}
+    }else{
+      S.pick='orig';
+      setStatus(S,`<span style="color:var(--bad-fg)">Couldn't clean this photo. The original is fine to use.</span>`);
+      setButtons(S,A?`<button class="btn big pri" data-act="useorig">Use Original</button><button class="btn quiet" data-act="again" style="margin:4px auto 0;height:40px">Try Again</button>`
+                      :`<button class="btn big pri" data-act="usephoto">Use Photo</button>`);
+      if(seg){seg.children[0].setAttribute('aria-pressed','true');seg.children[1].setAttribute('aria-pressed','false');seg.children[1].disabled=true;seg.children[1].textContent='Clean · Unavailable'}
+    }
+  });
+}
+function pick(S,which){
+  S.pick=which; const sq=S.q('sq'); sq.classList.toggle('clean',which==='clean');
+  const seg=S.q('segm'); seg.children[0].setAttribute('aria-pressed',which==='orig'); seg.children[1].setAttribute('aria-pressed',which==='clean');
+}
+function setStatus(S,html){S.q('status').innerHTML=html}
+function setButtons(S,html){S.q('buttons').innerHTML=html}
+function keep(S,which){
+  S.kept=which; S.q('review').classList.remove('on');
+  fillThumb(S,which,which==='clean'?'Cleaned and squared.':'Original photo.');
+}
+function fillThumb(S,which,msg,extra){
+  const f=S.q('form');
+  f.querySelector('.photo').innerHTML=`<button class="thumb" data-act="menu" aria-label="Edit the photo"><span class="sq ${which==='clean'?'clean':''}" style="position:absolute;inset:0">${original}${cleanArt}</span></button><button class="btn" data-act="menu">Edit Photo ${I.chev}</button>`;
+  S.q('note').innerHTML=msg+(extra||'');
+}
+
+/* C: it lands in the form and tidies itself */
+function keepInForm(S){
+  S.kept='orig';
+  const f=S.q('form');
+  f.querySelector('.photo').innerHTML=`<button class="thumb" data-act="menu" aria-label="Edit the photo"><span class="sq busy" data-slot="sq" style="position:absolute;inset:0">${original}${cleanArt}<span class="shim"></span></span></button><button class="btn" data-act="menu">Edit Photo ${I.chev}</button>`;
+  processC(S);
+}
+function processC(S){
+  const sq=S.q('sq'); S.run++; if(!sq) return;
+  sq.classList.add('busy');sq.classList.remove('clean');
+  S.q('note').innerHTML='<span class="spin"></span>Tidying the photo…';
+  cleaning(S).then(res=>{ if(res==='stale') return;
+    sq.classList.remove('busy');
+    if(res==='clean'){
+      sq.classList.add('clean'); S.kept='clean';
+      S.q('note').innerHTML=`<span style="color:var(--ok-fg)">Cleaned</span> · <button class="lnk" data-act="toggle">Show Original</button>`;
+    }else{
+      S.q('note').innerHTML=`<span class="bad" style="color:var(--bad-fg)">Couldn't clean it, so this is the original.</span> <button class="lnk" data-act="retry" style="color:var(--accent);font-weight:500">Try Again</button>`;
+    }
+  });
+}
+function toggleKept(S){
+  const sq=S.q('sq'); const showClean=!sq.classList.contains('clean'); sq.classList.toggle('clean',showClean);
+  S.q('note').innerHTML=showClean?`<span style="color:var(--ok-fg)">Cleaned</span> · <button class="lnk" data-act="toggle">Show Original</button>`:`Original · <button class="lnk" data-act="toggle">Show Cleaned</button>`;
+}
+document.querySelectorAll('.phone').forEach(build);
+</script>
+</body>
+</html>

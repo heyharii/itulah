@@ -7,6 +7,7 @@ import {
   ImagePlus,
   Maximize2,
   Trash2,
+  Loader2,
 } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 
@@ -23,7 +24,12 @@ import { Sheet } from "@/components/ui/sheet"
 import { Banner } from "@/components/ui/states"
 import { ColourSwatch } from "@/components/ui/swatch"
 import { Thumbnail } from "@/components/ui/thumbnail"
-import { asJpeg, PICTURE_TYPES } from "@/lib/image"
+import {
+  asJpeg,
+  cleaningAvailable,
+  PICTURE_TYPES,
+  tidyPhoto,
+} from "@/lib/image"
 import { wholeProduct } from "@/lib/decimal"
 import { unitFactor, useUnits } from "@/lib/queries/units"
 import {
@@ -379,15 +385,104 @@ export function ItemFormSheet({
     const picked = event.target.files?.[0] ?? null
     if (picked !== null) {
       setPhotoRefused(null)
-      // Cut before it is kept: the crop shows first, Use Photo keeps it.
-      void asJpeg(picked).then(setCropping, (error: Error) =>
-        setPhotoRefused(error.message)
+      void asJpeg(picked).then(
+        (file) => {
+          setPhoto(file)
+          tidy(file)
+        },
+        (error: Error) => setPhotoRefused(error.message)
       )
     }
     event.target.value = ""
   }
-  /// A picture just chosen, waiting in the crop.
+  /// A picture being cut square by hand, in the crop.
   const [cropping, setCropping] = useState<Blob | null>(null)
+  /// The picture tidies itself (owner, 2026-10-06): the background comes off,
+  /// it is laid on white and cut square round the garment, with no question
+  /// asked. `original` is what was taken and `cleaned` what came back, so that
+  /// one tap puts either on show; neither exists for a picture that was never
+  /// tidied. A service that is not there is not an error: the picture is the
+  /// one that was taken.
+  const [original, setOriginal] = useState<Blob | null>(null)
+  const [cleaned, setCleaned] = useState<Blob | null>(null)
+  const [tidying, setTidying] = useState<"idle" | "working" | "failed">("idle")
+  const tidyRun = useRef(0)
+  const tidy = (file: File) => {
+    const run = ++tidyRun.current
+    setOriginal(file)
+    setCleaned(null)
+    setTidying("idle")
+    void cleaningAvailable().then((yes) => {
+      if (!yes || run !== tidyRun.current) return
+      setTidying("working")
+      tidyPhoto(file).then(
+        (clean) => {
+          if (run !== tidyRun.current) return
+          setCleaned(clean)
+          setPhoto(clean)
+          setTidying("idle")
+        },
+        () => {
+          if (run === tidyRun.current) setTidying("failed")
+        }
+      )
+    })
+  }
+  /// Nothing is left to flip between once the picture is changed by hand or
+  /// taken off.
+  const forgetTidy = () => {
+    tidyRun.current++
+    setOriginal(null)
+    setCleaned(null)
+    setTidying("idle")
+  }
+  /// What the picture says about itself, under it.
+  const tidyNote =
+    tidying === "working" ? (
+      <span role="status" className="flex items-center gap-2">
+        <Loader2 className="size-4 animate-spin" />
+        Tidying the photo…
+      </span>
+    ) : tidying === "failed" ? (
+      <span className="text-bad-fg">
+        Could not clean this photo, so this is the one you took.{" "}
+        <button
+          type="button"
+          className="font-medium text-accent"
+          onClick={() => original !== null && tidy(original as File)}
+        >
+          Try Again
+        </button>
+      </span>
+    ) : cleaned !== null && original !== null ? (
+      <span>
+        {photo === cleaned ? (
+          <>
+            <span className="text-ok-fg">Cleaned</span>
+            {" · "}
+            <button
+              type="button"
+              className="font-medium text-accent"
+              onClick={() => setPhoto(original)}
+            >
+              Show Original
+            </button>
+          </>
+        ) : (
+          <>
+            Original
+            {" · "}
+            <button
+              type="button"
+              className="font-medium text-accent"
+              onClick={() => setPhoto(cleaned)}
+            >
+              Show Cleaned
+            </button>
+          </>
+        )}
+      </span>
+    ) : null
   const chooser = useRef<HTMLInputElement>(null)
   /// The photo library, on a phone, where the picture box itself opens the
   /// camera (owner, 2026-10-05): somebody adding an item from an order is
@@ -949,6 +1044,9 @@ export function ItemFormSheet({
                     onChange={pickPicture}
                   />
                 )}
+                {tidyNote !== null && (
+                  <p className="text-[0.875rem] text-mute">{tidyNote}</p>
+                )}
                 {photo !== null && !touch && (
                   <Button
                     variant="quiet"
@@ -967,6 +1065,7 @@ export function ItemFormSheet({
                     className="self-start"
                     onClick={() => {
                       setPhoto(null)
+                      forgetTidy()
                       setPhotoRefused(null)
                       set({ image: "" })
                     }}
@@ -1027,6 +1126,7 @@ export function ItemFormSheet({
                       className={cn(SHEET_ROW, "text-bad-fg")}
                       onClick={() => {
                         setPhoto(null)
+                        forgetTidy()
                         setPhotoRefused(null)
                         set({ image: "" })
                         setPhotoMenu(false)
@@ -1045,6 +1145,7 @@ export function ItemFormSheet({
                 file={cropping}
                 onDone={(cut) => {
                   setPhoto(cut)
+                  forgetTidy()
                   setCropping(null)
                 }}
                 onCancel={() => setCropping(null)}

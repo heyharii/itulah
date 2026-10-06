@@ -93,3 +93,116 @@ function jpegName(name: string): string {
   const dot = name.lastIndexOf(".")
   return `${dot === -1 ? name : name.slice(0, dot)}.jpg`
 }
+
+/// Whether the background service answers. Asked once and remembered; asked
+/// again a minute after a "no", so a service that was starting is found.
+///
+/// A GET with no picture is a question it answers with a 422 and a JSON body
+/// — which is also how this is told from the web server's own page, handed
+/// back with a 200 for any path it does not know.
+let reachable: { at: number; yes: boolean } | null = null
+export async function cleaningAvailable(): Promise<boolean> {
+  if (
+    reachable !== null &&
+    (reachable.yes || Date.now() - reachable.at < 60_000)
+  )
+    return reachable.yes
+  let yes: boolean
+  try {
+    const response = await fetch("/rembg/api/remove")
+    yes = (response.headers.get("content-type") ?? "").includes("json")
+  } catch {
+    yes = false
+  }
+  reachable = { at: Date.now(), yes }
+  return yes
+}
+
+/// A garment photograph tidied for the catalogue: its background taken off,
+/// laid on white, and cut square around the garment.
+///
+/// The picture goes to the background service (`/rembg`), which hands back a
+/// PNG with the garment alone on a transparent ground. The image store takes
+/// JPEGs only (see `asJpeg`), so the cut-out is put on white and kept as one:
+/// every picture in the catalogue then stands on the same white, at the same
+/// scale, which is the whole reason to do it.
+///
+/// Throws a sentence a person can act on. The service can be down, or slow on
+/// the first picture after it has been idle while its model loads.
+export async function tidyPhoto(photo: Blob): Promise<File> {
+  const body = new FormData()
+  body.append("file", photo, "photo.jpg")
+  let response: Response
+  try {
+    response = await fetch("/rembg/api/remove", { method: "POST", body })
+  } catch {
+    throw new Error("the cleaning service cannot be reached right now")
+  }
+  if (!response.ok) {
+    throw new Error(
+      `the cleaning service refused this picture (${response.status})`
+    )
+  }
+  const bitmap = await createImageBitmap(await response.blob())
+  try {
+    const probe = document.createElement("canvas")
+    probe.width = bitmap.width
+    probe.height = bitmap.height
+    const reader = probe.getContext("2d", { willReadFrequently: true })
+    if (reader === null) throw new Error("this browser cannot read the picture")
+    reader.drawImage(bitmap, 0, 0)
+    const { data } = reader.getImageData(0, 0, probe.width, probe.height)
+    // The garment's box: where the picture is not transparent.
+    let left = probe.width
+    let top = probe.height
+    let right = -1
+    let bottom = -1
+    for (let y = 0; y < probe.height; y++) {
+      for (let x = 0; x < probe.width; x++) {
+        if (data[(y * probe.width + x) * 4 + 3] > 24) {
+          if (x < left) left = x
+          if (x > right) right = x
+          if (y < top) top = y
+          if (y > bottom) bottom = y
+        }
+      }
+    }
+    const width = right - left + 1
+    const height = bottom - top + 1
+    // Nothing found, or a speck: the service saw no garment, so there is
+    // nothing to keep over the original.
+    if (right < 0 || width * height < probe.width * probe.height * 0.02) {
+      throw new Error("no garment was found in this picture")
+    }
+    // Square, with air round it.
+    const side = Math.round(Math.max(width, height) * 1.16)
+    const scale = Math.min(1, LONGEST_EDGE / side)
+    const out = document.createElement("canvas")
+    out.width = Math.max(1, Math.round(side * scale))
+    out.height = out.width
+    const context = out.getContext("2d")
+    if (context === null)
+      throw new Error("this browser cannot draw the picture")
+    context.fillStyle = "#ffffff"
+    context.fillRect(0, 0, out.width, out.height)
+    context.drawImage(
+      bitmap,
+      left,
+      top,
+      width,
+      height,
+      Math.round(((side - width) / 2) * scale),
+      Math.round(((side - height) / 2) * scale),
+      Math.round(width * scale),
+      Math.round(height * scale)
+    )
+    const jpeg = await new Promise<Blob | null>((resolve) =>
+      out.toBlob(resolve, "image/jpeg", QUALITY)
+    )
+    if (jpeg === null)
+      throw new Error("this browser could not save the picture")
+    return new File([jpeg], "photo.jpg", { type: "image/jpeg" })
+  } finally {
+    bitmap.close()
+  }
+}
