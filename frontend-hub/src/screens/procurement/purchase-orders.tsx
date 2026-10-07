@@ -112,6 +112,7 @@ import {
   SupplierName,
   useSupplierName,
 } from "@/screens/procurement/supplier-name"
+import { returnLineParts } from "@/screens/procurement/return-lines"
 import {
   lineValue,
   pcs,
@@ -2746,25 +2747,28 @@ function BeyondTheOrder({ order }: { order: PurchaseOrderDetail }) {
                         : "Not Generated"}
                   </span>
                 </div>
-                {ret.lines.map((one) => {
+                {ret.lines.flatMap((one) => {
                   const line = order.lines.find(
                     (l) => l.po_line_id === one.po_line_id
                   )
-                  return (
+                  return returnLineParts(one).map((part) => (
                     <div
-                      key={`${one.receipt_line_id}-${one.po_line_id}`}
+                      key={`${one.receipt_line_id}-${part.sku}`}
                       className="flex items-baseline justify-between gap-3 text-[0.875rem]"
                     >
                       <span className="min-w-0 truncate text-ink">
-                        {one.article_name}
+                        {part.name}
+                        {part.unknown && (
+                          <span className="text-mute"> · Item unknown</span>
+                        )}
                       </span>
                       <span className="shrink-0 text-body tabular-nums">
-                        {line === undefined
-                          ? pcs(one.quantity)
-                          : `${pcs(one.quantity)} \u00b7 ${money(lineValue(line, one.quantity))}`}
+                        {line === undefined || part.unknown
+                          ? pcs(part.qty)
+                          : `${pcs(part.qty)} \u00b7 ${money(lineValue(line, part.qty))}`}
                       </span>
                     </div>
-                  )
+                  ))
                 })}
               </li>
             ))}

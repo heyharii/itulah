@@ -49,6 +49,11 @@ pub struct PurchaseReturnLineView {
     pub article_code: String,
     pub article_name: String,
     pub quantity: i64,
+    /// The part of `quantity` that is not this article at all — pieces the
+    /// checker counted as not what the order named (0829). Nobody knows what
+    /// they are, so a screen must not name the article for them.
+    #[serde(default)]
+    pub wrong_quantity: i64,
 }
 
 /// A purchase return as the hub shows it: on the order, and in the Return to
@@ -338,10 +343,12 @@ async fn load_returns(
                                      'po_line_id', x.po_line_id,
                                      'article_code', l.article_code,
                                      'article_name', l.article_name,
-                                     'quantity', x.quantity)
+                                     'quantity', x.quantity,
+                                     'wrong_quantity', LEAST(x.quantity, r.wrong_quantity))
                                  ORDER BY l.line_number, x.receipt_line_id)
                             FROM purchase_return_line x
                             JOIN purchase_order_line l ON l.po_line_id = x.po_line_id
+                            JOIN goods_receipt_line r ON r.receipt_line_id = x.receipt_line_id
                            WHERE x.return_id = pr.return_id), '[]'::jsonb) AS lines
            FROM purchase_return pr
            JOIN purchase_order po ON po.purchase_order_id = pr.purchase_order_id

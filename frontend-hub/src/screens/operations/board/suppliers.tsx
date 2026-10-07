@@ -38,6 +38,7 @@ import {
 } from "@/screens/procurement/supplier-return-groups"
 import { downloadReturnPdf } from "@/screens/procurement/return-pdf"
 import { useSupplierName } from "@/screens/procurement/supplier-name"
+import { returnLineParts } from "@/screens/procurement/return-lines"
 import {
   noteOf,
   printReturnNote,
@@ -325,12 +326,15 @@ function fromEdge(
     raisedAt: row.received_at,
     raisedBy: person(row.raised_by),
     handedOverAt: row.handed_over_at,
-    lines: row.lines.map((line) => ({
-      sku: line.article_code,
-      name: line.article_name,
-      qty: line.quantity,
-      cost: 0,
-    })),
+    lines: row.lines.flatMap((line) =>
+      returnLineParts(line).map((part) => ({
+        sku: part.sku,
+        name: part.name,
+        qty: part.qty,
+        cost: 0,
+        unknown: part.unknown,
+      }))
+    ),
     settlements: [],
     closedShortReason: null,
     canCloseShort: false,

@@ -67,6 +67,7 @@ import {
   supplierReturnHtml,
   type PrintableNote,
 } from "@/screens/procurement/return-print"
+import { returnLineParts } from "@/screens/procurement/return-lines"
 import { useActor } from "@/screens/procurement/shared"
 import { useSupplierName } from "@/screens/procurement/supplier-name"
 
@@ -108,6 +109,8 @@ export interface Row {
     name: string | null
     qty: number
     cost: number
+    /// Pieces that are not the order's article: nobody can name them.
+    unknown?: boolean
   }[]
   readonly settlements: SupplierReturn["settlements"]
   readonly closedShortReason: string | null
@@ -242,7 +245,11 @@ export function useReturnRows() {
       id: r.return_id,
       number: r.return_number,
       supplier: supplierName(r.supplier_id, r.supplier_name),
-      reason: "Over-delivery",
+      reason: r.lines.every((l) => (l.wrong_quantity ?? 0) >= l.quantity)
+        ? "Not as ordered"
+        : r.lines.some((l) => (l.wrong_quantity ?? 0) > 0)
+          ? "Over-delivery · Not as ordered"
+          : "Over-delivery",
       reference: r.po_number,
       poId: r.purchase_order_id,
       pcs: r.quantity,
@@ -257,12 +264,15 @@ export function useReturnRows() {
       raisedAt: r.raised_at,
       raisedBy: person(r.raised_by),
       handedOverAt: r.handed_over_at,
-      lines: r.lines.map((l) => ({
-        sku: l.article_code,
-        name: l.article_name,
-        qty: l.quantity,
-        cost: 0,
-      })),
+      lines: r.lines.flatMap((l) =>
+        returnLineParts(l).map((part) => ({
+          sku: part.sku,
+          name: part.name,
+          qty: part.qty,
+          cost: 0,
+          unknown: part.unknown,
+        }))
+      ),
       settlements: [],
       closedShortReason: null,
       canCloseShort: false,
@@ -754,7 +764,13 @@ export function ReturnSheet({
                           <span className="block leading-snug font-medium text-ink">
                             {l.name ?? l.sku}
                           </span>
+                          {l.unknown && (
+                            <span className="mt-1 block text-[0.875rem] text-mute">
+                              Item unknown
+                            </span>
+                          )}
                           {(() => {
+                            if (l.unknown) return null
                             const line = order.data?.lines.find(
                               (one) => one.article_code === l.sku
                             )

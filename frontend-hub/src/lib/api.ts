@@ -238,6 +238,8 @@ export interface PurchaseReturnWork {
     readonly article_code: string
     readonly article_name: string
     readonly quantity: number
+    /// The part of `quantity` that is not this article at all (0829).
+    readonly wrong_quantity?: number
   }[]
 }
 
