@@ -25,6 +25,7 @@ import type {
 } from "@itulah/contract"
 
 import { node } from "@/lib/api"
+import { thumbJpeg } from "@/lib/image"
 import { arity, type Filter } from "@/lib/filters"
 
 /// Purchasing reads and writes, and the keys they are held under.
@@ -1794,6 +1795,42 @@ export function supplierItemImage(
   )
 }
 
+/// The thumbnail that sits beside a photograph (`lib/thumb.ts`), written to the
+/// image store before the photograph is.
+///
+/// First, so that a failure here leaves the photograph alone: the call stops
+/// before the picture is touched and the person presses Save again. The other
+/// order would leave a new photograph beside the old thumbnail of the garment
+/// it replaced.
+async function putThumbnail(
+  ticketPath: string,
+  photo: Blob,
+  signal?: AbortSignal
+): Promise<void> {
+  const ticket = await node.post<ImageUploadTicket>(
+    `${ticketPath}?variant=thumb`,
+    {},
+    { signal }
+  )
+  // A node that does not know `variant` answers with the photograph's own key,
+  // and a thumbnail written there would replace the photograph with itself.
+  // Such a node has no thumbnails to keep in step either, so there is nothing
+  // to do.
+  if (!ticket.upload.key.endsWith(".t.jpg")) return
+  const response = await fetch(ticket.upload.url, {
+    method: ticket.method,
+    body: await thumbJpeg(photo),
+    headers: { "content-type": ticket.content_type },
+    signal,
+  })
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      `The image store refused the upload (${response.status}).`
+    )
+  }
+}
+
 /// Put a photograph on a supplier's item.
 ///
 /// Two steps like the article upload, and a third: the column holds a URL
@@ -1812,11 +1849,9 @@ export async function uploadSupplierItemImage(
   file: Blob,
   signal?: AbortSignal
 ): Promise<string> {
-  const ticket = await node.post<ImageUploadTicket>(
-    `/api/v1/catalogue/suppliers/${supplierCode}/items/${itemCode}/image/upload-url`,
-    {},
-    { signal }
-  )
+  const ticketPath = `/api/v1/catalogue/suppliers/${supplierCode}/items/${itemCode}/image/upload-url`
+  await putThumbnail(ticketPath, file, signal)
+  const ticket = await node.post<ImageUploadTicket>(ticketPath, {}, { signal })
   const response = await fetch(ticket.upload.url, {
     method: ticket.method,
     body: file,
@@ -1861,11 +1896,9 @@ export async function uploadArticleImage(
   file: Blob,
   signal?: AbortSignal
 ): Promise<ImageLocation> {
-  const ticket = await node.post<ImageUploadTicket>(
-    `/api/v1/catalogue/articles/${articleCode}/colours/${colour}/image/upload-url`,
-    {},
-    { signal }
-  )
+  const ticketPath = `/api/v1/catalogue/articles/${articleCode}/colours/${colour}/image/upload-url`
+  await putThumbnail(ticketPath, file, signal)
+  const ticket = await node.post<ImageUploadTicket>(ticketPath, {}, { signal })
   const response = await fetch(ticket.upload.url, {
     method: ticket.method,
     body: file,

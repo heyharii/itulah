@@ -22,6 +22,7 @@ import { PickMany, PickOne, type Choice } from "@/components/ui/pick"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { ZoomPhoto } from "@/components/ui/photo-viewer"
+import { PhotoImg } from "@/components/ui/photo-img"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { QuantityCheckPanel } from "@/screens/procurement/setup-quantity-check"
 import { ago, count, money } from "@/lib/format"
@@ -1240,10 +1241,11 @@ function SessionRecord({
                   name={session.article_name}
                   className="size-14"
                 >
-                  <img
-                    src={cover}
+                  <PhotoImg
+                    url={cover}
                     alt=""
                     className="size-14 rounded-inner border border-hairline object-cover"
+                    eager
                   />
                 </ZoomPhoto>
               )}
@@ -1499,8 +1501,8 @@ function ColourwayPhoto({
               upload.isError ? "border-bad" : "border-hairline"
             )}
           >
-            <img
-              src={url}
+            <PhotoImg
+              url={url}
               alt={colourLabel}
               className="size-full object-cover"
             />
@@ -1543,7 +1545,11 @@ function ColourwayPhoto({
       )}
     >
       {url ? (
-        <img src={url} alt={colourLabel} className="size-full object-cover" />
+        <PhotoImg
+          url={url}
+          alt={colourLabel}
+          className="size-full object-cover"
+        />
       ) : (
         <>
           <Thumbnail
@@ -2457,7 +2463,17 @@ function SessionComposer({
         pricing,
       })
     else clearSetupDraft(receipt.receipt_line_id)
-  }, [dirty, receipt.receipt_line_id, tabs, tabAt, nextTabId, name, division, tags, pricing])
+  }, [
+    dirty,
+    receipt.receipt_line_id,
+    tabs,
+    tabAt,
+    nextTabId,
+    name,
+    division,
+    tags,
+    pricing,
+  ])
 
   const colours = useMemo(() => master.data?.colours ?? [], [master.data])
   const colourChoices = useMemo<Choice[]>(

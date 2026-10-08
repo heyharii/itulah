@@ -47,7 +47,7 @@
 use crate::cloud::application::{AppError, AppState};
 use crate::cloud::domain::validate_article_code;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     routing::{get, post},
     Json, Router,
 };
@@ -215,6 +215,53 @@ fn path_safe(raw: &str, what: &str) -> Result<String, AppError> {
         )));
     }
     Ok(value.to_string())
+}
+
+/// The thumbnail that sits beside a photograph: the same key with `.jpg`
+/// replaced by `.t.jpg`.
+///
+/// ```text
+/// supplier/0016/ITM-E5151439.jpg     the photograph, up to 1600px
+/// supplier/0016/ITM-E5151439.t.jpg   its thumbnail, 200px on the short side
+/// ```
+///
+/// A photograph is drawn at 32-56px in every list, so a list that fetches the
+/// photograph downloads about a hundred kilobytes and decodes about eight
+/// megabytes of bitmap for a box the size of a postage stamp. The thumbnail is
+/// a tenth of the bytes and a fortieth of the memory.
+///
+/// No photograph's own key can end in `.t.jpg`: [`path_safe`] refuses a dot in
+/// a supplier or item code and an article code is digits, so the two names
+/// cannot meet. The hub derives the thumbnail's address from the photograph's
+/// by the same rule (`frontend-hub/src/lib/thumb.ts`).
+pub fn thumbnail_key(key: &str) -> String {
+    match key.strip_suffix(".jpg") {
+        Some(stem) => format!("{stem}.t.jpg"),
+        None => format!("{key}.t.jpg"),
+    }
+}
+
+/// Which of a photograph's two objects an upload URL is wanted for.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct UploadVariant {
+    /// `thumb` for the thumbnail; absent for the photograph.
+    variant: Option<ImageVariant>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum ImageVariant {
+    Thumb,
+}
+
+impl UploadVariant {
+    /// The key to write: the photograph's own, or its thumbnail's.
+    pub fn key_for(self, key: String) -> String {
+        match self.variant {
+            Some(ImageVariant::Thumb) => thumbnail_key(&key),
+            None => key,
+        }
+    }
 }
 
 /// What a caller is told about one image.
@@ -414,10 +461,11 @@ async fn article_image(
 async fn article_image_upload_url(
     State(state): State<AppState>,
     Path((article_code, colour)): Path<(String, String)>,
+    Query(variant): Query<UploadVariant>,
 ) -> Result<Json<Value>, AppError> {
     let media = media(&state)?;
     let image = ArticleImage::parse(&article_code, &colour)?;
-    let location = media.upload_location(media.article_key(&image))?;
+    let location = media.upload_location(variant.key_for(media.article_key(&image)))?;
     Ok(Json(json!({
         "upload": location,
         "method": "PUT",
@@ -441,10 +489,11 @@ async fn article_image_upload_url(
 async fn supplier_image_upload_url(
     State(state): State<AppState>,
     Path((supplier_code, item_code)): Path<(String, String)>,
+    Query(variant): Query<UploadVariant>,
 ) -> Result<Json<Value>, AppError> {
     let media = media(&state)?;
     let image = SupplierImage::parse(&supplier_code, &item_code)?;
-    let location = media.upload_location(media.supplier_key(&image))?;
+    let location = media.upload_location(variant.key_for(media.supplier_key(&image)))?;
     Ok(Json(json!({
         "upload": location,
         "method": "PUT",
@@ -560,6 +609,37 @@ mod tests {
             location.url,
             "https://img.example.com/catalogue/00000042/3.jpg"
         );
+    }
+
+    #[test]
+    fn a_thumbnail_sits_beside_its_photograph() {
+        assert_eq!(
+            thumbnail_key("supplier/0016/ITM-E5151439.jpg"),
+            "supplier/0016/ITM-E5151439.t.jpg"
+        );
+        assert_eq!(
+            thumbnail_key("catalogue/00000042/3.jpg"),
+            "catalogue/00000042/3.t.jpg"
+        );
+    }
+
+    /// A key that cannot hold a dot cannot be a thumbnail's, so the two
+    /// objects can never be one.
+    #[test]
+    fn no_photograph_can_be_filed_under_a_thumbnails_name() {
+        assert!(SupplierImage::parse("hm", "ITM-1.t").is_err());
+        assert!(SupplierImage::parse("a.t", "ITM-1").is_err());
+        assert!(ArticleImage::parse("0000004.t", "3").is_err());
+    }
+
+    #[test]
+    fn the_variant_picks_which_object_the_upload_url_is_for() {
+        let key = "supplier/hm/0237347069.jpg".to_string();
+        assert_eq!(UploadVariant::default().key_for(key.clone()), key);
+        let thumb = UploadVariant {
+            variant: Some(ImageVariant::Thumb),
+        };
+        assert_eq!(thumb.key_for(key), "supplier/hm/0237347069.t.jpg");
     }
 
     /// A read URL must not also authorise a write.

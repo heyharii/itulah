@@ -9,6 +9,7 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
+import { PhotoImg } from "@/components/ui/photo-img"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { colourwayFill } from "@/lib/colourway-fill"
 import { count, day, money, realItemCode } from "@/lib/format"
@@ -347,8 +348,8 @@ function Colourway({
   return (
     <div className="flex items-center gap-3 rounded-inner border border-hairline p-2">
       {image.data ? (
-        <img
-          src={image.data.url}
+        <PhotoImg
+          url={image.data.url}
           alt={label}
           className="size-12 shrink-0 rounded-inner border border-hairline object-cover"
         />

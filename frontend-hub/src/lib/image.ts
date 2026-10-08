@@ -86,6 +86,42 @@ export async function asJpeg(file: File): Promise<File> {
   return new File([blob], jpegName(file.name), { type: "image/jpeg" })
 }
 
+/// The shorter side of a thumbnail, in pixels. A box of 56 CSS pixels on a
+/// phone at three times is 168 device pixels; 200 leaves room.
+export const THUMB_SHORT_EDGE = 200
+
+/// The thumbnail that is stored beside a photograph (`lib/thumb.ts`): the same
+/// picture, 200px on the short side, as a JPEG a tenth of the size.
+///
+/// Made from the photograph that is about to be uploaded, so the two always
+/// show the same garment. Never enlarged — a picture already under 200px is
+/// its own thumbnail.
+export async function thumbJpeg(photo: Blob): Promise<Blob> {
+  const bitmap = await createImageBitmap(photo)
+  const short = Math.min(bitmap.width, bitmap.height)
+  const scale = short > THUMB_SHORT_EDGE ? THUMB_SHORT_EDGE / short : 1
+  const canvas = document.createElement("canvas")
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale))
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale))
+  const context = canvas.getContext("2d")
+  if (context === null) {
+    bitmap.close()
+    throw new Error("this browser cannot make a thumbnail")
+  }
+  // The same white a converted picture is laid on (`asJpeg`), and the best
+  // reduction the browser offers: eight times down is where a plain one shows.
+  context.fillStyle = "#ffffff"
+  context.fillRect(0, 0, canvas.width, canvas.height)
+  context.imageSmoothingQuality = "high"
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  bitmap.close()
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, "image/jpeg", 0.8)
+  )
+  if (blob === null) throw new Error("this picture could not be reduced")
+  return blob
+}
+
 /// `shirt.png` → `shirt.jpg`. The name never reaches the bucket — the key is
 /// built from the supplier's and the item's codes — but it is what the form
 /// shows back, and a file called `.png` that is now a JPEG is a small lie.

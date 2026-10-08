@@ -1,6 +1,5 @@
-import { useState } from "react"
-
 import { Garment } from "@/components/ui/garment"
+import { usePhoto } from "@/lib/use-photo"
 import { cn } from "@/lib/utils"
 
 /// A colourway photograph, or an honest sentence saying there is not one.
@@ -16,6 +15,7 @@ export function Thumbnail({
   colours,
   fallback,
   className,
+  eager,
   children,
 }: {
   url: string | null
@@ -34,21 +34,27 @@ export function Thumbnail({
   /// "no photograph" on its own, and the words would not fit anyway.
   fallback?: string
   className?: string
+  /// Start fetching at once rather than when the box nears the screen. For the
+  /// first rows of a list somebody is about to read: lazy is for the thousandth.
+  eager?: boolean
   /// Anything that rides on top of the photograph — a division badge.
   children?: React.ReactNode
 }) {
-  const [broken, setBroken] = useState(false)
-  const shown = url !== null && url !== "" && !broken
+  // Its thumbnail, else the photograph (`lib/thumb.ts`); a failure of both is
+  // `broken`.
+  const photo = usePhoto(url, { eager })
+  const shown = photo.src !== null && !photo.broken
 
   return (
     <div className={cn("relative overflow-hidden bg-soft-2", className)}>
       {shown ? (
         <img
-          src={url}
+          {...photo.imgProps}
           alt=""
-          loading="lazy"
-          onError={() => setBroken(true)}
-          className="size-full object-cover object-[center_15%]"
+          className={cn(
+            "size-full object-cover object-[center_15%] transition-opacity duration-150 ease-out",
+            photo.loaded ? "opacity-100" : "opacity-0"
+          )}
         />
       ) : name !== undefined &&
         (name.trim() !== "" || (division ?? "") !== "") ? (

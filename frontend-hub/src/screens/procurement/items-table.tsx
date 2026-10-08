@@ -66,6 +66,11 @@ export interface ItemsTotals {
   readonly grand?: number
 }
 
+/// The lines whose pictures start coming as the order opens. An order is read
+/// from its top, and sixteen thumbnails are a few hundred kilobytes; lazy is for
+/// an order of two hundred.
+const EAGER_ROWS = 24
+
 const HEAD =
   "bg-soft px-4 py-2.5 text-[0.875rem] font-medium whitespace-nowrap text-body"
 const CELL = "border-t border-hairline px-4 py-3.5 align-middle text-cell"
@@ -80,7 +85,7 @@ function toneText(tone: ReceivedTone): string {
 
 /// A line's identity: the picture, the name, what it is filed under, and
 /// whatever more the caller has to say.
-function Identity({ row }: { row: ItemsRow }) {
+function Identity({ row, eager }: { row: ItemsRow; eager: boolean }) {
   const fill = useColourwayFill()
   return (
     <div className="flex min-w-0 items-start gap-3">
@@ -93,6 +98,7 @@ function Identity({ row }: { row: ItemsRow }) {
           colours={fill(row.colour)}
           fallback="—"
           className="size-10 shrink-0 rounded-inner"
+          eager={eager}
         />
       </ZoomPhoto>
       <div className="flex min-w-0 flex-col gap-0.5">
@@ -176,10 +182,10 @@ export function ItemsTable({
               </tr>
             </thead>
             <tbody className="[&_tr:first-child_td]:border-t-0">
-              {rows.map((row) => (
+              {rows.map((row, at) => (
                 <tr key={row.key}>
                   <td className={CELL}>
-                    <Identity row={row} />
+                    <Identity row={row} eager={at < EAGER_ROWS} />
                   </td>
                   <td className={cn(CELL, "text-right")}>
                     <Pieces row={row} />
@@ -297,14 +303,14 @@ export function ItemsTable({
           card of their own — the same figures as the table, in the same order. */}
       <div className="flex flex-col gap-3 md:hidden">
         <ul className="flex flex-col overflow-hidden rounded-inner border border-hairline">
-          {rows.map((row) => (
+          {rows.map((row, at) => (
             <li
               key={row.key}
               className="flex flex-col border-t border-hairline first:border-t-0"
             >
               <div className="flex items-start gap-1 p-3.5 pb-3">
                 <div className="min-w-0 flex-1">
-                  <Identity row={row} />
+                  <Identity row={row} eager={at < EAGER_ROWS} />
                 </div>
                 {row.actions !== undefined && (
                   <span className="flex shrink-0 items-center">
