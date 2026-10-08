@@ -806,9 +806,16 @@ export function listPurchaseOrders(
 /// through `.items` to say so is the worse trade.
 export function purchaseOrderPage(
   scope: PurchaseOrderScope = {},
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  cursor?: string
 ) {
-  return node.get<PurchaseOrderPage>(orderBookUrl(scope), { signal })
+  const url = orderBookUrl(scope)
+  return node.get<PurchaseOrderPage>(
+    cursor === undefined
+      ? url
+      : `${url}${url.includes("?") ? "&" : "?"}cursor=${encodeURIComponent(cursor)}`,
+    { signal }
+  )
 }
 
 /// The filter bar's clauses as the request they mean.

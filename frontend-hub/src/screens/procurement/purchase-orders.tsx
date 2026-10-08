@@ -2,6 +2,7 @@ import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import { Menu } from "@base-ui/react/menu"
 import { AppLink } from "@/components/ui/app-link"
 import {
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
@@ -1085,9 +1086,16 @@ export function PurchaseOrders() {
   /// asked for" have different fixes.
   const narrowed = needle !== "" || filters.filters.length > 0
 
-  const orders = useQuery({
-    queryKey: procurementKeys.ordersPage(scope),
-    queryFn: ({ signal }) => purchaseOrderPage(scope, signal),
+  // The book runs past one page — 22,914 completed orders is 115 pages of 200 —
+  // so the list asks for the next page as the table is scrolled to its end
+  // (`more`), instead of stopping at the first. The totals and the facets are
+  // the first page's: the server counts them over the whole book.
+  const book = useInfiniteQuery({
+    queryKey: [...procurementKeys.ordersPage(scope), "paged"],
+    queryFn: ({ signal, pageParam }) =>
+      purchaseOrderPage(scope, signal, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
     // The previous answer stays on screen while the next is fetched. Without
     // it every keystroke empties the table to a loading line and the screen
     // flashes its way through a word.
@@ -1095,10 +1103,25 @@ export function PurchaseOrders() {
     // Counts and receipts land while the page is open: look again every half
     // minute while it is seen, and when the window comes back. Ten seconds
     // asked the whole order book 91 times in one test session; a count that
-    // lands is also pushed here by the invalidation its own screen makes.
-    refetchInterval: 30_000,
+    // lands is also pushed here by the invalidation its own screen makes. Once
+    // more than the first page is in hand a refresh would ask for all of them
+    // again, so the list then waits for a window focus instead.
+    refetchInterval: (query) =>
+      (query.state.data?.pages.length ?? 1) > 1 ? false : 30_000,
     refetchOnWindowFocus: true,
   })
+  const orders = useMemo(() => {
+    const pages = book.data?.pages
+    const merged: PurchaseOrderPage | undefined =
+      pages === undefined
+        ? undefined
+        : {
+            ...pages[0],
+            rows: pages.flatMap((one) => one.rows),
+            next_cursor: pages[pages.length - 1].next_cursor,
+          }
+    return { ...book, data: merged }
+  }, [book])
 
   const rows = useMemo(() => orders.data?.rows ?? [], [orders.data])
 
@@ -1536,6 +1559,7 @@ export function PurchaseOrders() {
                     isFresh={(row) => row.purchase_order_id === fresh}
                     // The owner's floating totals: how many orders, and what
                     // they add up to, under the columns they sum.
+                    more={book}
                     summary={{
                       order: (
                         <span>
@@ -1543,6 +1567,13 @@ export function PurchaseOrders() {
                           <span className="font-normal text-body">
                             {viewRows.length === 1 ? "order" : "orders"}
                           </span>
+                          {orders.data !== undefined &&
+                            orders.data.next_cursor !== null && (
+                              <span className="font-normal text-body">
+                                {" "}
+                                of {count(orders.data.total)}
+                              </span>
+                            )}
                         </span>
                       ),
                       // Each sum as its column shows it: the pieces over the
