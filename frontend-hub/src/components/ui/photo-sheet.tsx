@@ -4,11 +4,8 @@ import { createPortal } from "react-dom"
 import Cropper, { type Area } from "react-easy-crop"
 
 import { Button } from "@/components/ui/button"
-import { tidyPhoto } from "@/lib/image"
+import { LONGEST_EDGE, QUALITY, tidyPhoto } from "@/lib/image"
 import { cn } from "@/lib/utils"
-
-/// The longest edge a cut picture is stored at — `lib/image`'s bound.
-const LONGEST_EDGE = 1600
 
 /// Check the Photo (owner, 2026-10-06; option D of `photo-clean-prototype.html`).
 ///
@@ -343,7 +340,7 @@ async function cutOut(url: string, area: Area): Promise<File> {
     canvas.height
   )
   const blob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob(resolve, "image/jpeg", 0.85)
+    canvas.toBlob(resolve, "image/jpeg", QUALITY)
   )
   if (blob === null) throw new Error("no jpeg")
   return new File([blob], "photo.jpg", { type: "image/jpeg" })

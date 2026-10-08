@@ -21,14 +21,18 @@
 
 /// The longest edge a catalogue picture is stored at.
 ///
-/// Generous on purpose: the largest place any of these is drawn is the item
-/// form's own square, and 1600 leaves room for a screen twice that dense
-/// without going back to the supplier for the picture again.
-const LONGEST_EDGE = 1600
+/// 1200 (owner, 2026-10-08: how far to take a phone's photograph down). The
+/// largest the picture is ever drawn is the zoomed view, about 900px across on
+/// a phone held upright, and 1200 on the long edge is sharp there; 1000 starts
+/// to soften and below it the zoomed view is visibly worse. Lists never fetch
+/// it — they take the thumbnail beside it (`lib/thumb.ts`). Measured on the
+/// heaviest photograph in the store, 1200px at 0.8 is 190 KB where 1600px at
+/// 0.85 was 400, and about 80-100 KB for the usual garment on white.
+export const LONGEST_EDGE = 1200
 
-/// JPEG quality. 0.85 is the knee — visually indistinguishable from 1.0 on
-/// photographs of clothing, at a third of the bytes.
-const QUALITY = 0.85
+/// JPEG quality. 0.8 is the knee at this size: 0.98 similar to the original by
+/// SSIM, a quarter of the bytes of 0.95.
+export const QUALITY = 0.8
 
 /// Everything the browser will let us decode. Deliberately not `image/*`: a
 /// picker that offers HEIC and then refuses it is worse than one that never
