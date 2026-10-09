@@ -181,7 +181,7 @@ export function WorkloadScreen() {
           ]}
         />
         <FlowCard
-          to="/operations/board/suppliers"
+          to="/procurement/returns"
           name="Return PO"
           unit="active returns"
           total={

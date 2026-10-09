@@ -222,14 +222,15 @@ export const operationsNav: AppModule = {
           useCount: useFromStore,
           badge: "warn",
         },
-        /// What is going back to a supplier — its own menu since 2 Oct 2026,
-        /// no longer a tab of the board.
+        /// Return PO lives in Procurement (owner, 10 Oct 2026): one list, with
+        /// the hand-over in its sheet. The board stays routable, not drawn.
         {
           path: "/operations/board/suppliers",
           label: "Return PO",
           icon: Undo2,
           useCount: useToSuppliers,
           badge: "warn",
+          hidden: true,
         },
         {
           path: "/operations/activity",

@@ -350,7 +350,7 @@ export function SupplierReturns() {
           value={tab}
           onChange={(next) => setTab(next as Tab)}
           tabs={[
-            { value: "open", label: `Open ${count(openCount)}` },
+            { value: "open", label: `Active ${count(openCount)}` },
             {
               value: "closed",
               label: `Completed ${count(all.length - openCount)}`,
@@ -396,7 +396,7 @@ export function SupplierReturns() {
         status={{
           value: tab,
           options: [
-            { value: "open", label: "Open", count: openCount },
+            { value: "open", label: "Active", count: openCount },
             {
               value: "closed",
               label: "Completed",
