@@ -26,10 +26,8 @@ import {
   poolAvailability,
 } from "@/lib/queries/inventory"
 import {
-  catalogueVocabulary,
   procurementKeys,
   purchaseDestinations,
-  purchaseOrderDetail,
   purchaseOrderPage,
   purchaseReturns,
 } from "@/lib/queries/procurement"
@@ -55,7 +53,6 @@ import { useSheet } from "@/lib/sheets"
 import { cn } from "@/lib/utils"
 import { sourcePoolsFor } from "@/screens/inventory/shared"
 import { titled } from "@/screens/procurement/po-print"
-import { termLabel } from "@/screens/procurement/shared"
 import { openPrintWindow, printInto } from "@/screens/procurement/print"
 import {
   groupBySupplier,
@@ -67,16 +64,26 @@ import {
   supplierReturnHtml,
   type PrintableNote,
 } from "@/screens/procurement/return-print"
-import { returnLineParts } from "@/screens/procurement/return-lines"
+import {
+  foldLines,
+  NOT_AS_ORDERED_ROW,
+  returnLineParts,
+} from "@/screens/procurement/return-lines"
 import { useActor } from "@/screens/procurement/shared"
-import { useSupplierName } from "@/screens/procurement/supplier-name"
+import {
+  useSupplierContact,
+  useSupplierName,
+} from "@/screens/procurement/supplier-name"
+
+/// "3 pcs", "1 pc": the kit's `quantity` is not in this tree yet.
+const quantity = (n: number) => `${count(n)} ${n === 1 ? "pc" : "pcs"}`
 
 /// Buying › Return PO.
 ///
 /// Two books in one list: returns out of HO return stock (over-delivery,
 /// items that don't match the order — the supplier owes something back,
 /// tracked in rupiah until nothing is owed) and over-delivery returns raised
-/// from a PO (nothing comes back; they close when the Gudang hands the goods
+/// from a PO (nothing comes back; they close when the warehouse hands the goods
 /// over). Confirming a return of the first book issues its surat — the
 /// numbered return delivery note, QR-tracked, the supplier signs against.
 
@@ -90,6 +97,10 @@ export interface Row {
   readonly supplier: string
   readonly reason: string
   readonly reference: string | null
+  /// Where the supplier is and how to reach them, for the delivery note's
+  /// "Kepada"; null where the supplier book has neither.
+  readonly address: string | null
+  readonly phone: string | null
   /// The order's id, for the link into its sheet; null where the book has none.
   readonly poId: string | null
   readonly pcs: number
@@ -119,7 +130,7 @@ export interface Row {
   /// cloud-book return — over-delivery rows raised from a PO have none.
   readonly letterId: string | null
   readonly letterNumber: string | null
-  /// The Gudang's person in charge of the hand-over, and when the surat jalan
+  /// The warehouse's person in charge of the hand-over, and when the delivery note
   /// was generated — both null until it is. Only an over-delivery return has
   /// them; the register's problem-goods returns leave through the picklist.
   readonly pic: string | null
@@ -145,6 +156,7 @@ const STATUS_TONE: Record<SupplierReturn["status"], Tone> = {
 function fromSupplierReturn(
   r: SupplierReturn,
   supplierName: ReturnType<typeof useSupplierName>,
+  contact: ReturnType<typeof useSupplierContact>,
   person: (login: string) => string
 ): Row {
   const byKind: Partial<Record<SettleBy, number>> = {}
@@ -157,6 +169,7 @@ function fromSupplierReturn(
     supplier: supplierName(r.supplier_id, r.supplier_name),
     reason: REASON_LABEL[r.reason],
     reference: null,
+    ...contact(r.supplier_id, r.supplier_name),
     poId: null,
     pcs: r.quantity,
     settleBy: r.settle_by,
@@ -219,7 +232,7 @@ function Settled({ row, wide }: { row: Row; wide?: boolean }) {
   )
 }
 
-/// Every return the Gudang and head office know of, as one list of rows: the
+/// Every return the warehouse and head office know of, as one list of rows: the
 /// register of supplier returns and the over-delivery returns raised from a PO.
 /// Shared with the Return to supplier board, whose cards open the same sheet.
 export function useReturnRows() {
@@ -233,13 +246,14 @@ export function useReturnRows() {
   })
 
   const supplierName = useSupplierName()
+  const contact = useSupplierContact()
   const nameOfLogin = useNameOfLogin()
   /// A person as the screens write one: the full name, in Title Case — never the
   /// login ("candra") the server keeps.
   const person = (login: string) => titled(nameOfLogin(login))
   const all = useMemo<Row[]>(() => {
     const own = (returns.data ?? []).map((r) =>
-      fromSupplierReturn(r, supplierName, person)
+      fromSupplierReturn(r, supplierName, contact, person)
     )
     const excess = (over.data ?? []).map<Row>((r) => ({
       id: r.return_id,
@@ -251,6 +265,7 @@ export function useReturnRows() {
           ? "Over-delivery · Not as ordered"
           : "Over-delivery",
       reference: r.po_number,
+      ...contact(r.supplier_id, r.supplier_name),
       poId: r.purchase_order_id,
       pcs: r.quantity,
       settleBy: null,
@@ -284,7 +299,7 @@ export function useReturnRows() {
     }))
     return [...own, ...excess]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [returns.data, over.data, supplierName, nameOfLogin])
+  }, [returns.data, over.data, supplierName, contact, nameOfLogin])
   return { all, returns, over }
 }
 
@@ -415,7 +430,7 @@ export function SupplierReturns() {
           ) : (
             // A card per supplier, as Operations draws it (owner, 2026-10-05),
             // with who is in charge and where each return stands. Reading
-            // only: the surat jalan is made and confirmed in Operations.
+            // only: the delivery note is made and confirmed in Operations.
             <ReturnGroups
               groups={groups}
               selected={sheet.value}
@@ -438,13 +453,14 @@ export function noteOf(
 ): PrintableNote {
   return {
     supplier: returns[0]?.supplier ?? "",
+    address: returns[0]?.address ?? null,
+    phone: returns[0]?.phone ?? null,
     date: new Date().toISOString(),
     pic,
     returns: returns.map((one) => ({
       number: one.number,
       reason: one.reason,
       reference: one.reference,
-      poId: one.poId,
       lines: one.lines,
     })),
   }
@@ -522,19 +538,9 @@ export function ReturnSheet({
     },
   })
 
-  /// The order the return came from, for what each item is filed under: the
-  /// return line knows its code and quantity, the PO line knows its division
-  /// and tags.
-  const order = useQuery({
-    queryKey: procurementKeys.order(row?.poId ?? ""),
-    queryFn: ({ signal }) => purchaseOrderDetail(row!.poId!, signal),
-    enabled: !!row?.poId,
-  })
-  const vocabulary = useQuery({
-    queryKey: procurementKeys.vocabulary(),
-    queryFn: ({ signal }) => catalogueVocabulary(signal),
-    staleTime: 30 * 60 * 1000,
-  })
+  /// The items as the delivery note lists them, so the sheet and the paper
+  /// read the same: one row per item, the not-as-ordered pieces on one row.
+  const folded = foldLines(row?.lines ?? [])
   const history: TimelineEvent[] = []
   if (row) {
     history.push({
@@ -696,6 +702,9 @@ export function ReturnSheet({
             {form}
             <Problem error={expect.error} />
             <Facts>
+              <Fact term="Date">{day(row.noteAt ?? row.raisedAt)}</Fact>
+              {row.address && <Fact term="Address">{row.address}</Fact>}
+              {row.phone && <Fact term="Phone">{row.phone}</Fact>}
               <Fact term="Person in Charge">
                 {row.pic === null ? "—" : titled(row.pic)}
               </Fact>
@@ -752,55 +761,42 @@ export function ReturnSheet({
                 <table className="w-full border-collapse text-[0.9375rem]">
                   <thead>
                     <tr className="h-11 bg-soft text-left text-[0.875rem] font-medium text-body">
-                      <th className="pl-4">SKU</th>
+                      <th className="pl-4">Item</th>
                       <th className="pr-4 text-right">Quantity</th>
                     </tr>
                   </thead>
                   <tbody className="[&_td]:py-3.5">
-                    {row.lines.map((l) => (
-                      <tr key={l.sku} className="border-t border-hairline">
-                        <td className="pl-4">
-                          <span className="block leading-snug font-medium text-ink">
-                            {l.name ?? l.sku}
-                          </span>
-                          {l.unknown && (
-                            <span className="mt-1 block text-[0.875rem] text-mute">
-                              Item unknown
-                            </span>
-                          )}
-                          {(() => {
-                            if (l.unknown) return null
-                            const line = order.data?.lines.find(
-                              (one) => one.article_code === l.sku
-                            )
-                            if (!line) return null
-                            const tags = line.tags ?? []
-                            if (!line.division_code && tags.length === 0)
-                              return null
-                            return (
-                              <span className="mt-1.5 flex flex-wrap gap-1.5">
-                                {line.division_code && (
-                                  <Tag>
-                                    {termLabel(
-                                      vocabulary.data?.divisions,
-                                      line.division_code
-                                    )}
-                                  </Tag>
-                                )}
-                                {tags.map((tag) => (
-                                  <Tag key={tag}>
-                                    {termLabel(vocabulary.data?.tags, tag)}
-                                  </Tag>
-                                ))}
-                              </span>
-                            )
-                          })()}
+                    {folded.items.map((one) => (
+                      <tr key={one.sku} className="border-t border-hairline">
+                        <td className="pl-4 leading-snug font-medium text-ink">
+                          {one.name}
                         </td>
                         <td className="pr-4 text-right tabular-nums">
-                          {count(l.qty)}
+                          {count(one.qty)}
                         </td>
                       </tr>
                     ))}
+                    {folded.unknown > 0 && (
+                      <tr className="border-t border-hairline">
+                        <td className="pl-4 leading-snug">
+                          <span className="block font-medium text-ink">
+                            {NOT_AS_ORDERED_ROW.title}
+                          </span>
+                          <span className="block text-mute">
+                            {NOT_AS_ORDERED_ROW.sub}
+                          </span>
+                        </td>
+                        <td className="pr-4 text-right tabular-nums">
+                          {count(folded.unknown)}
+                        </td>
+                      </tr>
+                    )}
+                    <tr className="border-t border-ink font-semibold text-ink">
+                      <td className="pl-4">Total</td>
+                      <td className="pr-4 text-right tabular-nums">
+                        {count(folded.total)}
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               </Card>
@@ -1097,7 +1093,7 @@ function NewReturn({
       </div>
 
       <div className="mt-5 flex items-center justify-between gap-4">
-        <span className="text-body tabular-nums">{count(total)} pcs</span>
+        <span className="text-body tabular-nums">{quantity(total)}</span>
         <Button
           variant="primary"
           pending={create.isPending}

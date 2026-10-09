@@ -41,3 +41,69 @@ export function returnLineParts(line: {
     })
   return parts
 }
+
+/// How the unnamed pieces are written on the delivery note and in the sheet:
+/// one row for all of them, wherever they came from, on two lines exactly as
+/// the owner drew it (sketch, 2026-10-08): "Not as Ordered" and under it
+/// "Item Unknown".
+export const NOT_AS_ORDERED_ROW = {
+  title: "Not as Ordered",
+  sub: "Item Unknown",
+} as const
+
+export interface FoldedLine {
+  /// The article's code; unique among the items.
+  readonly sku: string
+  /// The item as the order names it, with no tags.
+  readonly name: string
+  readonly qty: number
+  /// What these pieces were bought at, in minor units; 0 where nothing is owed.
+  readonly value: number
+}
+
+export interface FoldedLines {
+  readonly items: readonly FoldedLine[]
+  /// Pieces nobody can name, across every return; 0 draws no row.
+  readonly unknown: number
+  /// Items and the unnamed pieces together.
+  readonly total: number
+  /// What the items are worth; the unnamed pieces have no price.
+  readonly value: number
+}
+
+/// Return lines as the delivery note lists them: one row per item as the order
+/// names it — quantities of the same article from different returns added — and
+/// one row for the pieces that are not the order's article. Shared by the
+/// printed note, the PDF and the sheet, so the three cannot disagree.
+export function foldLines(
+  lines: readonly {
+    readonly sku: string
+    readonly name: string | null
+    readonly qty: number
+    readonly cost?: number
+    readonly unknown?: boolean
+  }[]
+): FoldedLines {
+  const items = new Map<string, FoldedLine>()
+  let unknown = 0
+  for (const line of lines) {
+    if (line.unknown === true) {
+      unknown += line.qty
+      continue
+    }
+    const before = items.get(line.sku)
+    items.set(line.sku, {
+      sku: line.sku,
+      name: before?.name ?? line.name ?? line.sku,
+      qty: (before?.qty ?? 0) + line.qty,
+      value: (before?.value ?? 0) + (line.cost ?? 0) * line.qty,
+    })
+  }
+  const list = [...items.values()]
+  return {
+    items: list,
+    unknown,
+    total: list.reduce((sum, one) => sum + one.qty, 0) + unknown,
+    value: list.reduce((sum, one) => sum + one.value, 0),
+  }
+}

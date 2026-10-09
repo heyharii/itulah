@@ -4,6 +4,7 @@ import { useCallback } from "react"
 import { listSuppliers, procurementKeys } from "@/lib/queries/procurement"
 import {
   findSupplier,
+  formatPhones,
   supplierDisplayName,
 } from "@/screens/procurement/supplier-format"
 
@@ -48,4 +49,30 @@ export function SupplierName({
 }) {
   const nameOf = useSupplierName()
   return <>{nameOf(code, name, id)}</>
+}
+
+/// A supplier's address and telephone as paper writes them, for the documents
+/// addressed to them (the return delivery note's "Kepada"). Read from the same
+/// book as the name; a supplier the book does not know, or one with neither
+/// filled in, has none.
+// eslint-disable-next-line react-refresh/only-export-components
+export function useSupplierContact() {
+  const suppliers = useQuery({
+    queryKey: procurementKeys.suppliers(),
+    queryFn: ({ signal }) => listSuppliers(undefined, signal),
+    staleTime: 5 * 60 * 1000,
+  })
+  return useCallback(
+    (
+      code: string | null | undefined,
+      name: string | null | undefined
+    ): { address: string | null; phone: string | null } => {
+      const found = findSupplier(suppliers.data ?? [], code, name)
+      return {
+        address: found?.address?.trim() || null,
+        phone: found?.phone ? formatPhones(found.phone) : null,
+      }
+    },
+    [suppliers.data]
+  )
 }

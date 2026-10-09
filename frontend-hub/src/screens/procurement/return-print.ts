@@ -2,6 +2,7 @@ import { count, day } from "@/lib/format"
 import { COMPANY } from "@/screens/finance-lab/print"
 import { escapeHtml } from "@/screens/procurement/print"
 import { titled } from "@/screens/procurement/po-print"
+import { foldLines, NOT_AS_ORDERED_ROW } from "@/screens/procurement/return-lines"
 
 /// One return on the note: its number, the order it came from, and the goods.
 export interface PrintableReturn {
@@ -14,6 +15,8 @@ export interface PrintableReturn {
     readonly name: string | null
     readonly qty: number
     readonly cost: number
+    /// Pieces that are not the order's article: nobody can name them.
+    readonly unknown?: boolean
   }[]
 }
 
@@ -22,6 +25,10 @@ export interface PrintableReturn {
 /// and order.
 export interface PrintableNote {
   readonly supplier: string
+  /// Where the supplier is and their telephone, as the supplier book has
+  /// them; blank where it has neither.
+  readonly address?: string | null
+  readonly phone?: string | null
   /// The day the note is made.
   readonly date: string
   /// The Gudang's person in charge of this delivery, named when the note is
@@ -30,39 +37,62 @@ export interface PrintableNote {
   readonly returns: readonly PrintableReturn[]
 }
 
-/// The return delivery note (surat jalan) the Gudang hands over with the goods,
-/// and the supplier signs for: one A4 page, in English like every printed
-/// document (owner, 2026-10-04). The supplier's signature block is the point of
-/// it — name, signature and stamp, and the date they took the goods — because
-/// the note is the proof the goods left in the quantities it says.
+/// What the note says, worked out once for the print and the PDF: the orders
+/// the goods came from, the items as the orders name them, and the totals.
+export function noteFigures(note: PrintableNote) {
+  const orders = [
+    ...new Set(
+      note.returns.flatMap((one) => (one.reference ? [one.reference] : []))
+    ),
+  ]
+  return {
+    orders,
+    ...foldLines(note.returns.flatMap((one) => one.lines)),
+    /// The name under "Hormat kami": the person in charge who sends the goods;
+    /// the company where none was named.
+    sender: titled(note.pic ?? "") || COMPANY.name,
+  }
+}
+
+/// The return delivery note (surat jalan) the Gudang hands over with the goods:
+/// one A4 page, laid out as the owner drew it (2026-10-08) — and in the words he
+/// wrote, Indonesian, as the supplier reads it. The title and company, the date
+/// and the order numbers, "Kepada" the supplier with address and telephone, the
+/// items as the order names them (no tags) with a row for pieces that are not
+/// as ordered, the total, and "Hormat kami" signed by the person in charge who
+/// sends it.
 export function supplierReturnHtml(note: PrintableNote): string {
   const e = escapeHtml
-  const pieces = note.returns.reduce(
-    (sum, one) => sum + one.lines.reduce((inner, line) => inner + line.qty, 0),
-    0
-  )
+  const figures = noteFigures(note)
 
-  const items = note.returns.reduce((sum, one) => sum + one.lines.length, 0)
-
-  const rows = note.returns
-    .map((one) => {
-      const subtotal = one.lines.reduce((sum, line) => sum + line.qty, 0)
-      return `<tr class="group"><td colspan="3"><span class="mono">${e(one.reference ?? "No order")}</span> <span class="muted">· ${e(one.number)} · ${e(one.reason)}</span></td></tr>
-${one.lines
-  .map(
-    (line, index) => `<tr>
-  <td>${index + 1}</td>
-  <td>${e(line.name ?? line.sku)}</td>
+  const rows = [
+    ...figures.items.map((one) => ({
+      name: one.name,
+      sub: null as string | null,
+      qty: one.qty,
+    })),
+    ...(figures.unknown > 0
+      ? [
+          {
+            name: NOT_AS_ORDERED_ROW.title,
+            sub: NOT_AS_ORDERED_ROW.sub as string | null,
+            qty: figures.unknown,
+          },
+        ]
+      : []),
+  ]
+    .map(
+      (line, index) => `<tr>
+  <td><div class="it"><span class="no">${index + 1}</span><div>${e(line.name)}${
+    line.sub ? `<div class="sub">${e(line.sub)}</div>` : ""
+  }</div></div></td>
   <td class="num">${count(line.qty)}</td>
 </tr>`
-  )
-  .join("")}
-<tr class="sum"><td></td><td class="muted">Subtotal</td><td class="num">${count(subtotal)}</td></tr>`
-    })
+    )
     .join("")
 
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${e(
-    `Return delivery note ${note.supplier}`
+  return `<!doctype html><html lang="id"><head><meta charset="utf-8"><title>${e(
+    `Surat jalan retur ${note.supplier}`
   )}</title><style>
 @page { size: A4 portrait; margin: 0; }
 * { box-sizing: border-box; }
@@ -71,79 +101,65 @@ body { font-family: Inter, -apple-system, "Segoe UI", sans-serif; font-size: 13p
 .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 2px solid #1d1f1a; padding-bottom: 8px; }
 .company { font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
 .muted { color: #5b6158; }
-.title { text-align: right; flex-shrink: 0; }
-.title h1 { font-size: 18px; letter-spacing: .04em; margin: 0 0 4px; }
-.mono { font-family: ui-monospace, Menlo, monospace; }
-.parties { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; margin: 12px 0; }
-.label { color: #5b6158; margin-bottom: 2px; }
-table.lines { width: 100%; border-collapse: collapse; margin-top: 6px; }
-table.lines th { text-align: left; font-weight: 500; color: #5b6158; border-bottom: 1px solid #1d1f1a; padding: 6px 4px; }
-table.lines td { border-bottom: 1px solid #d9dbd6; padding: 7px 4px; vertical-align: top; }
-table.lines .num, table.lines th.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-table.lines th:first-child, table.lines td:first-child { width: 34px; }
-table.lines th:last-child, table.lines td:last-child { padding-right: 14px; }
-table.lines tr.group td { background: #f4f5f2; font-weight: 600; padding-top: 9px; border-bottom: 1px solid #1d1f1a; }
-table.lines tr.sum td { border-bottom: 1px solid #1d1f1a; font-weight: 500; }
-.sub { color: #5b6158; font-size: 11px; }
+h1 { font-size: 18px; letter-spacing: .04em; margin: 0 0 6px; }
+.meta { border-collapse: collapse; flex-shrink: 0; }
+.meta td { padding: 1px 0; vertical-align: top; }
+.meta td:first-child { color: #5b6158; padding-right: 10px; }
+.meta td:last-child { font-weight: 600; max-width: 62mm; }
+.to { margin: 14px 0 12px; display: grid; grid-template-columns: auto 1fr; gap: 0 10px; }
+.to .label { color: #5b6158; }
+table.lines { width: 100%; border-collapse: collapse; margin-top: 6px; border: 1px solid #1d1f1a; }
+table.lines th { text-align: left; font-weight: 500; color: #5b6158; border: 1px solid #1d1f1a; padding: 7px 8px; }
+table.lines td { border: 1px solid #1d1f1a; padding: 9px 8px; vertical-align: top; }
+table.lines .num, table.lines th.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; width: 130px; }
+.it { display: flex; gap: 10px; }
+.it .no { width: 18px; flex-shrink: 0; }
+.it .sub { color: #5b6158; }
+table.lines tr.total td { font-weight: 600; padding: 9px 8px; }
+table.lines tr.total td:first-child { text-align: right; }
 thead { display: table-header-group; }
 tr { break-inside: avoid; page-break-inside: avoid; }
-.totals { margin-left: auto; width: 240px; margin-top: 8px; border-collapse: collapse; }
-.totals td { padding: 3px 4px; font-variant-numeric: tabular-nums; }
-.totals td:last-child { text-align: right; padding-right: 14px; }
-.totals tr.grand td { border-top: 1px solid #1d1f1a; font-weight: 600; padding-top: 6px; }
-.sign { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; justify-items: end; margin-top: 22px; break-inside: avoid; }
-.sign .box { grid-column: 2; width: 100%; border: 1px solid #1d1f1a; border-radius: 4px; padding: 10px 12px; height: 190px; display: flex; flex-direction: column; }
+.sign { margin-top: 26px; break-inside: avoid; width: 220px; }
+.sign .space { height: 70px; }
 .sign .who { font-weight: 600; }
-.sign .space { flex: 1; }
-.sign .line { border-top: 1px solid #1d1f1a; padding-top: 4px; color: #5b6158; margin-top: 6px; }
-.sign .two { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; margin-top: 28px; }
-.sign .two .line { margin-top: 0; }
+.sign .role { color: #5b6158; }
 </style></head><body><section class="page">
 <div class="head">
   <div>
+    <h1>SURAT JALAN RETUR</h1>
     <div class="company">${e(COMPANY.name)}</div>
     <div class="muted">${e(COMPANY.address)}</div>
     ${COMPANY.phone ? `<div class="muted">${e(COMPANY.phone)}</div>` : ""}
   </div>
-  <div class="title">
-    <h1>RETURN DELIVERY NOTE</h1>
-    <div class="muted">Date ${e(day(note.date))}</div>
-  </div>
+  <table class="meta">
+    <tr><td>Tgl</td><td>: ${e(day(note.date))}</td></tr>
+    <tr><td>No PO</td><td>: ${e(figures.orders.join(", ") || "—")}</td></tr>
+  </table>
 </div>
 
-<div class="parties">
+<div class="to">
+  <div class="label">Kepada :</div>
   <div>
-    <div class="label">To</div>
     <div><strong>${e(note.supplier)}</strong></div>
-  </div>
-  <div>
-    <div class="label">Person in charge</div>
-    <div><strong>${e(titled(note.pic ?? "") || "—")}</strong></div>
+    ${note.address ? `<div>${e(note.address)}</div>` : ""}
+    ${note.phone ? `<div>Telp. ${e(note.phone)}</div>` : ""}
   </div>
 </div>
 
 <table class="lines">
   <thead><tr>
-    <th>No</th><th>Item</th><th class="num">Quantity</th>
+    <th>Item</th><th class="num">Quantity</th>
   </tr></thead>
-  <tbody>${rows}</tbody>
-</table>
-
-<table class="totals">
-  <tr><td>Total Items</td><td>${count(items)}</td></tr>
-  <tr class="grand"><td>Total Quantity</td><td>${count(pieces)} pcs</td></tr>
+  <tbody>${rows}
+    <tr class="total"><td>Total</td><td class="num">${count(figures.total)}</td></tr>
+  </tbody>
 </table>
 
 <div class="sign">
-  <div class="box">
-    <div class="who">${e(note.supplier)}</div>
-    <div class="space"></div>
-    <div class="line">Signature &amp; company stamp</div>
-    <div class="two">
-      <div class="line">Name</div>
-      <div class="line">Date</div>
-    </div>
-  </div>
+  <div>Hormat kami,</div>
+  <div class="space"></div>
+  <div class="who">( ${e(figures.sender)} )</div>
+  <div class="role">Pengirim</div>
 </div>
 </section></body></html>`
 }

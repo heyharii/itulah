@@ -79,17 +79,10 @@ export function paperShape(paper: Paper): {
   }
 }
 
-const tanggal = new Intl.DateTimeFormat("en-GB", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-})
-
-/// A date as it is written on paper: "1 Oct 2026". Shared with the PDF
-/// writer, which lays the same document out.
+/// A date as it is written on paper — the house format, "01 Oct 2026". Shared
+/// with the PDF writer, which lays the same document out.
 export function paperDate(iso: string): string {
-  const at = new Date(iso)
-  return Number.isNaN(at.getTime()) ? "—" : tanggal.format(at)
+  return day(iso)
 }
 
 export function purchaseOrdersHtml({
@@ -241,7 +234,7 @@ ${discount > 0 && pieces > 0 ? `<div class="sub" style="margin-top:3px">Discount
 <table class="totals">
   <tr><td>Total Quantity</td><td>${received ? `${count(arrived)} of ${count(pieces)} pcs` : `${count(pieces)} pcs`}</td></tr>
   <tr><td>Subtotal</td><td>${money(gross)}</td></tr>
-  <tr><td>Discount</td><td>${discount === 0 ? "—" : `− ${money(discount)}`}</td></tr>
+  <tr><td>Discount</td><td>${discount === 0 ? "—" : money(-discount)}</td></tr>
   <tr class="grand"><td>Grand Total</td><td>${money(gross - discount)}</td></tr>
 </table>
 
