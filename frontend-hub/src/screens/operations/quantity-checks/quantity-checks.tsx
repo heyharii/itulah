@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Sheet } from "@/components/ui/sheet"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { Thumbnail } from "@/components/ui/thumbnail"
+import { cn } from "@/lib/utils"
 import { ago, count } from "@/lib/format"
 import { colourKeys, listColours } from "@/lib/queries/colours"
 import { catalogueVocabulary, procurementKeys } from "@/lib/queries/procurement"
@@ -160,6 +161,12 @@ function CountSheet({
             size: one.size,
             quantity: Number(one.quantity),
           }))
+  /// What the warehouse counted has to be what came: the total of the rows
+  /// equals the pieces received, as New articles asks of its own grid.
+  const counted = filled.reduce((sum, one) => sum + one.quantity, 0)
+  const received = check?.receipt_quantity ?? 0
+  const left = received - counted
+  const balanced = left === 0
   const submit = useMutation({
     mutationFn: () => countQuantityCheck(check!.check_id, filled),
     onSuccess: () => {
@@ -183,10 +190,24 @@ function CountSheet({
         check === null ? undefined : (
           <div className="flex flex-col gap-3">
             <Problem error={submit.error} />
+            <p
+              className={cn(
+                "text-[0.9375rem] font-medium tabular-nums",
+                left < 0
+                  ? "text-bad"
+                  : balanced
+                    ? "text-ok-fg"
+                    : "text-warn-fg"
+              )}
+            >
+              Counted {count(counted)} / {count(received)} pcs
+              {" · "}
+              {left < 0 ? `${count(-left)} over` : `${count(left)} left`}
+            </p>
             <Button
               variant="primary"
               className="w-full"
-              disabled={filled.length === 0}
+              disabled={filled.length === 0 || !balanced}
               pending={submit.isPending}
               onClick={() => submit.mutate()}
             >
