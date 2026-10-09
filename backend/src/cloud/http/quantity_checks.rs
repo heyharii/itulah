@@ -21,6 +21,9 @@ use uuid::Uuid;
 /// A line may be at most this many colour × size rows.
 const MAX_LINES: usize = 500;
 
+/// A check carries at most this many tags.
+const MAX_TAGS: usize = 20;
+
 #[derive(Debug, Serialize)]
 pub struct QuantityCheck {
     pub check_id: Uuid,
@@ -41,6 +44,14 @@ pub struct QuantityCheck {
     pub po_number: String,
     pub receipt_quantity: i64,
     pub image_url: Option<String>,
+    /// The division and tags head office had in the form when it asked, as codes
+    /// (the hub names them from the catalogue vocabulary).
+    pub division_code: Option<String>,
+    pub tags: Value,
+    /// Who delivered it: the receipt's supplier code, as New articles shows it,
+    /// and the name the order was raised with (a snapshot, may be absent).
+    pub supplier_id: String,
+    pub supplier_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -57,6 +68,12 @@ pub struct AskRequest {
     /// Every article's colour x size the form had chosen at the time of asking.
     #[serde(default)]
     pub expected: Vec<ExpectedCell>,
+    /// The division code the form had chosen, if any.
+    #[serde(default)]
+    pub division: Option<String>,
+    /// The tag codes the form had chosen.
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -87,9 +104,11 @@ pub struct CountRequest {
 
 const SELECT: &str = "SELECT q.check_id, q.receipt_line_id, q.status, q.article_name,
         q.requested_by, q.requested_at, q.counted_by, q.counted_at, q.lines, q.expected,
+        q.division_code, q.tags, g.supplier_id, o.supplier_name,
         o.po_number, r.matched_quantity AS receipt_quantity, l.image_url
    FROM quantity_check q
    JOIN goods_receipt_line r ON r.receipt_line_id = q.receipt_line_id
+   JOIN goods_receipt g ON g.receipt_id = r.receipt_id
    JOIN purchase_order_line l ON l.po_line_id = r.po_line_id
    JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id";
 
@@ -108,6 +127,10 @@ fn from_row(row: &sqlx::postgres::PgRow) -> Result<QuantityCheck, AppError> {
         po_number: row.try_get("po_number")?,
         receipt_quantity: row.try_get("receipt_quantity")?,
         image_url: row.try_get("image_url")?,
+        division_code: row.try_get("division_code")?,
+        tags: row.try_get("tags")?,
+        supplier_id: row.try_get("supplier_id")?,
+        supplier_name: row.try_get("supplier_name")?,
     })
 }
 
@@ -122,6 +145,34 @@ fn word(raw: &str, what: &str) -> Result<String, AppError> {
         )));
     }
     Ok(text)
+}
+
+/// The division as stored: its code, or nothing when the form had none.
+fn tidy_division(raw: Option<&str>) -> Result<Option<String>, AppError> {
+    match raw.map(str::trim).filter(|text| !text.is_empty()) {
+        None => Ok(None),
+        Some(text) => word(text, "the division").map(Some),
+    }
+}
+
+/// The tags as stored: codes in words, each once, in the order given.
+fn tidy_tags(tags: &[String]) -> Result<Value, AppError> {
+    let mut out: Vec<String> = Vec::with_capacity(tags.len());
+    for tag in tags {
+        if tag.trim().is_empty() {
+            continue;
+        }
+        let code = word(tag, "a tag")?;
+        if !out.contains(&code) {
+            out.push(code);
+        }
+    }
+    if out.len() > MAX_TAGS {
+        return Err(AppError::Validation(format!(
+            "a check has at most {MAX_TAGS} tags"
+        )));
+    }
+    Ok(Value::from(out))
 }
 
 /// One stored row: the article only when there is one, so an old check and a
@@ -224,6 +275,8 @@ pub async fn ask(
 ) -> Result<(StatusCode, Json<QuantityCheck>), AppError> {
     let name = word(&request.article_name, "the article name")?;
     let expected = tidy_expected(&request.expected)?;
+    let division = tidy_division(request.division.as_deref())?;
+    let tags = tidy_tags(&request.tags)?;
     let mut tx = state.db.begin().await?;
     let known = sqlx::query("SELECT 1 FROM goods_receipt_line WHERE receipt_line_id = $1 FOR SHARE")
         .bind(request.receipt_line_id)
@@ -244,17 +297,34 @@ pub async fn ask(
         Some(id) => id,
         None => {
             sqlx::query_scalar(
-                "INSERT INTO quantity_check (receipt_line_id, article_name, requested_by, expected)
-                 VALUES ($1, $2, $3, $4) RETURNING check_id",
+                "INSERT INTO quantity_check
+                    (receipt_line_id, article_name, requested_by, expected, division_code, tags)
+                 VALUES ($1, $2, $3, $4, $5, $6) RETURNING check_id",
             )
             .bind(request.receipt_line_id)
             .bind(&name)
             .bind(&principal.username)
             .bind(&expected)
+            .bind(&division)
+            .bind(&tags)
             .fetch_one(&mut *tx)
             .await?
         }
     };
+    // Asking again while one is open refreshes it: the warehouse sees the
+    // newest name, grid, division and tags, not the first ones asked.
+    sqlx::query(
+        "UPDATE quantity_check
+            SET article_name = $2, expected = $3, division_code = $4, tags = $5
+          WHERE check_id = $1 AND status = 'REQUESTED'",
+    )
+    .bind(check_id)
+    .bind(&name)
+    .bind(&expected)
+    .bind(&division)
+    .bind(&tags)
+    .execute(&mut *tx)
+    .await?;
     // Asking again while one is open refreshes it: the warehouse sees the
     // newest name and grid, not the first ones asked.
     sqlx::query(

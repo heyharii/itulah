@@ -3028,6 +3028,8 @@ function SessionComposer({
             receiptLineId={receipt.receipt_line_id}
             name={name}
             expected={expectedCheck}
+            division={division}
+            tags={tags}
           />
         </div>
 
@@ -3255,6 +3257,8 @@ function SessionComposer({
               receiptLineId={receipt.receipt_line_id}
               name={name}
               expected={expectedCheck}
+              division={division}
+              tags={tags}
             />
           </div>
         </aside>

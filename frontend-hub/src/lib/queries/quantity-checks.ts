@@ -40,6 +40,14 @@ export interface QuantityCheck {
   /// to match.
   readonly receipt_quantity: number
   readonly image_url: string | null
+  /// The division and tags head office had in the form when it asked, as
+  /// catalogue codes.
+  readonly division_code: string | null
+  readonly tags: readonly string[]
+  /// The delivery's supplier: the receipt's code, and the name the order was
+  /// raised with when it kept one.
+  readonly supplier_id: string
+  readonly supplier_name: string | null
 }
 
 export const quantityCheckKeys = {
@@ -70,6 +78,8 @@ export function askQuantityCheck(body: {
   receipt_line_id: string
   article_name: string
   expected?: readonly QuantityCheckCell[]
+  division?: string
+  tags?: readonly string[]
 }) {
   return node.post<QuantityCheck>("/api/v1/quantity-checks", body)
 }

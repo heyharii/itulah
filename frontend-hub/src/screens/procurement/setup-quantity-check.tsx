@@ -34,6 +34,8 @@ export function QuantityCheckPanel({
   receiptLineId,
   name,
   expected,
+  division,
+  tags,
 }: {
   receiptLineId: string
   /// The name as it stands in the form, kept with the ask so the warehouse
@@ -42,6 +44,10 @@ export function QuantityCheckPanel({
   /// Every colour x size the form has chosen, in words: the warehouse sheet
   /// opens with one row for each, waiting for its quantity.
   expected: readonly QuantityCheckCell[]
+  /// The division code and tag codes the form has chosen: the warehouse sheet
+  /// shows them beside the picture, as the form does.
+  division: string
+  tags: readonly string[]
 }) {
   const client = useQueryClient()
   const checks = useQuery({
@@ -55,6 +61,8 @@ export function QuantityCheckPanel({
         receipt_line_id: receiptLineId,
         article_name: name.trim() === "" ? "Delivery" : name.trim(),
         expected,
+        division: division === "" ? undefined : division,
+        tags,
       }),
     onSuccess: () =>
       client.invalidateQueries({

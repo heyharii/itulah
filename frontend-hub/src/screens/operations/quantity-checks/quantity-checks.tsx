@@ -7,11 +7,12 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
-import { Sheet } from "@/components/ui/sheet"
+import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { EmptyState, Problem } from "@/components/ui/states"
+import { Tag } from "@/components/ui/tag"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { cn } from "@/lib/utils"
-import { ago, count } from "@/lib/format"
+import { ago, count, quantity } from "@/lib/format"
 import { colourKeys, listColours } from "@/lib/queries/colours"
 import { catalogueVocabulary, procurementKeys } from "@/lib/queries/procurement"
 import {
@@ -22,6 +23,8 @@ import {
   type QuantityCheckRow,
 } from "@/lib/queries/quantity-checks"
 import { queryState } from "@/lib/query-state"
+import { termLabel } from "@/screens/procurement/shared"
+import { useSupplierName } from "@/screens/procurement/supplier-name"
 
 /// **Quantity Checks** — counts head office asked the warehouse for.
 ///
@@ -111,6 +114,7 @@ function CountSheet({
   onClose: () => void
 }) {
   const client = useQueryClient()
+  const supplierOf = useSupplierName()
   const colours = useQuery({
     queryKey: colourKeys.list(),
     queryFn: ({ signal }) => listColours(signal),
@@ -217,6 +221,43 @@ function CountSheet({
         )
       }
     >
+      {check && (
+        <div className="mb-6 flex flex-col gap-4">
+          <Thumbnail
+            url={check.image_url}
+            name={check.article_name}
+            division={check.division_code}
+            className="size-24 shrink-0 rounded-inner border border-hairline"
+          />
+          <Facts className="grid-cols-1">
+            <Fact term="Supplier">
+              {supplierOf(
+                check.supplier_id,
+                check.supplier_name ?? check.supplier_id,
+                check.supplier_id
+              )}
+            </Fact>
+            <Fact term="Counted">{quantity(check.receipt_quantity)}</Fact>
+            <Fact term="Name">{check.article_name}</Fact>
+            {(check.division_code ?? "") !== "" && (
+              <Fact term="Division">
+                {termLabel(vocabulary.data?.divisions, check.division_code)}
+              </Fact>
+            )}
+            {check.tags.length > 0 && (
+              <Fact term="Tags">
+                <span className="flex flex-wrap gap-1.5">
+                  {check.tags.map((code) => (
+                    <Tag key={code}>
+                      {termLabel(vocabulary.data?.tags, code)}
+                    </Tag>
+                  ))}
+                </span>
+              </Fact>
+            )}
+          </Facts>
+        </div>
+      )}
       {check && fixed.length > 0 && (
         <div className="flex flex-col gap-3">
           {fixed.map((one, at) => (
