@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card"
 import { Dialog } from "@/components/ui/dialog"
 import { Field, Input } from "@/components/ui/field"
 import { Sheet } from "@/components/ui/sheet"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import {
   Banner,
   EmptyState,
@@ -57,6 +58,11 @@ import {
 ///
 /// A row opens its return in a sheet over the list. It reads two sources at
 /// once: this node's purchase returns and head office's register.
+/// A return is done once it has been handed over; one with no note of its own
+/// (problem goods leave through the picklist) is done when the register says so.
+const isDone = (row: Row) =>
+  row.reference === null ? !row.open : row.handedOverAt !== null
+
 export function SuppliersBoard() {
   const client = useQueryClient()
   const open = useQuery({
@@ -71,6 +77,9 @@ export function SuppliersBoard() {
   const register = useReturnRows()
   const poDates = usePoDates()
   const [typed, setTyped] = useState("")
+  /// Active: not handed over yet. Completed: handed over, and never mixed with
+  /// the ones whose surat jalan is not made (owner, 10 Oct 2026).
+  const [tab, setTab] = useState<"active" | "completed">("active")
   /// What has been typed into Person in Charge, by supplier, before the note
   /// is generated.
   const [drafts, setDrafts] = useState<Readonly<Record<string, string>>>({})
@@ -97,14 +106,17 @@ export function SuppliersBoard() {
   const groups = useMemo(() => {
     const needle = typed.trim().toLowerCase()
     return groupBySupplier(
-      all.filter((one) =>
-        `${one.supplier} ${one.number} ${one.reference ?? ""}`
-          .toLowerCase()
-          .includes(needle)
+      all.filter(
+        (one) =>
+          isDone(one) === (tab === "completed") &&
+          `${one.supplier} ${one.number} ${one.reference ?? ""}`
+            .toLowerCase()
+            .includes(needle)
       ),
       poDates
     )
-  }, [all, poDates, typed])
+  }, [all, poDates, typed, tab])
+  const doneCount = all.filter(isDone).length
 
   /// The returns of a supplier still waiting to be handed over — the ones one
   /// note covers and one Confirm completes — as this node holds them.
@@ -159,13 +171,27 @@ export function SuppliersBoard() {
   return (
     <PageContent fill>
       <BoardHeader board="suppliers" actions={search} />
+      <SubTabs
+        value={tab}
+        onChange={(next) => setTab(next as "active" | "completed")}
+        tabs={[
+          { value: "active", label: `Active ${count(all.length - doneCount)}` },
+          { value: "completed", label: `Completed ${count(doneCount)}` },
+        ]}
+      />
       {confirm.dialog}
       {pending ? (
         <LoadingState>Reading the returns…</LoadingState>
       ) : all.length === 0 ? (
         <EmptyState>Nothing going back.</EmptyState>
       ) : groups.length === 0 ? (
-        <EmptyState>Nothing matches.</EmptyState>
+        <EmptyState>
+          {typed.trim() !== ""
+            ? "Nothing matches."
+            : tab === "completed"
+              ? "Nothing completed yet."
+              : "Nothing active."}
+        </EmptyState>
       ) : (
         <ReturnGroups
           groups={groups}
