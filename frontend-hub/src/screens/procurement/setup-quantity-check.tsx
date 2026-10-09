@@ -56,6 +56,66 @@ export function QuantityCheckToggle({
   )
 }
 
+/// The request button, at the far right of the Variants row (owner,
+/// 2026-10-10: it stays there; only the answers float). `Request Quantity
+/// Check`, then `Requested` while the warehouse has not answered, then
+/// `Recount`, which issues a NEW check beside the old answers.
+export function QuantityCheckRequest({
+  receiptLineId,
+  name,
+  expected,
+  division,
+  tags,
+}: {
+  receiptLineId: string
+  name: string
+  expected: readonly QuantityCheckCell[]
+  division: string
+  tags: readonly string[]
+}) {
+  const client = useQueryClient()
+  const checks = useQuery({
+    queryKey: quantityCheckKeys.line(receiptLineId),
+    queryFn: ({ signal }) => listLineQuantityChecks(receiptLineId, signal),
+    refetchInterval: 15_000,
+  })
+  const ask = useMutation({
+    mutationFn: () =>
+      askQuantityCheck({
+        receipt_line_id: receiptLineId,
+        article_name: name.trim() === "" ? "Delivery" : name.trim(),
+        expected,
+        division: division === "" ? undefined : division,
+        tags,
+      }),
+    onSuccess: () =>
+      client.invalidateQueries({
+        queryKey: quantityCheckKeys.line(receiptLineId),
+      }),
+  })
+  const all = checks.data ?? []
+  const asked = all.some((one) => one.status === "REQUESTED")
+  const answered = all.some((one) => one.status === "COUNTED")
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button
+        variant="ghost"
+        type="button"
+        disabled={asked}
+        pending={ask.isPending}
+        onClick={() => ask.mutate()}
+      >
+        {asked
+          ? "Requested"
+          : answered
+            ? "Recount"
+            : "Request Quantity Check"}
+      </Button>
+      {ask.error && <Problem error={ask.error} />}
+    </div>
+  )
+}
+
 /// The warehouse's counts of this delivery by colour and size, as a reference
 /// while the article is named (owner, 2026-10-06). Nothing waits for them and
 /// nothing is checked against them: every check of the line is listed, newest
@@ -95,20 +155,6 @@ export function QuantityCheckCard({
     queryKey: quantityCheckKeys.line(receiptLineId),
     queryFn: ({ signal }) => listLineQuantityChecks(receiptLineId, signal),
     refetchInterval: 15_000,
-  })
-  const ask = useMutation({
-    mutationFn: () =>
-      askQuantityCheck({
-        receipt_line_id: receiptLineId,
-        article_name: name.trim() === "" ? "Delivery" : name.trim(),
-        expected,
-        division: division === "" ? undefined : division,
-        tags,
-      }),
-    onSuccess: () =>
-      client.invalidateQueries({
-        queryKey: quantityCheckKeys.line(receiptLineId),
-      }),
   })
   const [earlier, setEarlier] = useState(false)
 
@@ -157,28 +203,6 @@ export function QuantityCheckCard({
             <X />
           </Button>
         </div>
-        <div className="border-t border-hairline px-1.5 py-1.5">
-          <Button
-            variant="ghost"
-            type="button"
-            disabled={asked}
-            pending={ask.isPending}
-            onClick={() => ask.mutate()}
-            className="w-full justify-start"
-          >
-            {!asked && <ListPlus />}
-            {asked
-              ? "Requested"
-              : answered.length > 0
-                ? "Recount"
-                : "Request Quantity Check"}
-          </Button>
-        </div>
-        {ask.error && (
-          <div className="border-t border-hairline px-4 py-3">
-            <Problem error={ask.error} />
-          </div>
-        )}
         {requested.map((one) => (
           <div
             key={one.check_id}

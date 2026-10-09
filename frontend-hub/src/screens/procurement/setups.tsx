@@ -26,6 +26,7 @@ import { PhotoImg } from "@/components/ui/photo-img"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import {
   QuantityCheckCard,
+  QuantityCheckRequest,
   QuantityCheckToggle,
 } from "@/screens/procurement/setup-quantity-check"
 import {
@@ -3051,7 +3052,16 @@ function SessionComposer({
           onAdd={addTab}
           canAdd={tabs.length < MAX_ARTICLE_TABS}
         />
-        <SubHead>Variants</SubHead>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <SubHead className="mb-0">Variants</SubHead>
+          <QuantityCheckRequest
+            receiptLineId={receipt.receipt_line_id}
+            name={name}
+            expected={expectedCheck}
+            division={division}
+            tags={tags}
+          />
+        </div>
 
         {/* Colour and size, under the one heading with the grid they produce.
             They stood in a column of their own headed "What arrived", which
