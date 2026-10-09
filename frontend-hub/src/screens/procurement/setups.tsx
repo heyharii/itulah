@@ -28,7 +28,11 @@ import {
   QuantityCheckPanel,
   QuantityCheckRequest,
 } from "@/screens/procurement/setup-quantity-check"
-import { type QuantityCheckCell } from "@/lib/queries/quantity-checks"
+import {
+  listLineQuantityChecks,
+  quantityCheckKeys,
+  type QuantityCheckCell,
+} from "@/lib/queries/quantity-checks"
 import { ago, count, money } from "@/lib/format"
 import { asJpeg, PICTURE_TYPES } from "@/lib/image"
 import {
@@ -2638,6 +2642,15 @@ function SessionComposer({
       })),
     [chosenColours, colourNamed]
   )
+  /// Whether the warehouse has answered: only then is the Quantity Check box
+  /// drawn at the right (the panel's own query key, so one cache entry).
+  const lineChecks = useQuery({
+    queryKey: quantityCheckKeys.line(receipt.receipt_line_id),
+    queryFn: ({ signal }) =>
+      listLineQuantityChecks(receipt.receipt_line_id, signal),
+    refetchInterval: 15_000,
+  })
+  const counted = (lineChecks.data ?? []).some((one) => one.status === "COUNTED")
   /// The combinations the warehouse should count, in words: for each article
   /// (tab) every colour x size chosen in it, in the form's colour order and
   /// then its size order. Pieces are not part of it. Sent with the Quantity
@@ -2867,8 +2880,17 @@ function SessionComposer({
           block. The left column is a container of its own so every `@xl` and
           `@2xl` inside it measures the column and not the sheet; the footer
           below is a child of the form and still measures the whole width. */}
-      <div className="@5xl/form:grid @5xl/form:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="@container flex min-w-0 flex-col gap-7 min-[100rem]:gap-10 @5xl/form:pr-6">
+      <div
+        className={cn(
+          counted && "@5xl/form:grid @5xl/form:grid-cols-[minmax(0,1fr)_22rem]"
+        )}
+      >
+        <div
+          className={cn(
+            "@container flex min-w-0 flex-col gap-7 min-[100rem]:gap-10",
+            counted && "@5xl/form:pr-6"
+          )}
+        >
       {problem !== null && <Banner tone="bad">{problem}</Banner>}
 
       {/* Three facts, kept as a group at the left rather than spread across
@@ -3238,23 +3260,24 @@ function SessionComposer({
       </div>
 
         </div>
-        <aside
-          aria-label="Quantity Check"
-          className="hidden @5xl/form:sticky @5xl/form:top-3 @5xl/form:z-20 @5xl/form:block @5xl/form:max-h-[calc(100dvh-15rem)] @5xl/form:self-start @5xl/form:overflow-y-auto @5xl/form:rounded-card @5xl/form:border @5xl/form:border-hairline @5xl/form:bg-canvas @5xl/form:p-3.5 @5xl/form:shadow-soft"
-        >
-          {/* `mt-3` is the Thumbnail row's own margin, so the heading starts
-              level with the top of the delivery's picture. */}
-          <div className="mt-3">
-            <QuantityCheckPanel
-              receiptLineId={receipt.receipt_line_id}
-              name={name}
-              expected={expectedCheck}
-              division={division}
-              tags={tags}
-              showEmpty
-            />
-          </div>
-        </aside>
+        {counted && (
+          <aside
+            aria-label="Quantity Check"
+            className="hidden @5xl/form:sticky @5xl/form:top-3 @5xl/form:z-20 @5xl/form:block @5xl/form:max-h-[calc(100dvh-15rem)] @5xl/form:self-start @5xl/form:overflow-y-auto @5xl/form:rounded-card @5xl/form:border @5xl/form:border-hairline @5xl/form:bg-canvas @5xl/form:p-3.5 @5xl/form:shadow-soft"
+          >
+            {/* `mt-3` is the Thumbnail row's own margin, so the heading starts
+                level with the top of the delivery's picture. */}
+            <div className="mt-3">
+              <QuantityCheckPanel
+                receiptLineId={receipt.receipt_line_id}
+                name={name}
+                expected={expectedCheck}
+                division={division}
+                tags={tags}
+              />
+            </div>
+          </aside>
+        )}
       </div>
 
       {/* The button, and beside it the reason it cannot be pressed.

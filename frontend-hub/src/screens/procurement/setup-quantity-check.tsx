@@ -37,8 +37,8 @@ export function QuantityCheckRequest({
   expected: readonly QuantityCheckCell[]
   division: string
   tags: readonly string[]
-  /// `variants`: the first request, in the Variants row; it leaves once the
-  /// line has any check. `box`: Recount, and Requested while one is open, in
+  /// `variants`: the first request, and `Requested` while nothing has been
+  /// counted, in the Variants row; it leaves once a count exists. `box`: Recount, and Requested while one is open, in
   /// the box at the top right (owner, 2026-10-10).
   placement: "variants" | "box"
 }) {
@@ -65,8 +65,7 @@ export function QuantityCheckRequest({
   const all = checks.data ?? []
   const asked = all.some((one) => one.status === "REQUESTED")
   const answered = all.some((one) => one.status === "COUNTED")
-  if (placement === "variants" && (checks.isPending || all.length > 0))
-    return null
+  if (placement === "variants" && (checks.isPending || answered)) return null
   return (
     <div className="flex flex-col items-end gap-1">
       <Button
@@ -103,17 +102,12 @@ export function QuantityCheckPanel({
   expected,
   division,
   tags,
-  showEmpty = false,
 }: {
   receiptLineId: string
   name: string
   expected: readonly QuantityCheckCell[]
   division: string
   tags: readonly string[]
-  /// The box at the top right stands before the first request, saying so;
-  /// the copy under Variants (a narrow sheet) is silent until there is
-  /// something to read.
-  showEmpty?: boolean
 }) {
   const checks = useQuery({
     queryKey: quantityCheckKeys.line(receiptLineId),
@@ -130,14 +124,9 @@ export function QuantityCheckPanel({
     .sort((a, b) => answeredAt(b) - answeredAt(a))
   const shown = earlier ? answered : answered.slice(0, ANSWERS_SHOWN)
 
-  if (all.length === 0) {
-    return showEmpty ? (
-      <div className="flex flex-col gap-3">
-        <SubHead className="mb-0">Quantity Check</SubHead>
-        <p className="text-[0.875rem] text-mute">Nothing requested yet.</p>
-      </div>
-    ) : null
-  }
+  // The box stands only once a count exists (owner, 2026-10-10): asked but not
+  // yet counted, the request shows in the Variants row and nothing floats.
+  if (answered.length === 0) return null
 
   return (
     <div className="flex flex-col gap-3">
