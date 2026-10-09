@@ -455,7 +455,7 @@ export function noteOf(
     supplier: returns[0]?.supplier ?? "",
     address: returns[0]?.address ?? null,
     phone: returns[0]?.phone ?? null,
-    date: new Date().toISOString(),
+    date: returns[0]?.noteAt ?? new Date().toISOString(),
     pic,
     returns: returns.map((one) => ({
       number: one.number,
@@ -684,7 +684,7 @@ export function ReturnSheet({
             </div>
           ) : undefined
         }
-        width="table"
+        width="rail"
       >
         {row && (
           <div className="relative flex flex-col gap-6">
@@ -702,7 +702,9 @@ export function ReturnSheet({
             {form}
             <Problem error={expect.error} />
             <Facts>
-              <Fact term="Date">{day(row.noteAt ?? row.raisedAt)}</Fact>
+              {row.noteAt && (
+                <Fact term="Note Date">{day(row.noteAt)}</Fact>
+              )}
               {row.address && <Fact term="Address">{row.address}</Fact>}
               {row.phone && <Fact term="Phone">{row.phone}</Fact>}
               <Fact term="Person in Charge">
