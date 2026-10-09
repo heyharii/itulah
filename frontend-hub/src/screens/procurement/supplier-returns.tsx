@@ -613,10 +613,12 @@ export function ReturnSheet({
         onOpenChange={(next) => !next && onClose()}
         title={row?.supplier ?? "Return"}
         id={row?.number}
-        // Number over supplier, and the kind of return as a tag beside them
-        // (owner, 2026-10-05). The status is the stamp in the body and the
+        // Number over supplier, and the kind of return as a tag under them
+        // (owner, 2026-10-05; under, not beside, 2026-10-10: beside, it and the
+        // Print / Download buttons squeezed the supplier's name to "Garmen
+        // Nusantar…" on the rail). The status is the stamp in the body and the
         // pieces and value are in the table, so neither is said again here.
-        badge={
+        caption={
           row && (
             <Tag tone={row.reason === "Over-delivery" ? "warn" : "bad"}>
               {titled(row.reason.replace(/-/g, " "))}
