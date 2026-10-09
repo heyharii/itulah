@@ -753,7 +753,7 @@ export function ReturnSheet({
                   <thead>
                     <tr className="h-11 bg-soft text-left text-[0.875rem] font-medium text-body">
                       <th className="pl-4">SKU</th>
-                      <th className="pr-4 text-right">Pcs</th>
+                      <th className="pr-4 text-right">Quantity</th>
                     </tr>
                   </thead>
                   <tbody className="[&_td]:py-3.5">
