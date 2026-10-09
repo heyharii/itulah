@@ -225,14 +225,14 @@ function CountSheet({
       }
     >
       {check && (
-        <div className="mb-6 flex flex-col gap-4">
+        <div className="mb-6 flex items-start gap-5">
           <Thumbnail
             url={check.image_url}
             name={check.article_name}
             division={check.division_code}
             className="size-24 shrink-0 rounded-inner border border-hairline"
           />
-          <Facts className="grid-cols-1">
+          <Facts className="min-w-0 flex-1 grid-cols-2 gap-x-6 gap-y-4 [&_dd]:mt-1">
             <Fact term="Supplier">
               {supplierOf(
                 check.supplier_id,
