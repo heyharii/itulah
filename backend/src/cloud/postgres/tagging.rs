@@ -540,6 +540,15 @@ async fn insert_setup_session(
     // A line set up twice is refused before this, in `lock_waiting_line`: the
     // UNIQUE on receipt_line_id that used to do it is gone with 0825.
 
+    // The line has its identity now, so the form saved for it (0956) has done
+    // its job. Deleted here, in the same transaction, so a draft never outlives
+    // the setup it was a draft of. A split runs this once per article; the
+    // later deletes find nothing.
+    sqlx::query("DELETE FROM article_setup_draft WHERE receipt_line_id = $1")
+        .bind(request.receipt_line_id)
+        .execute(&mut **tx)
+        .await?;
+
     // Tags come from the vocabulary, so a word nobody has defined is refused
     // here rather than quietly filed under a spelling that does not exist.
     for tag in &request.tags {

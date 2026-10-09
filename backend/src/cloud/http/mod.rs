@@ -130,6 +130,7 @@ pub mod unit_register;
 pub mod units;
 pub mod name_suggestions;
 pub mod quantity_checks;
+pub mod article_setup_drafts;
 pub mod vocabulary;
 pub mod vouchers;
 
@@ -959,6 +960,18 @@ pub fn router(state: AppState) -> Router {
         get(list_unidentified_receipts),
     )
     .route("/api/v1/article-setups/split", post(open_split_setup))
+    // The New articles form kept on the server, one per delivery line. The
+    // literal `drafts` is matched before the `{id}` capture below.
+    .route(
+        "/api/v1/article-setups/drafts",
+        get(article_setup_drafts::list),
+    )
+    .route(
+        "/api/v1/article-setups/drafts/{receipt_line_id}",
+        get(article_setup_drafts::get_one)
+            .put(article_setup_drafts::save)
+            .delete(article_setup_drafts::remove),
+    )
     .route("/api/v1/article-setups/{id}", get(setup_session_detail))
     .route(
         "/api/v1/article-setups/{id}/issue",

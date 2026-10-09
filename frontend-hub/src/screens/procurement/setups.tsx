@@ -31,7 +31,16 @@ import {
   clearSetupDraft,
   readSetupDraft,
   writeSetupDraft,
+  type SetupDraft,
 } from "@/screens/procurement/setup-draft"
+import {
+  deleteSetupDraft,
+  getSetupDraft,
+  listSetupDrafts,
+  saveSetupDraft,
+  setupDraftKeys,
+  type SetupDraftMeta,
+} from "@/lib/queries/setup-drafts"
 import { problemOf } from "@/lib/problem"
 import { POPUP } from "@/lib/filter-chrome"
 import { cn } from "@/lib/utils"
@@ -753,6 +762,7 @@ function LedgerRow({
   pieces,
   since,
   on,
+  draft = false,
   onOpen,
 }: {
   image: string | null
@@ -762,6 +772,8 @@ function LedgerRow({
   pieces: number
   since: string
   on: boolean
+  /// The line has a form saved for it on the server.
+  draft?: boolean
   onOpen: () => void
 }) {
   return (
@@ -784,6 +796,7 @@ function LedgerRow({
         <span className="flex min-w-0 flex-col">
           <span className="text-[0.9375rem] [overflow-wrap:anywhere] text-ink">
             {name}
+            {draft && <DraftMark />}
           </span>
           <span className="font-mono text-[0.875rem] text-mute @2xl:hidden">
             {code}
@@ -824,6 +837,30 @@ function useLineImage(row: UnidentifiedReceipt): string | null {
   return own ? row.image_url : (kept.data?.url ?? null)
 }
 
+/// Which delivery lines have a form saved on the server, as a set to look
+/// rows up in. One list for the whole screen: every row asks the same key.
+const NO_DRAFTS: ReadonlySet<string> = new Set()
+const draftedLines = (rows: SetupDraftMeta[]): ReadonlySet<string> =>
+  new Set(rows.map((row) => row.receipt_line_id))
+
+function useDraftedLines(): ReadonlySet<string> {
+  const drafts = useQuery({
+    queryKey: setupDraftKeys.list(),
+    queryFn: ({ signal }) => listSetupDrafts(signal),
+    select: draftedLines,
+    staleTime: 30 * 1000,
+    retry: false,
+  })
+  return drafts.data ?? NO_DRAFTS
+}
+
+/// The quiet word beside a name whose form is saved.
+function DraftMark() {
+  return (
+    <span className="ml-2 text-[0.875rem] font-normal text-mute">Draft</span>
+  )
+}
+
 /// One delivery line waiting for its identity. The photograph is the PO
 /// line's own (`image_url`), else the one kept on the supplier's item, else
 /// the garment placeholder the Thumbnail draws from the name.
@@ -837,9 +874,11 @@ function WaitingRow({
   onOpen: () => void
 }) {
   const image = useLineImage(row)
+  const draft = useDraftedLines().has(row.receipt_line_id)
   return (
     <LedgerRow
       image={image}
+      draft={draft}
       name={row.article_name}
       division={row.division_code}
       // The supplier is the column the row stands beside; the PO is what
@@ -1609,7 +1648,7 @@ function DeliverySetup({
 }: {
   receipt: UnidentifiedReceipt
   vocabulary?: CatalogueVocabulary
-  /// Save as Draft was pressed: the form is already kept, so the sheet closes.
+  /// The draft is on the server: the sheet closes.
   onDraft: () => void
   /// `next` is whether Submit & Next was the button pressed.
   onDone: (outcome: SetupOutcome, next: boolean) => void
@@ -1710,6 +1749,14 @@ function DeliverySetup({
       void client.invalidateQueries({ queryKey: procurementKeys.setups() })
       // Merchandise, Articles lists the new articles at once.
       void client.invalidateQueries({ queryKey: articleKeys.all })
+      // The server drops the draft with the mint; this says it again in case
+      // the mint was answered from an earlier press. Failing is no reason to
+      // tell anyone.
+      deleteSetupDraft(receipt.receipt_line_id)
+        .catch(() => undefined)
+        .finally(() => {
+          void client.invalidateQueries({ queryKey: setupDraftKeys.all })
+        })
       // Rotated on both outcomes, because nothing retries from here: the sheet
       // closes either way, and a stalled session is minted again from its own
       // sheet under its own key. Holding this one would only carry a spent key
@@ -1719,6 +1766,35 @@ function DeliverySetup({
       onDone(outcome, goNext.current)
     },
   })
+
+  /// Save as Draft: the form goes to the server, so another desk can finish
+  /// it. The sheet closes only once it is kept; a failure stays on the form.
+  const keepDraft = useMutation({
+    mutationFn: (draft: SetupDraft) =>
+      saveSetupDraft(receipt.receipt_line_id, draft),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: setupDraftKeys.all })
+      onDraft()
+    },
+  })
+
+  /// What the server holds for this line. Not kept once the form closes, so
+  /// opening the line again asks again; another desk may have saved since.
+  /// None is the usual answer. A local draft in this browser wins, so the
+  /// form does not wait for the server when there is one.
+  const stored = useQuery({
+    queryKey: setupDraftKeys.line(receipt.receipt_line_id),
+    queryFn: ({ signal }) => getSetupDraft(receipt.receipt_line_id, signal),
+    gcTime: 0,
+    retry: false,
+  })
+  const hasLocal = useMemo(
+    () => readSetupDraft(receipt.receipt_line_id) !== null,
+    [receipt.receipt_line_id]
+  )
+  // The form reads its starting point once, when it mounts, so it is not drawn
+  // until the answer is in.
+  if (stored.isPending && !hasLocal) return null
 
   return (
     <SessionComposer
@@ -1733,15 +1809,17 @@ function DeliverySetup({
       // The identity itself failing to save. The mint failing after it saved
       // is not a problem this form can restate — the delivery is no longer
       // waiting, so the pane has moved on to the session that is.
-      problem={problemOf(setUp.error)}
-      busy={setUp.isPending}
+      problem={problemOf(setUp.error) ?? problemOf(keepDraft.error)}
+      busy={setUp.isPending || keepDraft.isPending}
       hasNext={hasNext}
+      initial={stored.data?.payload}
       onSubmit={(submission, next) => {
         goNext.current = next
+        keepDraft.reset()
         setUp.mutate(submission)
       }}
       onDirty={onDirty}
-      onDraft={onDraft}
+      onDraft={(draft) => keepDraft.mutate(draft)}
     />
   )
 }
@@ -2276,6 +2354,7 @@ function SessionComposer({
   onSubmit,
   onDirty,
   onDraft,
+  initial,
   hasNext,
 }: {
   receipt: UnidentifiedReceipt
@@ -2286,7 +2365,11 @@ function SessionComposer({
   onSubmit: (submission: SetupSubmission, next: boolean) => void
   hasNext: boolean
   onDirty?: (dirty: boolean) => void
-  onDraft?: () => void
+  /// Save as Draft, with the form as it stands.
+  onDraft?: (draft: SetupDraft) => void
+  /// The draft the server holds for this line, if any. The one kept in this
+  /// browser is newer by construction and wins over it.
+  initial?: SetupDraft
 }) {
   /// Set by the button just pressed: Enter submits through the first one.
   const wantsNext = useRef(false)
@@ -2322,7 +2405,9 @@ function SessionComposer({
   /// several sibling articles, and each tab is one of them — its own colours,
   /// sizes, pieces and SKU prices under the one shared header. With a single
   /// tab this is exactly the form it always was.
-  const [saved] = useState(() => readSetupDraft(receipt.receipt_line_id))
+  const [saved] = useState(
+    () => readSetupDraft(receipt.receipt_line_id) ?? initial ?? null
+  )
   const [tabs, setTabs] = useState<readonly ArticleTab[]>(() => {
     if (saved !== null) return saved.tabs
     const start = prefillFromReceipt(receipt)
@@ -3144,7 +3229,17 @@ function SessionComposer({
               variant="ghost"
               type="button"
               disabled={!dirty || busy}
-              onClick={onDraft}
+              onClick={() =>
+                onDraft({
+                  tabs,
+                  tabAt,
+                  nextTabId,
+                  name,
+                  division,
+                  tags,
+                  pricing,
+                })
+              }
             >
               Save as Draft
             </Button>
