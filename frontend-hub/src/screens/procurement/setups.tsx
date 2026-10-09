@@ -3228,7 +3228,7 @@ function SessionComposer({
             <Button
               variant="ghost"
               type="button"
-              disabled={!dirty || busy}
+              disabled={busy}
               onClick={() =>
                 onDraft({
                   tabs,
