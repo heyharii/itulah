@@ -5,6 +5,7 @@ import { COMPANY } from "@/screens/finance-lab/print"
 import { NOT_AS_ORDERED_ROW } from "@/screens/procurement/return-lines"
 import {
   noteFigures,
+  noteQr,
   type PrintableNote,
 } from "@/screens/procurement/return-print"
 
@@ -167,6 +168,17 @@ export function buildReturnPdf(note: PrintableNote): jsPDF {
   doc.text("Hormat kami,", MARGIN, y)
   doc.setFont("helvetica", "bold")
   doc.text(`( ${figures.sender} )`, MARGIN, y + 26)
+  // The QR, between the two blocks: return and order numbers as plain text.
+  const modules = noteQr(note)
+  const cell = 26 / (modules.length + 4)
+  const qx = (W - 26) / 2
+  doc.setFillColor(...INK)
+  modules.forEach((cells, r) =>
+    cells.forEach((dark, c) => {
+      if (dark)
+        doc.rect(qx + (c + 2) * cell, y + 2 + (r + 2) * cell, cell, cell, "F")
+    })
+  )
   // "Notes : Pengirim (Person in Charge)", at the right, as the owner drew it.
   mute()
   doc.setFont("helvetica", "normal").setFontSize(8.5)

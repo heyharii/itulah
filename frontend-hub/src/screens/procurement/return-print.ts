@@ -1,3 +1,5 @@
+import QRCode from "qrcode"
+
 import { count, day } from "@/lib/format"
 import { COMPANY } from "@/screens/finance-lab/print"
 import { escapeHtml } from "@/screens/procurement/print"
@@ -35,6 +37,29 @@ export interface PrintableNote {
   /// generated; blank on a note printed without one.
   readonly pic?: string | null
   readonly returns: readonly PrintableReturn[]
+}
+
+/// The QR on the note (owner, 2026-10-10): the return numbers and the order
+/// numbers, as plain text — a scanner reads it with no login and no network,
+/// and it still means the same if the hub's address changes.
+export function noteQrText(note: PrintableNote): string {
+  const returns = note.returns.map((one) => one.number).join(",")
+  const orders = [
+    ...new Set(
+      note.returns.flatMap((one) => (one.reference ? [one.reference] : []))
+    ),
+  ].join(",")
+  return orders === "" ? returns : `${returns}\n${orders}`
+}
+
+/// The code's modules, row by row: `true` is dark. Drawn by the print as an
+/// SVG and by the PDF as filled squares, so neither waits for an image.
+export function noteQr(note: PrintableNote): readonly (readonly boolean[])[] {
+  const code = QRCode.create(noteQrText(note), { errorCorrectionLevel: "M" })
+  const size = code.modules.size
+  return Array.from({ length: size }, (_, row) =>
+    Array.from({ length: size }, (_, col) => code.modules.get(row, col) === 1)
+  )
 }
 
 /// What the note says, worked out once for the print and the PDF: the orders
@@ -122,6 +147,7 @@ thead { display: table-header-group; }
 tr { break-inside: avoid; page-break-inside: avoid; }
 .sign { margin-top: 26px; break-inside: avoid; display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; }
 .sign .notes { text-align: right; }
+.qr svg { width: 26mm; height: 26mm; display: block; }
 .sign .space { height: 70px; }
 .sign .who { font-weight: 600; }
 .sign .role { color: #5b6158; }
@@ -163,10 +189,25 @@ tr { break-inside: avoid; page-break-inside: avoid; }
     <div class="space"></div>
     <div class="who">( ${e(figures.sender)} )</div>
   </div>
+  <div class="qr">${qrSvg(note)}</div>
   <div class="notes">
     <div class="role">Notes :</div>
     <div>Pengirim ( <strong>${e(figures.pic || "                    ")}</strong> )</div>
   </div>
 </div>
 </section></body></html>`
+}
+
+/// The note's QR as an inline SVG, in the note's ink.
+function qrSvg(note: PrintableNote): string {
+  const modules = noteQr(note)
+  const n = modules.length
+  const squares = modules
+    .flatMap((cells, row) =>
+      cells.flatMap((dark, col) =>
+        dark ? [`<rect x="${col}" y="${row}" width="1" height="1"/>`] : []
+      )
+    )
+    .join("")
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 ${n + 4} ${n + 4}" shape-rendering="crispEdges" fill="#1d1f1a" role="img" aria-label="QR">${squares}</svg>`
 }
