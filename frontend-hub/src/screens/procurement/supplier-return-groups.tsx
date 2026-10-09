@@ -5,7 +5,7 @@ import { useMemo } from "react"
 
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { count, day, money } from "@/lib/format"
+import { count, day } from "@/lib/format"
 import { procurementKeys, purchaseOrderPage } from "@/lib/queries/procurement"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { titled } from "@/screens/procurement/po-print"
@@ -123,19 +123,6 @@ const columns: ColumnDef<TableSetup, Dated>[] = [
     ),
   },
   {
-    id: "value",
-    accessorFn: (row) => (row.valueMinor > 0 ? row.valueMinor : null),
-    header: "Value",
-    size: 140,
-    meta: { align: "right", card: "metric" },
-    cell: ({ row }) =>
-      row.original.valueMinor > 0 ? (
-        <span className="tabular-nums">{money(row.original.valueMinor)}</span>
-      ) : (
-        <span className="text-mute">—</span>
-      ),
-  },
-  {
     // The day the return was raised: the Gudang has counted the delivery by
     // then, so it is the nearest date the register holds to "received" (the
     // order's own date can be weeks earlier).
@@ -200,7 +187,6 @@ function SupplierCard({
   const rows = group.rows
   const pieces = rows.reduce((sum, one) => sum + one.pcs, 0)
   const items = rows.reduce((sum, one) => sum + one.lines.length, 0)
-  const value = rows.reduce((sum, one) => sum + one.valueMinor, 0)
   const table = useTable(
     useMemo(
       () => ({
@@ -232,8 +218,6 @@ function SupplierCard({
           </span>
           <span className="text-body">
             {count(items)} {items === 1 ? "item" : "items"}
-            {" · "}
-            {money(value)}
           </span>
         </span>
       </div>
