@@ -138,7 +138,8 @@ export const operationsNav: AppModule = {
   /// the module away the moment somebody walked from the workload to a
   /// station, because no other row's path begins with `home`. See
   /// `AppModule.base`.
-  home: "/operations/workload",
+  /// Receiving, now that Workload is out of the menu (owner, 10 Oct 2026).
+  home: "/operations/intake",
   base: "/operations",
   /// The stations that were folded into the two above them. Every one of these
   /// was a bookmark on somebody's bay tablet — Count, Verify and Direct intake
@@ -183,6 +184,7 @@ export const operationsNav: AppModule = {
           path: "/operations/workload",
           label: "Workload",
           icon: PanelsTopLeft,
+          hidden: true,
         },
         /// Receiving is the table again (owner, 4 Oct 2026: "balikin ke
         /// receiving table"): the board that stood here as PO receiving is
