@@ -18,6 +18,7 @@ import {
   listOpenQuantityChecks,
   quantityCheckKeys,
   type QuantityCheck,
+  type QuantityCheckRow,
 } from "@/lib/queries/quantity-checks"
 import { queryState } from "@/lib/query-state"
 
@@ -97,7 +98,10 @@ const blank = (): Entry => ({
   quantity: "",
 })
 
-/// One check, answered as a flat list of colour, size and quantity rows.
+/// One check, answered as a flat list. When head office chose its colours and
+/// sizes the rows are fixed (article, colour and size are read-only) and the
+/// warehouse only types a quantity on each; a row left empty is not sent.
+/// Without them (an older check) the sheet is the editable list it always was.
 function CountSheet({
   check,
   onClose,
@@ -128,19 +132,36 @@ function CountSheet({
   const patch = (id: number, part: Partial<Entry>) =>
     change(rows.map((one) => (one.id === id ? { ...one, ...part } : one)))
 
-  const filled = rows.filter(
-    (one) => one.colour !== "" && one.size !== "" && Number(one.quantity) > 0
-  )
+  // Head office's combinations, one fixed row each, with the quantity typed
+  // against its position.
+  const fixed = check?.expected ?? []
+  const [typed, setTyped] = useState<Readonly<Record<number, string>>>({})
+  const quantities = forId === check?.check_id ? typed : {}
+  const type = (at: number, value: string) => {
+    setForId(check?.check_id ?? null)
+    setTyped({ ...quantities, [at]: value })
+  }
+
+  const filled: QuantityCheckRow[] =
+    fixed.length > 0
+      ? fixed
+          .map((one, at) => ({
+            ...one,
+            quantity: Number(quantities[at] ?? "") || 0,
+          }))
+          .filter((one) => one.quantity > 0)
+      : rows
+          .filter(
+            (one) =>
+              one.colour !== "" && one.size !== "" && Number(one.quantity) > 0
+          )
+          .map((one) => ({
+            colour: one.colour,
+            size: one.size,
+            quantity: Number(one.quantity),
+          }))
   const submit = useMutation({
-    mutationFn: () =>
-      countQuantityCheck(
-        check!.check_id,
-        filled.map((one) => ({
-          colour: one.colour,
-          size: one.size,
-          quantity: Number(one.quantity),
-        }))
-      ),
+    mutationFn: () => countQuantityCheck(check!.check_id, filled),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: quantityCheckKeys.all })
       setForId(null)
@@ -175,7 +196,30 @@ function CountSheet({
         )
       }
     >
-      {check && (
+      {check && fixed.length > 0 && (
+        <div className="flex flex-col gap-3">
+          {fixed.map((one, at) => (
+            <div
+              key={`${one.article ?? ""}|${one.colour}|${one.size}`}
+              className="grid grid-cols-[minmax(0,1fr)_5.5rem] items-center gap-3"
+            >
+              <span className="min-w-0 text-[0.9375rem] text-ink">
+                {one.article ? `${one.article} · ` : ""}
+                {one.colour} · {one.size}
+              </span>
+              <Input
+                inputMode="numeric"
+                aria-label={`Quantity, ${one.article ? `${one.article}, ` : ""}${one.colour}, ${one.size}`}
+                value={quantities[at] ?? ""}
+                onChange={(event) =>
+                  type(at, event.target.value.replace(/\D/g, ""))
+                }
+              />
+            </div>
+          ))}
+        </div>
+      )}
+      {check && fixed.length === 0 && (
         <div className="flex flex-col gap-4">
           <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5.5rem_2.25rem] gap-2 text-[0.875rem] text-body">
             <span>Color</span>

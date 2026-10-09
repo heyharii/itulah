@@ -25,6 +25,7 @@ import { ZoomPhoto } from "@/components/ui/photo-viewer"
 import { PhotoImg } from "@/components/ui/photo-img"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { QuantityCheckPanel } from "@/screens/procurement/setup-quantity-check"
+import type { QuantityCheckCell } from "@/lib/queries/quantity-checks"
 import { ago, count, money } from "@/lib/format"
 import { asJpeg, PICTURE_TYPES } from "@/lib/image"
 import {
@@ -2632,6 +2633,29 @@ function SessionComposer({
       })),
     [chosenColours, colourNamed]
   )
+  /// The combinations the warehouse should count, in words: for each article
+  /// (tab) every colour x size chosen in it, in the form's colour order and
+  /// then its size order. Pieces are not part of it. Sent with the Quantity
+  /// Check request.
+  const expectedCheck = useMemo<QuantityCheckCell[]>(() => {
+    const base = name.trim() === "" ? "Delivery" : name.trim()
+    const sizeWord = new Map(sizes.map((term) => [term.code, term.label]))
+    const seen = new Map<string, QuantityCheckCell>()
+    tabs.forEach((one, index) => {
+      const tail = tabs.length > 1 ? ` · ${tabLabel(index)}` : ""
+      const article = `${base.slice(0, 60 - tail.length)}${tail}`
+      for (const code of one.colours) {
+        for (const term of sizes) {
+          if (!one.sizes.includes(term.code)) continue
+          const colour = colourNamed.get(code)?.label ?? code
+          const size = sizeWord.get(term.code) ?? term.code
+          const key = `${article}|${colour}|${size}`
+          if (!seen.has(key)) seen.set(key, { article, colour, size })
+        }
+      }
+    })
+    return [...seen.values()]
+  }, [tabs, sizes, colourNamed, name])
 
   const piecesAt = (colour: string, size: string) =>
     Number(pieces[`${colour}|${size}`]) || 0
@@ -2965,6 +2989,7 @@ function SessionComposer({
         <QuantityCheckPanel
           receiptLineId={receipt.receipt_line_id}
           name={name}
+          expected={expectedCheck}
           heading={<SubHead className="mb-0">Variants</SubHead>}
         />
 

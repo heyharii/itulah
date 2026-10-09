@@ -5,9 +5,18 @@ import { node } from "@/lib/api"
 /// list of colour, size and quantity. Nothing waits for it and nothing is
 /// checked against it.
 export interface QuantityCheckRow {
+  /// Which article of the form the count belongs to; absent on checks asked
+  /// before the sheet named it.
+  readonly article?: string
   readonly colour: string
   readonly size: string
   readonly quantity: number
+}
+
+export interface QuantityCheckCell {
+  readonly article?: string
+  readonly colour: string
+  readonly size: string
 }
 
 export interface QuantityCheck {
@@ -22,6 +31,10 @@ export interface QuantityCheck {
   readonly counted_by: string | null
   readonly counted_at: string | null
   readonly lines: readonly QuantityCheckRow[]
+  /// The colour and size combinations head office had chosen in the form when
+  /// it asked: the rows the warehouse sheet opens with. No quantity, because
+  /// head office does not know it.
+  readonly expected: readonly QuantityCheckCell[]
   readonly po_number: string
   /// What the delivery was counted at: context for the counter, never a total
   /// to match.
@@ -56,6 +69,7 @@ export function listLineQuantityChecks(
 export function askQuantityCheck(body: {
   receipt_line_id: string
   article_name: string
+  expected?: readonly QuantityCheckCell[]
 }) {
   return node.post<QuantityCheck>("/api/v1/quantity-checks", body)
 }

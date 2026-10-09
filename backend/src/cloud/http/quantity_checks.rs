@@ -32,6 +32,10 @@ pub struct QuantityCheck {
     pub counted_by: Option<String>,
     pub counted_at: Option<chrono::DateTime<chrono::Utc>>,
     pub lines: Value,
+    /// The colour and size combinations head office had chosen in the form when
+    /// it asked: the rows the warehouse sheet opens with, each waiting for a
+    /// quantity. Head office does not know how many of each came.
+    pub expected: Value,
     /// What the delivery was counted at, and where it came from — context for
     /// whoever is counting, not a figure to match.
     pub po_number: String,
@@ -50,10 +54,27 @@ pub struct ListQuery {
 pub struct AskRequest {
     pub receipt_line_id: Uuid,
     pub article_name: String,
+    /// Every article's colour x size the form had chosen at the time of asking.
+    #[serde(default)]
+    pub expected: Vec<ExpectedCell>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExpectedCell {
+    /// Which article of the form the combination belongs to; empty when the
+    /// asker did not say.
+    #[serde(default)]
+    pub article: String,
+    pub colour: String,
+    pub size: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CountLine {
+    /// Which article the count belongs to, as the sheet showed it; empty for
+    /// checks asked before articles were named on the sheet.
+    #[serde(default)]
+    pub article: String,
     pub colour: String,
     pub size: String,
     pub quantity: i64,
@@ -65,7 +86,7 @@ pub struct CountRequest {
 }
 
 const SELECT: &str = "SELECT q.check_id, q.receipt_line_id, q.status, q.article_name,
-        q.requested_by, q.requested_at, q.counted_by, q.counted_at, q.lines,
+        q.requested_by, q.requested_at, q.counted_by, q.counted_at, q.lines, q.expected,
         o.po_number, r.matched_quantity AS receipt_quantity, l.image_url
    FROM quantity_check q
    JOIN goods_receipt_line r ON r.receipt_line_id = q.receipt_line_id
@@ -83,6 +104,7 @@ fn from_row(row: &sqlx::postgres::PgRow) -> Result<QuantityCheck, AppError> {
         counted_by: row.try_get("counted_by")?,
         counted_at: row.try_get("counted_at")?,
         lines: row.try_get("lines")?,
+        expected: row.try_get("expected")?,
         po_number: row.try_get("po_number")?,
         receipt_quantity: row.try_get("receipt_quantity")?,
         image_url: row.try_get("image_url")?,
@@ -100,6 +122,68 @@ fn word(raw: &str, what: &str) -> Result<String, AppError> {
         )));
     }
     Ok(text)
+}
+
+/// One stored row: the article only when there is one, so an old check and a
+/// new one without a name read the same.
+fn stored(
+    article: &str,
+    colour: &str,
+    size: &str,
+    quantity: Option<i64>,
+) -> Result<Value, AppError> {
+    let mut row = serde_json::Map::new();
+    if !article.trim().is_empty() {
+        row.insert("article".into(), Value::from(word(article, "an article")?));
+    }
+    row.insert("colour".into(), Value::from(word(colour, "a colour")?));
+    row.insert("size".into(), Value::from(word(size, "a size")?));
+    if let Some(quantity) = quantity {
+        row.insert("quantity".into(), Value::from(quantity));
+    }
+    Ok(Value::Object(row))
+}
+
+/// The combinations as stored: the article, colour and size in words, each once.
+fn tidy_expected(cells: &[ExpectedCell]) -> Result<Value, AppError> {
+    let mut out: Vec<Value> = Vec::with_capacity(cells.len());
+    for cell in cells {
+        let row = stored(&cell.article, &cell.colour, &cell.size, None)?;
+        if !out.contains(&row) {
+            out.push(row);
+        }
+    }
+    if out.len() > MAX_LINES {
+        return Err(AppError::Validation(format!(
+            "a check has at most {MAX_LINES} rows"
+        )));
+    }
+    Ok(Value::Array(out))
+}
+
+/// The rows of an answer as stored: words for colour and size, a quantity
+/// within bounds.
+fn tidy(lines: &[CountLine]) -> Result<Value, AppError> {
+    if lines.len() > MAX_LINES {
+        return Err(AppError::Validation(format!(
+            "a check has at most {MAX_LINES} rows"
+        )));
+    }
+    let mut out = Vec::with_capacity(lines.len());
+    for line in lines {
+        if line.quantity < 1 || line.quantity > 1_000_000 {
+            return Err(AppError::Validation(
+                "a quantity is a whole number from 1".into(),
+            ));
+        }
+        out.push(stored(
+            &line.article,
+            &line.colour,
+            &line.size,
+            Some(line.quantity),
+        )?);
+    }
+    Ok(Value::Array(out))
 }
 
 /// Newest first; the open ones, the counted ones, or one delivery line's.
@@ -139,6 +223,7 @@ pub async fn ask(
     Json(request): Json<AskRequest>,
 ) -> Result<(StatusCode, Json<QuantityCheck>), AppError> {
     let name = word(&request.article_name, "the article name")?;
+    let expected = tidy_expected(&request.expected)?;
     let mut tx = state.db.begin().await?;
     let known = sqlx::query("SELECT 1 FROM goods_receipt_line WHERE receipt_line_id = $1 FOR SHARE")
         .bind(request.receipt_line_id)
@@ -159,16 +244,28 @@ pub async fn ask(
         Some(id) => id,
         None => {
             sqlx::query_scalar(
-                "INSERT INTO quantity_check (receipt_line_id, article_name, requested_by)
-                 VALUES ($1, $2, $3) RETURNING check_id",
+                "INSERT INTO quantity_check (receipt_line_id, article_name, requested_by, expected)
+                 VALUES ($1, $2, $3, $4) RETURNING check_id",
             )
             .bind(request.receipt_line_id)
             .bind(&name)
             .bind(&principal.username)
+            .bind(&expected)
             .fetch_one(&mut *tx)
             .await?
         }
     };
+    // Asking again while one is open refreshes it: the warehouse sees the
+    // newest name and grid, not the first ones asked.
+    sqlx::query(
+        "UPDATE quantity_check SET article_name = $2, expected = $3
+          WHERE check_id = $1 AND status = 'REQUESTED'",
+    )
+    .bind(check_id)
+    .bind(&name)
+    .bind(&expected)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     let row = sqlx::query(&format!("{SELECT} WHERE q.check_id = $1"))
         .bind(check_id)
@@ -188,24 +285,7 @@ pub async fn count(
     if request.lines.is_empty() {
         return Err(AppError::Validation("count at least one row".into()));
     }
-    if request.lines.len() > MAX_LINES {
-        return Err(AppError::Validation(format!(
-            "a check has at most {MAX_LINES} rows"
-        )));
-    }
-    let mut lines = Vec::with_capacity(request.lines.len());
-    for line in &request.lines {
-        if line.quantity < 1 || line.quantity > 1_000_000 {
-            return Err(AppError::Validation(
-                "a quantity is a whole number from 1".into(),
-            ));
-        }
-        lines.push(serde_json::json!({
-            "colour": word(&line.colour, "a colour")?,
-            "size": word(&line.size, "a size")?,
-            "quantity": line.quantity,
-        }));
-    }
+    let lines = tidy(&request.lines)?;
     let done = sqlx::query(
         "UPDATE quantity_check
             SET status = 'COUNTED', counted_by = $2, counted_at = now(), lines = $3
@@ -213,7 +293,7 @@ pub async fn count(
     )
     .bind(id)
     .bind(&principal.username)
-    .bind(Value::Array(lines))
+    .bind(lines)
     .execute(&state.db)
     .await?;
     if done.rows_affected() == 0 {

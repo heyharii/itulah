@@ -8,6 +8,7 @@ import {
   askQuantityCheck,
   listLineQuantityChecks,
   quantityCheckKeys,
+  type QuantityCheckCell,
 } from "@/lib/queries/quantity-checks"
 
 /// The warehouse's count of this delivery by colour and size, as a reference
@@ -18,6 +19,7 @@ export function QuantityCheckPanel({
   receiptLineId,
   name,
   heading,
+  expected,
 }: {
   receiptLineId: string
   /// What stands at the left of the button: the Variants heading, so the
@@ -26,6 +28,9 @@ export function QuantityCheckPanel({
   /// The name as it stands in the form, kept with the ask so the warehouse
   /// can say which goods it is counting.
   name: string
+  /// Every colour x size the form has chosen, in words: the warehouse sheet
+  /// opens with one row for each, waiting for its quantity.
+  expected: readonly QuantityCheckCell[]
 }) {
   const client = useQueryClient()
   const checks = useQuery({
@@ -38,6 +43,7 @@ export function QuantityCheckPanel({
       askQuantityCheck({
         receipt_line_id: receiptLineId,
         article_name: name.trim() === "" ? "Delivery" : name.trim(),
+        expected,
       }),
     onSuccess: () =>
       client.invalidateQueries({
@@ -75,6 +81,7 @@ export function QuantityCheckPanel({
               className="flex items-center justify-between gap-3 px-3.5 py-2 text-[0.9375rem] not-first:border-t not-first:border-hairline"
             >
               <span className="min-w-0 truncate text-ink">
+                {line.article ? `${line.article} · ` : ""}
                 {line.colour} · {line.size}
               </span>
               <span className="shrink-0 text-ink tabular-nums">
