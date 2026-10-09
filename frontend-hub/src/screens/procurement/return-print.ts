@@ -48,9 +48,10 @@ export function noteFigures(note: PrintableNote) {
   return {
     orders,
     ...foldLines(note.returns.flatMap((one) => one.lines)),
-    /// The name under "Hormat kami": the person in charge who sends the goods;
-    /// the company where none was named.
-    sender: titled(note.pic ?? "") || COMPANY.name,
+    /// The name under "Hormat kami": the company, as the owner drew it.
+    sender: COMPANY.name,
+    /// "Notes : Pengirim (...)": the person in charge who sends the goods.
+    pic: titled(note.pic ?? ""),
   }
 }
 
@@ -119,7 +120,8 @@ table.lines tr.total td { font-weight: 600; padding: 9px 8px; }
 table.lines tr.total td:first-child { text-align: right; }
 thead { display: table-header-group; }
 tr { break-inside: avoid; page-break-inside: avoid; }
-.sign { margin-top: 26px; break-inside: avoid; width: 220px; }
+.sign { margin-top: 26px; break-inside: avoid; display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; }
+.sign .notes { text-align: right; }
 .sign .space { height: 70px; }
 .sign .who { font-weight: 600; }
 .sign .role { color: #5b6158; }
@@ -156,10 +158,15 @@ tr { break-inside: avoid; page-break-inside: avoid; }
 </table>
 
 <div class="sign">
-  <div>Hormat kami,</div>
-  <div class="space"></div>
-  <div class="who">( ${e(figures.sender)} )</div>
-  <div class="role">Pengirim</div>
+  <div>
+    <div>Hormat kami,</div>
+    <div class="space"></div>
+    <div class="who">( ${e(figures.sender)} )</div>
+  </div>
+  <div class="notes">
+    <div class="role">Notes :</div>
+    <div>Pengirim ( <strong>${e(figures.pic || "                    ")}</strong> )</div>
+  </div>
 </div>
 </section></body></html>`
 }

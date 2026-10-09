@@ -631,14 +631,14 @@ export function ReturnSheet({
             <>
               <Button
                 variant="ghost"
-                onClick={() => printReturnNote(noteOf([row]))}
+                onClick={() => printReturnNote(noteOf([row], row.pic))}
               >
                 <Printer />
                 Print
               </Button>
               <Button
                 variant="ghost"
-                onClick={() => downloadReturnPdf(noteOf([row]))}
+                onClick={() => downloadReturnPdf(noteOf([row], row.pic))}
               >
                 <Download />
                 Download
