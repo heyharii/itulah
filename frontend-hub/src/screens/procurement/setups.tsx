@@ -3009,13 +3009,20 @@ function SessionComposer({
             expected={expectedCheck}
             division={division}
             tags={tags}
+            placement="variants"
           />
         </div>
         {/* Under the heading while the sheet is narrow; at `@5xl/form` the
             same panel stands in the column at the right instead, and this one
             is not drawn. */}
         <div className="mb-2 @5xl/form:hidden">
-          <QuantityCheckPanel receiptLineId={receipt.receipt_line_id} />
+          <QuantityCheckPanel
+            receiptLineId={receipt.receipt_line_id}
+            name={name}
+            expected={expectedCheck}
+            division={division}
+            tags={tags}
+          />
         </div>
 
         {/* Colour and size, under the one heading with the grid they produce.
@@ -3240,6 +3247,10 @@ function SessionComposer({
           <div className="mt-3">
             <QuantityCheckPanel
               receiptLineId={receipt.receipt_line_id}
+              name={name}
+              expected={expectedCheck}
+              division={division}
+              tags={tags}
               showEmpty
             />
           </div>

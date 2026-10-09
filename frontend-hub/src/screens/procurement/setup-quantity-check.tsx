@@ -30,12 +30,17 @@ export function QuantityCheckRequest({
   expected,
   division,
   tags,
+  placement,
 }: {
   receiptLineId: string
   name: string
   expected: readonly QuantityCheckCell[]
   division: string
   tags: readonly string[]
+  /// `variants`: the first request, in the Variants row; it leaves once the
+  /// line has any check. `box`: Recount, and Requested while one is open, in
+  /// the box at the top right (owner, 2026-10-10).
+  placement: "variants" | "box"
 }) {
   const client = useQueryClient()
   const checks = useQuery({
@@ -60,6 +65,8 @@ export function QuantityCheckRequest({
   const all = checks.data ?? []
   const asked = all.some((one) => one.status === "REQUESTED")
   const answered = all.some((one) => one.status === "COUNTED")
+  if (placement === "variants" && (checks.isPending || all.length > 0))
+    return null
   return (
     <div className="flex flex-col items-end gap-1">
       <Button
@@ -92,9 +99,17 @@ export function QuantityCheckRequest({
 /// in whichever place the container allows (see `DeliverySetup`).
 export function QuantityCheckPanel({
   receiptLineId,
+  name,
+  expected,
+  division,
+  tags,
   showEmpty = false,
 }: {
   receiptLineId: string
+  name: string
+  expected: readonly QuantityCheckCell[]
+  division: string
+  tags: readonly string[]
   /// The box at the top right stands before the first request, saying so;
   /// the copy under Variants (a narrow sheet) is silent until there is
   /// something to read.
@@ -126,7 +141,17 @@ export function QuantityCheckPanel({
 
   return (
     <div className="flex flex-col gap-3">
-      <SubHead className="mb-0">Quantity Check</SubHead>
+      <div className="flex items-center justify-between gap-3">
+        <SubHead className="mb-0">Quantity Check</SubHead>
+        <QuantityCheckRequest
+          receiptLineId={receiptLineId}
+          name={name}
+          expected={expected}
+          division={division}
+          tags={tags}
+          placement="box"
+        />
+      </div>
       {requested.map((one) => (
         <div key={one.check_id} className="text-[0.875rem] text-mute">
           <div>
