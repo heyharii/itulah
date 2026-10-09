@@ -25,15 +25,10 @@ import { ZoomPhoto } from "@/components/ui/photo-viewer"
 import { PhotoImg } from "@/components/ui/photo-img"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import {
-  QuantityCheckCard,
+  QuantityCheckPanel,
   QuantityCheckRequest,
-  QuantityCheckToggle,
 } from "@/screens/procurement/setup-quantity-check"
-import {
-  listLineQuantityChecks,
-  quantityCheckKeys,
-  type QuantityCheckCell,
-} from "@/lib/queries/quantity-checks"
+import { type QuantityCheckCell } from "@/lib/queries/quantity-checks"
 import { ago, count, money } from "@/lib/format"
 import { asJpeg, PICTURE_TYPES } from "@/lib/image"
 import {
@@ -370,26 +365,6 @@ export function SetupWorkspace() {
     : (waiting.find((row) => row.receipt_line_id === chosen.value) ?? null)
   const sheetOpen = session.isOpen || active !== null
 
-  /// The Quantity Check card floats over the form, opened from an icon in the
-  /// sheet's head (owner, 2026-10-10). Whether it is open is the person's
-  /// choice and belongs to the line it was opened on: it is remembered as that
-  /// line's id, so moving to another delivery closes it without an effect.
-  /// The dot on the icon reads the panel's own cache entry, so a request made
-  /// in the card lights it at once.
-  const [checkFor, setCheckFor] = useState("")
-  const lineId = active?.receipt_line_id ?? ""
-  const lineChecks = useQuery({
-    queryKey: quantityCheckKeys.line(lineId),
-    queryFn: ({ signal }) => listLineQuantityChecks(lineId, signal),
-    enabled: active !== null,
-    placeholderData: (previous, previousQuery) =>
-      previousQuery?.queryKey[2] === "" ? undefined : previous,
-  })
-  const checkOpen = active !== null && checkFor === lineId
-  const checkRequested =
-    active !== null &&
-    (lineChecks.data?.some((one) => one.status === "REQUESTED") ?? false)
-
   /// An empty queue gets one sentence, not an empty rail beside no cards.
   const nothingWaiting =
     !receipts.isPending &&
@@ -605,17 +580,9 @@ export function SetupWorkspace() {
         onOpenChange={(open) => {
           if (!open) go({ setupFor: railNow })
         }}
-        width="wide"
-        // The Quantity Check's toggle, only while a delivery line is open.
-        actions={
-          active !== null ? (
-            <QuantityCheckToggle
-              open={checkOpen}
-              requested={checkRequested}
-              onClick={() => setCheckFor(checkOpen ? "" : lineId)}
-            />
-          ) : undefined
-        }
+        // Always the big sheet (owner, 2026-10-10): the form keeps the 52.5rem
+        // it had at `wide` and the Quantity Check is a box at its top right.
+        width="workspace"
         // The kind in small type above, the name as the title, as the master
         // lists' sheets read ("Division" over "Pria"; owner, 2026-10-05).
         id={
@@ -657,8 +624,6 @@ export function SetupWorkspace() {
             hasNext={shown.some(
               (row) => row.receipt_line_id !== active.receipt_line_id
             )}
-            checkOpen={checkOpen}
-            onCheckClose={() => setCheckFor("")}
             onDone={(outcome, next) => {
               if (outcome.kind === "issued") {
                 // Minted: named in the receipt dialog by its code, and the
@@ -1686,14 +1651,9 @@ function DeliverySetup({
   onDirty,
   onDraft,
   hasNext,
-  checkOpen,
-  onCheckClose,
 }: {
   receipt: UnidentifiedReceipt
   vocabulary?: CatalogueVocabulary
-  /// Whether the Quantity Check card is open over the form.
-  checkOpen: boolean
-  onCheckClose: () => void
   /// The draft is on the server: the sheet closes.
   onDraft: () => void
   /// `next` is whether Submit & Next was the button pressed.
@@ -1866,8 +1826,6 @@ function DeliverySetup({
       }}
       onDirty={onDirty}
       onDraft={(draft) => keepDraft.mutate(draft)}
-      checkOpen={checkOpen}
-      onCheckClose={onCheckClose}
     />
   )
 }
@@ -2404,14 +2362,9 @@ function SessionComposer({
   onDraft,
   initial,
   hasNext,
-  checkOpen,
-  onCheckClose,
 }: {
   receipt: UnidentifiedReceipt
   vocabulary?: CatalogueVocabulary
-  /// Whether the Quantity Check card is open, floating over the form.
-  checkOpen: boolean
-  onCheckClose: () => void
   actor: string
   problem: string | null
   busy: boolean
@@ -2906,20 +2859,16 @@ function SessionComposer({
       // and the whole glass on a phone.
       className="@container/form flex flex-col gap-7 [--form-box:2.5rem] min-[100rem]:gap-10 min-[100rem]:[--form-box:2.9375rem]"
     >
-      {/* The Quantity Check floats over the form (zero-height, sticky at the
-          top right of the sheet's body) and pushes nothing. */}
-      {checkOpen && (
-        <QuantityCheckCard
-          receiptLineId={receipt.receipt_line_id}
-          name={name}
-          expected={expectedCheck}
-          division={division}
-          tags={tags}
-          onClose={onCheckClose}
-        />
-      )}
-      <div>
-        <div className="@container flex min-w-0 flex-col gap-7 min-[100rem]:gap-10">
+      {/* Two columns once the sheet is 64rem across (`@5xl/form`, which only
+          a delivery with a Quantity Check reaches: the sheet is 84rem for it
+          and 56rem otherwise): the form at the left, the Quantity Check at
+          the right, 22rem with its rule. Under that the check stands inside
+          the form, under the Variants heading, and this wrapper is a plain
+          block. The left column is a container of its own so every `@xl` and
+          `@2xl` inside it measures the column and not the sheet; the footer
+          below is a child of the form and still measures the whole width. */}
+      <div className="@5xl/form:grid @5xl/form:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="@container flex min-w-0 flex-col gap-7 min-[100rem]:gap-10 @5xl/form:pr-6">
       {problem !== null && <Banner tone="bad">{problem}</Banner>}
 
       {/* Three facts, kept as a group at the left rather than spread across
@@ -3061,6 +3010,12 @@ function SessionComposer({
             division={division}
             tags={tags}
           />
+        </div>
+        {/* Under the heading while the sheet is narrow; at `@5xl/form` the
+            same panel stands in the column at the right instead, and this one
+            is not drawn. */}
+        <div className="mb-2 @5xl/form:hidden">
+          <QuantityCheckPanel receiptLineId={receipt.receipt_line_id} />
         </div>
 
         {/* Colour and size, under the one heading with the grid they produce.
@@ -3276,6 +3231,19 @@ function SessionComposer({
       </div>
 
         </div>
+        <aside
+          aria-label="Quantity Check"
+          className="hidden @5xl/form:block @5xl/form:self-start @5xl/form:rounded-card @5xl/form:border @5xl/form:border-hairline @5xl/form:p-4"
+        >
+          {/* `mt-3` is the Thumbnail row's own margin, so the heading starts
+              level with the top of the delivery's picture. */}
+          <div className="mt-3">
+            <QuantityCheckPanel
+              receiptLineId={receipt.receipt_line_id}
+              showEmpty
+            />
+          </div>
+        </aside>
       </div>
 
       {/* The button, and beside it the reason it cannot be pressed.
