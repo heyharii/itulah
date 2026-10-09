@@ -314,6 +314,25 @@ impl CatalogueMedia {
         )
     }
 
+    /// The article's own picture: `<prefix>/<article code>/main.jpg`.
+    pub fn article_main_key(&self, article_code: &str) -> Result<String, AppError> {
+        let article_code = article_code.trim();
+        validate_article_code(article_code).map_err(AppError::Validation)?;
+        Ok(format!("{}/{}/main.jpg", self.catalogue_prefix, article_code))
+    }
+
+    /// Take a photograph away, and its thumbnail with it: a thumbnail left
+    /// behind would show a garment nobody has a picture of any more.
+    pub async fn remove(&self, key: &str) -> Result<(), AppError> {
+        for each in [thumbnail_key(key), key.to_string()] {
+            self.store
+                .delete(&each)
+                .await
+                .map_err(|e| AppError::Configuration(format!("object store: {e}")))?;
+        }
+        Ok(())
+    }
+
     pub fn supplier_key(&self, image: &SupplierImage) -> String {
         format!(
             "{}/{}/{}.jpg",
@@ -358,6 +377,36 @@ impl CatalogueMedia {
             url,
             expires_in_seconds: Some(WRITE_URL_TTL_SECONDS),
         })
+    }
+
+    /// The stored image's tag, or nothing when it is not there.
+    ///
+    /// The same HEAD that `exists` makes, keeping what it answers: a picture
+    /// that is replaced is written over the same key, and the tag is what
+    /// tells the two apart.
+    pub async fn version_of(&self, key: &str) -> Result<Option<String>, AppError> {
+        self.store
+            .head(key)
+            .await
+            .map(|meta| meta.map(|one| one.etag.unwrap_or_default()))
+            .map_err(|e| AppError::Configuration(format!("object store: {e}")))
+    }
+
+    /// [`locate`](Self::locate), with the picture's tag on a permanent link.
+    ///
+    /// A public link is the same text for the life of the key, and the store
+    /// serves its pictures to be cached for a year: a picture somebody replaces
+    /// would go on showing the old one until each browser's copy aged out. The
+    /// tag makes the link say which picture it is. A signed link is new on every
+    /// read and needs none.
+    pub fn locate_versioned(&self, key: String, version: &str) -> Result<ImageLocation, AppError> {
+        let mut location = self.locate(key)?;
+        let tag: String = version.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+        if location.expires_in_seconds.is_none() && !tag.is_empty() {
+            let joiner = if location.url.contains('?') { '&' } else { '?' };
+            location.url = format!("{}{joiner}v={tag}", location.url);
+        }
+        Ok(location)
     }
 
     /// Whether the image is actually there. An import run uses this to skip
@@ -418,11 +467,22 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route(
             "/api/v1/catalogue/articles/{article_code}/colours/{colour}/image",
-            get(article_image),
+            get(article_image).delete(article_image_delete),
         )
         .route(
             "/api/v1/catalogue/articles/{article_code}/colours/{colour}/image/upload-url",
             post(article_image_upload_url),
+        )
+        // The article's own picture, the one a colour without a photograph of
+        // its own shows. Filed as `main`, which is not a colour digit, so it
+        // can never collide with one.
+        .route(
+            "/api/v1/catalogue/articles/{article_code}/image",
+            get(article_main_image).delete(article_main_image_delete),
+        )
+        .route(
+            "/api/v1/catalogue/articles/{article_code}/image/upload-url",
+            post(article_main_image_upload_url),
         )
         .route(
             "/api/v1/catalogue/suppliers/{supplier_code}/items/{item_code}/image",
@@ -448,14 +508,14 @@ async fn article_image(
     let media = media(&state)?;
     let image = ArticleImage::parse(&article_code, &colour)?;
     let key = media.article_key(&image);
-    if !media.exists(&key).await? {
+    let Some(version) = media.version_of(&key).await? else {
         return Err(AppError::NotFound(format!(
             "no image for article {} colour {}",
             image.article_code(),
             image.colour().as_char()
         )));
-    }
-    Ok(Json(media.locate(key)?))
+    };
+    Ok(Json(media.locate_versioned(key, &version)?))
 }
 
 async fn article_image_upload_url(
@@ -471,6 +531,57 @@ async fn article_image_upload_url(
         "method": "PUT",
         "content_type": "image/jpeg",
     })))
+}
+
+/// Take a colourway's own photograph away. The colour then shows the
+/// article's main picture again. Removing what is not there succeeds: the
+/// caller's intent — no photograph of its own — is already true.
+async fn article_image_delete(
+    State(state): State<AppState>,
+    Path((article_code, colour)): Path<(String, String)>,
+) -> Result<axum::http::StatusCode, AppError> {
+    let media = media(&state)?;
+    let image = ArticleImage::parse(&article_code, &colour)?;
+    media.remove(&media.article_key(&image)).await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+async fn article_main_image(
+    State(state): State<AppState>,
+    Path(article_code): Path<String>,
+) -> Result<Json<ImageLocation>, AppError> {
+    let media = media(&state)?;
+    let key = media.article_main_key(&article_code)?;
+    let Some(version) = media.version_of(&key).await? else {
+        return Err(AppError::NotFound(format!(
+            "no main image for article {}",
+            article_code.trim()
+        )));
+    };
+    Ok(Json(media.locate_versioned(key, &version)?))
+}
+
+async fn article_main_image_upload_url(
+    State(state): State<AppState>,
+    Path(article_code): Path<String>,
+    Query(variant): Query<UploadVariant>,
+) -> Result<Json<Value>, AppError> {
+    let media = media(&state)?;
+    let location = media.upload_location(variant.key_for(media.article_main_key(&article_code)?))?;
+    Ok(Json(json!({
+        "upload": location,
+        "method": "PUT",
+        "content_type": "image/jpeg",
+    })))
+}
+
+async fn article_main_image_delete(
+    State(state): State<AppState>,
+    Path(article_code): Path<String>,
+) -> Result<axum::http::StatusCode, AppError> {
+    let media = media(&state)?;
+    media.remove(&media.article_main_key(&article_code)?).await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
 /// A URL the browser can PUT a supplier item's photograph to.

@@ -708,6 +708,11 @@ export const procurementKeys = {
     ["procurement", "catalogue", "item-image", supplierCode, itemCode] as const,
   articleImage: (articleCode: string, colour: string) =>
     ["procurement", "catalogue", "article-image", articleCode, colour] as const,
+  /// The article's own picture, the one a colour with no photograph of its own
+  /// shows. Under the same prefix as the colourway photographs so one
+  /// invalidation of `article-image` refreshes both.
+  articleMainImage: (articleCode: string) =>
+    ["procurement", "catalogue", "article-image", articleCode, "main"] as const,
   /// Purchase returns — the excess-beyond-the-order book. Scoped by status
   /// exactly as `orders` is: an unscoped read (the whole book, for the "Over-
   /// delivery returns" card) stays its own entry from a status-narrowed one.
@@ -1781,6 +1786,15 @@ export function articleImage(
   )
 }
 
+/// The article's own picture, filed beside its colourway photographs. A colour
+/// with no photograph of its own shows this one.
+export function articleMainImage(articleCode: string, signal?: AbortSignal) {
+  return imageOrNothing(
+    `/api/v1/catalogue/articles/${articleCode}/image`,
+    signal
+  )
+}
+
 /// Keyed by the SUPPLIER's own numbering, which is not an identity here — two
 /// suppliers reuse each other's codes — so it lives under its own prefix and
 /// is never derived from an article code.
@@ -1896,7 +1910,47 @@ export async function uploadArticleImage(
   file: Blob,
   signal?: AbortSignal
 ): Promise<ImageLocation> {
-  const ticketPath = `/api/v1/catalogue/articles/${articleCode}/colours/${colour}/image/upload-url`
+  return putPhoto(
+    `/api/v1/catalogue/articles/${articleCode}/colours/${colour}/image/upload-url`,
+    file,
+    signal
+  )
+}
+
+/// Put the article's own picture up. The same two steps as a colourway's.
+export async function uploadArticleMainImage(
+  articleCode: string,
+  file: Blob,
+  signal?: AbortSignal
+): Promise<ImageLocation> {
+  return putPhoto(
+    `/api/v1/catalogue/articles/${articleCode}/image/upload-url`,
+    file,
+    signal
+  )
+}
+
+/// Take a picture away: one colourway's own (`colour` a digit), after which
+/// that colour shows the article's main picture again, or the main picture
+/// itself (`colour` null). Removing what is not there succeeds.
+export async function removeArticleImage(
+  articleCode: string,
+  colour: string | null,
+  signal?: AbortSignal
+): Promise<void> {
+  await node.delete(
+    colour === null
+      ? `/api/v1/catalogue/articles/${articleCode}/image`
+      : `/api/v1/catalogue/articles/${articleCode}/colours/${colour}/image`,
+    { signal }
+  )
+}
+
+async function putPhoto(
+  ticketPath: string,
+  file: Blob,
+  signal?: AbortSignal
+): Promise<ImageLocation> {
   await putThumbnail(ticketPath, file, signal)
   const ticket = await node.post<ImageUploadTicket>(ticketPath, {}, { signal })
   const response = await fetch(ticket.upload.url, {

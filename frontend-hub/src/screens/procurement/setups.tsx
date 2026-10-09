@@ -963,6 +963,7 @@ export function Matrix({
   colours,
   sizes,
   columnClass = "w-[5.5rem]",
+  rowHeadClass,
   cell,
   rowTotal,
   columnTotal,
@@ -976,6 +977,10 @@ export function Matrix({
   /// How wide one size column is. A cell holding a number box needs less room
   /// than one holding a minted SKU's serial range.
   readonly columnClass?: string
+  /// How wide the colour column is, when its row heads carry more than a name
+  /// — a picture and its buttons. Without it the column takes what the figures
+  /// leave, which on a narrow sheet is nothing at all.
+  readonly rowHeadClass?: string
   readonly cell: (colour: MatrixColour, size: MatrixSize) => React.ReactNode
   /// The "All" column and row. Optional since 2026-09-28: the article
   /// sheet draws the same grid for PRICES, and a sum of prices is not a
@@ -1022,7 +1027,7 @@ export function Matrix({
               stretching a size column strands its number in the middle of a
               gap wide enough for a sentence, and stretching the total column
               leaves a hole between the last size and the sum. */}
-          <col />
+          <col className={rowHeadClass} />
           {sizes.map((size) => (
             <col key={size.code} className={columnClass} />
           ))}

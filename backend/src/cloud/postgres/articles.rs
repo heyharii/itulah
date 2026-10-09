@@ -33,6 +33,7 @@ use crate::cloud::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgRow, PgPool, Postgres, Row, Transaction};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 /// One of an article's ten colour slots, resolved through the master.
@@ -146,6 +147,12 @@ pub struct ArticleSku {
     pub currency: Option<String>,
     pub qr_payload: Option<String>,
     pub active: bool,
+    /// Pieces of this SKU held right now, in every place we hold stock — the
+    /// DC, the shops and what is on the road. Whole-company on hand, not one
+    /// pool's: the article sheet answers "how many do we have", and the pools
+    /// answer "where". Zero for a SKU nothing has been received for.
+    #[serde(default)]
+    pub stock_qty: i64,
 }
 
 /// Who sells us this article, and for how much.
@@ -558,6 +565,60 @@ async fn article_facets(
 }
 
 /// One article and everything hanging off it.
+/// Each SKU's pieces on hand, everywhere.
+///
+/// Read the way the shops' stock is read for the sales breakdowns: a site the
+/// centre owns answers from the maintained balance (`inventory_projection`),
+/// and a site an edge node owns from the positions that node has synced — the
+/// two never both, or a shelf would be counted twice. Only places in the
+/// NORMAL state count: a piece sitting in a MISSING place is not on hand.
+async fn with_stock(
+    connection: &mut sqlx::PgConnection,
+    article_id: Uuid,
+    mut skus: Vec<ArticleSku>,
+) -> Result<Vec<ArticleSku>, AppError> {
+    if skus.is_empty() {
+        return Ok(skus);
+    }
+    let held: HashMap<String, i64> = sqlx::query(
+        "WITH edge_owned AS (
+             SELECT c.origin_id, c.site_id
+               FROM sync_origin_credential c
+               JOIN sync_applied_watermark w
+                 ON w.origin_id = c.origin_id AND w.generation = c.active_generation
+              WHERE c.inventory_enabled
+         ),
+         held AS (
+             SELECT k.sku_code, pr.quantity::bigint AS quantity
+               FROM inventory_projection pr
+               JOIN inventory_place pl ON pl.id = pr.place_id
+               JOIN operational_pool op ON op.id = pl.pool_id
+               JOIN inventory_subject su ON su.id = pr.subject_id
+               JOIN sku k ON k.id = su.sku_id
+              WHERE k.article_id = $1
+                AND pl.kind = 'OPERATIONAL' AND pl.state = 'NORMAL'
+                AND op.site_id NOT IN (SELECT site_id FROM edge_owned)
+             UNION ALL
+             SELECT fp.sku_code, fp.quantity::bigint
+               FROM edge_inventory_fact_position fp
+               JOIN edge_owned e ON e.origin_id = fp.origin_id
+               JOIN sku k ON k.sku_code = fp.sku_code
+              WHERE k.article_id = $1 AND fp.place_id LIKE '%:on_hand'
+         )
+         SELECT sku_code, sum(quantity)::bigint AS on_hand FROM held GROUP BY sku_code",
+    )
+    .bind(article_id)
+    .fetch_all(&mut *connection)
+    .await?
+    .into_iter()
+    .map(|row| Ok((row.try_get("sku_code")?, row.try_get("on_hand")?)))
+    .collect::<Result<_, AppError>>()?;
+    for sku in &mut skus {
+        sku.stock_qty = held.get(&sku.sku_code).copied().unwrap_or(0);
+    }
+    Ok(skus)
+}
+
 pub async fn article_detail(pool: &PgPool, article_code: &str) -> Result<ArticleDetail, AppError> {
     let mut connection = pool.acquire().await?;
     read_article_detail(&mut connection, article_code).await
@@ -617,9 +678,11 @@ async fn read_article_detail(
             currency: row.try_get("currency")?,
             qr_payload: row.try_get("qr_payload")?,
             active: row.try_get("active")?,
+            stock_qty: 0,
         })
     })
     .collect::<Result<Vec<_>, AppError>>()?;
+    let skus = with_stock(&mut *connection, article_id, skus).await?;
 
     let supplier_items = sqlx::query(
         "SELECT si.supplier_item_id, si.supplier_id, sp.name AS supplier_name,

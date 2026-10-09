@@ -114,6 +114,9 @@ export interface ArticleSku {
   /// *which one*.
   readonly qr_payload: string | null
   readonly active: boolean
+  /// Pieces held right now in every place — DC, shops and the road. Whole
+  /// company, not one pool's.
+  readonly stock_qty: number
 }
 
 /// Who sells this article to us, and under what code of their own. The join
