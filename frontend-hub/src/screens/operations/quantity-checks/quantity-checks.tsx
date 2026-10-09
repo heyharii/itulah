@@ -12,7 +12,7 @@ import { EmptyState, Problem } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { cn } from "@/lib/utils"
-import { ago, count, quantity } from "@/lib/format"
+import { ago, count } from "@/lib/format"
 import { colourKeys, listColours } from "@/lib/queries/colours"
 import { catalogueVocabulary, procurementKeys } from "@/lib/queries/procurement"
 import {
@@ -25,6 +25,9 @@ import {
 import { queryState } from "@/lib/query-state"
 import { termLabel } from "@/screens/procurement/shared"
 import { useSupplierName } from "@/screens/procurement/supplier-name"
+
+/// "5 pieces", "1 piece": the kit's `quantity` is not in this tree yet.
+const quantity = (n: number) => `${count(n)} ${n === 1 ? "piece" : "pieces"}`
 
 /// **Quantity Checks** — counts head office asked the warehouse for.
 ///
