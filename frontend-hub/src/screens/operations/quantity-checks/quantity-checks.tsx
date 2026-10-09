@@ -274,6 +274,7 @@ function CountSheet({
               </span>
               <Input
                 inputMode="numeric"
+                className="text-right tabular-nums"
                 aria-label={`Quantity, ${one.article ? `${one.article}, ` : ""}${one.colour}, ${one.size}`}
                 value={quantities[at] ?? ""}
                 onChange={(event) =>
@@ -323,6 +324,7 @@ function CountSheet({
               </Select>
               <Input
                 inputMode="numeric"
+                className="text-right tabular-nums"
                 aria-label="Quantity"
                 value={one.quantity}
                 onChange={(event) =>
