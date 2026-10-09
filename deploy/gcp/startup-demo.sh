@@ -34,9 +34,9 @@ if ! command -v docker >/dev/null; then
   systemctl enable --now docker
 fi
 
-mkdir -p "$state"/{pg,dc,store,caddy/data,caddy/config,home}
+mkdir -p "$state"/{pg,dc,store,store-sandbox,caddy/data,caddy/config,home}
 chmod 700 "$state"
-chown 10001:10001 "$state/dc" "$state/store"
+chown 10001:10001 "$state/dc" "$state/store" "$state/store-sandbox"
 
 export HOME="$state/home"
 gcloud secrets versions access latest --secret itulah-demo-env > "$state/shared.env"
@@ -143,6 +143,27 @@ SYNC_UPLOAD_URL=http://cloud:8080
 SYNC_UPLOAD_KEY=$SYNC_INGEST_KEY
 E2
 done
+# The shop apps (store.<domain>, pos.<domain>) work against THIS node, not the
+# demo's: a store node of the sandbox business `demo-copy` (9 Oct 2026). It is
+# its own origin, `store-sb`, for site store-01 — the business is a copy of the
+# demo database, whose store-01 already sent a generation-1 stream, so reusing
+# that origin would have its first sales skipped as duplicates, and a fresh
+# SQLite cannot start at generation 2 (its bootstrap fact is unacknowledged).
+# register-sandbox-store.sh registers it. No bootstrap admin: its sign-in list
+# arrives from the cloud. Its sync goes through Caddy's internal :8089, which
+# names the business: a sync client sends none (backend/src/cloud/tenancy).
+sandbox_business="${SANDBOX_STORE_BUSINESS:-demo-copy}"
+cat > "$state/store-sandbox.env" <<E2
+$(printf '%s\n' "$common" | grep -v '^INVENTORY_BOOTSTRAP_ADMIN_PASSWORD=')
+APP_BIN=store
+INVENTORY_ORIGIN_GENERATION=1
+INVENTORY_SITE_ID=store-01
+INVENTORY_NODE_ID=store-sb
+INVENTORY_NODE_ROLE=STORE
+INVENTORY_DATABASE_PATH=/data/edge.sqlite3
+SYNC_UPLOAD_URL=http://caddy:8089
+SYNC_UPLOAD_KEY=$SYNC_INGEST_KEY
+E2
 chmod 600 "$state"/*.env
 
 # /edge reaches a DC server. A Gudang run by the cloud is reached at /api like
@@ -215,13 +236,13 @@ $rembg_route
     reverse_proxy cloud:8080
   }"
 site store "  handle /api/* {
-    reverse_proxy store:8080
+    reverse_proxy store-sandbox:8080
   }"
 site customer "  handle /api/* {
     reverse_proxy cloud:8080
   }"
 site pos "  handle /api/* {
-    reverse_proxy store:8080
+    reverse_proxy store-sandbox:8080
   }"
 # The sandbox has its own web folder (www/sandbox, filled by
 # `TARGET=sandbox deploy/gcp/deploy-hub-demo.sh`): what is being tried reaches
@@ -232,13 +253,21 @@ site sandbox "  handle /edge/* {
   handle /api/* {
     reverse_proxy cloud-sandbox:8080
   }"
+# Not published (no -p 8089): only containers on the itulah network reach it.
+cat <<E2
+http://:8089 {
+  reverse_proxy cloud-sandbox:8080 {
+    header_up x-itulah-business $sandbox_business
+  }
+}
+E2
 } > "$state/Caddyfile"
 mkdir -p "$state/www"/{hub,store,customer,pos,sandbox}
 
 gcloud auth configure-docker "$registry" -q
 docker pull "$image"
 docker network inspect itulah >/dev/null 2>&1 || docker network create itulah
-docker rm -f caddy store dc cloud cloud-sandbox >/dev/null 2>&1 || true
+docker rm -f caddy store store-sandbox dc cloud cloud-sandbox >/dev/null 2>&1 || true
 
 # Postgres: small, host-only; data lives on the VM disk. 120 connections: the
 # demo's pool (20) plus a few sandbox businesses open at once (20 each).
@@ -275,6 +304,8 @@ docker exec pg psql -U itulah -d itulah_cloud -tAc "SELECT 1 FROM pg_database WH
 # Capped, so a busy sandbox cannot take the demo's memory with it.
 docker run -d --name cloud-sandbox --restart unless-stopped --network itulah --memory 350m \
   --env-file "$state/cloud-sandbox.env" "$image"
+docker run -d --name store-sandbox --restart unless-stopped --network itulah --memory 150m \
+  --env-file "$state/store-sandbox.env" -v "$state/store-sandbox:/data" "$image"
 docker run -d --name caddy --restart unless-stopped --network itulah -p 80:80 -p 443:443 \
   -v "$state/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$state/www:/srv:ro" -v "$state/caddy/data:/data" -v "$state/caddy/config:/config" caddy:2
 docker image prune -af --filter "until=72h" >/dev/null 2>&1 || true
