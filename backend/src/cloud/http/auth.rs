@@ -223,6 +223,14 @@ fn is_public(path: &str) -> bool {
     if path.starts_with("/api/v1/invitations/accept/") {
         return true;
     }
+    // The page a Surat Jalan Retur's QR opens (0962): read-only, for whoever
+    // holds the paper. The token is the credential, looked up in the handler
+    // (`http::return_notes`); there is no listing, and an unknown token is a
+    // plain 404. Making the link (`POST /api/v1/return-notes`) is NOT here: it
+    // is a signed-in person's.
+    if path.starts_with("/api/v1/public/return-notes/") {
+        return true;
+    }
     matches!(
         path,
         "/api/v1/health"

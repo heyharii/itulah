@@ -61,6 +61,10 @@ import {
 } from "@/screens/procurement/supplier-return-groups"
 import { downloadReturnPdf } from "@/screens/procurement/return-pdf"
 import {
+  useReturnNoteLink,
+  withNoteLink,
+} from "@/screens/procurement/return-note-link"
+import {
   supplierReturnHtml,
   type PrintableNote,
 } from "@/screens/procurement/return-print"
@@ -489,6 +493,12 @@ export function ReturnSheet({
   form?: React.ReactNode
 }) {
   const client = useQueryClient()
+  // The note's public link (its QR) is made as soon as the sheet shows the
+  // note, so Print and Download below stay synchronous. A sheet that leaves
+  // the note to its own step (`extra`) makes it there.
+  const qrUrl = useReturnNoteLink(
+    row && extra === undefined ? noteOf([row], row.pic) : null
+  )
   /// The writes this sheet made, held in the receipt dialog until they are
   /// read. The sheet stays mounted between openings, so the state survives.
   const [saved, setSaved] = useState<string | null>(null)
@@ -633,14 +643,18 @@ export function ReturnSheet({
             <>
               <Button
                 variant="ghost"
-                onClick={() => printReturnNote(noteOf([row], row.pic))}
+                onClick={() =>
+                  printReturnNote(withNoteLink(noteOf([row], row.pic), qrUrl))
+                }
               >
                 <Printer />
                 Print
               </Button>
               <Button
                 variant="ghost"
-                onClick={() => downloadReturnPdf(noteOf([row], row.pic))}
+                onClick={() =>
+                  downloadReturnPdf(withNoteLink(noteOf([row], row.pic), qrUrl))
+                }
               >
                 <Download />
                 Download

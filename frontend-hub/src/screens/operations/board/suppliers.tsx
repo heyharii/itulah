@@ -38,6 +38,11 @@ import {
   type Group,
 } from "@/screens/procurement/supplier-return-groups"
 import { downloadReturnPdf } from "@/screens/procurement/return-pdf"
+import {
+  useReturnNoteLink,
+  withNoteLink,
+} from "@/screens/procurement/return-note-link"
+import type { PrintableNote } from "@/screens/procurement/return-print"
 import { useSupplierName } from "@/screens/procurement/supplier-name"
 import { returnLineParts } from "@/screens/procurement/return-lines"
 import {
@@ -47,6 +52,35 @@ import {
   useReturnRows,
   type Row,
 } from "@/screens/procurement/supplier-returns"
+
+/// Print and Download for a note already generated. The note's public link (the
+/// QR on the paper) is made as soon as its card shows them, so the clicks stay
+/// synchronous — a window opened after an await is blocked as a pop-up.
+function NoteButtons({ note }: { note: PrintableNote }) {
+  const linked = withNoteLink(note, useReturnNoteLink(note))
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Print"
+        title="Print"
+        onClick={() => printReturnNote(linked)}
+      >
+        <Printer />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Download"
+        title="Download"
+        onClick={() => downloadReturnPdf(linked)}
+      >
+        <Download />
+      </Button>
+    </>
+  )
+}
 
 /// **Return PO** — everything going back to a supplier, a card per
 /// supplier (the owner, 2026-10-04: a list, not a board, and the surat jalan is
@@ -203,24 +237,7 @@ export function SuppliersBoard() {
             const made = waiting.every((one) => one.note_generated_at)
             return made ? (
               <>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Print"
-                  title="Print"
-                  onClick={() => printReturnNote(noteFor(group))}
-                >
-                  <Printer />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Download"
-                  title="Download"
-                  onClick={() => downloadReturnPdf(noteFor(group))}
-                >
-                  <Download />
-                </Button>
+                <NoteButtons note={noteFor(group)} />
                 <Button
                   variant="primary"
                   size="sm"

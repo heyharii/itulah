@@ -101,6 +101,7 @@ pub mod punch;
 pub mod push;
 pub mod records;
 pub mod reports;
+pub mod return_notes;
 pub mod roles;
 pub mod roster;
 pub mod scope;
@@ -451,6 +452,14 @@ pub fn router(state: AppState) -> Router {
     .route(
         "/api/v1/quantity-checks/{id}/count",
         post(quantity_checks::count),
+    )
+    // The public link of a Surat Jalan Retur (0962): the hub makes it when the
+    // note is shown or generated (signed in), the QR on the paper opens it
+    // (public, read-only; `auth::is_public`).
+    .route("/api/v1/return-notes", post(return_notes::create))
+    .route(
+        "/api/v1/public/return-notes/{token}",
+        get(return_notes::show),
     )
     .route(
         "/api/v1/vocabulary/{kind}",

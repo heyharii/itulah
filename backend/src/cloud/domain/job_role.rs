@@ -252,6 +252,15 @@ pub const SECTION_RULES: &[SectionRule] = &[
         &["procurement"],
         Reads::Also(&["merchandise", "inventory", "operations", "finance"]),
     ),
+    // The public link of a Surat Jalan Retur's QR (0962), made when the note is
+    // shown or printed: by Procurement's Return PO book, by the warehouse that
+    // generates the note in Operations, and by Merchandise's Return to supplier
+    // book. Opening the link needs no section — it is public.
+    rule(
+        "/api/v1/return-notes",
+        &["procurement", "operations", "merchandise", "inventory"],
+        Reads::Same,
+    ),
     rule("/api/v1/purchase-destinations", &["procurement"], Reads::Open),
     rule(
         "/api/v1/suppliers",

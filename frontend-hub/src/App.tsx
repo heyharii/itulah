@@ -48,6 +48,20 @@ function stripBusinessParam() {
   )
 }
 
+/// `/n/{token}` out of the address bar, once, at mount — the page a Surat Jalan
+/// Retur's QR opens. Public like the join link: no session is asked for.
+function noteTokenFromLocation(): string | null {
+  const match = /^\/n\/([^/?#]+)/.exec(window.location.pathname)
+  return match ? decodeURIComponent(match[1]) : null
+}
+
+/// The surat jalan's public page, fetched only by whoever scans one.
+const ReturnNotePage = lazy(() =>
+  import("@/screens/public/return-note-page").then((module) => ({
+    default: module.ReturnNotePage,
+  }))
+)
+
 /// Fetched only when a company has not finished setting up, which is once.
 const Onboarding = lazy(() =>
   import("@/screens/setup/onboarding").then((module) => ({
@@ -81,7 +95,13 @@ export function App() {
   // clean the address bar. `linkSlug` is read once at mount, the way
   // `joinToken` is, and `handled` stops the effect from selecting twice under
   // strict mode's double-invoke.
-  const [linkSlug] = useState(businessSlugFromLocation)
+  // A surat jalan's page names its own business to the API (`?business=`), and
+  // must not select it for this browser: the person scanning it may be signed
+  // in to another business in the same browser.
+  const [noteToken] = useState(noteTokenFromLocation)
+  const [linkSlug] = useState(() =>
+    noteToken === null ? businessSlugFromLocation() : null
+  )
   const [resolvingLink, setResolvingLink] = useState(linkSlug !== null)
   const linkHandled = useRef(false)
   useEffect(() => {
@@ -134,6 +154,15 @@ export function App() {
       : session.error instanceof ApiError
         ? session.error.message
         : "could not reach the server"
+
+  // A surat jalan's own link: public, read-only, outside the shell entirely.
+  if (noteToken !== null) {
+    return (
+      <Suspense fallback={null}>
+        <ReturnNotePage token={noteToken} />
+      </Suspense>
+    )
+  }
 
   // A join link from a sandbox server carries its business; the invitation
   // lives in that business, so it is chosen before the page asks about it.

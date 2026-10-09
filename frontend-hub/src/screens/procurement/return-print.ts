@@ -37,12 +37,18 @@ export interface PrintableNote {
   /// generated; blank on a note printed without one.
   readonly pic?: string | null
   readonly returns: readonly PrintableReturn[]
+  /// The note's public page (`/n/{token}`, made by `useReturnNoteLink`): the
+  /// QR carries it when the hub holds it. Not part of the snapshot kept on the
+  /// server; a note without it prints the plain-text QR.
+  readonly qrUrl?: string
 }
 
-/// The QR on the note (owner, 2026-10-10): the return numbers and the order
-/// numbers, as plain text — a scanner reads it with no login and no network,
-/// and it still means the same if the hub's address changes.
+/// The QR on the note (owner, 2026-10-10): the note's public page when the hub
+/// holds its link (a scan opens the surat jalan, no login); otherwise the
+/// return numbers and the order numbers as plain text — a scanner reads that
+/// with no network at all.
 export function noteQrText(note: PrintableNote): string {
+  if (note.qrUrl) return note.qrUrl
   const returns = note.returns.map((one) => one.number).join(",")
   const orders = [
     ...new Set(
@@ -55,7 +61,11 @@ export function noteQrText(note: PrintableNote): string {
 /// The code's modules, row by row: `true` is dark. Drawn by the print as an
 /// SVG and by the PDF as filled squares, so neither waits for an image.
 export function noteQr(note: PrintableNote): readonly (readonly boolean[])[] {
-  const code = QRCode.create(noteQrText(note), { errorCorrectionLevel: "M" })
+  // A link is long and printed small: the lowest correction keeps its modules
+  // big enough to read from a phone.
+  const code = QRCode.create(noteQrText(note), {
+    errorCorrectionLevel: note.qrUrl ? "L" : "M",
+  })
   const size = code.modules.size
   return Array.from({ length: size }, (_, row) =>
     Array.from({ length: size }, (_, col) => code.modules.get(row, col) === 1)
