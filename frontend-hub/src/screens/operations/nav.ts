@@ -194,6 +194,15 @@ export const operationsNav: AppModule = {
           useCount: useReceiving,
           badge: "warn",
         },
+        /// Asked from New articles; answered here with colour, size and
+        /// quantity. Under Receiving, out of the More fold (owner, 10 Oct 2026).
+        {
+          path: "/operations/quantity-checks",
+          label: "Quantity Checks",
+          icon: ClipboardCheck,
+          useCount: useQuantityChecks,
+          badge: "warn",
+        },
         /// Allotment is the board (what the DC is sending to the shops) —
         /// the name stands (owner, 4 Oct 2026). Its lanes carry the flow
         /// names; Picking, Packing and Dispatch stay routable because its
@@ -247,15 +256,6 @@ export const operationsNav: AppModule = {
           label: "Printing",
           icon: Printer,
           useCount: useTagging,
-          badge: "warn",
-          more: true,
-        },
-        /// Asked from New articles; answered here with colour, size and quantity.
-        {
-          path: "/operations/quantity-checks",
-          label: "Quantity Checks",
-          icon: ClipboardCheck,
-          useCount: useQuantityChecks,
           badge: "warn",
           more: true,
         },
