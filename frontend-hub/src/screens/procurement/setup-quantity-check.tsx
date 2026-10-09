@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import type { ReactNode } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Problem } from "@/components/ui/states"
@@ -16,8 +17,12 @@ import {
 export function QuantityCheckPanel({
   receiptLineId,
   name,
+  heading,
 }: {
   receiptLineId: string
+  /// What stands at the left of the button: the Variants heading, so the
+  /// request sits at the far right of that row (owner, 2026-10-10).
+  heading: ReactNode
   /// The name as it stands in the form, kept with the ask so the warehouse
   /// can say which goods it is counting.
   name: string
@@ -45,11 +50,9 @@ export function QuantityCheckPanel({
   const asked = all.some((one) => one.status === "REQUESTED")
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="mb-2 flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
-        <h4 className="text-[0.9375rem] font-medium text-ink">
-          Quantity Check
-        </h4>
+        {heading}
         <Button
           variant="ghost"
           disabled={asked}

@@ -605,6 +605,7 @@ export function SetupWorkspace() {
             receipt={active}
             vocabulary={vocabulary.data}
             onDirty={setDirty}
+            onDraft={() => go({ setupFor: railNow })}
             hasNext={shown.some(
               (row) => row.receipt_line_id !== active.receipt_line_id
             )}
@@ -1603,10 +1604,13 @@ function DeliverySetup({
   vocabulary,
   onDone,
   onDirty,
+  onDraft,
   hasNext,
 }: {
   receipt: UnidentifiedReceipt
   vocabulary?: CatalogueVocabulary
+  /// Save as Draft was pressed: the form is already kept, so the sheet closes.
+  onDraft: () => void
   /// `next` is whether Submit & Next was the button pressed.
   onDone: (outcome: SetupOutcome, next: boolean) => void
   /// Whether another delivery is waiting to go on to.
@@ -1737,6 +1741,7 @@ function DeliverySetup({
         setUp.mutate(submission)
       }}
       onDirty={onDirty}
+      onDraft={onDraft}
     />
   )
 }
@@ -2270,6 +2275,7 @@ function SessionComposer({
   busy,
   onSubmit,
   onDirty,
+  onDraft,
   hasNext,
 }: {
   receipt: UnidentifiedReceipt
@@ -2280,6 +2286,7 @@ function SessionComposer({
   onSubmit: (submission: SetupSubmission, next: boolean) => void
   hasNext: boolean
   onDirty?: (dirty: boolean) => void
+  onDraft?: () => void
 }) {
   /// Set by the button just pressed: Enter submits through the first one.
   const wantsNext = useRef(false)
@@ -2764,8 +2771,6 @@ function SessionComposer({
         </Facts>
       </div>
 
-      <QuantityCheckPanel receiptLineId={receipt.receipt_line_id} name={name} />
-
       {/* What the article IS, in four fields two to a row.
 
           They sat under a heading reading "What it is", beside a second column
@@ -2872,7 +2877,11 @@ function SessionComposer({
           onAdd={addTab}
           canAdd={tabs.length < MAX_ARTICLE_TABS}
         />
-        <SubHead>Variants</SubHead>
+        <QuantityCheckPanel
+          receiptLineId={receipt.receipt_line_id}
+          name={name}
+          heading={<SubHead className="mb-0">Variants</SubHead>}
+        />
 
         {/* Colour and size, under the one heading with the grid they produce.
             They stood in a column of their own headed "What arrived", which
@@ -3130,6 +3139,16 @@ function SessionComposer({
             read in half a second and a warehouse job is not what somebody came
             here to think about. */}
         <span className="flex shrink-0 items-center gap-2 self-end">
+          {onDraft && (
+            <Button
+              variant="ghost"
+              type="button"
+              disabled={!dirty || busy}
+              onClick={onDraft}
+            >
+              Save as Draft
+            </Button>
+          )}
           {hasNext && (
             <Button
               variant="quiet"
