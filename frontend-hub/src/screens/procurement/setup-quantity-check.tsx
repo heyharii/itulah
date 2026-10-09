@@ -128,10 +128,7 @@ export function QuantityCheckPanel({
     <div className="flex flex-col gap-3">
       <SubHead className="mb-0">Quantity Check</SubHead>
       {requested.map((one) => (
-        <div
-          key={one.check_id}
-          className="rounded-inner border border-hairline px-3.5 py-2.5 text-[0.875rem] text-mute"
-        >
+        <div key={one.check_id} className="text-[0.875rem] text-mute">
           <div>
             Requested · by {one.requested_by} · {ago(one.requested_at)}
           </div>
@@ -154,22 +151,29 @@ export function QuantityCheckPanel({
   )
 }
 
-/// One answered check: who counted and when, then what they found.
+/// One answered check: who counted and when, then what they found. Flat and
+/// small, because it sits inside the box at the top right: no border of its
+/// own, 14px rows, and the article named once when every row is the same one.
 function AnswerBlock({ check }: { check: QuantityCheck }) {
   const total = check.lines.reduce((sum, line) => sum + line.quantity, 0)
+  const articles = new Set(check.lines.map((line) => line.article ?? ""))
+  const common = articles.size === 1 ? ([...articles][0] ?? "") : ""
   return (
-    <div className="overflow-hidden rounded-inner border border-hairline">
-      <div className="bg-soft-2 px-3.5 py-2 text-[0.875rem] text-mute">
+    <div className="text-[0.875rem]">
+      <div className="pb-1 text-mute">
         Counted by {check.counted_by}
         {check.counted_at !== null && ` · ${ago(check.counted_at)}`}
       </div>
+      {common !== "" && (
+        <div className="pb-1 font-medium text-ink">{common}</div>
+      )}
       {check.lines.map((line, at) => (
         <div
           key={`${line.colour}|${line.size}|${at}`}
-          className="flex items-center justify-between gap-3 border-t border-hairline px-3.5 py-2 text-[0.9375rem]"
+          className="flex items-center justify-between gap-3 border-t border-hairline py-1.5"
         >
           <span className="min-w-0 truncate text-ink">
-            {line.article ? `${line.article} · ` : ""}
+            {common === "" && line.article ? `${line.article} · ` : ""}
             {line.colour} · {line.size}
           </span>
           <span className="shrink-0 text-ink tabular-nums">
@@ -177,7 +181,7 @@ function AnswerBlock({ check }: { check: QuantityCheck }) {
           </span>
         </div>
       ))}
-      <div className="flex items-center justify-between gap-3 border-t border-hairline px-3.5 py-2 text-[0.875rem] text-mute">
+      <div className="flex items-center justify-between gap-3 border-t border-hairline pt-1.5 text-mute">
         <span>Total</span>
         <span className="tabular-nums">{count(total)} pcs</span>
       </div>

@@ -3233,7 +3233,7 @@ function SessionComposer({
         </div>
         <aside
           aria-label="Quantity Check"
-          className="hidden @5xl/form:sticky @5xl/form:top-3 @5xl/form:z-20 @5xl/form:block @5xl/form:max-h-[calc(100dvh-15rem)] @5xl/form:self-start @5xl/form:overflow-y-auto @5xl/form:rounded-card @5xl/form:border @5xl/form:border-hairline @5xl/form:bg-canvas @5xl/form:p-4 @5xl/form:shadow-soft"
+          className="hidden @5xl/form:sticky @5xl/form:top-3 @5xl/form:z-20 @5xl/form:block @5xl/form:max-h-[calc(100dvh-15rem)] @5xl/form:self-start @5xl/form:overflow-y-auto @5xl/form:rounded-card @5xl/form:border @5xl/form:border-hairline @5xl/form:bg-canvas @5xl/form:p-3.5 @5xl/form:shadow-soft"
         >
           {/* `mt-3` is the Thumbnail row's own margin, so the heading starts
               level with the top of the delivery's picture. */}
