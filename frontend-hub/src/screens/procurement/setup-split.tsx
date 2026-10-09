@@ -40,6 +40,8 @@ export function ArticleTabStrip({
   onAdd: () => void
   canAdd: boolean
 }) {
+  // One article and no way to split it: a lone "Article" tab says nothing.
+  if (tabs.length === 1 && !SPLIT_ARTICLE_SHOWN) return null
   return (
     <div
       role="tablist"
