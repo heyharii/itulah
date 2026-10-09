@@ -168,7 +168,6 @@ export function buildReturnPdf(note: PrintableNote): jsPDF {
   doc.setFont("helvetica", "bold")
   doc.text(`( ${figures.sender} )`, MARGIN, y + 26)
   // "Notes : Pengirim (Person in Charge)", at the right, as the owner drew it.
-  const right = doc.internal.pageSize.getWidth() - MARGIN
   mute()
   doc.setFont("helvetica", "normal").setFontSize(8.5)
   doc.text("Notes :", right, y + 21, { align: "right" })
