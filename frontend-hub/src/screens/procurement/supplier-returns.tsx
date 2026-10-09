@@ -753,8 +753,7 @@ export function ReturnSheet({
                   <thead>
                     <tr className="h-11 bg-soft text-left text-[0.875rem] font-medium text-body">
                       <th className="pl-4">SKU</th>
-                      <th className="text-right">Pcs</th>
-                      <th className="pr-4 text-right">Value</th>
+                      <th className="pr-4 text-right">Pcs</th>
                     </tr>
                   </thead>
                   <tbody className="[&_td]:py-3.5">
@@ -797,11 +796,8 @@ export function ReturnSheet({
                             )
                           })()}
                         </td>
-                        <td className="text-right tabular-nums">
-                          {count(l.qty)}
-                        </td>
                         <td className="pr-4 text-right tabular-nums">
-                          {l.cost > 0 ? money(l.cost * l.qty) : "—"}
+                          {count(l.qty)}
                         </td>
                       </tr>
                     ))}
