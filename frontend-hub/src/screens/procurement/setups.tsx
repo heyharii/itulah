@@ -369,6 +369,25 @@ export function SetupWorkspace() {
     : (waiting.find((row) => row.receipt_line_id === chosen.value) ?? null)
   const sheetOpen = session.isOpen || active !== null
 
+  /// The sheet is the big one only once the warehouse has counted (the
+  /// Quantity Check box then stands at the right); before that it is the
+  /// `wide` sheet it always was (owner, 2026-10-10). Read with the box's own
+  /// key, so they share one cache entry. While the next line is still being
+  /// read the width of the line before it is kept, so the sheet does not jump
+  /// on "Submit and Next"; a sheet that has just opened starts narrow.
+  const lineId = active?.receipt_line_id ?? ""
+  const lineChecks = useQuery({
+    queryKey: quantityCheckKeys.line(lineId),
+    queryFn: ({ signal }) => listLineQuantityChecks(lineId, signal),
+    enabled: active !== null,
+    refetchInterval: 15_000,
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[2] === "" ? undefined : previous,
+  })
+  const hasCount =
+    active !== null &&
+    (lineChecks.data ?? []).some((one) => one.status === "COUNTED")
+
   /// An empty queue gets one sentence, not an empty rail beside no cards.
   const nothingWaiting =
     !receipts.isPending &&
@@ -584,9 +603,9 @@ export function SetupWorkspace() {
         onOpenChange={(open) => {
           if (!open) go({ setupFor: railNow })
         }}
-        // Always the big sheet (owner, 2026-10-10): the form keeps the 52.5rem
-        // it had at `wide` and the Quantity Check is a box at its top right.
-        width="workspace"
+        // `workspace` once there is a count (the form keeps the 52.5rem it has
+        // at `wide`, the Quantity Check box takes the right); `wide` before.
+        width={hasCount ? "workspace" : "wide"}
         // The kind in small type above, the name as the title, as the master
         // lists' sheets read ("Division" over "Pria"; owner, 2026-10-05).
         id={
